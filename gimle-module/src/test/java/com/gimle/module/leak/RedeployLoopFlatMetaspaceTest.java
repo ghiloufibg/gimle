@@ -11,9 +11,11 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -137,10 +139,27 @@ class RedeployLoopFlatMetaspaceTest {
             + latterHalf.stream().map(s -> s[0] + "->" + s[1]).toList());
   }
 
+  /**
+   * The path to the {@code java} launcher that started this JVM — asked of the runtime itself
+   * ({@link ProcessHandle}) rather than guessed from {@code os.name}, so there's no platform-name
+   * string matching to get wrong or to need updating for a platform the check didn't anticipate.
+   * Falls back to probing both conventional launcher filenames against the filesystem (still no OS
+   * check — just "which of these files exists") for the rare environment where {@link
+   * ProcessHandle.Info#command()} isn't populated.
+   */
   private static String java_executable() {
-    String exeName =
-        System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java";
-    return Path.of(System.getProperty("java.home"), "bin", exeName).toString();
+    Optional<String> command = ProcessHandle.current().info().command();
+    if (command.isPresent()) {
+      return command.get();
+    }
+    Path javaBin = Path.of(System.getProperty("java.home"), "bin");
+    for (String candidate : List.of("java", "java.exe")) {
+      Path path = javaBin.resolve(candidate);
+      if (Files.isRegularFile(path)) {
+        return path.toString();
+      }
+    }
+    throw new IllegalStateException("could not locate the java launcher under " + javaBin);
   }
 
   private static String build_classpath() throws IOException {
