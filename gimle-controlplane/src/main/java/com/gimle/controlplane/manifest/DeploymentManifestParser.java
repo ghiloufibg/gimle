@@ -1,5 +1,6 @@
 package com.gimle.controlplane.manifest;
 
+import com.gimle.controlplane.autoscale.AutoscalePolicy;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -45,13 +46,41 @@ public final class DeploymentManifestParser {
     String artifactPath = requireString(root, "artifactPath");
     int replicas = parseReplicas(root);
     PlacementConstraints placement = parsePlacement(root);
+    Optional<AutoscalePolicy> autoscale = parseAutoscale(root);
 
     try {
-      return new DeploymentSpec(name, moduleId, artifactPath, replicas, placement);
+      return new DeploymentSpec(name, moduleId, artifactPath, replicas, placement, autoscale);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);
     }
+  }
+
+  private static Optional<AutoscalePolicy> parseAutoscale(Map<?, ?> root) {
+    Object autoscaleObj = root.get("autoscale");
+    if (autoscaleObj == null) {
+      return Optional.empty();
+    }
+    if (!(autoscaleObj instanceof Map<?, ?> autoscale)) {
+      throw new GimleManifestException("'autoscale' must be a mapping");
+    }
+    int minReplicas = requiredIntField(autoscale, "minReplicas");
+    int maxReplicas = requiredIntField(autoscale, "maxReplicas");
+    int targetCpuUtilizationPercent = requiredIntField(autoscale, "targetCpuUtilizationPercent");
+    try {
+      return Optional.of(
+          new AutoscalePolicy(minReplicas, maxReplicas, targetCpuUtilizationPercent));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
+    }
+  }
+
+  private static int requiredIntField(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (!(value instanceof Number number)) {
+      throw new GimleManifestException("missing or non-numeric required field: autoscale." + key);
+    }
+    return number.intValue();
   }
 
   private static ModuleId parseModuleId(Map<?, ?> module) {

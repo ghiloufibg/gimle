@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import java.util.List;
 import java.util.stream.Stream;
@@ -26,6 +27,21 @@ class ControlMessageCodecTest {
         new ControlMessage.ModuleStateChanged(ID, "ACTIVE"),
         new ControlMessage.HealthReport(ID, true, false),
         new ControlMessage.MetricsReport(ID, 250L, 134217728L),
+        new ControlMessage.MetricsReport(ID, 250L, 134217728L, 12.5, 7),
+        new ControlMessage.ServiceRegistered(
+            ID, new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"))),
+        new ControlMessage.ServiceUnregistered(
+            ID, new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"))),
+        new ControlMessage.CatalogUpdate(
+            "node-a",
+            "worker-1",
+            ID,
+            new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0")),
+            42L,
+            true,
+            "/tmp/worker-1.sock",
+            "127.0.0.1",
+            9000),
         new ControlMessage.Pong("corr-2"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
         new ControlMessage.ResolveModule("corr-4", ID),
@@ -117,6 +133,6 @@ class ControlMessageCodecTest {
     // Guards against silently forgetting to add a new ControlMessage subtype to the round-trip
     // coverage above when the sealed hierarchy grows.
     List<Class<?>> permitted = List.of(ControlMessage.class.getPermittedSubclasses());
-    assertTrue(permitted.size() >= 13, "expected at least the 13 currently-known variants");
+    assertTrue(permitted.size() >= 16, "expected at least the 16 currently-known variants");
   }
 }

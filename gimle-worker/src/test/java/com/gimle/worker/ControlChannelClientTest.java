@@ -97,7 +97,7 @@ class ControlChannelClientTest {
       client.send(new ControlMessage.Hello("worker-1", 4242));
 
       String line = readLine(serverSide);
-      assertEquals("HELLO worker-1 4242", line);
+      assertEquals("HELLO worker-1 4242   0", line);
     }
   }
 

@@ -33,6 +33,14 @@
       <artifactId>gimle-observability</artifactId>
     </dependency>
     <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fabric</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-context</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>

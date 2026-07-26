@@ -9,11 +9,16 @@ import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
+import com.gimle.fabric.catalog.ServiceCatalog;
+import com.gimle.fabric.cluster.GossipConfig;
+import com.gimle.fabric.cluster.GossipMember;
+import com.gimle.fabric.cluster.MemberId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,21 +40,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The node agent's entry point (design §4, extended by §1/§9 for Phase 3). Registers with the
- * control plane once, then loops forever: poll {@code GET /nodes/{nodeId}/assignments} and
- * reconcile the locally-supervised {@link WorkerProcessSupervisor} set against it (spawning a
- * worker JVM per newly-assigned instance, tearing one down per instance no longer assigned -- each
- * replica gets its own worker JVM, matching the scheduler's anti-affinity assumption), then report
- * a heartbeat. This replaces Phase 2's single hardcoded worker with a dynamically-changing,
- * control-plane-driven set -- the structural gap the Phase 3 design flagged as blocking the
- * machine-level escalation path.
+ * The node agent's entry point (design §4, extended by §1/§9 for Phase 3, and by Phase 4 §3/§4/§5
+ * for cluster membership and the service catalog). Registers with the control plane once, then
+ * loops forever: poll {@code GET /nodes/{nodeId}/assignments} and reconcile the locally-supervised
+ * {@link WorkerProcessSupervisor} set against it (spawning a worker JVM per newly-assigned
+ * instance, tearing one down per instance no longer assigned -- each replica gets its own worker
+ * JVM, matching the scheduler's anti-affinity assumption), then report a heartbeat.
  *
- * <p>Per-instance liveness/readiness in the heartbeat is derived from the last {@code
- * ModuleStateChanged} lifecycle state this agent has observed from that instance's worker, not from
- * a dedicated health push (Phase 2's {@code WorkerMain} never gained one): {@code ACTIVE} is
- * reported alive+ready, {@code FAILED} is reported neither, every other state (installing,
- * resolving, starting, stopping) is reported alive-but-not-yet-ready. This is an honest, documented
- * simplification given the current wire protocol, not a claim of real probe-level fidelity.
+ * <p>Independent of that control-plane loop, this agent also runs a {@link GossipMember} (SWIM
+ * membership over UDP, joined via {@code seeds}) carrying a {@link ServiceCatalog} on its gossip
+ * piggyback channel: it folds {@code ServiceRegistered}/{@code ServiceUnregistered} reports from
+ * its own supervised workers into the catalog, and relays every genuinely new delta -- local or
+ * learned from gossip about a remote node -- back down to every supervised worker as a {@code
+ * CatalogUpdate}, so each worker's own {@code FabricServiceRegistry} stays eventually consistent
+ * without ever querying a central catalog service.
  */
 public final class AgentMain {
 
@@ -60,21 +64,33 @@ public final class AgentMain {
   private AgentMain() {}
 
   public static void main(String[] args) throws IOException, InterruptedException {
-    if (args.length < 3) {
+    if (args.length < 5) {
       System.err.println(
-          "usage: AgentMain <nodeId> <controlPlaneBaseUrl> <javaExecutable> <worker-command-tail...>");
+          "usage: AgentMain <nodeId> <controlPlaneBaseUrl> <gossipBindHost:port>"
+              + " <seeds(host:port,host:port|-)> <javaExecutable> <worker-command-tail...>");
       System.exit(2);
       return;
     }
     String nodeId = args[0];
     URI baseUrl = URI.create(args[1]);
-    String javaExecutable = args[2];
-    List<String> commandTail = List.of(args).subList(3, args.length);
+    InetSocketAddress gossipBindAddress = parseHostPort(args[2]);
+    List<InetSocketAddress> seeds = parseSeeds(args[3]);
+    String javaExecutable = args[4];
+    List<String> commandTail = List.of(args).subList(5, args.length);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = HttpClient.newHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+
+    MemberId self = new MemberId(nodeId, gossipBindAddress);
+    GossipMember gossipMember = new GossipMember(self, GossipConfig.defaults());
+    ServiceCatalog catalog = new ServiceCatalog();
+    gossipMember.attachCatalog(catalog);
+    catalog.onDelta(delta -> relayCatalogDelta(delta, supervised));
+    gossipMember.start();
+    gossipMember.join(seeds);
+    log.info("agent {} gossip member listening at {}", nodeId, gossipMember.self().gossipAddress());
 
     register(httpClient, baseUrl, nodeId, resourceLimiter);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
@@ -89,12 +105,52 @@ public final class AgentMain {
             javaExecutable,
             commandTail,
             resourceLimiter,
-            capacityTracker);
+            capacityTracker,
+            gossipMember,
+            catalog);
         sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
       } catch (RuntimeException | IOException e) {
         log.error("agent tick failed: {}", e.getMessage(), e);
       }
       Thread.sleep(TICK_INTERVAL.toMillis());
+    }
+  }
+
+  private static InetSocketAddress parseHostPort(String text) {
+    int at = text.lastIndexOf(':');
+    if (at < 0) {
+      throw new IllegalArgumentException("expected host:port, got: " + text);
+    }
+    return new InetSocketAddress(text.substring(0, at), Integer.parseInt(text.substring(at + 1)));
+  }
+
+  private static List<InetSocketAddress> parseSeeds(String text) {
+    if (text.equals("-") || text.isBlank()) {
+      return List.of();
+    }
+    List<InetSocketAddress> seeds = new ArrayList<>();
+    for (String entry : text.split(",")) {
+      seeds.add(parseHostPort(entry));
+    }
+    return seeds;
+  }
+
+  /**
+   * Relays a newly-applied catalog delta -- local or gossip-learned -- to every supervised worker's
+   * own locally-cached catalog (design §5).
+   */
+  private static void relayCatalogDelta(
+      com.gimle.fabric.catalog.CatalogDelta delta, Map<String, SupervisedInstance> supervised) {
+    ControlMessage update = toCatalogUpdate(delta);
+    for (SupervisedInstance instance : supervised.values()) {
+      WorkerConnection connection = instance.connection;
+      if (connection != null) {
+        try {
+          connection.send(update);
+        } catch (IOException e) {
+          log.warn("failed to relay catalog update to a supervised worker: {}", e.getMessage());
+        }
+      }
     }
   }
 
@@ -204,7 +260,9 @@ public final class AgentMain {
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
-      CapacityTracker capacityTracker)
+      CapacityTracker capacityTracker,
+      GossipMember gossipMember,
+      ServiceCatalog catalog)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -217,10 +275,13 @@ public final class AgentMain {
               assigned,
               key,
               supervised,
+              nodeId,
               javaExecutable,
               commandTail,
               resourceLimiter,
-              capacityTracker);
+              capacityTracker,
+              gossipMember,
+              catalog);
         } catch (IOException | RuntimeException e) {
           log.error("failed to start instance {}: {}", key, e.getMessage(), e);
         }
@@ -237,10 +298,13 @@ public final class AgentMain {
       AssignedInstance assigned,
       String key,
       Map<String, SupervisedInstance> supervised,
+      String nodeId,
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
-      CapacityTracker capacityTracker)
+      CapacityTracker capacityTracker,
+      GossipMember gossipMember,
+      ServiceCatalog catalog)
       throws IOException {
     ModuleDescriptor descriptor =
         ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
@@ -256,6 +320,7 @@ public final class AgentMain {
     baseCommand.add(javaExecutable);
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
+    baseCommand.add(nodeId);
 
     RestartTracker restartTracker =
         new RestartTracker(
@@ -282,14 +347,17 @@ public final class AgentMain {
 
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
-        .start(() -> driveInstanceUp(instance, key));
+        .start(() -> driveInstanceUp(instance, key, gossipMember, catalog));
   }
 
-  private static void driveInstanceUp(SupervisedInstance instance, String key) {
+  private static void driveInstanceUp(
+      SupervisedInstance instance, String key, GossipMember gossipMember, ServiceCatalog catalog) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
-      Thread.ofVirtual().name("gimle-instance-reader-" + key).start(() -> readLoop(instance, key));
+      Thread.ofVirtual()
+          .name("gimle-instance-reader-" + key)
+          .start(() -> readLoop(instance, key, gossipMember, catalog));
 
       connection.send(
           new ControlMessage.InstallModule(nextCorrelationId(), instance.assigned.artifactPath()));
@@ -302,7 +370,8 @@ public final class AgentMain {
     }
   }
 
-  private static void readLoop(SupervisedInstance instance, String key) {
+  private static void readLoop(
+      SupervisedInstance instance, String key, GossipMember gossipMember, ServiceCatalog catalog) {
     try {
       Optional<ControlMessage> received;
       while ((received = instance.connection.receive()).isPresent()) {
@@ -311,11 +380,89 @@ public final class AgentMain {
           instance.lifecycleState = changed.state();
         } else if (message instanceof ControlMessage.Nack nack) {
           log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
+        } else if (message instanceof ControlMessage.Hello hello) {
+          instance.fabricWorkerId = hello.workerId();
+          instance.fabricUdsPath = hello.fabricUdsPath();
+          instance.fabricTcpAddress =
+              new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+          // Sync this worker's fresh FabricServiceRegistry cache with everything this agent
+          // already knows: the gossip-driven onDelta relay only fires for a delta applied *after*
+          // its listener was registered, so anything learned before this worker connected would
+          // otherwise never reach it.
+          syncCatalogToWorker(instance, catalog);
+        } else if (message instanceof ControlMessage.ServiceRegistered registered) {
+          registerIntoCatalog(
+              instance, gossipMember, catalog, registered.moduleId(), registered.export(), true);
+        } else if (message instanceof ControlMessage.ServiceUnregistered unregistered) {
+          registerIntoCatalog(
+              instance,
+              gossipMember,
+              catalog,
+              unregistered.moduleId(),
+              unregistered.export(),
+              false);
         }
       }
       log.info("instance {} control channel closed", key);
     } catch (IOException e) {
       log.warn("instance {} control channel failed: {}", key, e.getMessage());
+    }
+  }
+
+  private static void syncCatalogToWorker(SupervisedInstance instance, ServiceCatalog catalog) {
+    WorkerConnection connection = instance.connection;
+    List<com.gimle.fabric.catalog.CatalogDelta> deltas = catalog.allPresentDeltas();
+    log.debug("syncing {} known catalog delta(s) to a newly-connected worker", deltas.size());
+    for (com.gimle.fabric.catalog.CatalogDelta delta : deltas) {
+      try {
+        connection.send(toCatalogUpdate(delta));
+      } catch (IOException e) {
+        log.warn("failed to sync catalog state to a newly-connected worker: {}", e.getMessage());
+        return;
+      }
+    }
+  }
+
+  private static ControlMessage.CatalogUpdate toCatalogUpdate(
+      com.gimle.fabric.catalog.CatalogDelta delta) {
+    return new ControlMessage.CatalogUpdate(
+        delta.nodeId(),
+        delta.workerId(),
+        delta.moduleId(),
+        delta.export(),
+        delta.version(),
+        delta.present(),
+        delta.udsPath().orElse(""),
+        delta.tcpAddress().getHostString(),
+        delta.tcpAddress().getPort());
+  }
+
+  private static void registerIntoCatalog(
+      SupervisedInstance instance,
+      GossipMember gossipMember,
+      ServiceCatalog catalog,
+      ModuleId moduleId,
+      com.gimle.core.module.ServiceExport export,
+      boolean present) {
+    if (instance.fabricWorkerId == null) {
+      log.warn(
+          "instance reported a service export before its Hello handshake; dropping catalog update"
+              + " for {}",
+          moduleId);
+      return;
+    }
+    Optional<String> udsPath =
+        instance.fabricUdsPath.isEmpty() ? Optional.empty() : Optional.of(instance.fabricUdsPath);
+    if (present) {
+      catalog.localRegister(
+          gossipMember.self(),
+          instance.fabricWorkerId,
+          moduleId,
+          export,
+          udsPath,
+          instance.fabricTcpAddress);
+    } else {
+      catalog.localUnregister(gossipMember.self(), instance.fabricWorkerId, moduleId, export);
     }
   }
 

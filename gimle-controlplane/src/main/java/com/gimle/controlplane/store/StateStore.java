@@ -48,6 +48,8 @@ public final class StateStore {
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
+  private final Map<String, Integer> rollingIndices = new ConcurrentHashMap<>();
+  private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
 
   public StateStore(Path root) {
     this.root = root;
@@ -55,6 +57,8 @@ public final class StateStore {
       Files.createDirectories(deploymentsDir());
       Files.createDirectories(assignmentsDir());
       Files.createDirectories(nodesDir());
+      Files.createDirectories(rollingDir());
+      Files.createDirectories(autoscaleDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -79,6 +83,9 @@ public final class StateStore {
   public void removeDeployment(String name) {
     deleteQuietly(deploymentFile(name));
     deployments.remove(name);
+    clearRollingIndex(name);
+    deleteQuietly(effectiveReplicasFile(name));
+    effectiveReplicas.remove(name);
   }
 
   // ---- assignments ----
@@ -104,6 +111,42 @@ public final class StateStore {
     return assignments.values().stream()
         .filter(a -> a.deploymentName().equals(deploymentName))
         .toList();
+  }
+
+  // ---- rolling-update bookkeeping (Phase 4 §9) ----
+
+  /**
+   * The logical instance index currently being replaced by a rolling update, if any -- persisted so
+   * a reconciler restart mid-rollout resumes rather than starting a second one.
+   */
+  public void putRollingIndex(String deploymentName, int instanceIndex) {
+    writeAtomically(rollingFile(deploymentName), rollingToYaml(instanceIndex));
+    rollingIndices.put(deploymentName, instanceIndex);
+  }
+
+  public void clearRollingIndex(String deploymentName) {
+    deleteQuietly(rollingFile(deploymentName));
+    rollingIndices.remove(deploymentName);
+  }
+
+  public Optional<Integer> getRollingIndex(String deploymentName) {
+    return Optional.ofNullable(rollingIndices.get(deploymentName));
+  }
+
+  // ---- autoscaling bookkeeping (Phase 4 §10) ----
+
+  /**
+   * The autoscaler's current target replica count, read by {@link
+   * com.gimle.controlplane.reconcile.DeploymentReconciler} in place of {@code
+   * DeploymentSpec#replicas()} whenever a deployment carries an {@code autoscale} policy.
+   */
+  public void putEffectiveReplicas(String deploymentName, int replicas) {
+    writeAtomically(effectiveReplicasFile(deploymentName), effectiveReplicasToYaml(replicas));
+    effectiveReplicas.put(deploymentName, replicas);
+  }
+
+  public Optional<Integer> getEffectiveReplicas(String deploymentName) {
+    return Optional.ofNullable(effectiveReplicas.get(deploymentName));
   }
 
   // ---- node registrations ----
@@ -149,6 +192,22 @@ public final class StateStore {
 
   private Path nodesDir() {
     return root.resolve("nodes");
+  }
+
+  private Path rollingDir() {
+    return root.resolve("rolling");
+  }
+
+  private Path rollingFile(String deploymentName) {
+    return rollingDir().resolve(deploymentName + ".yaml");
+  }
+
+  private Path autoscaleDir() {
+    return root.resolve("autoscale");
+  }
+
+  private Path effectiveReplicasFile(String deploymentName) {
+    return autoscaleDir().resolve(deploymentName + ".yaml");
   }
 
   private Path deploymentFile(String name) {
@@ -201,6 +260,22 @@ public final class StateStore {
         file -> {
           ObservedHeartbeat observed = heartbeatFromMap(loadMap(file));
           nodeHeartbeats.put(observed.heartbeat().nodeId(), observed);
+        });
+    loadEach(
+        rollingDir(),
+        "*.yaml",
+        file -> {
+          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          Map<?, ?> map = loadMap(file);
+          rollingIndices.put(deploymentName, ((Number) map.get("instanceIndex")).intValue());
+        });
+    loadEach(
+        autoscaleDir(),
+        "*.yaml",
+        file -> {
+          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          Map<?, ?> map = loadMap(file);
+          effectiveReplicas.put(deploymentName, ((Number) map.get("replicas")).intValue());
         });
   }
 
@@ -289,6 +364,27 @@ public final class StateStore {
         .requiredNodeLabels()
         .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
     root.put("placement", placement);
+    spec.autoscale()
+        .ifPresent(
+            policy -> {
+              Map<String, Object> autoscale = new LinkedHashMap<>();
+              autoscale.put("minReplicas", policy.minReplicas());
+              autoscale.put("maxReplicas", policy.maxReplicas());
+              autoscale.put("targetCpuUtilizationPercent", policy.targetCpuUtilizationPercent());
+              root.put("autoscale", autoscale);
+            });
+    return new Yaml().dump(root);
+  }
+
+  private static String rollingToYaml(int instanceIndex) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("instanceIndex", instanceIndex);
+    return new Yaml().dump(root);
+  }
+
+  private static String effectiveReplicasToYaml(int replicas) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("replicas", replicas);
     return new Yaml().dump(root);
   }
 
@@ -297,14 +393,26 @@ public final class StateStore {
     root.put("deploymentName", assignment.deploymentName());
     root.put("instanceIndex", assignment.instanceIndex());
     root.put("nodeId", assignment.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", assignment.moduleId().name());
+    moduleId.put("version", assignment.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", assignment.artifactPath());
     return new Yaml().dump(root);
   }
 
   private static InstanceAssignment assignmentFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    Object artifactPath = map.get("artifactPath");
     return new InstanceAssignment(
         (String) map.get("deploymentName"),
         ((Number) map.get("instanceIndex")).intValue(),
-        (String) map.get("nodeId"));
+        (String) map.get("nodeId"),
+        moduleId,
+        artifactPath == null ? "" : (String) artifactPath);
   }
 
   private static String registrationToYaml(NodeRegistration registration) {
@@ -351,10 +459,18 @@ public final class StateStore {
       m.put("lifecycleState", obs.lifecycleState());
       m.put("alive", obs.alive());
       m.put("ready", obs.ready());
+      m.put("requestRatePerSecond", obs.requestRatePerSecond());
+      m.put("queueDepth", obs.queueDepth());
+      m.put("cpuMillicoresUsed", obs.cpuMillicoresUsed());
+      m.put("memoryBytesUsed", obs.memoryBytesUsed());
       instances.add(m);
     }
     root.put("instances", instances);
     return new Yaml().dump(root);
+  }
+
+  private static Number numberOrDefault(Object value, Number defaultValue) {
+    return value instanceof Number number ? number : defaultValue;
   }
 
   private static ObservedHeartbeat heartbeatFromMap(Map<?, ?> root) {
@@ -382,7 +498,11 @@ public final class StateStore {
               moduleId,
               (String) m.get("lifecycleState"),
               (Boolean) m.get("alive"),
-              (Boolean) m.get("ready")));
+              (Boolean) m.get("ready"),
+              numberOrDefault(m.get("requestRatePerSecond"), 0.0).doubleValue(),
+              numberOrDefault(m.get("queueDepth"), 0).intValue(),
+              numberOrDefault(m.get("cpuMillicoresUsed"), 0L).longValue(),
+              numberOrDefault(m.get("memoryBytesUsed"), 0L).longValue()));
     }
     return new ObservedHeartbeat(new NodeHeartbeat(nodeId, capacity, instances), receivedAt);
   }

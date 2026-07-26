@@ -1,6 +1,7 @@
 package com.gimle.worker;
 
 import com.gimle.core.module.ModuleId;
+import io.opentelemetry.context.Context;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,6 +15,13 @@ import java.util.concurrent.ThreadFactory;
  * thread per task rather than pooling platform threads. Every thread is named {@code
  * gimle-<module-name>-<version>-N} — the naming the JFR thread-name attribution (§5.2 of the
  * design) keys off.
+ *
+ * <p>{@link #submit} captures the caller's current OpenTelemetry {@link Context} and restores it
+ * for the task's duration on its own (fresh) virtual thread (Phase 4 §11: "propagated... into
+ * virtual threads spawned via structured concurrency, with zero fabric involvement") -- without
+ * this, a span started before dispatching work onto this scheduler would otherwise not be the
+ * parent of whatever span the task itself starts, since {@code Context} is thread-scoped and a new
+ * virtual thread starts with none.
  */
 public final class BoundedModuleScheduler implements AutoCloseable {
 
@@ -31,11 +39,12 @@ public final class BoundedModuleScheduler implements AutoCloseable {
   }
 
   public <T> Future<T> submit(Callable<T> task) {
+    Callable<T> withCallerContext = Context.current().wrap(task);
     return executor.submit(
         () -> {
           concurrencyBound.acquire();
           try {
-            return task.call();
+            return withCallerContext.call();
           } finally {
             concurrencyBound.release();
           }

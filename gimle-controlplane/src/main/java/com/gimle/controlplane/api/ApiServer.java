@@ -234,12 +234,22 @@ public final class ApiServer implements AutoCloseable {
       if (spec.isEmpty()) {
         continue; // stale assignment; DeploymentReconciler will remove it shortly
       }
+      // moduleId/artifactPath come from the assignment itself, not the deployment's current spec:
+      // mid-rolling-update, an index that hasn't migrated yet must keep telling its agent to run
+      // whatever it was actually placed with, not the spec's already-advanced target version
+      // (Phase 4 §9). An assignment that never specified its own (the pre-Phase-4 three-argument
+      // constructor) falls back to the spec's, matching the only behavior that existed before.
+      ModuleId moduleId =
+          assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE)
+              ? spec.get().moduleId()
+              : assignment.moduleId();
+      String artifactPath =
+          assignment.artifactPath().isBlank()
+              ? spec.get().artifactPath()
+              : assignment.artifactPath();
       AssignedInstance instance =
           new AssignedInstance(
-              assignment.deploymentName(),
-              assignment.instanceIndex(),
-              spec.get().moduleId(),
-              spec.get().artifactPath());
+              assignment.deploymentName(), assignment.instanceIndex(), moduleId, artifactPath);
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);
@@ -282,7 +292,16 @@ public final class ApiServer implements AutoCloseable {
         moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
         (String) map.get("lifecycleState"),
         (Boolean) map.get("alive"),
-        (Boolean) map.get("ready"));
+        (Boolean) map.get("ready"),
+        numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
+        numberField(map, "queueDepth", 0).intValue(),
+        numberField(map, "cpuMillicoresUsed", 0L).longValue(),
+        numberField(map, "memoryBytesUsed", 0L).longValue());
+  }
+
+  private static Number numberField(Map<?, ?> map, String key, Number defaultValue) {
+    Object value = map.get(key);
+    return value instanceof Number number ? number : defaultValue;
   }
 
   private static Map<String, Object> observationToJson(InstanceObservation obs) {
@@ -291,6 +310,10 @@ public final class ApiServer implements AutoCloseable {
     map.put("lifecycleState", obs.lifecycleState());
     map.put("alive", obs.alive());
     map.put("ready", obs.ready());
+    map.put("requestRatePerSecond", obs.requestRatePerSecond());
+    map.put("queueDepth", obs.queueDepth());
+    map.put("cpuMillicoresUsed", obs.cpuMillicoresUsed());
+    map.put("memoryBytesUsed", obs.memoryBytesUsed());
     return map;
   }
 

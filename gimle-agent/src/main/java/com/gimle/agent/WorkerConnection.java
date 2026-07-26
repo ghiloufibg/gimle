@@ -34,7 +34,13 @@ public final class WorkerConnection implements AutoCloseable {
     this.out = new OutputStreamWriter(Channels.newOutputStream(channel), StandardCharsets.UTF_8);
   }
 
-  public void send(ControlMessage message) throws IOException {
+  /**
+   * Synchronized: the agent's per-instance startup sequence ({@code driveInstanceUp}) and its
+   * per-instance reader loop (relaying catalog updates it learns concurrently, Phase 4 §5) both
+   * send on this same connection from different threads -- without this, two concurrent writes
+   * could interleave mid-line and corrupt the wire protocol for both.
+   */
+  public synchronized void send(ControlMessage message) throws IOException {
     out.write(ControlMessageCodec.encode(message));
     out.write("\n");
     out.flush();

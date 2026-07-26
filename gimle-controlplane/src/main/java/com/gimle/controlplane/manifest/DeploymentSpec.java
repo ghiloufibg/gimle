@@ -1,6 +1,8 @@
 package com.gimle.controlplane.manifest;
 
+import com.gimle.controlplane.autoscale.AutoscalePolicy;
 import com.gimle.core.module.ModuleId;
+import java.util.Optional;
 
 /**
  * Desired state for one deployment: how many replicas of a module should run, and where. The
@@ -11,13 +13,19 @@ import com.gimle.core.module.ModuleId;
  * resource request *before* any node has resolved anything, so the manifest carries a path the
  * control plane can read directly -- the same "artifact path travels as a plain string, resolved
  * locally by whoever needs it" precedent {@code ControlMessage.InstallModule} already established.
+ *
+ * <p>{@code autoscale} (Phase 4 §10) is optional: when present, {@code AutoscaleReconciler}
+ * computes an effective replica count {@code DeploymentReconciler} reads in place of {@code
+ * replicas} -- {@code replicas} itself stays the user-submitted floor/starting point, never
+ * overwritten by the autoscaler.
  */
 public record DeploymentSpec(
     String name,
     ModuleId moduleId,
     String artifactPath,
     int replicas,
-    PlacementConstraints placement) {
+    PlacementConstraints placement,
+    Optional<AutoscalePolicy> autoscale) {
 
   public DeploymentSpec {
     if (name == null || name.isBlank()) {
@@ -35,5 +43,17 @@ public record DeploymentSpec(
     if (placement == null) {
       throw new IllegalArgumentException("placement must not be null");
     }
+    if (autoscale == null) {
+      throw new IllegalArgumentException("autoscale must be Optional.empty(), not null");
+    }
+  }
+
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement) {
+    this(name, moduleId, artifactPath, replicas, placement, Optional.empty());
   }
 }

@@ -1,6 +1,7 @@
 package com.gimle.controlplane;
 
 import com.gimle.controlplane.api.ApiServer;
+import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
@@ -25,6 +26,8 @@ import org.slf4j.LoggerFactory;
  * correctness across ticks: {@link ReplicaCountReconciler} and {@link HealthReconciler} release
  * assignments that are missing or unhealthy, and {@link DeploymentReconciler} -- run last -- fills
  * every gap that exists by the time it runs, whether that gap is from a prior tick or this one.
+ * {@link AutoscaleReconciler} runs just before it, for the identical reason: {@code
+ * DeploymentReconciler} reads whatever effective replica count it just computed, same-tick.
  */
 public final class ControlPlaneMain {
 
@@ -51,12 +54,18 @@ public final class ControlPlaneMain {
     ReplicaCountReconciler replicaCountReconciler =
         new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT);
     HealthReconciler healthReconciler = new HealthReconciler(store);
+    AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(store);
 
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-controlplane-reconcile-tick").unstarted(r));
     ticker.scheduleAtFixedRate(
-        () -> reconcileTick(replicaCountReconciler, healthReconciler, deploymentReconciler),
+        () ->
+            reconcileTick(
+                replicaCountReconciler,
+                healthReconciler,
+                autoscaleReconciler,
+                deploymentReconciler),
         0,
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
@@ -78,10 +87,12 @@ public final class ControlPlaneMain {
   private static void reconcileTick(
       ReplicaCountReconciler replicaCountReconciler,
       HealthReconciler healthReconciler,
+      AutoscaleReconciler autoscaleReconciler,
       DeploymentReconciler deploymentReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
+      autoscaleReconciler.reconcileOnce();
       deploymentReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);

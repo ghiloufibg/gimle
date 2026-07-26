@@ -61,7 +61,7 @@ class AgentWorkerIntegrationTest {
     String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
     List<String> baseCommand =
-        List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain");
+        List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain", "test-node");
     RestartTracker restartTracker =
         new RestartTracker(
             Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5), 3, Duration.ofMinutes(1));

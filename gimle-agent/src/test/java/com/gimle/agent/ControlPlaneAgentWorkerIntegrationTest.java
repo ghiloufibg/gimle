@@ -135,9 +135,23 @@ class ControlPlaneAgentWorkerIntegrationTest {
     String classpath = System.getProperty("java.class.path");
 
     agentProcesses.add(
-        spawnAgent(javaExecutable, classpath, "node-a", baseUrl, tempDir.resolve("node-a.log")));
+        spawnAgent(
+            javaExecutable,
+            classpath,
+            "node-a",
+            baseUrl,
+            "127.0.0.1:17946",
+            "-",
+            tempDir.resolve("node-a.log")));
     agentProcesses.add(
-        spawnAgent(javaExecutable, classpath, "node-b", baseUrl, tempDir.resolve("node-b.log")));
+        spawnAgent(
+            javaExecutable,
+            classpath,
+            "node-b",
+            baseUrl,
+            "127.0.0.1:17947",
+            "127.0.0.1:17946",
+            tempDir.resolve("node-b.log")));
 
     HttpClient httpClient = HttpClient.newHttpClient();
     submitDeployment(httpClient, baseUrl, "fixture-deployment", jar, 2);
@@ -168,7 +182,13 @@ class ControlPlaneAgentWorkerIntegrationTest {
   }
 
   private static Process spawnAgent(
-      String javaExecutable, String classpath, String nodeId, String baseUrl, Path logFile)
+      String javaExecutable,
+      String classpath,
+      String nodeId,
+      String baseUrl,
+      String gossipBindHostPort,
+      String seeds,
+      Path logFile)
       throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
@@ -178,6 +198,8 @@ class ControlPlaneAgentWorkerIntegrationTest {
             "com.gimle.agent.AgentMain",
             nodeId,
             baseUrl,
+            gossipBindHostPort,
+            seeds,
             javaExecutable,
             "-cp",
             classpath,

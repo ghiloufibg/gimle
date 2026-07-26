@@ -1,6 +1,7 @@
 package com.gimle.core.protocol;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import java.util.List;
 
@@ -18,7 +19,14 @@ public final class ControlMessageCodec {
 
   public static String encode(ControlMessage message) {
     return switch (message) {
-      case ControlMessage.Hello m -> line("HELLO", m.workerId(), Long.toString(m.pid()));
+      case ControlMessage.Hello m ->
+          line(
+              "HELLO",
+              m.workerId(),
+              Long.toString(m.pid()),
+              escape(m.fabricUdsPath()),
+              escape(m.fabricTcpHost()),
+              Integer.toString(m.fabricTcpPort()));
       case ControlMessage.Ack m -> line("ACK", m.correlationId());
       case ControlMessage.Nack m -> line("NACK", m.correlationId(), escape(m.reason()));
       case ControlMessage.ModuleStateChanged m -> line("MODULE_STATE", encodeId(m.id()), m.state());
@@ -30,7 +38,13 @@ public final class ControlMessageCodec {
               "METRICS",
               encodeId(m.id()),
               Long.toString(m.cpuMillicoresUsed()),
-              Long.toString(m.memoryBytesUsed()));
+              Long.toString(m.memoryBytesUsed()),
+              Double.toString(m.requestRatePerSecond()),
+              Integer.toString(m.queueDepth()));
+      case ControlMessage.ServiceRegistered m ->
+          line("SERVICE_REGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
+      case ControlMessage.ServiceUnregistered m ->
+          line("SERVICE_UNREGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.Pong m -> line("PONG", m.correlationId());
       case ControlMessage.InstallModule m ->
           line("INSTALL", m.correlationId(), escape(m.artifactPath()));
@@ -40,6 +54,18 @@ public final class ControlMessageCodec {
       case ControlMessage.UninstallModule m ->
           line("UNINSTALL", m.correlationId(), encodeId(m.id()));
       case ControlMessage.Ping m -> line("PING", m.correlationId());
+      case ControlMessage.CatalogUpdate m ->
+          line(
+              "CATALOG_UPDATE",
+              escape(m.nodeId()),
+              escape(m.workerId()),
+              encodeId(m.moduleId()),
+              encodeExport(m.export()),
+              Long.toString(m.version()),
+              Boolean.toString(m.present()),
+              escape(m.udsPath()),
+              escape(m.tcpHost()),
+              Integer.toString(m.tcpPort()));
     };
   }
 
@@ -50,7 +76,13 @@ public final class ControlMessageCodec {
     }
     String type = fields.get(0);
     return switch (type) {
-      case "HELLO" -> new ControlMessage.Hello(field(fields, 1), Long.parseLong(field(fields, 2)));
+      case "HELLO" ->
+          new ControlMessage.Hello(
+              field(fields, 1),
+              Long.parseLong(field(fields, 2)),
+              unescape(field(fields, 3)),
+              unescape(field(fields, 4)),
+              Integer.parseInt(field(fields, 5)));
       case "ACK" -> new ControlMessage.Ack(field(fields, 1));
       case "NACK" -> new ControlMessage.Nack(field(fields, 1), unescape(field(fields, 2)));
       case "MODULE_STATE" ->
@@ -64,7 +96,15 @@ public final class ControlMessageCodec {
           new ControlMessage.MetricsReport(
               decodeId(field(fields, 1)),
               Long.parseLong(field(fields, 2)),
-              Long.parseLong(field(fields, 3)));
+              Long.parseLong(field(fields, 3)),
+              Double.parseDouble(field(fields, 4)),
+              Integer.parseInt(field(fields, 5)));
+      case "SERVICE_REGISTERED" ->
+          new ControlMessage.ServiceRegistered(
+              decodeId(field(fields, 1)), decodeExport(field(fields, 2)));
+      case "SERVICE_UNREGISTERED" ->
+          new ControlMessage.ServiceUnregistered(
+              decodeId(field(fields, 1)), decodeExport(field(fields, 2)));
       case "PONG" -> new ControlMessage.Pong(field(fields, 1));
       case "INSTALL" ->
           new ControlMessage.InstallModule(field(fields, 1), unescape(field(fields, 2)));
@@ -75,6 +115,17 @@ public final class ControlMessageCodec {
       case "UNINSTALL" ->
           new ControlMessage.UninstallModule(field(fields, 1), decodeId(field(fields, 2)));
       case "PING" -> new ControlMessage.Ping(field(fields, 1));
+      case "CATALOG_UPDATE" ->
+          new ControlMessage.CatalogUpdate(
+              unescape(field(fields, 1)),
+              unescape(field(fields, 2)),
+              decodeId(field(fields, 3)),
+              decodeExport(field(fields, 4)),
+              Long.parseLong(field(fields, 5)),
+              Boolean.parseBoolean(field(fields, 6)),
+              unescape(field(fields, 7)),
+              unescape(field(fields, 8)),
+              Integer.parseInt(field(fields, 9)));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
   }
@@ -104,6 +155,19 @@ public final class ControlMessageCodec {
       throw new IllegalArgumentException("malformed module id on wire: " + text);
     }
     return new ModuleId(text.substring(0, at), Version.parse(text.substring(at + 1)));
+  }
+
+  private static String encodeExport(ServiceExport export) {
+    return escape(export.interfaceName()) + "@" + export.version();
+  }
+
+  private static ServiceExport decodeExport(String text) {
+    int at = text.lastIndexOf('@');
+    if (at < 0) {
+      throw new IllegalArgumentException("malformed service export on wire: " + text);
+    }
+    return new ServiceExport(
+        unescape(text.substring(0, at)), Version.parse(text.substring(at + 1)));
   }
 
   private static String escape(String text) {
