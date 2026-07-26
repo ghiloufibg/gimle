@@ -19,6 +19,9 @@
     <module>gimle-core</module>
     <module>gimle-module</module>
     <module>gimle-os</module>
+    <module>gimle-observability</module>
+    <module>gimle-worker</module>
+    <module>gimle-agent</module>
   </modules>
 
   <properties>
@@ -27,6 +30,8 @@
     <junit.version>5.11.4</junit.version>
     <snakeyaml.version>2.3</snakeyaml.version>
     <micrometer.version>1.16.3</micrometer.version>
+    <slf4j.version>2.0.17</slf4j.version>
+    <logback.version>1.5.18</logback.version>
   </properties>
 
   <dependencyManagement>
@@ -46,6 +51,16 @@
         <scope>import</scope>
       </dependency>
       <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-classic</artifactId>
+        <version>${logback.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-core</artifactId>
         <version>${project.version}</version>
@@ -57,12 +72,28 @@
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
+        <artifactId>gimle-module</artifactId>
+        <version>${project.version}</version>
+        <type>test-jar</type>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
         <artifactId>gimle-os</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-observability</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-worker</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-agent</artifactId>
         <version>${project.version}</version>
       </dependency>
     </dependencies>

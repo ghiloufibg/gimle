@@ -28,6 +28,12 @@ import java.util.function.Consumer;
  * {@code on_start}) abort their transition and propagate synchronously on failure; teardown hooks
  * ({@code on_stop}, {@code on_uninstall}) are best-effort — a misbehaving hook is recorded in a
  * {@code TransitionFailed} event but never blocks resource disposal.
+ *
+ * <p>Doesn't itself touch the shared {@link ServiceRegistry} beyond handing each module's {@link
+ * ModuleContext} a reference to it — marking a stopping module's services not-ready and removing
+ * them on uninstall is {@code gimle-worker}'s {@code WorkerRuntime}'s job, reacting to the same
+ * {@link LifecycleEvent} stream it already consumes for scheduler/probe management, not this
+ * class's.
  */
 public final class ModuleController {
 
@@ -38,6 +44,7 @@ public final class ModuleController {
   private final Duration drainTimeout;
   private final Consumer<LifecycleEvent> eventSink;
   private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
+  private final ServiceRegistry serviceRegistry;
 
   private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
   private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
@@ -56,7 +63,8 @@ public final class ModuleController {
         parentLoader,
         drainTimeout,
         eventSink,
-        (id, handle) -> {});
+        (id, handle) -> {},
+        new SimpleServiceRegistry());
   }
 
   public ModuleController(
@@ -67,6 +75,45 @@ public final class ModuleController {
       Duration drainTimeout,
       Consumer<LifecycleEvent> eventSink,
       BiConsumer<ModuleId, ModuleLayerHandle> onDisposed) {
+    this(
+        registry,
+        resolver,
+        platformLayer,
+        parentLoader,
+        drainTimeout,
+        eventSink,
+        onDisposed,
+        new SimpleServiceRegistry());
+  }
+
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink,
+      ServiceRegistry serviceRegistry) {
+    this(
+        registry,
+        resolver,
+        platformLayer,
+        parentLoader,
+        drainTimeout,
+        eventSink,
+        (id, handle) -> {},
+        serviceRegistry);
+  }
+
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink,
+      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      ServiceRegistry serviceRegistry) {
     this.registry = registry;
     this.resolver = resolver;
     this.platformLayer = platformLayer;
@@ -74,6 +121,7 @@ public final class ModuleController {
     this.drainTimeout = drainTimeout;
     this.eventSink = eventSink;
     this.onDisposed = onDisposed;
+    this.serviceRegistry = serviceRegistry;
   }
 
   public ModuleWiring resolve(ModuleId id) {
@@ -112,7 +160,7 @@ public final class ModuleController {
     registry.mark_resolved(id, wiring, handle);
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
-    SimpleModuleContext ctx = new SimpleModuleContext();
+    SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry);
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiate_hooks(id, handle);

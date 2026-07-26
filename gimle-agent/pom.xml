@@ -10,13 +10,13 @@
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>gimle-module</artifactId>
+  <artifactId>gimle-agent</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Module</name>
+  <name>Gimlé Agent</name>
   <description>
-    Module descriptor model, resolver, ModuleLayer construction, lifecycle state
-    machine, and classloader leak detection.
+    Node agent: worker spawning via the Process API, resource assignment, supervision
+    and restart, capacity reporting. Never runs hosted-module code itself.
   </description>
 
   <dependencies>
@@ -25,28 +25,29 @@
       <artifactId>gimle-core</artifactId>
     </dependency>
     <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-os</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-worker</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
       <version>2.3</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
-
-  <build>
-    <plugins>
-      <!-- Publishes a test-jar so other modules (gimle-worker) can reuse TestModuleBuilder
-           without duplicating it: the standard Maven mechanism for sharing test utilities
-           across modules in a reactor. -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-jar-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>test-jar</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
 </project>
