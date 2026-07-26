@@ -1,0 +1,269 @@
+package com.gimle.module.lifecycle;
+
+import com.gimle.core.exception.GimleLifecycleException;
+import com.gimle.core.module.ModuleArtifact;
+import com.gimle.core.module.ModuleId;
+import com.gimle.module.layer.ModuleLayerFactory;
+import com.gimle.module.layer.ModuleLayerHandle;
+import com.gimle.module.resolve.ModuleRegistry;
+import com.gimle.module.resolve.ModuleResolver;
+import com.gimle.module.resolve.ModuleWiring;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+
+/**
+ * Drives a module through {@code INSTALLED -> RESOLVED -> STARTING -> ACTIVE -> STOPPING ->
+ * UNINSTALLED} (plus {@code FAILED}), invoking its lifecycle hooks and building its {@link
+ * ModuleLayer} at the right points. One 1:1 hook-per-verb mapping: {@code on_install} fires once
+ * the layer is built (end of {@code resolve}), {@code on_start}/{@code on_stop} bracket {@code
+ * ACTIVE}, {@code on_uninstall} fires just before disposal. Gating hooks ({@code on_install},
+ * {@code on_start}) abort their transition and propagate synchronously on failure; teardown hooks
+ * ({@code on_stop}, {@code on_uninstall}) are best-effort — a misbehaving hook is recorded in a
+ * {@code TransitionFailed} event but never blocks resource disposal.
+ */
+public final class ModuleController {
+
+  private final ModuleRegistry registry;
+  private final ModuleResolver resolver;
+  private final ModuleLayer platformLayer;
+  private final ClassLoader parentLoader;
+  private final Duration drainTimeout;
+  private final Consumer<LifecycleEvent> eventSink;
+  private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
+
+  private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
+  private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
+
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink) {
+    this(
+        registry,
+        resolver,
+        platformLayer,
+        parentLoader,
+        drainTimeout,
+        eventSink,
+        (id, handle) -> {});
+  }
+
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink,
+      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed) {
+    this.registry = registry;
+    this.resolver = resolver;
+    this.platformLayer = platformLayer;
+    this.parentLoader = parentLoader;
+    this.drainTimeout = drainTimeout;
+    this.eventSink = eventSink;
+    this.onDisposed = onDisposed;
+  }
+
+  public ModuleWiring resolve(ModuleId id) {
+    require_state(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
+
+    ModuleWiring wiring;
+    try {
+      wiring = resolver.resolve(id);
+    } catch (RuntimeException e) {
+      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
+      throw e;
+    }
+
+    List<ModuleLayer> parentLayers = new ArrayList<>();
+    parentLayers.add(platformLayer);
+    for (ModuleId depId : new LinkedHashSet<>(wiring.wiredDependencies().values())) {
+      ModuleLayerHandle depHandle =
+          registry
+              .layer_handle(depId)
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "dependency " + depId + " is resolved/active but has no layer handle"));
+      parentLayers.add(depHandle.layer());
+    }
+
+    ModuleArtifact artifact = registry.artifact(id);
+    ModuleLayerHandle handle;
+    try {
+      handle = ModuleLayerFactory.create(id, artifact.jarPath(), parentLayers, parentLoader);
+    } catch (RuntimeException e) {
+      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
+      throw e;
+    }
+
+    registry.mark_resolved(id, wiring, handle);
+    emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
+
+    SimpleModuleContext ctx = new SimpleModuleContext();
+    contextsByModule.put(id, ctx);
+    try {
+      Optional<ModuleLifecycleHooks> hooks = instantiate_hooks(id, handle);
+      hooks.ifPresent(h -> hooksByModule.put(id, h));
+      if (hooks.isPresent()) {
+        hooks.get().on_install(ctx);
+      }
+    } catch (RuntimeException e) {
+      contextsByModule.remove(id);
+      hooksByModule.remove(id);
+      GimleLifecycleException wrapped =
+          e instanceof GimleLifecycleException gle
+              ? gle
+              : GimleLifecycleException.hook_failed(id, "on_install", e);
+      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, wrapped);
+      throw wrapped;
+    }
+
+    return wiring;
+  }
+
+  public void start(ModuleId id) {
+    require_state(id, ModuleState.RESOLVED, ModuleState.STARTING);
+    registry.mark_starting(id);
+    emit(new LifecycleEvent.Starting(id, Instant.now()));
+
+    ModuleContext ctx = contextsByModule.get(id);
+    Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
+    if (hooks.isPresent()) {
+      try {
+        hooks.get().on_start(ctx);
+      } catch (RuntimeException e) {
+        GimleLifecycleException wrapped = GimleLifecycleException.hook_failed(id, "on_start", e);
+        mark_failed_and_emit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
+        throw wrapped;
+      }
+    }
+
+    registry.mark_active(id);
+    emit(new LifecycleEvent.Active(id, Instant.now()));
+  }
+
+  /**
+   * ACTIVE -&gt; STOPPING -&gt; UNINSTALLED in one call: drains, then disposes regardless of
+   * outcome.
+   */
+  public void stop(ModuleId id) {
+    require_state(id, ModuleState.ACTIVE, ModuleState.STOPPING);
+    Instant deadline = Instant.now().plus(drainTimeout);
+    registry.mark_stopping(id);
+    emit(new LifecycleEvent.Stopping(id, deadline, Instant.now()));
+
+    ModuleContext ctx = contextsByModule.get(id);
+    Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
+    if (hooks.isPresent()) {
+      try {
+        hooks.get().on_stop(ctx);
+      } catch (RuntimeException e) {
+        emit(
+            new LifecycleEvent.TransitionFailed(
+                id,
+                ModuleState.ACTIVE,
+                ModuleState.STOPPING,
+                GimleLifecycleException.hook_failed(id, "on_stop", e),
+                Instant.now()));
+      }
+    }
+
+    await_drain(ctx, deadline);
+    finish_uninstall(id);
+  }
+
+  /** FAILED (or any pre-ACTIVE state) -&gt; UNINSTALLED, with no drain wait. */
+  public void uninstall(ModuleId id) {
+    ModuleState current = registry.state(id);
+    if (current == ModuleState.ACTIVE) {
+      throw GimleLifecycleException.illegal_transition(
+          id, current.name(), ModuleState.UNINSTALLED.name());
+    }
+    finish_uninstall(id);
+  }
+
+  private void finish_uninstall(ModuleId id) {
+    Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.remove(id));
+    ModuleContext ctx = contextsByModule.remove(id);
+    if (hooks.isPresent()) {
+      try {
+        hooks.get().on_uninstall(ctx);
+      } catch (RuntimeException e) {
+        emit(
+            new LifecycleEvent.TransitionFailed(
+                id,
+                registry.state(id),
+                ModuleState.UNINSTALLED,
+                GimleLifecycleException.hook_failed(id, "on_uninstall", e),
+                Instant.now()));
+      }
+    }
+
+    Optional<ModuleLayerHandle> handle = registry.layer_handle(id);
+    registry.remove(id);
+    emit(new LifecycleEvent.Uninstalled(id, Instant.now()));
+    handle.ifPresent(h -> onDisposed.accept(id, h));
+  }
+
+  private void await_drain(ModuleContext ctx, Instant deadline) {
+    while (ctx.in_flight_count() > 0 && Instant.now().isBefore(deadline)) {
+      try {
+        Thread.sleep(Duration.ofMillis(10));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+  }
+
+  private Optional<ModuleLifecycleHooks> instantiate_hooks(ModuleId id, ModuleLayerHandle handle) {
+    Optional<String> hooksClassName = registry.artifact(id).descriptor().lifecycleHooksClass();
+    if (hooksClassName.isEmpty()) {
+      return Optional.empty();
+    }
+    String className = hooksClassName.get();
+    try {
+      Class<?> hooksClass = Class.forName(className, true, handle.loader());
+      Object instance = hooksClass.getDeclaredConstructor().newInstance();
+      if (!(instance instanceof ModuleLifecycleHooks hooks)) {
+        throw GimleLifecycleException.hook_failed(
+            id,
+            "instantiate",
+            new ClassCastException(className + " does not implement ModuleLifecycleHooks"));
+      }
+      return Optional.of(hooks);
+    } catch (ReflectiveOperationException e) {
+      throw GimleLifecycleException.hook_failed(id, "instantiate:" + className, e);
+    }
+  }
+
+  private void require_state(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
+    ModuleState current = registry.state(id);
+    if (current != expected) {
+      throw GimleLifecycleException.illegal_transition(id, current.name(), attemptingTo.name());
+    }
+  }
+
+  private void mark_failed_and_emit(
+      ModuleId id, ModuleState from, ModuleState to, Throwable cause) {
+    registry.mark_failed(id);
+    emit(new LifecycleEvent.TransitionFailed(id, from, to, cause, Instant.now()));
+  }
+
+  private void emit(LifecycleEvent event) {
+    eventSink.accept(event);
+  }
+}

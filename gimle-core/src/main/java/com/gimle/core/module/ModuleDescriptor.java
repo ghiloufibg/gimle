@@ -1,0 +1,55 @@
+package com.gimle.core.module;
+
+import java.util.List;
+import java.util.Optional;
+
+/** Parsed, fully-validated {@code gimle-module.yaml} content. */
+public record ModuleDescriptor(
+    String name,
+    Version version,
+    List<Requirement> requires,
+    List<ServiceExport> exports,
+    IsolationTier isolationTier,
+    ResourceSpec resourceRequest,
+    ResourceSpec resourceLimit,
+    HealthProbes healthProbes,
+    Optional<String> lifecycleHooksClass) {
+
+  public ModuleDescriptor {
+    if (name == null || name.isBlank()) {
+      throw new IllegalArgumentException("module name must not be blank");
+    }
+    if (version == null) {
+      throw new IllegalArgumentException("version must not be null");
+    }
+    requires = List.copyOf(requires);
+    exports = List.copyOf(exports);
+    if (isolationTier == null) {
+      throw new IllegalArgumentException("isolation tier must not be null");
+    }
+    if (resourceRequest == null || resourceLimit == null) {
+      throw new IllegalArgumentException("resource request/limit must not be null");
+    }
+    if (resourceRequest.memory_bytes() > resourceLimit.memory_bytes()) {
+      throw new IllegalArgumentException(
+          "memory request exceeds limit: "
+              + resourceRequest.memory()
+              + " > "
+              + resourceLimit.memory());
+    }
+    if (resourceRequest.cpu_millicores() > resourceLimit.cpu_millicores()) {
+      throw new IllegalArgumentException(
+          "cpu request exceeds limit: " + resourceRequest.cpu() + " > " + resourceLimit.cpu());
+    }
+    if (healthProbes == null) {
+      throw new IllegalArgumentException("health probes must not be null");
+    }
+    if (lifecycleHooksClass == null) {
+      throw new IllegalArgumentException("lifecycleHooksClass must be Optional.empty(), not null");
+    }
+  }
+
+  public ModuleId id() {
+    return new ModuleId(name, version);
+  }
+}

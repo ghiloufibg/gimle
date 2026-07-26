@@ -1,0 +1,19 @@
+package com.gimle.core.module;
+
+public record ModuleId(String name, Version version) {
+
+  public ModuleId {
+    if (name == null || name.isBlank()) {
+      throw new IllegalArgumentException("module name must not be blank");
+    }
+    if (version == null) {
+      throw new IllegalArgumentException("version must not be null");
+    }
+  }
+
+  @SuppressWarnings("checkstyle:MethodName")
+  @Override
+  public String toString() {
+    return name + "@" + version;
+  }
+}
