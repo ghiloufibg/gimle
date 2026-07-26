@@ -38,7 +38,7 @@ class PortableJvmFlagsResourceLimiterTest {
   @Test
   void jvm_flags_derives_xmx_from_memory_limit() {
     ResourceLimitHandle handle = limiter.prepare("worker-1", new ResourceSpec("256Mi", "500m"));
-    List<String> flags = limiter.jvm_flags(handle);
+    List<String> flags = limiter.jvmFlags(handle);
     assertTrue(flags.contains("-Xmx" + (256L * 1024 * 1024)));
   }
 
@@ -47,16 +47,16 @@ class PortableJvmFlagsResourceLimiterTest {
     // 250m -> 1 processor (rounds up, never down to zero).
     ResourceLimitHandle quarterCore =
         limiter.prepare("worker-1", new ResourceSpec("128Mi", "250m"));
-    assertTrue(limiter.jvm_flags(quarterCore).contains("-XX:ActiveProcessorCount=1"));
+    assertTrue(limiter.jvmFlags(quarterCore).contains("-XX:ActiveProcessorCount=1"));
 
     // 1500m -> 2 processors (ceiling, not floor).
     ResourceLimitHandle oneAndAHalfCores =
         limiter.prepare("worker-1", new ResourceSpec("128Mi", "1500m"));
-    assertTrue(limiter.jvm_flags(oneAndAHalfCores).contains("-XX:ActiveProcessorCount=2"));
+    assertTrue(limiter.jvmFlags(oneAndAHalfCores).contains("-XX:ActiveProcessorCount=2"));
 
     // exactly 2000m -> 2 processors.
     ResourceLimitHandle twoCores = limiter.prepare("worker-1", new ResourceSpec("128Mi", "2000m"));
-    assertTrue(limiter.jvm_flags(twoCores).contains("-XX:ActiveProcessorCount=2"));
+    assertTrue(limiter.jvmFlags(twoCores).contains("-XX:ActiveProcessorCount=2"));
   }
 
   @Test
@@ -64,7 +64,7 @@ class PortableJvmFlagsResourceLimiterTest {
     // This limiter can't introspect a separate worker process locally; real usage comes from
     // the worker's own MetricsReport over the control channel, not this method.
     ResourceLimitHandle handle = limiter.prepare("worker-1", new ResourceSpec("128Mi", "250m"));
-    assertEquals(new ResourceUsage(0, 0), limiter.current_usage(handle));
+    assertEquals(new ResourceUsage(0, 0), limiter.currentUsage(handle));
   }
 
   @Test

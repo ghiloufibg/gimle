@@ -31,7 +31,7 @@ class LeakTrackerTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
-  private ModuleLayerHandle build_and_load(String name) {
+  private ModuleLayerHandle buildAndLoad(String name) {
     Path jar =
         TestModuleBuilder.module(
                 """
@@ -39,10 +39,10 @@ class LeakTrackerTest {
                 }
                 """
                     .formatted(name))
-            .with_descriptor(TestModuleBuilder.minimal_descriptor(name, "1.0.0"))
+            .withDescriptor(TestModuleBuilder.minimalDescriptor(name, "1.0.0"))
             .build(tempDir, name.replace('.', '_') + ".jar");
     ModuleId id = new ModuleId(name, Version.parse("1.0.0"));
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     return ModuleLayerFactory.create(
         id, jar, List.of(platform), ClassLoader.getSystemClassLoader());
   }
@@ -53,7 +53,7 @@ class LeakTrackerTest {
     ModuleId id = new ModuleId("com.gimle.fixture.noleak", Version.parse("1.0.0"));
 
     try (LeakTracker tracker = new LeakTracker(Duration.ofMillis(300), detections::add)) {
-      ModuleLayerHandle handle = build_and_load("com.gimle.fixture.noleak");
+      ModuleLayerHandle handle = buildAndLoad("com.gimle.fixture.noleak");
       tracker.track(id, handle);
       handle = null; // nothing else in the test retains this loader
 
@@ -71,7 +71,7 @@ class LeakTrackerTest {
 
     // Deliberately kept reachable via this local for the whole try block, simulating a genuine
     // leak (some stray reference outliving the module's disposal).
-    ModuleLayerHandle handle = build_and_load(name);
+    ModuleLayerHandle handle = buildAndLoad(name);
     try (LeakTracker tracker = new LeakTracker(Duration.ofMillis(300), detections::add)) {
       tracker.track(id, handle);
 
@@ -93,14 +93,14 @@ class LeakTrackerTest {
                 module com.gimle.fixture.controllerleak {
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.controllerleak", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.controllerleak", "1.0.0"))
             .build(tempDir, "controllerleak.jar");
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
     ModuleId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     try (LeakTracker tracker = new LeakTracker(Duration.ofMillis(300), detections::add)) {
       ModuleController controller =

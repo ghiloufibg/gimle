@@ -38,26 +38,26 @@ public final class DeploymentReconciler {
     this.scheduler = scheduler;
   }
 
-  public void reconcile_once() {
+  public void reconcileOnce() {
     Set<String> deploymentNames = new HashSet<>();
-    for (DeploymentSpec spec : store.list_deployments()) {
+    for (DeploymentSpec spec : store.listDeployments()) {
       deploymentNames.add(spec.name());
     }
 
     // A deployment no longer in desired state: every one of its assignments is stale.
-    for (InstanceAssignment assignment : store.list_assignments()) {
+    for (InstanceAssignment assignment : store.listAssignments()) {
       if (!deploymentNames.contains(assignment.deploymentName())) {
-        store.remove_assignment(assignment.deploymentName(), assignment.instanceIndex());
+        store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
       }
     }
 
-    for (DeploymentSpec spec : store.list_deployments()) {
-      reconcile_deployment(spec);
+    for (DeploymentSpec spec : store.listDeployments()) {
+      reconcileDeployment(spec);
     }
   }
 
-  private void reconcile_deployment(DeploymentSpec spec) {
-    List<InstanceAssignment> existing = store.list_assignments_for(spec.name());
+  private void reconcileDeployment(DeploymentSpec spec) {
+    List<InstanceAssignment> existing = store.listAssignmentsFor(spec.name());
 
     // Scale-down: an assigned index beyond the current replica count is removed immediately (a
     // desired-state edit only) -- the agent's own stop()/StopModule drain timing owns teardown,
@@ -66,11 +66,11 @@ public final class DeploymentReconciler {
     for (InstanceAssignment assignment : existing) {
       existingIndices.add(assignment.instanceIndex());
       if (assignment.instanceIndex() >= spec.replicas()) {
-        store.remove_assignment(spec.name(), assignment.instanceIndex());
+        store.removeAssignment(spec.name(), assignment.instanceIndex());
       }
     }
 
-    if (missing_indices(spec, existingIndices).isEmpty()) {
+    if (missingIndices(spec, existingIndices).isEmpty()) {
       return;
     }
 
@@ -86,9 +86,9 @@ public final class DeploymentReconciler {
       return;
     }
 
-    for (int index : missing_indices(spec, existingIndices)) {
+    for (int index : missingIndices(spec, existingIndices)) {
       try {
-        List<NodeCandidate> candidates = build_candidates(spec.name());
+        List<NodeCandidate> candidates = buildCandidates(spec.name());
         String nodeId =
             scheduler.place(
                 spec.name(),
@@ -97,7 +97,7 @@ public final class DeploymentReconciler {
                 descriptor.resourceRequest(),
                 spec.placement().antiAffinityAcrossNodes(),
                 candidates);
-        store.put_assignment(new InstanceAssignment(spec.name(), index, nodeId));
+        store.putAssignment(new InstanceAssignment(spec.name(), index, nodeId));
       } catch (GimleSchedulingException e) {
         // Left unplaced; the next tick retries from the same full snapshot, no special-cased
         // retry bookkeeping needed -- this is what "level-triggered, converge from any snapshot"
@@ -108,7 +108,7 @@ public final class DeploymentReconciler {
     }
   }
 
-  private static List<Integer> missing_indices(DeploymentSpec spec, Set<Integer> existingIndices) {
+  private static List<Integer> missingIndices(DeploymentSpec spec, Set<Integer> existingIndices) {
     List<Integer> missing = new ArrayList<>();
     for (int index = 0; index < spec.replicas(); index++) {
       if (!existingIndices.contains(index)) {
@@ -118,15 +118,15 @@ public final class DeploymentReconciler {
     return missing;
   }
 
-  private List<NodeCandidate> build_candidates(String deploymentName) {
+  private List<NodeCandidate> buildCandidates(String deploymentName) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>();
-    for (InstanceAssignment assignment : store.list_assignments_for(deploymentName)) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(deploymentName)) {
       nodesAlreadyRunningThisDeployment.add(assignment.nodeId());
     }
 
     List<NodeCandidate> candidates = new ArrayList<>();
-    for (NodeRegistration registration : store.list_node_registrations()) {
-      Optional<ObservedHeartbeat> heartbeat = store.get_node_heartbeat(registration.nodeId());
+    for (NodeRegistration registration : store.listNodeRegistrations()) {
+      Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
       if (heartbeat.isEmpty()) {
         continue; // no capacity report yet; not a placement candidate until it heartbeats
       }

@@ -43,22 +43,22 @@ class AgentWorkerIntegrationTest {
   @Test
   void agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel()
       throws Exception {
-    assertTimeoutPreemptively(Duration.ofSeconds(60), this::run_scenario);
+    assertTimeoutPreemptively(Duration.ofSeconds(60), this::runScenario);
   }
 
-  private void run_scenario() throws Exception {
+  private void runScenario() throws Exception {
     Path jar =
         TestModuleBuilder.module(
                 """
                 module com.gimle.fixture.agentworker {
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.agentworker", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.agentworker", "1.0.0"))
             .build(tempDir, "fixture.jar");
 
     Path socketPath = Files.createTempDirectory("gimle-agent-uds-").resolve("c.sock");
-    String javaExecutable = java_executable();
+    String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
     List<String> baseCommand =
         List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain");
@@ -79,30 +79,30 @@ class AgentWorkerIntegrationTest {
 
           connection.send(
               new ControlMessage.InstallModule("corr-install", jar.toAbsolutePath().toString()));
-          List<ControlMessage> installMessages = receive_until_ack(connection, "corr-install");
-          ModuleId id = extract_module_id_from_state_change(installMessages, "INSTALLED");
+          List<ControlMessage> installMessages = receiveUntilAck(connection, "corr-install");
+          ModuleId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
 
           connection.send(new ControlMessage.ResolveModule("corr-resolve", id));
-          List<ControlMessage> resolveMessages = receive_until_ack(connection, "corr-resolve");
+          List<ControlMessage> resolveMessages = receiveUntilAck(connection, "corr-resolve");
           assertEquals(
               List.of("RESOLVED"),
-              state_changes_for(resolveMessages, id),
+              stateChangesFor(resolveMessages, id),
               "resolveMessages=" + resolveMessages);
 
           connection.send(new ControlMessage.StartModule("corr-start", id));
-          List<ControlMessage> startMessages = receive_until_ack(connection, "corr-start");
+          List<ControlMessage> startMessages = receiveUntilAck(connection, "corr-start");
           assertEquals(
               List.of("STARTING", "ACTIVE"),
-              state_changes_for(startMessages, id),
+              stateChangesFor(startMessages, id),
               "startMessages=" + startMessages);
 
           // stop(), not uninstall(): ModuleController#uninstall() rejects an ACTIVE module
           // outright (only stop() drives ACTIVE -> STOPPING -> UNINSTALLED in one call).
           connection.send(new ControlMessage.StopModule("corr-stop", id));
-          List<ControlMessage> stopMessages = receive_until_ack(connection, "corr-stop");
+          List<ControlMessage> stopMessages = receiveUntilAck(connection, "corr-stop");
           assertEquals(
               List.of("STOPPING", "UNINSTALLED"),
-              state_changes_for(stopMessages, id),
+              stateChangesFor(stopMessages, id),
               "stopMessages=" + stopMessages);
         }
       } finally {
@@ -111,7 +111,7 @@ class AgentWorkerIntegrationTest {
     }
   }
 
-  private static List<ControlMessage> receive_until_ack(
+  private static List<ControlMessage> receiveUntilAck(
       WorkerConnection connection, String correlationId) throws IOException {
     List<ControlMessage> messages = new ArrayList<>();
     while (true) {
@@ -135,7 +135,7 @@ class AgentWorkerIntegrationTest {
     }
   }
 
-  private static ModuleId extract_module_id_from_state_change(
+  private static ModuleId extractModuleIdFromStateChange(
       List<ControlMessage> messages, String state) {
     return messages.stream()
         .filter(
@@ -147,7 +147,7 @@ class AgentWorkerIntegrationTest {
         .orElseThrow(() -> new AssertionError("no " + state + " state change in " + messages));
   }
 
-  private static List<String> state_changes_for(List<ControlMessage> messages, ModuleId id) {
+  private static List<String> stateChangesFor(List<ControlMessage> messages, ModuleId id) {
     return messages.stream()
         .filter(
             m -> m instanceof ControlMessage.ModuleStateChanged changed && changed.id().equals(id))
@@ -155,7 +155,7 @@ class AgentWorkerIntegrationTest {
         .toList();
   }
 
-  private static String java_executable() {
+  private static String javaExecutable() {
     Optional<String> command = ProcessHandle.current().info().command();
     if (command.isPresent()) {
       return command.get();

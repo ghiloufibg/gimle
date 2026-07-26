@@ -18,7 +18,7 @@ class ControlMessageCodecTest {
   private static final ModuleId ID =
       new ModuleId("com.gimle.example.orders", Version.parse("1.4.2-rc1"));
 
-  static Stream<ControlMessage> all_message_variants() {
+  static Stream<ControlMessage> allMessageVariants() {
     return Stream.of(
         new ControlMessage.Hello("worker-1", 4242L),
         new ControlMessage.Ack("corr-1"),
@@ -35,7 +35,7 @@ class ControlMessageCodecTest {
         new ControlMessage.Ping("corr-8"));
   }
 
-  static Stream<String> free_text_edge_cases() {
+  static Stream<String> freeTextEdgeCases() {
     return Stream.of(
         "stack trace line 1\nstack trace line 2\nline 3",
         "message with spaces and words",
@@ -45,16 +45,16 @@ class ControlMessageCodecTest {
   }
 
   @ParameterizedTest
-  @MethodSource("all_message_variants")
-  void round_trips_every_message_variant(ControlMessage original) {
+  @MethodSource("allMessageVariants")
+  void roundTripsEveryMessageVariant(ControlMessage original) {
     String encoded = ControlMessageCodec.encode(original);
     ControlMessage decoded = ControlMessageCodec.decode(encoded);
     assertEquals(original, decoded);
   }
 
   @ParameterizedTest
-  @MethodSource("all_message_variants")
-  void encoded_form_is_a_single_line(ControlMessage original) {
+  @MethodSource("allMessageVariants")
+  void encodedFormIsASingleLine(ControlMessage original) {
     String encoded = ControlMessageCodec.encode(original);
     assertFalse(encoded.contains("\n"), "encoded frame must not contain a raw newline: " + encoded);
     assertFalse(
@@ -62,8 +62,8 @@ class ControlMessageCodecTest {
   }
 
   @ParameterizedTest
-  @MethodSource("free_text_edge_cases")
-  void nack_reason_with_newlines_and_spaces_round_trips(String reason) {
+  @MethodSource("freeTextEdgeCases")
+  void nackReasonWithNewlinesAndSpacesRoundTrips(String reason) {
     ControlMessage.Nack original = new ControlMessage.Nack("corr-1", reason);
     String encoded = ControlMessageCodec.encode(original);
     assertFalse(
@@ -73,8 +73,8 @@ class ControlMessageCodecTest {
   }
 
   @ParameterizedTest
-  @MethodSource("free_text_edge_cases")
-  void install_artifact_path_with_special_characters_round_trips(String suffix) {
+  @MethodSource("freeTextEdgeCases")
+  void installArtifactPathWithSpecialCharactersRoundTrips(String suffix) {
     ControlMessage.InstallModule original =
         new ControlMessage.InstallModule("corr-1", "C:\\path " + suffix);
     String encoded = ControlMessageCodec.encode(original);

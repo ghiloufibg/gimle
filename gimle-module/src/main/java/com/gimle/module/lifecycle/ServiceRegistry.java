@@ -4,7 +4,7 @@ import com.gimle.core.module.ModuleId;
 import java.util.Optional;
 
 /**
- * Backing store for {@link ModuleContext#register_service}/{@link ModuleContext#lookup_service},
+ * Backing store for {@link ModuleContext#registerService}/{@link ModuleContext#lookupService},
  * shared across every module hosted in one worker. Defined here — not in {@code gimle-worker},
  * where the real, richer implementation lives — so {@link SimpleModuleContext} (necessarily
  * per-module, living in {@code gimle-module}) can depend on the contract without {@code
@@ -28,7 +28,7 @@ public interface ServiceRegistry {
   /**
    * Stops handing out new references to {@code owner}'s services; existing callers are unaffected.
    */
-  void mark_unready(ModuleId owner);
+  void markUnready(ModuleId owner);
 
   /** Removes everything {@code owner} registered. */
   void remove(ModuleId owner);

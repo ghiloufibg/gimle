@@ -72,11 +72,11 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     String pid = String.valueOf(process.pid());
     Thread.ofVirtual()
         .name("gimle-worker-output-" + workerId + "-" + pid)
-        .start(() -> drain_output(process));
-    process.onExit().thenRun(this::on_exit);
+        .start(() -> drainOutput(process));
+    process.onExit().thenRun(this::onExit);
   }
 
-  private void drain_output(Process worker) {
+  private void drainOutput(Process worker) {
     try (BufferedReader reader =
         new BufferedReader(
             new InputStreamReader(worker.getInputStream(), StandardCharsets.UTF_8))) {
@@ -89,20 +89,20 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     }
   }
 
-  private void on_exit() {
+  private void onExit() {
     if (closed) {
       return; // a deliberate stop(), not a crash -- no respawn.
     }
     log.warn("worker {} exited unexpectedly (code {})", workerId, process.exitValue());
 
     Instant now = Instant.now();
-    if (!restartTracker.record_failure_and_check_should_retry(now)) {
+    if (!restartTracker.recordFailureAndCheckShouldRetry(now)) {
       log.error("worker {} exhausted its restart budget; giving up", workerId);
       onRestartBudgetExhausted.accept(workerId);
       return;
     }
 
-    Duration delay = restartTracker.delay_until_next_attempt(now);
+    Duration delay = restartTracker.delayUntilNextAttempt(now);
     Thread.ofVirtual()
         .name("gimle-worker-respawn-" + workerId)
         .start(
@@ -119,7 +119,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
                 }
                 try {
                   spawn();
-                  restartTracker.record_success();
+                  restartTracker.recordSuccess();
                 } catch (IOException e) {
                   log.error("worker {} respawn failed: {}", workerId, e.getMessage());
                 }

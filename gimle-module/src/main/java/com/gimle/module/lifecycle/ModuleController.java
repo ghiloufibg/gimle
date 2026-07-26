@@ -22,12 +22,12 @@ import java.util.function.Consumer;
 /**
  * Drives a module through {@code INSTALLED -> RESOLVED -> STARTING -> ACTIVE -> STOPPING ->
  * UNINSTALLED} (plus {@code FAILED}), invoking its lifecycle hooks and building its {@link
- * ModuleLayer} at the right points. One 1:1 hook-per-verb mapping: {@code on_install} fires once
- * the layer is built (end of {@code resolve}), {@code on_start}/{@code on_stop} bracket {@code
- * ACTIVE}, {@code on_uninstall} fires just before disposal. Gating hooks ({@code on_install},
- * {@code on_start}) abort their transition and propagate synchronously on failure; teardown hooks
- * ({@code on_stop}, {@code on_uninstall}) are best-effort — a misbehaving hook is recorded in a
- * {@code TransitionFailed} event but never blocks resource disposal.
+ * ModuleLayer} at the right points. One 1:1 hook-per-verb mapping: {@code onInstall} fires once the
+ * layer is built (end of {@code resolve}), {@code onStart}/{@code onStop} bracket {@code ACTIVE},
+ * {@code onUninstall} fires just before disposal. Gating hooks ({@code onInstall}, {@code onStart})
+ * abort their transition and propagate synchronously on failure; teardown hooks ({@code onStop},
+ * {@code onUninstall}) are best-effort — a misbehaving hook is recorded in a {@code
+ * TransitionFailed} event but never blocks resource disposal.
  *
  * <p>Doesn't itself touch the shared {@link ServiceRegistry} beyond handing each module's {@link
  * ModuleContext} a reference to it — marking a stopping module's services not-ready and removing
@@ -125,13 +125,13 @@ public final class ModuleController {
   }
 
   public ModuleWiring resolve(ModuleId id) {
-    require_state(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
+    requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
     try {
       wiring = resolver.resolve(id);
     } catch (RuntimeException e) {
-      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
+      markFailedAndEmit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
       throw e;
     }
 
@@ -140,7 +140,7 @@ public final class ModuleController {
     for (ModuleId depId : new LinkedHashSet<>(wiring.wiredDependencies().values())) {
       ModuleLayerHandle depHandle =
           registry
-              .layer_handle(depId)
+              .layerHandle(depId)
               .orElseThrow(
                   () ->
                       new IllegalStateException(
@@ -153,20 +153,20 @@ public final class ModuleController {
     try {
       handle = ModuleLayerFactory.create(id, artifact.jarPath(), parentLayers, parentLoader);
     } catch (RuntimeException e) {
-      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
+      markFailedAndEmit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, e);
       throw e;
     }
 
-    registry.mark_resolved(id, wiring, handle);
+    registry.markResolved(id, wiring, handle);
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
     SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry);
     contextsByModule.put(id, ctx);
     try {
-      Optional<ModuleLifecycleHooks> hooks = instantiate_hooks(id, handle);
+      Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);
       hooks.ifPresent(h -> hooksByModule.put(id, h));
       if (hooks.isPresent()) {
-        hooks.get().on_install(ctx);
+        hooks.get().onInstall(ctx);
       }
     } catch (RuntimeException e) {
       contextsByModule.remove(id);
@@ -174,8 +174,8 @@ public final class ModuleController {
       GimleLifecycleException wrapped =
           e instanceof GimleLifecycleException gle
               ? gle
-              : GimleLifecycleException.hook_failed(id, "on_install", e);
-      mark_failed_and_emit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, wrapped);
+              : GimleLifecycleException.hookFailed(id, "onInstall", e);
+      markFailedAndEmit(id, ModuleState.INSTALLED, ModuleState.RESOLVED, wrapped);
       throw wrapped;
     }
 
@@ -183,23 +183,23 @@ public final class ModuleController {
   }
 
   public void start(ModuleId id) {
-    require_state(id, ModuleState.RESOLVED, ModuleState.STARTING);
-    registry.mark_starting(id);
+    requireState(id, ModuleState.RESOLVED, ModuleState.STARTING);
+    registry.markStarting(id);
     emit(new LifecycleEvent.Starting(id, Instant.now()));
 
     ModuleContext ctx = contextsByModule.get(id);
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
     if (hooks.isPresent()) {
       try {
-        hooks.get().on_start(ctx);
+        hooks.get().onStart(ctx);
       } catch (RuntimeException e) {
-        GimleLifecycleException wrapped = GimleLifecycleException.hook_failed(id, "on_start", e);
-        mark_failed_and_emit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
+        GimleLifecycleException wrapped = GimleLifecycleException.hookFailed(id, "onStart", e);
+        markFailedAndEmit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
         throw wrapped;
       }
     }
 
-    registry.mark_active(id);
+    registry.markActive(id);
     emit(new LifecycleEvent.Active(id, Instant.now()));
   }
 
@@ -208,66 +208,66 @@ public final class ModuleController {
    * outcome.
    */
   public void stop(ModuleId id) {
-    require_state(id, ModuleState.ACTIVE, ModuleState.STOPPING);
+    requireState(id, ModuleState.ACTIVE, ModuleState.STOPPING);
     Instant deadline = Instant.now().plus(drainTimeout);
-    registry.mark_stopping(id);
+    registry.markStopping(id);
     emit(new LifecycleEvent.Stopping(id, deadline, Instant.now()));
 
     ModuleContext ctx = contextsByModule.get(id);
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
     if (hooks.isPresent()) {
       try {
-        hooks.get().on_stop(ctx);
+        hooks.get().onStop(ctx);
       } catch (RuntimeException e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
                 ModuleState.ACTIVE,
                 ModuleState.STOPPING,
-                GimleLifecycleException.hook_failed(id, "on_stop", e),
+                GimleLifecycleException.hookFailed(id, "onStop", e),
                 Instant.now()));
       }
     }
 
-    await_drain(ctx, deadline);
-    finish_uninstall(id);
+    awaitDrain(ctx, deadline);
+    finishUninstall(id);
   }
 
   /** FAILED (or any pre-ACTIVE state) -&gt; UNINSTALLED, with no drain wait. */
   public void uninstall(ModuleId id) {
     ModuleState current = registry.state(id);
     if (current == ModuleState.ACTIVE) {
-      throw GimleLifecycleException.illegal_transition(
+      throw GimleLifecycleException.illegalTransition(
           id, current.name(), ModuleState.UNINSTALLED.name());
     }
-    finish_uninstall(id);
+    finishUninstall(id);
   }
 
-  private void finish_uninstall(ModuleId id) {
+  private void finishUninstall(ModuleId id) {
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.remove(id));
     ModuleContext ctx = contextsByModule.remove(id);
     if (hooks.isPresent()) {
       try {
-        hooks.get().on_uninstall(ctx);
+        hooks.get().onUninstall(ctx);
       } catch (RuntimeException e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
                 registry.state(id),
                 ModuleState.UNINSTALLED,
-                GimleLifecycleException.hook_failed(id, "on_uninstall", e),
+                GimleLifecycleException.hookFailed(id, "onUninstall", e),
                 Instant.now()));
       }
     }
 
-    Optional<ModuleLayerHandle> handle = registry.layer_handle(id);
+    Optional<ModuleLayerHandle> handle = registry.layerHandle(id);
     registry.remove(id);
     emit(new LifecycleEvent.Uninstalled(id, Instant.now()));
     handle.ifPresent(h -> onDisposed.accept(id, h));
   }
 
-  private void await_drain(ModuleContext ctx, Instant deadline) {
-    while (ctx.in_flight_count() > 0 && Instant.now().isBefore(deadline)) {
+  private void awaitDrain(ModuleContext ctx, Instant deadline) {
+    while (ctx.inFlightCount() > 0 && Instant.now().isBefore(deadline)) {
       try {
         Thread.sleep(Duration.ofMillis(10));
       } catch (InterruptedException e) {
@@ -277,7 +277,7 @@ public final class ModuleController {
     }
   }
 
-  private Optional<ModuleLifecycleHooks> instantiate_hooks(ModuleId id, ModuleLayerHandle handle) {
+  private Optional<ModuleLifecycleHooks> instantiateHooks(ModuleId id, ModuleLayerHandle handle) {
     Optional<String> hooksClassName = registry.artifact(id).descriptor().lifecycleHooksClass();
     if (hooksClassName.isEmpty()) {
       return Optional.empty();
@@ -287,27 +287,26 @@ public final class ModuleController {
       Class<?> hooksClass = Class.forName(className, true, handle.loader());
       Object instance = hooksClass.getDeclaredConstructor().newInstance();
       if (!(instance instanceof ModuleLifecycleHooks hooks)) {
-        throw GimleLifecycleException.hook_failed(
+        throw GimleLifecycleException.hookFailed(
             id,
             "instantiate",
             new ClassCastException(className + " does not implement ModuleLifecycleHooks"));
       }
       return Optional.of(hooks);
     } catch (ReflectiveOperationException e) {
-      throw GimleLifecycleException.hook_failed(id, "instantiate:" + className, e);
+      throw GimleLifecycleException.hookFailed(id, "instantiate:" + className, e);
     }
   }
 
-  private void require_state(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
+  private void requireState(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
     ModuleState current = registry.state(id);
     if (current != expected) {
-      throw GimleLifecycleException.illegal_transition(id, current.name(), attemptingTo.name());
+      throw GimleLifecycleException.illegalTransition(id, current.name(), attemptingTo.name());
     }
   }
 
-  private void mark_failed_and_emit(
-      ModuleId id, ModuleState from, ModuleState to, Throwable cause) {
-    registry.mark_failed(id);
+  private void markFailedAndEmit(ModuleId id, ModuleState from, ModuleState to, Throwable cause) {
+    registry.markFailed(id);
     emit(new LifecycleEvent.TransitionFailed(id, from, to, cause, Instant.now()));
   }
 

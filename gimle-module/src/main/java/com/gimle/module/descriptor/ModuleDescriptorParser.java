@@ -44,24 +44,23 @@ public final class ModuleDescriptorParser {
     if (!(raw instanceof Map<?, ?> root)) {
       throw new GimleManifestException("gimle-module.yaml must contain a YAML mapping at the root");
     }
-    return parse_root(root);
+    return parseRoot(root);
   }
 
-  private static ModuleDescriptor parse_root(Map<?, ?> root) {
-    String name = require_string(root, "name");
+  private static ModuleDescriptor parseRoot(Map<?, ?> root) {
+    String name = requireString(root, "name");
     if (!BINARY_NAME.matcher(name).matches()) {
       throw new GimleManifestException("'name' is not a valid module name: " + name);
     }
-    Version version = parse_field(root, "version", Version::parse);
-    List<Requirement> requires = parse_requires(root);
-    List<ServiceExport> exports = parse_exports(root);
-    IsolationTier tier = parse_isolation(root);
-    Map<?, ?> resources = require_map(root, "resources");
-    ResourceSpec request =
-        parse_resource_spec(require_map(resources, "request"), "resources.request");
-    ResourceSpec limit = parse_resource_spec(require_map(resources, "limit"), "resources.limit");
-    HealthProbes probes = parse_health(root);
-    Optional<String> hooks = parse_lifecycle_hooks(root);
+    Version version = parseField(root, "version", Version::parse);
+    List<Requirement> requires = parseRequires(root);
+    List<ServiceExport> exports = parseExports(root);
+    IsolationTier tier = parseIsolation(root);
+    Map<?, ?> resources = requireMap(root, "resources");
+    ResourceSpec request = parseResourceSpec(requireMap(resources, "request"), "resources.request");
+    ResourceSpec limit = parseResourceSpec(requireMap(resources, "limit"), "resources.limit");
+    HealthProbes probes = parseHealth(root);
+    Optional<String> hooks = parseLifecycleHooks(root);
 
     try {
       return new ModuleDescriptor(
@@ -72,14 +71,14 @@ public final class ModuleDescriptorParser {
     }
   }
 
-  private static List<Requirement> parse_requires(Map<?, ?> root) {
+  private static List<Requirement> parseRequires(Map<?, ?> root) {
     List<Requirement> result = new ArrayList<>();
-    for (Object entry : optional_list(root, "requires")) {
+    for (Object entry : optionalList(root, "requires")) {
       if (!(entry instanceof Map<?, ?> entryMap)) {
         throw new GimleManifestException("each 'requires' entry must be a mapping");
       }
-      String moduleName = require_string(entryMap, "module");
-      VersionRange range = parse_field(entryMap, "version", VersionRange::parse);
+      String moduleName = requireString(entryMap, "module");
+      VersionRange range = parseField(entryMap, "version", VersionRange::parse);
       try {
         result.add(new Requirement(moduleName, range));
       } catch (IllegalArgumentException e) {
@@ -89,14 +88,14 @@ public final class ModuleDescriptorParser {
     return result;
   }
 
-  private static List<ServiceExport> parse_exports(Map<?, ?> root) {
+  private static List<ServiceExport> parseExports(Map<?, ?> root) {
     List<ServiceExport> result = new ArrayList<>();
-    for (Object entry : optional_list(root, "exports")) {
+    for (Object entry : optionalList(root, "exports")) {
       if (!(entry instanceof Map<?, ?> entryMap)) {
         throw new GimleManifestException("each 'exports' entry must be a mapping");
       }
-      String interfaceName = require_string(entryMap, "service");
-      Version version = parse_field(entryMap, "version", Version::parse);
+      String interfaceName = requireString(entryMap, "service");
+      Version version = parseField(entryMap, "version", Version::parse);
       try {
         result.add(new ServiceExport(interfaceName, version));
       } catch (IllegalArgumentException e) {
@@ -106,9 +105,9 @@ public final class ModuleDescriptorParser {
     return result;
   }
 
-  private static IsolationTier parse_isolation(Map<?, ?> root) {
-    Map<?, ?> isolation = require_map(root, "isolation");
-    String tierText = require_string(isolation, "tier");
+  private static IsolationTier parseIsolation(Map<?, ?> root) {
+    Map<?, ?> isolation = requireMap(root, "isolation");
+    String tierText = requireString(isolation, "tier");
     try {
       return IsolationTier.valueOf(tierText);
     } catch (IllegalArgumentException e) {
@@ -117,9 +116,9 @@ public final class ModuleDescriptorParser {
     }
   }
 
-  private static ResourceSpec parse_resource_spec(Map<?, ?> section, String path) {
-    String memory = require_string(section, "memory");
-    String cpu = require_string(section, "cpu");
+  private static ResourceSpec parseResourceSpec(Map<?, ?> section, String path) {
+    String memory = requireString(section, "memory");
+    String cpu = requireString(section, "cpu");
     try {
       return new ResourceSpec(memory, cpu);
     } catch (IllegalArgumentException e) {
@@ -127,7 +126,7 @@ public final class ModuleDescriptorParser {
     }
   }
 
-  private static HealthProbes parse_health(Map<?, ?> root) {
+  private static HealthProbes parseHealth(Map<?, ?> root) {
     Object healthObj = root.get("health");
     if (healthObj == null) {
       return HealthProbes.NONE;
@@ -135,8 +134,8 @@ public final class ModuleDescriptorParser {
     if (!(healthObj instanceof Map<?, ?> health)) {
       throw new GimleManifestException("'health' must be a mapping");
     }
-    Optional<String> liveness = class_name(health, "liveness");
-    Optional<String> readiness = class_name(health, "readiness");
+    Optional<String> liveness = className(health, "liveness");
+    Optional<String> readiness = className(health, "readiness");
     try {
       return new HealthProbes(liveness, readiness);
     } catch (IllegalArgumentException e) {
@@ -144,7 +143,7 @@ public final class ModuleDescriptorParser {
     }
   }
 
-  private static Optional<String> parse_lifecycle_hooks(Map<?, ?> root) {
+  private static Optional<String> parseLifecycleHooks(Map<?, ?> root) {
     Object lifecycleObj = root.get("lifecycle");
     if (lifecycleObj == null) {
       return Optional.empty();
@@ -152,10 +151,10 @@ public final class ModuleDescriptorParser {
     if (!(lifecycleObj instanceof Map<?, ?> lifecycle)) {
       throw new GimleManifestException("'lifecycle' must be a mapping");
     }
-    return class_name(lifecycle, "hooks");
+    return className(lifecycle, "hooks");
   }
 
-  private static String require_string(Map<?, ?> map, String key) {
+  private static String requireString(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (!(value instanceof String s) || s.isBlank()) {
       throw new GimleManifestException("missing or blank required field: " + key);
@@ -163,7 +162,7 @@ public final class ModuleDescriptorParser {
     return s;
   }
 
-  private static Optional<String> optional_string(Map<?, ?> map, String key) {
+  private static Optional<String> optionalString(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (value == null) {
       return Optional.empty();
@@ -174,8 +173,8 @@ public final class ModuleDescriptorParser {
     return Optional.of(s);
   }
 
-  private static Optional<String> class_name(Map<?, ?> map, String key) {
-    Optional<String> value = optional_string(map, key);
+  private static Optional<String> className(Map<?, ?> map, String key) {
+    Optional<String> value = optionalString(map, key);
     value.ifPresent(
         className -> {
           if (!BINARY_NAME.matcher(className).matches()) {
@@ -186,7 +185,7 @@ public final class ModuleDescriptorParser {
     return value;
   }
 
-  private static Map<?, ?> require_map(Map<?, ?> map, String key) {
+  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (!(value instanceof Map<?, ?> m)) {
       throw new GimleManifestException("missing or malformed required section: " + key);
@@ -194,7 +193,7 @@ public final class ModuleDescriptorParser {
     return m;
   }
 
-  private static List<?> optional_list(Map<?, ?> map, String key) {
+  private static List<?> optionalList(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (value == null) {
       return List.of();
@@ -205,8 +204,8 @@ public final class ModuleDescriptorParser {
     return l;
   }
 
-  private static <T> T parse_field(Map<?, ?> map, String key, Function<String, T> parser) {
-    String raw = require_string(map, key);
+  private static <T> T parseField(Map<?, ?> map, String key, Function<String, T> parser) {
+    String raw = requireString(map, key);
     try {
       return parser.apply(raw);
     } catch (IllegalArgumentException e) {

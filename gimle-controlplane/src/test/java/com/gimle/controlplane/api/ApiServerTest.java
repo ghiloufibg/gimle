@@ -37,7 +37,7 @@ class ApiServerTest {
   private String baseUrl;
 
   @BeforeEach
-  void start_server() throws IOException {
+  void startServer() throws IOException {
     store = new StateStore(tempDir.resolve("store"));
     server = new ApiServer(store, 0);
     server.start();
@@ -46,7 +46,7 @@ class ApiServerTest {
   }
 
   @AfterEach
-  void stop_server() {
+  void stopServer() {
     server.close();
   }
 
@@ -54,7 +54,7 @@ class ApiServerTest {
     return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
-  private static String deployment_yaml(String name, int replicas) {
+  private static String deploymentYaml(String name, int replicas) {
     return """
         name: %s
         module:
@@ -71,7 +71,7 @@ class ApiServerTest {
     HttpResponse<String> put =
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
-                .PUT(HttpRequest.BodyPublishers.ofString(deployment_yaml("orders-service", 3)))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 3)))
                 .build());
     assertEquals(200, put.statusCode());
 
@@ -95,7 +95,7 @@ class ApiServerTest {
     HttpResponse<String> put =
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/catalog-service"))
-                .PUT(HttpRequest.BodyPublishers.ofString(deployment_yaml("orders-service", 1)))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
                 .build());
 
     assertEquals(400, put.statusCode());
@@ -124,7 +124,7 @@ class ApiServerTest {
   void delete_removes_a_deployment() throws Exception {
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
-            .PUT(HttpRequest.BodyPublishers.ofString(deployment_yaml("orders-service", 1)))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
             .build());
 
     HttpResponse<String> delete =
@@ -155,7 +155,7 @@ class ApiServerTest {
     assertEquals(
         new NodeRegistration(
             "node-a", new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2))),
-        store.get_node_registration("node-a").orElseThrow());
+        store.getNodeRegistration("node-a").orElseThrow());
 
     String heartbeatBody =
         """
@@ -171,7 +171,7 @@ class ApiServerTest {
                 .build());
     assertEquals(200, heartbeat.statusCode());
 
-    var observed = store.get_node_heartbeat("node-a").orElseThrow();
+    var observed = store.getNodeHeartbeat("node-a").orElseThrow();
     assertEquals(1000L, observed.heartbeat().capacity().totalMemoryBytes());
     assertEquals(1, observed.heartbeat().instances().size());
   }
@@ -181,9 +181,9 @@ class ApiServerTest {
       throws Exception {
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
-            .PUT(HttpRequest.BodyPublishers.ofString(deployment_yaml("orders-service", 1)))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
             .build());
-    store.put_assignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
 
     HttpResponse<String> assignments =
         send(

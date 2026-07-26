@@ -29,10 +29,10 @@ public final class PortableJvmFlagsResourceLimiter implements ResourceLimiter {
   }
 
   @Override
-  public List<String> jvm_flags(ResourceLimitHandle handle) {
+  public List<String> jvmFlags(ResourceLimitHandle handle) {
     ResourceSpec limit = handle.limit();
-    long memoryBytes = limit.memory_bytes();
-    int activeProcessors = (int) Math.max(1, Math.ceilDiv(limit.cpu_millicores(), 1000L));
+    long memoryBytes = limit.memoryBytes();
+    int activeProcessors = (int) Math.max(1, Math.ceilDiv(limit.cpuMillicores(), 1000L));
     return List.of("-Xmx" + memoryBytes, "-XX:ActiveProcessorCount=" + activeProcessors);
   }
 
@@ -44,7 +44,7 @@ public final class PortableJvmFlagsResourceLimiter implements ResourceLimiter {
    * through this method.
    */
   @Override
-  public ResourceUsage current_usage(ResourceLimitHandle handle) {
+  public ResourceUsage currentUsage(ResourceLimitHandle handle) {
     return new ResourceUsage(0, 0);
   }
 

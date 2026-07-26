@@ -56,7 +56,7 @@ public final class ControlPlaneMain {
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-controlplane-reconcile-tick").unstarted(r));
     ticker.scheduleAtFixedRate(
-        () -> reconcile_tick(replicaCountReconciler, healthReconciler, deploymentReconciler),
+        () -> reconcileTick(replicaCountReconciler, healthReconciler, deploymentReconciler),
         0,
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
@@ -75,14 +75,14 @@ public final class ControlPlaneMain {
                     }));
   }
 
-  private static void reconcile_tick(
+  private static void reconcileTick(
       ReplicaCountReconciler replicaCountReconciler,
       HealthReconciler healthReconciler,
       DeploymentReconciler deploymentReconciler) {
     try {
-      replicaCountReconciler.reconcile_once();
-      healthReconciler.reconcile_once();
-      deploymentReconciler.reconcile_once();
+      replicaCountReconciler.reconcileOnce();
+      healthReconciler.reconcileOnce();
+      deploymentReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
     }

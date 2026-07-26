@@ -8,7 +8,7 @@ public final class Await {
 
   private Await() {}
 
-  public static void at_least(BooleanSupplier condition, Duration timeout) {
+  public static void atLeast(BooleanSupplier condition, Duration timeout) {
     long deadline = System.nanoTime() + timeout.toNanos();
     while (!condition.getAsBoolean()) {
       if (System.nanoTime() > deadline) {

@@ -20,27 +20,27 @@ public final class SimpleModuleContext implements ModuleContext {
   }
 
   @Override
-  public int in_flight_count() {
+  public int inFlightCount() {
     return inFlight.get();
   }
 
   @Override
-  public void begin_request() {
+  public void beginRequest() {
     inFlight.incrementAndGet();
   }
 
   @Override
-  public void end_request() {
+  public void endRequest() {
     inFlight.updateAndGet(n -> Math.max(0, n - 1));
   }
 
   @Override
-  public <T> void register_service(Class<T> iface, T instance) {
+  public <T> void registerService(Class<T> iface, T instance) {
     serviceRegistry.register(id, iface, instance);
   }
 
   @Override
-  public <T> Optional<T> lookup_service(Class<T> iface) {
+  public <T> Optional<T> lookupService(Class<T> iface) {
     return serviceRegistry.lookup(iface);
   }
 }

@@ -20,12 +20,12 @@ public class GimleIsolationException extends RuntimeException {
     super(message, cause);
   }
 
-  public static GimleIsolationException tier_unsupported(ModuleId id, IsolationTier tier) {
+  public static GimleIsolationException tierUnsupported(ModuleId id, IsolationTier tier) {
     return new GimleIsolationException(
         "module " + id + " requires isolation tier " + tier + " which is not yet implemented");
   }
 
-  public static GimleIsolationException resource_limit_failed(String workerId, Throwable cause) {
+  public static GimleIsolationException resourceLimitFailed(String workerId, Throwable cause) {
     return new GimleIsolationException(
         "failed to apply resource limits for worker " + workerId, cause);
   }

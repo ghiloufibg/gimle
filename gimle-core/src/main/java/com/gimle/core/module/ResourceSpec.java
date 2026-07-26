@@ -11,15 +11,15 @@ public record ResourceSpec(String memory, String cpu) {
       throw new IllegalArgumentException("cpu must not be blank");
     }
     // Fail fast: an unparseable quantity is rejected at construction, not at first comparison.
-    ResourceQuantity.parse_memory(memory);
-    ResourceQuantity.parse_cpu(cpu);
+    ResourceQuantity.parseMemory(memory);
+    ResourceQuantity.parseCpu(cpu);
   }
 
-  public long memory_bytes() {
-    return ResourceQuantity.parse_memory(memory);
+  public long memoryBytes() {
+    return ResourceQuantity.parseMemory(memory);
   }
 
-  public long cpu_millicores() {
-    return ResourceQuantity.parse_cpu(cpu);
+  public long cpuMillicores() {
+    return ResourceQuantity.parseCpu(cpu);
   }
 }

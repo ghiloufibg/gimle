@@ -41,8 +41,8 @@ public final class WorkerMetrics {
     return registry;
   }
 
-  public void record_request(ModuleId id, Duration latency, boolean error) {
-    Tags tags = tags_for(id);
+  public void recordRequest(ModuleId id, Duration latency, boolean error) {
+    Tags tags = tagsFor(id);
     Timer.builder("gimle.module.request.latency").tags(tags).register(registry).record(latency);
     Counter.builder("gimle.module.request.count").tags(tags).register(registry).increment();
     if (error) {
@@ -50,20 +50,20 @@ public final class WorkerMetrics {
     }
   }
 
-  public void record_thread_count(ModuleId id, long count) {
-    gauge_holder(threadCounts, "gimle.module.threads", id).set(count);
+  public void recordThreadCount(ModuleId id, long count) {
+    gaugeHolder(threadCounts, "gimle.module.threads", id).set(count);
   }
 
-  public void record_metaspace_bytes(ModuleId id, long bytes) {
-    gauge_holder(metaspaceBytes, "gimle.module.metaspace.bytes", id).set(bytes);
+  public void recordMetaspaceBytes(ModuleId id, long bytes) {
+    gaugeHolder(metaspaceBytes, "gimle.module.metaspace.bytes", id).set(bytes);
   }
 
-  private AtomicLong gauge_holder(Map<ModuleId, AtomicLong> holders, String name, ModuleId id) {
+  private AtomicLong gaugeHolder(Map<ModuleId, AtomicLong> holders, String name, ModuleId id) {
     return holders.computeIfAbsent(
-        id, key -> registry.gauge(name, tags_for(id), new AtomicLong(), AtomicLong::get));
+        id, key -> registry.gauge(name, tagsFor(id), new AtomicLong(), AtomicLong::get));
   }
 
-  private static Tags tags_for(ModuleId id) {
+  private static Tags tagsFor(ModuleId id) {
     return Tags.of("module", id.name(), "version", id.version().toString());
   }
 }

@@ -9,11 +9,11 @@ package com.gimle.module.lifecycle;
  */
 public interface ModuleLifecycleHooks {
 
-  void on_install(ModuleContext ctx);
+  void onInstall(ModuleContext ctx);
 
-  void on_start(ModuleContext ctx);
+  void onStart(ModuleContext ctx);
 
-  void on_stop(ModuleContext ctx);
+  void onStop(ModuleContext ctx);
 
-  void on_uninstall(ModuleContext ctx);
+  void onUninstall(ModuleContext ctx);
 }

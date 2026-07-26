@@ -11,22 +11,22 @@ import java.util.Optional;
  */
 public interface ModuleContext {
 
-  int in_flight_count();
+  int inFlightCount();
 
   /** A hosted module calls this when it starts handling a request, so drain can wait for it. */
-  void begin_request();
+  void beginRequest();
 
   /** A hosted module calls this when it finishes handling a request. */
-  void end_request();
+  void endRequest();
 
   /**
-   * Publishes {@code instance} for other same-worker modules to find via {@link #lookup_service}.
+   * Publishes {@code instance} for other same-worker modules to find via {@link #lookupService}.
    */
-  <T> void register_service(Class<T> iface, T instance);
+  <T> void registerService(Class<T> iface, T instance);
 
   /**
    * A same-worker, direct-call instance (round-robin among ready providers) — see {@link
    * ServiceRegistry}.
    */
-  <T> Optional<T> lookup_service(Class<T> iface);
+  <T> Optional<T> lookupService(Class<T> iface);
 }

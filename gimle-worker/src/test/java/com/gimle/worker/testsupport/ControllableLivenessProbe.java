@@ -13,7 +13,7 @@ public final class ControllableLivenessProbe implements LivenessProbe {
   public static final AtomicBoolean ALIVE = new AtomicBoolean(true);
 
   @Override
-  public boolean is_alive() {
+  public boolean isAlive() {
     return ALIVE.get();
   }
 }

@@ -16,11 +16,11 @@ public record NodeCandidate(
     ResourceUsageSnapshot capacity,
     boolean alreadyRunsThisDeployment) {
 
-  long free_memory_bytes() {
+  long freeMemoryBytes() {
     return capacity.totalMemoryBytes() - capacity.assignedMemoryBytes();
   }
 
-  long free_cpu_millicores() {
+  long freeCpuMillicores() {
     return capacity.totalCpuMillicores() - capacity.assignedCpuMillicores();
   }
 }

@@ -65,30 +65,30 @@ public final class HealthReconciler {
     this.window = window;
   }
 
-  public void reconcile_once() {
+  public void reconcileOnce() {
     Instant now = Instant.now();
-    for (InstanceAssignment assignment : store.list_assignments()) {
+    for (InstanceAssignment assignment : store.listAssignments()) {
       String key = key(assignment);
       if (permanentlyFailed.contains(key)) {
         continue;
       }
-      Optional<InstanceObservation> observation = find_observation(assignment);
+      Optional<InstanceObservation> observation = findObservation(assignment);
       if (observation.isEmpty()) {
         continue; // ReplicaCountReconciler's concern, not this one
       }
-      if (is_healthy(observation.get())) {
-        Optional.ofNullable(restartTrackers.get(key)).ifPresent(RestartTracker::record_success);
+      if (isHealthy(observation.get())) {
+        Optional.ofNullable(restartTrackers.get(key)).ifPresent(RestartTracker::recordSuccess);
         pendingRetry.remove(key);
         continue;
       }
-      handle_unhealthy(assignment, key, now);
+      handleUnhealthy(assignment, key, now);
     }
   }
 
-  private void handle_unhealthy(InstanceAssignment assignment, String key, Instant now) {
-    RestartTracker tracker = restartTrackers.computeIfAbsent(key, k -> new_tracker());
+  private void handleUnhealthy(InstanceAssignment assignment, String key, Instant now) {
+    RestartTracker tracker = restartTrackers.computeIfAbsent(key, k -> newTracker());
     if (!pendingRetry.contains(key)) {
-      if (!tracker.record_failure_and_check_should_retry(now)) {
+      if (!tracker.recordFailureAndCheckShouldRetry(now)) {
         log.error(
             "deployment {} instance {} exhausted its restart budget; giving up on rescheduling it",
             assignment.deploymentName(),
@@ -99,21 +99,21 @@ public final class HealthReconciler {
       pendingRetry.add(key);
     }
 
-    Duration delay = tracker.delay_until_next_attempt(now);
+    Duration delay = tracker.delayUntilNextAttempt(now);
     if (delay.compareTo(Duration.ZERO) <= 0) {
-      store.remove_assignment(assignment.deploymentName(), assignment.instanceIndex());
+      store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
       pendingRetry.remove(key);
     }
   }
 
-  private Optional<InstanceObservation> find_observation(InstanceAssignment assignment) {
+  private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
     return store
-        .get_node_heartbeat(assignment.nodeId())
+        .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
-        .flatMap(heartbeat -> find_in(heartbeat, assignment));
+        .flatMap(heartbeat -> findIn(heartbeat, assignment));
   }
 
-  private static Optional<InstanceObservation> find_in(
+  private static Optional<InstanceObservation> findIn(
       NodeHeartbeat heartbeat, InstanceAssignment assignment) {
     for (InstanceObservation observation : heartbeat.instances()) {
       if (observation.deploymentName().equals(assignment.deploymentName())
@@ -124,7 +124,7 @@ public final class HealthReconciler {
     return Optional.empty();
   }
 
-  private static boolean is_healthy(InstanceObservation observation) {
+  private static boolean isHealthy(InstanceObservation observation) {
     return observation.alive() && !"FAILED".equals(observation.lifecycleState());
   }
 
@@ -132,7 +132,7 @@ public final class HealthReconciler {
     return assignment.deploymentName() + "#" + assignment.instanceIndex();
   }
 
-  private RestartTracker new_tracker() {
+  private RestartTracker newTracker() {
     return new RestartTracker(initialDelay, multiplier, cap, maxAttemptsPerWindow, window);
   }
 }

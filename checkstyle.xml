@@ -5,24 +5,38 @@
 
 <!--
   Gimlé project-wide Checkstyle rules. Deliberately minimal: formatting is
-  google-java-format's job (fmt-maven-plugin), this file only enforces
-  conventions gjf doesn't cover — currently just the snake_case method
-  naming deviation from standard Java camelCase (see CLAUDE.md).
+  google-java-format's job (fmt-maven-plugin); this file only enforces a
+  convention gjf doesn't cover, method naming (see CLAUDE.md): standard
+  camelCase everywhere, except methods directly annotated @Test, which are
+  snake_case so a test's name reads as a sentence describing the behavior
+  it verifies. Two MethodName instances implement the split; which one
+  applies to a given method is decided by the XPath suppressions in
+  checkstyle-suppressions.xml, keyed on the presence/absence of @Test.
 -->
 <module name="Checker">
-  <!-- The rare, unavoidable exception: a method overriding a fixed JDK contract
-       (Comparable#compareTo, Object#toString, ...) cannot be snake_case. Suppressions
-       are centralized in checkstyle-suppressions.xml (by method, via XPath — not by
-       line number, which would silently drift as the file changes) rather than
-       @SuppressWarnings in source, per project preference. -->
   <module name="TreeWalker">
     <module name="SuppressionXpathFilter">
-      <property name="file" value="checkstyle-suppressions.xml"/>
+      <property name="file" value="${config_loc}/checkstyle-suppressions.xml"/>
     </module>
+
+    <!-- Applies to @Test methods only (suppressed everywhere else, see
+         checkstyle-suppressions.xml). @ParameterizedTest/@RepeatedTest/@BeforeEach/etc. are
+         deliberately not included here: only a literal @Test keeps a method snake_case. -->
     <module name="MethodName">
+      <property name="id" value="TestMethodName"/>
       <property name="format" value="^[a-z][a-z0-9]*(_[a-z0-9]+)*$"/>
       <message key="name.invalidPattern"
-               value="Method name ''{0}'' must be snake_case, matching pattern ''{1}'' (project convention, see CLAUDE.md)."/>
+               value="Test method name ''{0}'' must be snake_case, matching pattern ''{1}'' (project convention: @Test methods only, see CLAUDE.md)."/>
+    </module>
+
+    <!-- Applies to every method that is not @Test (suppressed for @Test methods, see
+         checkstyle-suppressions.xml): production code, JUnit lifecycle hooks, @ParameterizedTest
+         methods, @MethodSource factories, and private/helper methods in test classes. -->
+    <module name="MethodName">
+      <property name="id" value="ProductionMethodName"/>
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+      <message key="name.invalidPattern"
+               value="Method name ''{0}'' must be camelCase, matching pattern ''{1}'' (project convention: only @Test methods are snake_case, see CLAUDE.md)."/>
     </module>
   </module>
 </module>

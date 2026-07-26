@@ -19,7 +19,7 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * A module whose {@code on_start} begins a request and never ends it must still get disposed by
+ * A module whose {@code onStart} begins a request and never ends it must still get disposed by
  * {@code stop()} — the drain deadline is a ceiling, not a promise the module actually finished.
  */
 class DrainDeadlineTest {
@@ -29,7 +29,7 @@ class DrainDeadlineTest {
 
   @Test
   void stop_completes_after_deadline_despite_perpetual_in_flight_work() {
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     Path jar =
         TestModuleBuilder.module(
@@ -37,7 +37,7 @@ class DrainDeadlineTest {
                 module com.gimle.fixture.neverdrains {
                 }
                 """)
-            .with_descriptor(
+            .withDescriptor(
                 """
                 name: com.gimle.fixture.neverdrains
                 version: 1.0.0

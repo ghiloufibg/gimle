@@ -31,7 +31,7 @@ class RealHookInvocationTest {
   @Test
   void hooks_fire_in_order_with_a_dynamically_loaded_module() {
     RecordingHooks.CALLS.clear();
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     Path jar =
         TestModuleBuilder.module(
@@ -39,7 +39,7 @@ class RealHookInvocationTest {
                 module com.gimle.fixture.hooked {
                 }
                 """)
-            .with_descriptor(
+            .withDescriptor(
                 """
                 name: com.gimle.fixture.hooked
                 version: 1.0.0

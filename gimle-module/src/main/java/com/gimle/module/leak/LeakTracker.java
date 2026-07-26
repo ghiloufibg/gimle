@@ -42,7 +42,7 @@ public final class LeakTracker implements AutoCloseable {
     this.onLeakDetected = onLeakDetected;
 
     this.queueDrainThread =
-        Thread.ofVirtual().name("gimle-leak-tracker-queue").unstarted(this::drain_queue_loop);
+        Thread.ofVirtual().name("gimle-leak-tracker-queue").unstarted(this::drainQueueLoop);
     queueDrainThread.start();
 
     this.sweepExecutor =
@@ -66,7 +66,7 @@ public final class LeakTracker implements AutoCloseable {
     tracked.put(ref, new LeakRecord(id, Instant.now(), packages));
   }
 
-  private void drain_queue_loop() {
+  private void drainQueueLoop() {
     while (!closed) {
       try {
         Reference<? extends ClassLoader> ref = referenceQueue.remove(200);
@@ -90,7 +90,7 @@ public final class LeakTracker implements AutoCloseable {
       }
       if (tracked.remove(entry.getKey()) != null) {
         Duration survival = Duration.between(record.undeployedAt(), Instant.now());
-        Optional<String> retainingPath = correlator.find_retaining_path(record.packages());
+        Optional<String> retainingPath = correlator.findRetainingPath(record.packages());
         onLeakDetected.accept(new ModuleLeakDetected(record.id(), survival, retainingPath));
       }
     }

@@ -56,13 +56,13 @@ public final class ReplicaCountReconciler {
     this.placementGracePeriod = placementGracePeriod;
   }
 
-  public void reconcile_once() {
+  public void reconcileOnce() {
     Instant now = Instant.now();
     Set<String> currentKeys = ConcurrentHashMap.newKeySet();
-    for (InstanceAssignment assignment : store.list_assignments()) {
+    for (InstanceAssignment assignment : store.listAssignments()) {
       String key = key(assignment);
       currentKeys.add(key);
-      if (is_confirmed_by_its_node(assignment, now)) {
+      if (isConfirmedByItsNode(assignment, now)) {
         firstSeenMissingAt.remove(key);
         continue;
       }
@@ -74,7 +74,7 @@ public final class ReplicaCountReconciler {
             assignment.deploymentName(),
             assignment.instanceIndex(),
             assignment.nodeId());
-        store.remove_assignment(assignment.deploymentName(), assignment.instanceIndex());
+        store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
         firstSeenMissingAt.remove(key);
       }
     }
@@ -83,16 +83,16 @@ public final class ReplicaCountReconciler {
     firstSeenMissingAt.keySet().retainAll(currentKeys);
   }
 
-  private boolean is_confirmed_by_its_node(InstanceAssignment assignment, Instant now) {
+  private boolean isConfirmedByItsNode(InstanceAssignment assignment, Instant now) {
     return store
-        .get_node_heartbeat(assignment.nodeId())
-        .filter(observed -> !node_is_dark(observed, now))
+        .getNodeHeartbeat(assignment.nodeId())
+        .filter(observed -> !nodeIsDark(observed, now))
         .map(ObservedHeartbeat::heartbeat)
         .map(heartbeat -> mentions(heartbeat, assignment))
         .orElse(false);
   }
 
-  private boolean node_is_dark(ObservedHeartbeat observed, Instant now) {
+  private boolean nodeIsDark(ObservedHeartbeat observed, Instant now) {
     return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
   }
 

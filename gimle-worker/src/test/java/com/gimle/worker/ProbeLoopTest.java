@@ -24,7 +24,7 @@ class ProbeLoopTest {
   private final BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 4);
 
   @AfterEach
-  void tear_down() {
+  void tearDown() {
     probeLoop.close();
     scheduler.close();
   }
@@ -40,7 +40,7 @@ class ProbeLoopTest {
         Duration.ofSeconds(1),
         results::add);
 
-    Await.at_least(() -> results.size() >= 3, Duration.ofSeconds(2));
+    Await.atLeast(() -> results.size() >= 3, Duration.ofSeconds(2));
     assertTrue(results.stream().allMatch(Boolean::booleanValue));
   }
 
@@ -55,7 +55,7 @@ class ProbeLoopTest {
         Duration.ofSeconds(1),
         results::add);
 
-    Await.at_least(() -> !results.isEmpty(), Duration.ofSeconds(2));
+    Await.atLeast(() -> !results.isEmpty(), Duration.ofSeconds(2));
     assertTrue(results.stream().noneMatch(Boolean::booleanValue));
   }
 
@@ -72,7 +72,7 @@ class ProbeLoopTest {
         Duration.ofSeconds(1),
         results::add);
 
-    Await.at_least(() -> !results.isEmpty(), Duration.ofSeconds(2));
+    Await.atLeast(() -> !results.isEmpty(), Duration.ofSeconds(2));
     assertEquals(false, results.get(0));
   }
 
@@ -90,7 +90,7 @@ class ProbeLoopTest {
         Duration.ofMillis(100),
         results::add);
 
-    Await.at_least(() -> !results.isEmpty(), Duration.ofSeconds(2));
+    Await.atLeast(() -> !results.isEmpty(), Duration.ofSeconds(2));
     assertEquals(false, results.get(0));
   }
 
@@ -108,7 +108,7 @@ class ProbeLoopTest {
         Duration.ofSeconds(1),
         ignored -> {});
 
-    Await.at_least(() -> invocationCount.get() >= 2, Duration.ofSeconds(2));
+    Await.atLeast(() -> invocationCount.get() >= 2, Duration.ofSeconds(2));
     probeLoop.stop("liveness");
     int countAtStop = invocationCount.get();
     Thread.sleep(150);
@@ -136,6 +136,6 @@ class ProbeLoopTest {
         Duration.ofSeconds(1),
         r -> secondRan.set(true));
 
-    Await.at_least(() -> firstRan.get() && secondRan.get(), Duration.ofSeconds(2));
+    Await.atLeast(() -> firstRan.get() && secondRan.get(), Duration.ofSeconds(2));
   }
 }

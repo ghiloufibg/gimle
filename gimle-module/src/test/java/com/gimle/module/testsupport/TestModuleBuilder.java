@@ -43,7 +43,7 @@ public final class TestModuleBuilder {
     return new TestModuleBuilder(moduleInfoSource);
   }
 
-  public static String minimal_descriptor(String name, String version) {
+  public static String minimalDescriptor(String name, String version) {
     return """
         name: %s
         version: %s
@@ -60,18 +60,18 @@ public final class TestModuleBuilder {
         .formatted(name, version);
   }
 
-  public TestModuleBuilder with_class(String binaryName, String javaSource) {
+  public TestModuleBuilder withClass(String binaryName, String javaSource) {
     sources.add(new SourceFile(binaryName, javaSource));
     return this;
   }
 
-  public TestModuleBuilder with_descriptor(String yaml) {
+  public TestModuleBuilder withDescriptor(String yaml) {
     this.descriptorYaml = yaml;
     return this;
   }
 
   /** Puts the given jars on the compiler's module path, for modules requiring other modules. */
-  public TestModuleBuilder depends_on(Path... jars) {
+  public TestModuleBuilder dependsOn(Path... jars) {
     modulePathJars.addAll(List.of(jars));
     return this;
   }
@@ -82,7 +82,7 @@ public final class TestModuleBuilder {
       Path classesDir = Files.createTempDirectory("gimle-test-classes-");
       compile(classesDir);
       Path jarPath = outputDir.resolve(jarFileName);
-      write_jar(classesDir, jarPath);
+      writeJar(classesDir, jarPath);
       return jarPath;
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -122,7 +122,7 @@ public final class TestModuleBuilder {
     }
   }
 
-  private void write_jar(Path classesDir, Path jarPath) throws IOException {
+  private void writeJar(Path classesDir, Path jarPath) throws IOException {
     Manifest manifest = new Manifest();
     manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
     try (JarOutputStream jarOut = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {

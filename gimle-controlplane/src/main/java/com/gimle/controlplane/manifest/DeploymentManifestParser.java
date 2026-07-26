@@ -36,15 +36,15 @@ public final class DeploymentManifestParser {
       throw new GimleManifestException(
           "deployment manifest must contain a YAML mapping at the root");
     }
-    return parse_root(root);
+    return parseRoot(root);
   }
 
-  private static DeploymentSpec parse_root(Map<?, ?> root) {
-    String name = require_string(root, "name");
-    ModuleId moduleId = parse_module_id(require_map(root, "module"));
-    String artifactPath = require_string(root, "artifactPath");
-    int replicas = parse_replicas(root);
-    PlacementConstraints placement = parse_placement(root);
+  private static DeploymentSpec parseRoot(Map<?, ?> root) {
+    String name = requireString(root, "name");
+    ModuleId moduleId = parseModuleId(requireMap(root, "module"));
+    String artifactPath = requireString(root, "artifactPath");
+    int replicas = parseReplicas(root);
+    PlacementConstraints placement = parsePlacement(root);
 
     try {
       return new DeploymentSpec(name, moduleId, artifactPath, replicas, placement);
@@ -54,9 +54,9 @@ public final class DeploymentManifestParser {
     }
   }
 
-  private static ModuleId parse_module_id(Map<?, ?> module) {
-    String moduleName = require_string(module, "name");
-    String versionText = require_string(module, "version");
+  private static ModuleId parseModuleId(Map<?, ?> module) {
+    String moduleName = requireString(module, "name");
+    String versionText = requireString(module, "version");
     try {
       return new ModuleId(moduleName, Version.parse(versionText));
     } catch (IllegalArgumentException e) {
@@ -64,7 +64,7 @@ public final class DeploymentManifestParser {
     }
   }
 
-  private static int parse_replicas(Map<?, ?> root) {
+  private static int parseReplicas(Map<?, ?> root) {
     Object value = root.get("replicas");
     if (!(value instanceof Number number)) {
       throw new GimleManifestException("missing or non-numeric required field: replicas");
@@ -72,7 +72,7 @@ public final class DeploymentManifestParser {
     return number.intValue();
   }
 
-  private static PlacementConstraints parse_placement(Map<?, ?> root) {
+  private static PlacementConstraints parsePlacement(Map<?, ?> root) {
     Object placementObj = root.get("placement");
     if (placementObj == null) {
       return PlacementConstraints.NONE;
@@ -80,8 +80,8 @@ public final class DeploymentManifestParser {
     if (!(placementObj instanceof Map<?, ?> placement)) {
       throw new GimleManifestException("'placement' must be a mapping");
     }
-    boolean antiAffinity = boolean_field(placement, "antiAffinity", false);
-    Optional<Set<String>> requiredLabels = parse_required_labels(placement);
+    boolean antiAffinity = booleanField(placement, "antiAffinity", false);
+    Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
     try {
       return new PlacementConstraints(requiredLabels, antiAffinity);
     } catch (IllegalArgumentException e) {
@@ -89,7 +89,7 @@ public final class DeploymentManifestParser {
     }
   }
 
-  private static Optional<Set<String>> parse_required_labels(Map<?, ?> placement) {
+  private static Optional<Set<String>> parseRequiredLabels(Map<?, ?> placement) {
     Object value = placement.get("requiredLabels");
     if (value == null) {
       return Optional.empty();
@@ -108,7 +108,7 @@ public final class DeploymentManifestParser {
     return Optional.of(Set.copyOf(labels));
   }
 
-  private static boolean boolean_field(Map<?, ?> map, String key, boolean defaultValue) {
+  private static boolean booleanField(Map<?, ?> map, String key, boolean defaultValue) {
     Object value = map.get(key);
     if (value == null) {
       return defaultValue;
@@ -119,7 +119,7 @@ public final class DeploymentManifestParser {
     return b;
   }
 
-  private static String require_string(Map<?, ?> map, String key) {
+  private static String requireString(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (!(value instanceof String s) || s.isBlank()) {
       throw new GimleManifestException("missing or blank required field: " + key);
@@ -127,7 +127,7 @@ public final class DeploymentManifestParser {
     return s;
   }
 
-  private static Map<?, ?> require_map(Map<?, ?> map, String key) {
+  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (!(value instanceof Map<?, ?> m)) {
       throw new GimleManifestException("missing or malformed required section: " + key);

@@ -22,8 +22,8 @@ class WorkerMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
 
-    metrics.record_request(ID, Duration.ofMillis(42), false);
-    metrics.record_request(ID, Duration.ofMillis(58), false);
+    metrics.recordRequest(ID, Duration.ofMillis(42), false);
+    metrics.recordRequest(ID, Duration.ofMillis(58), false);
 
     assertEquals(
         2.0,
@@ -36,7 +36,7 @@ class WorkerMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
 
-    metrics.record_request(ID, Duration.ofMillis(10), true);
+    metrics.recordRequest(ID, Duration.ofMillis(10), true);
 
     assertEquals(1.0, registry.find("gimle.module.request.errors").counter().count());
   }
@@ -46,7 +46,7 @@ class WorkerMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
 
-    metrics.record_request(ID, Duration.ofMillis(10), false);
+    metrics.recordRequest(ID, Duration.ofMillis(10), false);
 
     Search search = registry.find("gimle.module.request.errors");
     assertNull(search.counter());
@@ -60,12 +60,12 @@ class WorkerMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
 
-    metrics.record_thread_count(ID, 3);
+    metrics.recordThreadCount(ID, 3);
     Gauge gauge = registry.find("gimle.module.threads").tag("module", ID.name()).gauge();
     assertNotNull(gauge);
     assertEquals(3.0, gauge.value());
 
-    metrics.record_thread_count(ID, 7);
+    metrics.recordThreadCount(ID, 7);
     assertEquals(
         7.0, gauge.value(), "gauge must reflect the latest value, not the first one recorded");
   }
@@ -75,8 +75,8 @@ class WorkerMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
 
-    metrics.record_metaspace_bytes(ID, 1_000_000L);
-    metrics.record_metaspace_bytes(ID, 2_500_000L);
+    metrics.recordMetaspaceBytes(ID, 1_000_000L);
+    metrics.recordMetaspaceBytes(ID, 2_500_000L);
 
     Gauge gauge = registry.find("gimle.module.metaspace.bytes").tag("module", ID.name()).gauge();
     assertNotNull(gauge);
@@ -89,8 +89,8 @@ class WorkerMetricsTest {
     WorkerMetrics metrics = new WorkerMetrics(registry);
     ModuleId other = new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0"));
 
-    metrics.record_thread_count(ID, 3);
-    metrics.record_thread_count(other, 9);
+    metrics.recordThreadCount(ID, 3);
+    metrics.recordThreadCount(other, 9);
 
     assertEquals(
         3.0, registry.find("gimle.module.threads").tag("module", ID.name()).gauge().value());

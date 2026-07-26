@@ -33,8 +33,8 @@ class ThreadNameJfrAttributorTest {
   void register_and_unregister_module_do_not_throw() {
     try (ThreadNameJfrAttributor attributor =
         new ThreadNameJfrAttributor(new SimpleMeterRegistry())) {
-      assertDoesNotThrow(() -> attributor.register_module(ID));
-      assertDoesNotThrow(() -> attributor.unregister_module(ID));
+      assertDoesNotThrow(() -> attributor.registerModule(ID));
+      assertDoesNotThrow(() -> attributor.unregisterModule(ID));
     }
   }
 
@@ -42,7 +42,7 @@ class ThreadNameJfrAttributorTest {
   void unregistering_a_module_never_registered_does_not_throw() {
     try (ThreadNameJfrAttributor attributor =
         new ThreadNameJfrAttributor(new SimpleMeterRegistry())) {
-      assertDoesNotThrow(() -> attributor.unregister_module(ID));
+      assertDoesNotThrow(() -> attributor.unregisterModule(ID));
     }
   }
 }

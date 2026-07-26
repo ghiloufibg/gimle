@@ -58,12 +58,12 @@ public final class RestartTracker {
 
   /**
    * Records a failure and reports whether another attempt is still within budget. When {@code
-   * true}, {@link #delay_until_next_attempt} tells the caller how long to wait first. When {@code
+   * true}, {@link #delayUntilNextAttempt} tells the caller how long to wait first. When {@code
    * false}, the budget for this rolling window is exhausted — the caller should escalate (module
    * giving up -&gt; worker restart; worker giving up -&gt; terminal status) rather than retry again
    * itself.
    */
-  public boolean record_failure_and_check_should_retry(Instant now) {
+  public boolean recordFailureAndCheckShouldRetry(Instant now) {
     if (windowStart == null || Duration.between(windowStart, now).compareTo(window) > 0) {
       windowStart = now;
       attemptsInWindow = 0;
@@ -81,16 +81,14 @@ public final class RestartTracker {
     return true;
   }
 
-  /**
-   * How long to wait before the retry {@link #record_failure_and_check_should_retry} just approved.
-   */
-  public Duration delay_until_next_attempt(Instant now) {
+  /** How long to wait before the retry {@link #recordFailureAndCheckShouldRetry} just approved. */
+  public Duration delayUntilNextAttempt(Instant now) {
     Duration remaining = Duration.between(now, nextAllowedAttempt);
     return remaining.isNegative() ? Duration.ZERO : remaining;
   }
 
   /** Resets the window entirely — call after an attempt actually succeeds. */
-  public void record_success() {
+  public void recordSuccess() {
     attemptsInWindow = 0;
     windowStart = null;
     nextAllowedAttempt = Instant.EPOCH;

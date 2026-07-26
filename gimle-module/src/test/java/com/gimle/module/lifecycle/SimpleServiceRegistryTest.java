@@ -72,7 +72,7 @@ class SimpleServiceRegistryTest {
     Greeter instance = () -> "hello";
     registry.register(owner, Greeter.class, instance);
 
-    registry.mark_unready(owner);
+    registry.markUnready(owner);
     assertEquals(Optional.empty(), registry.lookup(Greeter.class));
   }
 
@@ -86,7 +86,7 @@ class SimpleServiceRegistryTest {
     registry.register(ownerA, Greeter.class, a);
     registry.register(ownerB, Greeter.class, b);
 
-    registry.mark_unready(ownerA);
+    registry.markUnready(ownerA);
     for (int i = 0; i < 5; i++) {
       assertEquals(Optional.of(b), registry.lookup(Greeter.class));
     }

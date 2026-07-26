@@ -52,55 +52,55 @@ public final class StateStore {
   public StateStore(Path root) {
     this.root = root;
     try {
-      Files.createDirectories(deployments_dir());
-      Files.createDirectories(assignments_dir());
-      Files.createDirectories(nodes_dir());
+      Files.createDirectories(deploymentsDir());
+      Files.createDirectories(assignmentsDir());
+      Files.createDirectories(nodesDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
-    load_all();
+    loadAll();
   }
 
   // ---- deployments ----
 
-  public void put_deployment(DeploymentSpec spec) {
-    write_atomically(deployment_file(spec.name()), deployment_to_yaml(spec));
+  public void putDeployment(DeploymentSpec spec) {
+    writeAtomically(deploymentFile(spec.name()), deploymentToYaml(spec));
     deployments.put(spec.name(), spec);
   }
 
-  public Optional<DeploymentSpec> get_deployment(String name) {
+  public Optional<DeploymentSpec> getDeployment(String name) {
     return Optional.ofNullable(deployments.get(name));
   }
 
-  public List<DeploymentSpec> list_deployments() {
+  public List<DeploymentSpec> listDeployments() {
     return List.copyOf(deployments.values());
   }
 
-  public void remove_deployment(String name) {
-    delete_quietly(deployment_file(name));
+  public void removeDeployment(String name) {
+    deleteQuietly(deploymentFile(name));
     deployments.remove(name);
   }
 
   // ---- assignments ----
 
-  public void put_assignment(InstanceAssignment assignment) {
-    write_atomically(
-        assignment_file(assignment.deploymentName(), assignment.instanceIndex()),
-        assignment_to_yaml(assignment));
+  public void putAssignment(InstanceAssignment assignment) {
+    writeAtomically(
+        assignmentFile(assignment.deploymentName(), assignment.instanceIndex()),
+        assignmentToYaml(assignment));
     assignments.put(
-        assignment_key(assignment.deploymentName(), assignment.instanceIndex()), assignment);
+        assignmentKey(assignment.deploymentName(), assignment.instanceIndex()), assignment);
   }
 
-  public void remove_assignment(String deploymentName, int instanceIndex) {
-    delete_quietly(assignment_file(deploymentName, instanceIndex));
-    assignments.remove(assignment_key(deploymentName, instanceIndex));
+  public void removeAssignment(String deploymentName, int instanceIndex) {
+    deleteQuietly(assignmentFile(deploymentName, instanceIndex));
+    assignments.remove(assignmentKey(deploymentName, instanceIndex));
   }
 
-  public List<InstanceAssignment> list_assignments() {
+  public List<InstanceAssignment> listAssignments() {
     return List.copyOf(assignments.values());
   }
 
-  public List<InstanceAssignment> list_assignments_for(String deploymentName) {
+  public List<InstanceAssignment> listAssignmentsFor(String deploymentName) {
     return assignments.values().stream()
         .filter(a -> a.deploymentName().equals(deploymentName))
         .toList();
@@ -108,98 +108,98 @@ public final class StateStore {
 
   // ---- node registrations ----
 
-  public void put_node_registration(NodeRegistration registration) {
-    write_atomically(registration_file(registration.nodeId()), registration_to_yaml(registration));
+  public void putNodeRegistration(NodeRegistration registration) {
+    writeAtomically(registrationFile(registration.nodeId()), registrationToYaml(registration));
     nodeRegistrations.put(registration.nodeId(), registration);
   }
 
-  public Optional<NodeRegistration> get_node_registration(String nodeId) {
+  public Optional<NodeRegistration> getNodeRegistration(String nodeId) {
     return Optional.ofNullable(nodeRegistrations.get(nodeId));
   }
 
-  public List<NodeRegistration> list_node_registrations() {
+  public List<NodeRegistration> listNodeRegistrations() {
     return List.copyOf(nodeRegistrations.values());
   }
 
   // ---- node heartbeats ----
 
-  public void put_node_heartbeat(NodeHeartbeat heartbeat) {
+  public void putNodeHeartbeat(NodeHeartbeat heartbeat) {
     Instant receivedAt = Instant.now();
-    write_atomically(heartbeat_file(heartbeat.nodeId()), heartbeat_to_yaml(heartbeat, receivedAt));
+    writeAtomically(heartbeatFile(heartbeat.nodeId()), heartbeatToYaml(heartbeat, receivedAt));
     nodeHeartbeats.put(heartbeat.nodeId(), new ObservedHeartbeat(heartbeat, receivedAt));
   }
 
-  public Optional<ObservedHeartbeat> get_node_heartbeat(String nodeId) {
+  public Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId) {
     return Optional.ofNullable(nodeHeartbeats.get(nodeId));
   }
 
-  public List<ObservedHeartbeat> list_node_heartbeats() {
+  public List<ObservedHeartbeat> listNodeHeartbeats() {
     return List.copyOf(nodeHeartbeats.values());
   }
 
   // ---- disk layout ----
 
-  private Path deployments_dir() {
+  private Path deploymentsDir() {
     return root.resolve("deployments");
   }
 
-  private Path assignments_dir() {
+  private Path assignmentsDir() {
     return root.resolve("assignments");
   }
 
-  private Path nodes_dir() {
+  private Path nodesDir() {
     return root.resolve("nodes");
   }
 
-  private Path deployment_file(String name) {
-    return deployments_dir().resolve(name + ".yaml");
+  private Path deploymentFile(String name) {
+    return deploymentsDir().resolve(name + ".yaml");
   }
 
-  private Path assignment_file(String deploymentName, int instanceIndex) {
-    return assignments_dir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
+  private Path assignmentFile(String deploymentName, int instanceIndex) {
+    return assignmentsDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
   }
 
-  private Path registration_file(String nodeId) {
-    return nodes_dir().resolve(nodeId).resolve("registration.yaml");
+  private Path registrationFile(String nodeId) {
+    return nodesDir().resolve(nodeId).resolve("registration.yaml");
   }
 
-  private Path heartbeat_file(String nodeId) {
-    return nodes_dir().resolve(nodeId).resolve("heartbeat.yaml");
+  private Path heartbeatFile(String nodeId) {
+    return nodesDir().resolve(nodeId).resolve("heartbeat.yaml");
   }
 
-  private static String assignment_key(String deploymentName, int instanceIndex) {
+  private static String assignmentKey(String deploymentName, int instanceIndex) {
     return deploymentName + "#" + instanceIndex;
   }
 
-  private void load_all() {
-    load_each(
-        deployments_dir(),
+  private void loadAll() {
+    loadEach(
+        deploymentsDir(),
         "*.yaml",
         file -> {
           DeploymentSpec spec =
               DeploymentManifestParser.parse(new ByteArrayInputStream(read(file)));
           deployments.put(spec.name(), spec);
         });
-    load_each(
-        assignments_dir(),
+    loadEach(
+        assignmentsDir(),
         "*/*.yaml",
         file -> {
-          InstanceAssignment assignment = assignment_from_map(load_map(file));
+          InstanceAssignment assignment = assignmentFromMap(loadMap(file));
           assignments.put(
-              assignment_key(assignment.deploymentName(), assignment.instanceIndex()), assignment);
+              assignmentKey(assignment.deploymentName(), assignment.instanceIndex()), assignment);
         });
-    load_each(
-        nodes_dir(),
+    loadEach(
+        nodesDir(),
         "*/registration.yaml",
         file -> {
-          NodeRegistration registration = registration_from_map(load_map(file));
+          NodeRegistration registration = registrationFromMap(loadMap(file));
           nodeRegistrations.put(registration.nodeId(), registration);
         });
-    load_each(
-        nodes_dir(),
+    loadEach(
+        nodesDir(),
         "*/heartbeat.yaml",
         file -> {
-          ObservedHeartbeat observed = heartbeat_from_map(load_map(file));
+          ObservedHeartbeat observed = heartbeatFromMap(loadMap(file));
           nodeHeartbeats.put(observed.heartbeat().nodeId(), observed);
         });
   }
@@ -208,7 +208,7 @@ public final class StateStore {
     void load(Path file) throws IOException;
   }
 
-  private static void load_each(Path dir, String glob, FileLoader loader) {
+  private static void loadEach(Path dir, String glob, FileLoader loader) {
     if (!Files.isDirectory(dir)) {
       return;
     }
@@ -218,7 +218,7 @@ public final class StateStore {
           // one level of subdirectories, matching the remaining glob segment
           String childGlob = glob.substring(glob.indexOf('/') + 1);
           if (Files.isDirectory(entry)) {
-            load_each(entry, childGlob, loader);
+            loadEach(entry, childGlob, loader);
           }
         } else if (Files.isRegularFile(entry)) {
           loader.load(entry);
@@ -229,7 +229,7 @@ public final class StateStore {
     }
   }
 
-  private static Map<?, ?> load_map(Path file) {
+  private static Map<?, ?> loadMap(Path file) {
     Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
     Object raw = yaml.load(new ByteArrayInputStream(read(file)));
     if (!(raw instanceof Map<?, ?> map)) {
@@ -246,7 +246,7 @@ public final class StateStore {
     }
   }
 
-  private static void write_atomically(Path target, String content) {
+  private static void writeAtomically(Path target, String content) {
     try {
       Files.createDirectories(target.getParent());
       Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
@@ -262,7 +262,7 @@ public final class StateStore {
     }
   }
 
-  private static void delete_quietly(Path file) {
+  private static void deleteQuietly(Path file) {
     try {
       Files.deleteIfExists(file);
     } catch (IOException e) {
@@ -274,7 +274,7 @@ public final class StateStore {
   // DeploymentManifestParser -- these are our own written files, not user-facing input, but kept
   // just as defensive (SafeConstructor on read) for consistency. ----
 
-  private static String deployment_to_yaml(DeploymentSpec spec) {
+  private static String deploymentToYaml(DeploymentSpec spec) {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("name", spec.name());
     Map<String, Object> module = new LinkedHashMap<>();
@@ -292,7 +292,7 @@ public final class StateStore {
     return new Yaml().dump(root);
   }
 
-  private static String assignment_to_yaml(InstanceAssignment assignment) {
+  private static String assignmentToYaml(InstanceAssignment assignment) {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("deploymentName", assignment.deploymentName());
     root.put("instanceIndex", assignment.instanceIndex());
@@ -300,14 +300,14 @@ public final class StateStore {
     return new Yaml().dump(root);
   }
 
-  private static InstanceAssignment assignment_from_map(Map<?, ?> map) {
+  private static InstanceAssignment assignmentFromMap(Map<?, ?> map) {
     return new InstanceAssignment(
         (String) map.get("deploymentName"),
         ((Number) map.get("instanceIndex")).intValue(),
         (String) map.get("nodeId"));
   }
 
-  private static String registration_to_yaml(NodeRegistration registration) {
+  private static String registrationToYaml(NodeRegistration registration) {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("nodeId", registration.nodeId());
     Map<String, Object> capabilities = new LinkedHashMap<>();
@@ -318,7 +318,7 @@ public final class StateStore {
     return new Yaml().dump(root);
   }
 
-  private static NodeRegistration registration_from_map(Map<?, ?> root) {
+  private static NodeRegistration registrationFromMap(Map<?, ?> root) {
     String nodeId = (String) root.get("nodeId");
     Map<?, ?> capabilities = (Map<?, ?>) root.get("capabilities");
     List<?> tiers = (List<?>) capabilities.get("supportedTiers");
@@ -329,7 +329,7 @@ public final class StateStore {
     return new NodeRegistration(nodeId, new NodeCapabilities(supportedTiers));
   }
 
-  private static String heartbeat_to_yaml(NodeHeartbeat heartbeat, Instant receivedAt) {
+  private static String heartbeatToYaml(NodeHeartbeat heartbeat, Instant receivedAt) {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("nodeId", heartbeat.nodeId());
     root.put("receivedAt", receivedAt.toString());
@@ -357,7 +357,7 @@ public final class StateStore {
     return new Yaml().dump(root);
   }
 
-  private static ObservedHeartbeat heartbeat_from_map(Map<?, ?> root) {
+  private static ObservedHeartbeat heartbeatFromMap(Map<?, ?> root) {
     String nodeId = (String) root.get("nodeId");
     Instant receivedAt = Instant.parse((String) root.get("receivedAt"));
     Map<?, ?> capacityMap = (Map<?, ?>) root.get("capacity");

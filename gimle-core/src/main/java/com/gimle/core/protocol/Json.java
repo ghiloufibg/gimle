@@ -21,9 +21,9 @@ public final class Json {
 
   public static Object parse(String text) {
     Parser parser = new Parser(text);
-    Object value = parser.parse_value();
-    parser.skip_whitespace();
-    if (!parser.at_end()) {
+    Object value = parser.parseValue();
+    parser.skipWhitespace();
+    if (!parser.atEnd()) {
       throw new IllegalArgumentException(
           "trailing content after JSON value at position " + parser.pos);
     }
@@ -32,15 +32,15 @@ public final class Json {
 
   public static String write(Object value) {
     StringBuilder sb = new StringBuilder();
-    write_value(value, sb);
+    writeValue(value, sb);
     return sb.toString();
   }
 
-  private static void write_value(Object value, StringBuilder sb) {
+  private static void writeValue(Object value, StringBuilder sb) {
     if (value == null) {
       sb.append("null");
     } else if (value instanceof String s) {
-      write_string(s, sb);
+      writeString(s, sb);
     } else if (value instanceof Boolean b) {
       sb.append(b);
     } else if (value instanceof Number n) {
@@ -53,9 +53,9 @@ public final class Json {
           sb.append(',');
         }
         first = false;
-        write_string(String.valueOf(entry.getKey()), sb);
+        writeString(String.valueOf(entry.getKey()), sb);
         sb.append(':');
-        write_value(entry.getValue(), sb);
+        writeValue(entry.getValue(), sb);
       }
       sb.append('}');
     } else if (value instanceof List<?> list) {
@@ -66,7 +66,7 @@ public final class Json {
           sb.append(',');
         }
         first = false;
-        write_value(item, sb);
+        writeValue(item, sb);
       }
       sb.append(']');
     } else {
@@ -74,7 +74,7 @@ public final class Json {
     }
   }
 
-  private static void write_string(String s, StringBuilder sb) {
+  private static void writeString(String s, StringBuilder sb) {
     sb.append('"');
     for (int i = 0; i < s.length(); i++) {
       char c = s.charAt(i);
@@ -104,48 +104,48 @@ public final class Json {
       this.text = text;
     }
 
-    boolean at_end() {
+    boolean atEnd() {
       return pos >= text.length();
     }
 
-    void skip_whitespace() {
+    void skipWhitespace() {
       while (pos < text.length() && Character.isWhitespace(text.charAt(pos))) {
         pos++;
       }
     }
 
-    Object parse_value() {
-      skip_whitespace();
-      if (at_end()) {
+    Object parseValue() {
+      skipWhitespace();
+      if (atEnd()) {
         throw new IllegalArgumentException("unexpected end of JSON input");
       }
       char c = text.charAt(pos);
       return switch (c) {
-        case '{' -> parse_object();
-        case '[' -> parse_array();
-        case '"' -> parse_string();
-        case 't', 'f' -> parse_boolean();
-        case 'n' -> parse_null();
-        default -> parse_number();
+        case '{' -> parseObject();
+        case '[' -> parseArray();
+        case '"' -> parseString();
+        case 't', 'f' -> parseBoolean();
+        case 'n' -> parseNull();
+        default -> parseNumber();
       };
     }
 
-    Map<String, Object> parse_object() {
+    Map<String, Object> parseObject() {
       expect('{');
       Map<String, Object> result = new LinkedHashMap<>();
-      skip_whitespace();
+      skipWhitespace();
       if (peek() == '}') {
         pos++;
         return result;
       }
       while (true) {
-        skip_whitespace();
-        String key = parse_string();
-        skip_whitespace();
+        skipWhitespace();
+        String key = parseString();
+        skipWhitespace();
         expect(':');
-        Object value = parse_value();
+        Object value = parseValue();
         result.put(key, value);
-        skip_whitespace();
+        skipWhitespace();
         char next = peek();
         if (next == ',') {
           pos++;
@@ -160,18 +160,18 @@ public final class Json {
       return result;
     }
 
-    List<Object> parse_array() {
+    List<Object> parseArray() {
       expect('[');
       List<Object> result = new ArrayList<>();
-      skip_whitespace();
+      skipWhitespace();
       if (peek() == ']') {
         pos++;
         return result;
       }
       while (true) {
-        Object value = parse_value();
+        Object value = parseValue();
         result.add(value);
-        skip_whitespace();
+        skipWhitespace();
         char next = peek();
         if (next == ',') {
           pos++;
@@ -186,11 +186,11 @@ public final class Json {
       return result;
     }
 
-    String parse_string() {
+    String parseString() {
       expect('"');
       StringBuilder sb = new StringBuilder();
       while (true) {
-        if (at_end()) {
+        if (atEnd()) {
           throw new IllegalArgumentException("unterminated string");
         }
         char c = text.charAt(pos++);
@@ -222,7 +222,7 @@ public final class Json {
       return sb.toString();
     }
 
-    Boolean parse_boolean() {
+    Boolean parseBoolean() {
       if (text.startsWith("true", pos)) {
         pos += 4;
         return Boolean.TRUE;
@@ -234,7 +234,7 @@ public final class Json {
       throw new IllegalArgumentException("invalid literal at position " + pos);
     }
 
-    Object parse_null() {
+    Object parseNull() {
       if (text.startsWith("null", pos)) {
         pos += 4;
         return null;
@@ -242,29 +242,29 @@ public final class Json {
       throw new IllegalArgumentException("invalid literal at position " + pos);
     }
 
-    Number parse_number() {
+    Number parseNumber() {
       int start = pos;
       if (peek() == '-') {
         pos++;
       }
-      while (!at_end() && Character.isDigit(text.charAt(pos))) {
+      while (!atEnd() && Character.isDigit(text.charAt(pos))) {
         pos++;
       }
       boolean isDouble = false;
-      if (!at_end() && text.charAt(pos) == '.') {
+      if (!atEnd() && text.charAt(pos) == '.') {
         isDouble = true;
         pos++;
-        while (!at_end() && Character.isDigit(text.charAt(pos))) {
+        while (!atEnd() && Character.isDigit(text.charAt(pos))) {
           pos++;
         }
       }
-      if (!at_end() && (text.charAt(pos) == 'e' || text.charAt(pos) == 'E')) {
+      if (!atEnd() && (text.charAt(pos) == 'e' || text.charAt(pos) == 'E')) {
         isDouble = true;
         pos++;
-        if (!at_end() && (text.charAt(pos) == '+' || text.charAt(pos) == '-')) {
+        if (!atEnd() && (text.charAt(pos) == '+' || text.charAt(pos) == '-')) {
           pos++;
         }
-        while (!at_end() && Character.isDigit(text.charAt(pos))) {
+        while (!atEnd() && Character.isDigit(text.charAt(pos))) {
           pos++;
         }
       }
@@ -276,14 +276,14 @@ public final class Json {
     }
 
     char peek() {
-      if (at_end()) {
+      if (atEnd()) {
         throw new IllegalArgumentException("unexpected end of JSON input");
       }
       return text.charAt(pos);
     }
 
     void expect(char expected) {
-      if (at_end() || text.charAt(pos) != expected) {
+      if (atEnd() || text.charAt(pos) != expected) {
         throw new IllegalArgumentException("expected '" + expected + "' at position " + pos);
       }
       pos++;

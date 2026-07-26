@@ -41,7 +41,7 @@ public class GimleResolutionException extends RuntimeException {
         "dependency cycle detected: " + String.join(" -> ", moduleNames));
   }
 
-  public static GimleResolutionException layer_instantiation_failed(
+  public static GimleResolutionException layerInstantiationFailed(
       ModuleId moduleId, Throwable cause) {
     return new GimleResolutionException("failed to instantiate ModuleLayer for " + moduleId, cause);
   }

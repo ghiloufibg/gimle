@@ -30,26 +30,26 @@ public final class ModuleResolver {
   }
 
   public ModuleWiring resolve(ModuleId targetId) {
-    detect_cycle(targetId.name(), new ArrayDeque<>());
+    detectCycle(targetId.name(), new ArrayDeque<>());
 
     ModuleDescriptor descriptor = registry.artifact(targetId).descriptor();
     Map<Requirement, ModuleId> wired = new LinkedHashMap<>();
     for (Requirement requirement : descriptor.requires()) {
-      wired.put(requirement, choose_candidate(targetId, requirement));
+      wired.put(requirement, chooseCandidate(targetId, requirement));
     }
     return new ModuleWiring(targetId, wired);
   }
 
-  private ModuleId choose_candidate(ModuleId dependent, Requirement requirement) {
+  private ModuleId chooseCandidate(ModuleId dependent, Requirement requirement) {
     Optional<ModuleId> best =
-        registry.ids_by_name(requirement.moduleName()).stream()
-            .filter(candidateId -> is_resolvable_state(registry.state(candidateId)))
+        registry.idsByName(requirement.moduleName()).stream()
+            .filter(candidateId -> isResolvableState(registry.state(candidateId)))
             .filter(candidateId -> requirement.range().satisfies(candidateId.version()))
             .max(Comparator.comparing(ModuleId::version));
     return best.orElseThrow(() -> GimleResolutionException.unsatisfied(dependent, requirement));
   }
 
-  private static boolean is_resolvable_state(ModuleState state) {
+  private static boolean isResolvableState(ModuleState state) {
     return state == ModuleState.RESOLVED || state == ModuleState.ACTIVE;
   }
 
@@ -58,10 +58,10 @@ public final class ModuleResolver {
    * version of that name — not the resolution-order graph, which by construction can't cycle since
    * a dependency must already be resolved before a dependent wires to it). This is intentionally
    * conservative: if any installed version of a name participates in a cycle, the name is flagged,
-   * even if the specific version {@link #choose_candidate} would ultimately pick does not. That's
+   * even if the specific version {@link #chooseCandidate} would ultimately pick does not. That's
    * the right default for what is almost always a manifest-authoring mistake.
    */
-  private void detect_cycle(String moduleName, Deque<String> path) {
+  private void detectCycle(String moduleName, Deque<String> path) {
     if (path.contains(moduleName)) {
       List<String> cycle = new ArrayList<>(path);
       cycle.add(moduleName);
@@ -69,9 +69,9 @@ public final class ModuleResolver {
     }
     path.push(moduleName);
     try {
-      for (ModuleId id : registry.ids_by_name(moduleName)) {
+      for (ModuleId id : registry.idsByName(moduleName)) {
         for (Requirement requirement : registry.artifact(id).descriptor().requires()) {
-          detect_cycle(requirement.moduleName(), path);
+          detectCycle(requirement.moduleName(), path);
         }
       }
     } finally {

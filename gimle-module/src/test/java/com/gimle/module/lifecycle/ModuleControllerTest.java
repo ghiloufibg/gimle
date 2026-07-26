@@ -38,7 +38,7 @@ class ModuleControllerTest {
 
   private static int counter = 0;
 
-  private Path build_fixture_jar(String name) {
+  private Path buildFixtureJar(String name) {
     String uniqueName = name + (counter++);
     return TestModuleBuilder.module(
             """
@@ -46,7 +46,7 @@ class ModuleControllerTest {
             }
             """
                 .formatted(uniqueName))
-        .with_descriptor(TestModuleBuilder.minimal_descriptor(uniqueName, "1.0.0"))
+        .withDescriptor(TestModuleBuilder.minimalDescriptor(uniqueName, "1.0.0"))
         .build(tempDir, uniqueName + ".jar");
   }
 
@@ -56,13 +56,13 @@ class ModuleControllerTest {
       ModuleId id,
       List<LifecycleEvent> events) {}
 
-  private Fixture fixture_for(String name) {
-    Path jar = build_fixture_jar(name);
+  private Fixture fixtureFor(String name) {
+    Path jar = buildFixtureJar(name);
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
     ModuleId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new ArrayList<>();
     ModuleController controller =
         new ModuleController(
@@ -77,7 +77,7 @@ class ModuleControllerTest {
 
   @Test
   void full_happy_path_without_hooks() {
-    Fixture f = fixture_for("com.gimle.fixture.happy");
+    Fixture f = fixtureFor("com.gimle.fixture.happy");
 
     f.controller().resolve(f.id());
     assertEquals(ModuleState.RESOLVED, f.registry().state(f.id()));
@@ -94,20 +94,20 @@ class ModuleControllerTest {
 
   @Test
   void start_before_resolve_is_illegal() {
-    Fixture f = fixture_for("com.gimle.fixture.early_start");
+    Fixture f = fixtureFor("com.gimle.fixture.early_start");
     assertThrows(GimleLifecycleException.class, () -> f.controller().start(f.id()));
   }
 
   @Test
   void stop_before_active_is_illegal() {
-    Fixture f = fixture_for("com.gimle.fixture.early_stop");
+    Fixture f = fixtureFor("com.gimle.fixture.early_stop");
     f.controller().resolve(f.id());
     assertThrows(GimleLifecycleException.class, () -> f.controller().stop(f.id()));
   }
 
   @Test
   void resolve_failure_marks_module_failed_and_emits_transition_failed() {
-    Path jar = build_fixture_jar("com.gimle.fixture.unresolvable");
+    Path jar = buildFixtureJar("com.gimle.fixture.unresolvable");
     // Overwrite the descriptor content by building a fresh artifact with an unsatisfiable requires.
     ModuleArtifact baseArtifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
@@ -128,7 +128,7 @@ class ModuleControllerTest {
             baseArtifact.sha256());
     ModuleId id = registry.register(withMissingDep);
     ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new ArrayList<>();
     ModuleController controller =
         new ModuleController(
@@ -146,7 +146,7 @@ class ModuleControllerTest {
 
   @Test
   void uninstall_from_failed_state_succeeds() {
-    Fixture f = fixture_for("com.gimle.fixture.uninstall_failed");
+    Fixture f = fixtureFor("com.gimle.fixture.uninstall_failed");
     // Force into FAILED via an illegal path is awkward; instead resolve fine, then simulate
     // FAILED by directly driving a resolve failure is covered above — here we exercise
     // uninstall() directly from INSTALLED, which the FAILED/INSTALLED/RESOLVED group all share.
@@ -156,7 +156,7 @@ class ModuleControllerTest {
 
   @Test
   void uninstall_rejects_active_module() {
-    Fixture f = fixture_for("com.gimle.fixture.uninstall_active");
+    Fixture f = fixtureFor("com.gimle.fixture.uninstall_active");
     f.controller().resolve(f.id());
     f.controller().start(f.id());
     assertThrows(GimleLifecycleException.class, () -> f.controller().uninstall(f.id()));
@@ -164,7 +164,7 @@ class ModuleControllerTest {
 
   @Test
   void state_query_after_uninstall_throws() {
-    Fixture f = fixture_for("com.gimle.fixture.gone");
+    Fixture f = fixtureFor("com.gimle.fixture.gone");
     f.controller().uninstall(f.id());
     assertThrows(NoSuchElementException.class, () -> f.registry().state(f.id()));
   }

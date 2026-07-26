@@ -51,10 +51,10 @@ public record Version(int major, int minor, int patch, String qualifier)
     if (cmp != 0) {
       return cmp;
     }
-    return compare_qualifier(qualifier, other.qualifier);
+    return compareQualifier(qualifier, other.qualifier);
   }
 
-  private static int compare_qualifier(String a, String b) {
+  private static int compareQualifier(String a, String b) {
     // No qualifier outranks any qualifier (1.0.0 > 1.0.0-rc1) — semver precedence.
     boolean aEmpty = a.isEmpty();
     boolean bEmpty = b.isEmpty();

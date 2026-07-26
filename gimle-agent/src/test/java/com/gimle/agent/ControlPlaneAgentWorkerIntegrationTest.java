@@ -58,13 +58,13 @@ class ControlPlaneAgentWorkerIntegrationTest {
   private volatile boolean stopReconcileLoop;
 
   @AfterEach
-  void tear_down() {
+  void tearDown() {
     stopReconcileLoop = true;
     if (reconcileLoop != null) {
       reconcileLoop.interrupt();
     }
     for (Process process : agentProcesses) {
-      kill_with_descendants(process);
+      killWithDescendants(process);
     }
     if (apiServer != null) {
       apiServer.close();
@@ -78,7 +78,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
    * first mirrors what actually happens on a real crashed machine (everything on it stops), which
    * is the scenario this test means to simulate.
    */
-  private static void kill_with_descendants(Process process) {
+  private static void killWithDescendants(Process process) {
     process.descendants().forEach(ProcessHandle::destroy);
     process.destroyForcibly();
   }
@@ -93,8 +93,8 @@ class ControlPlaneAgentWorkerIntegrationTest {
                 module com.gimle.fixture.controlplaneit {
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.controlplaneit", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.controlplaneit", "1.0.0"))
             .build(tempDir, "fixture.jar");
 
     StateStore store = new StateStore(tempDir.resolve("cp-state"));
@@ -118,9 +118,9 @@ class ControlPlaneAgentWorkerIntegrationTest {
             .start(
                 () -> {
                   while (!stopReconcileLoop) {
-                    replicaCountReconciler.reconcile_once();
-                    healthReconciler.reconcile_once();
-                    deploymentReconciler.reconcile_once();
+                    replicaCountReconciler.reconcileOnce();
+                    healthReconciler.reconcileOnce();
+                    deploymentReconciler.reconcileOnce();
                     try {
                       Thread.sleep(300);
                     } catch (InterruptedException e) {
@@ -130,30 +130,30 @@ class ControlPlaneAgentWorkerIntegrationTest {
                   }
                 });
 
-    String javaExecutable = java_executable();
+    String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
 
     agentProcesses.add(
-        spawn_agent(javaExecutable, classpath, "node-a", baseUrl, tempDir.resolve("node-a.log")));
+        spawnAgent(javaExecutable, classpath, "node-a", baseUrl, tempDir.resolve("node-a.log")));
     agentProcesses.add(
-        spawn_agent(javaExecutable, classpath, "node-b", baseUrl, tempDir.resolve("node-b.log")));
+        spawnAgent(javaExecutable, classpath, "node-b", baseUrl, tempDir.resolve("node-b.log")));
 
     HttpClient httpClient = HttpClient.newHttpClient();
-    submit_deployment(httpClient, baseUrl, "fixture-deployment", jar, 2);
+    submitDeployment(httpClient, baseUrl, "fixture-deployment", jar, 2);
 
     await(
-        () -> active_instance_count_quietly(httpClient, baseUrl, "fixture-deployment") >= 2,
+        () -> activeInstanceCountQuietly(httpClient, baseUrl, "fixture-deployment") >= 2,
         Duration.ofSeconds(90),
         "both replicas should reach ACTIVE");
 
     Map<String, Object> statusBeforeKill =
-        deployment_status(httpClient, baseUrl, "fixture-deployment");
-    List<Map<String, Object>> instancesBeforeKill = instances_of(statusBeforeKill);
+        deploymentStatus(httpClient, baseUrl, "fixture-deployment");
+    List<Map<String, Object>> instancesBeforeKill = instancesOf(statusBeforeKill);
     String killedNodeId = (String) instancesBeforeKill.get(0).get("nodeId");
     String survivingNodeId = killedNodeId.equals("node-a") ? "node-b" : "node-a";
 
     Process toKill = killedNodeId.equals("node-a") ? agentProcesses.get(0) : agentProcesses.get(1);
-    kill_with_descendants(toKill);
+    killWithDescendants(toKill);
     toKill.waitFor();
 
     // Checking count alone would trivially pass on stale pre-kill state: the store only reflects
@@ -161,12 +161,12 @@ class ControlPlaneAgentWorkerIntegrationTest {
     // orphaned instance, so the real assertion is "both ACTIVE *and* neither still on the node
     // whose agent just died."
     await(
-        () -> all_active_and_on_node(httpClient, baseUrl, "fixture-deployment", 2, survivingNodeId),
+        () -> allActiveAndOnNode(httpClient, baseUrl, "fixture-deployment", 2, survivingNodeId),
         Duration.ofSeconds(90),
         "both replicas should recover to ACTIVE on the surviving node after the agent hosting one of them is killed");
   }
 
-  private static Process spawn_agent(
+  private static Process spawnAgent(
       String javaExecutable, String classpath, String nodeId, String baseUrl, Path logFile)
       throws IOException {
     ProcessBuilder pb =
@@ -186,7 +186,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
     return pb.start();
   }
 
-  private static void submit_deployment(
+  private static void submitDeployment(
       HttpClient httpClient, String baseUrl, String name, Path jar, int replicas) throws Exception {
     String manifest =
         """
@@ -210,7 +210,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static Map<String, Object> deployment_status(
+  private static Map<String, Object> deploymentStatus(
       HttpClient httpClient, String baseUrl, String name) throws Exception {
     HttpResponse<String> response =
         httpClient.send(
@@ -223,14 +223,13 @@ class ControlPlaneAgentWorkerIntegrationTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static List<Map<String, Object>> instances_of(Map<String, Object> status) {
+  private static List<Map<String, Object>> instancesOf(Map<String, Object> status) {
     return (List<Map<String, Object>>) (List<?>) status.get("instances");
   }
 
-  private static long active_instance_count(HttpClient httpClient, String baseUrl, String name)
+  private static long activeInstanceCount(HttpClient httpClient, String baseUrl, String name)
       throws Exception {
-    List<Map<String, Object>> instances =
-        instances_of(deployment_status(httpClient, baseUrl, name));
+    List<Map<String, Object>> instances = instancesOf(deploymentStatus(httpClient, baseUrl, name));
     long count = 0;
     for (Map<String, Object> instance : instances) {
       Object observation = instance.get("observation");
@@ -246,10 +245,10 @@ class ControlPlaneAgentWorkerIntegrationTest {
    * {@link BooleanSupplier} can't declare checked exceptions; a transient HTTP hiccup mid-poll
    * should keep the {@link #await} loop retrying, not fail the test outright.
    */
-  private static long active_instance_count_quietly(
+  private static long activeInstanceCountQuietly(
       HttpClient httpClient, String baseUrl, String name) {
     try {
-      return active_instance_count(httpClient, baseUrl, name);
+      return activeInstanceCount(httpClient, baseUrl, name);
     } catch (Exception e) {
       return 0;
     }
@@ -258,10 +257,10 @@ class ControlPlaneAgentWorkerIntegrationTest {
   /**
    * True only once exactly {@code expectedCount} instances are reported, every one is {@code
    * ACTIVE}, and every one is on {@code expectedNodeId} -- the stronger condition {@link
-   * #active_instance_count_quietly} alone can't express, needed so a stale pre-kill snapshot (still
+   * #activeInstanceCountQuietly} alone can't express, needed so a stale pre-kill snapshot (still
    * showing the dead node) can't satisfy this check.
    */
-  private static boolean all_active_and_on_node(
+  private static boolean allActiveAndOnNode(
       HttpClient httpClient,
       String baseUrl,
       String name,
@@ -269,7 +268,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
       String expectedNodeId) {
     try {
       List<Map<String, Object>> instances =
-          instances_of(deployment_status(httpClient, baseUrl, name));
+          instancesOf(deploymentStatus(httpClient, baseUrl, name));
       if (instances.size() != expectedCount) {
         return false;
       }
@@ -304,7 +303,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
     }
   }
 
-  private static String java_executable() {
+  private static String javaExecutable() {
     Optional<String> command = ProcessHandle.current().info().command();
     if (command.isPresent()) {
       return command.get();

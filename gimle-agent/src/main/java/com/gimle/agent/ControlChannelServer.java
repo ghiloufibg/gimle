@@ -27,7 +27,7 @@ public final class ControlChannelServer implements AutoCloseable {
     serverChannel.bind(UnixDomainSocketAddress.of(socketPath));
   }
 
-  public Path socket_path() {
+  public Path socketPath() {
     return socketPath;
   }
 

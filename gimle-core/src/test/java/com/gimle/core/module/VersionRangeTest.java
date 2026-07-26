@@ -56,7 +56,7 @@ class VersionRangeTest {
         "",
         "   "
       })
-  void rejects_malformed_range_text(String malformed) {
+  void rejectsMalformedRangeText(String malformed) {
     assertThrows(IllegalArgumentException.class, () -> VersionRange.parse(malformed));
   }
 

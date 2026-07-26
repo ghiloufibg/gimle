@@ -24,22 +24,22 @@ public class RecordingHooks implements ModuleLifecycleHooks {
   public static final List<String> CALLS = Collections.synchronizedList(new ArrayList<>());
 
   @Override
-  public void on_install(ModuleContext ctx) {
+  public void onInstall(ModuleContext ctx) {
     CALLS.add("install");
   }
 
   @Override
-  public void on_start(ModuleContext ctx) {
+  public void onStart(ModuleContext ctx) {
     CALLS.add("start");
   }
 
   @Override
-  public void on_stop(ModuleContext ctx) {
+  public void onStop(ModuleContext ctx) {
     CALLS.add("stop");
   }
 
   @Override
-  public void on_uninstall(ModuleContext ctx) {
+  public void onUninstall(ModuleContext ctx) {
     CALLS.add("uninstall");
   }
 }

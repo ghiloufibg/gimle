@@ -35,7 +35,7 @@ public final class ModuleLayerFactory {
       ClassLoader loader = layer.findLoader(id.name());
       return new ModuleLayerHandle(layer, loader);
     } catch (FindException | ResolutionException | LayerInstantiationException e) {
-      throw GimleResolutionException.layer_instantiation_failed(id, e);
+      throw GimleResolutionException.layerInstantiationFailed(id, e);
     }
   }
 }

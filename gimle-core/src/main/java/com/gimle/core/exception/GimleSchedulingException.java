@@ -16,7 +16,7 @@ public class GimleSchedulingException extends RuntimeException {
     super(message);
   }
 
-  public static GimleSchedulingException no_feasible_placement(
+  public static GimleSchedulingException noFeasiblePlacement(
       String deploymentName, int instanceIndex, IsolationTier tier) {
     return new GimleSchedulingException(
         "deployment "
@@ -28,7 +28,7 @@ public class GimleSchedulingException extends RuntimeException {
             + " but no registered node has both the capacity and tier support to place it");
   }
 
-  public static GimleSchedulingException anti_affinity_violated(
+  public static GimleSchedulingException antiAffinityViolated(
       String deploymentName, int instanceIndex) {
     return new GimleSchedulingException(
         "deployment "

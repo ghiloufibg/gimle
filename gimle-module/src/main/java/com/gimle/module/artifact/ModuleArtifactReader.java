@@ -42,14 +42,14 @@ public final class ModuleArtifactReader {
       try (InputStream in = jar.getInputStream(descriptorEntry)) {
         descriptor = ModuleDescriptorParser.parse(in);
       }
-      String sha256 = sha256_of(jarPath);
+      String sha256 = sha256Of(jarPath);
       return new ModuleArtifact(descriptor.id(), jarPath, descriptor, sha256);
     } catch (IOException e) {
       throw new GimleManifestException("failed to read module artifact: " + jarPath, e);
     }
   }
 
-  private static String sha256_of(Path jarPath) throws IOException {
+  private static String sha256Of(Path jarPath) throws IOException {
     MessageDigest digest;
     try {
       digest = MessageDigest.getInstance("SHA-256");

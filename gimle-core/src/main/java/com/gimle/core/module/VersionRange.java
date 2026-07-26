@@ -19,12 +19,12 @@ public sealed interface VersionRange permits VersionRange.ExactVersion, VersionR
     }
     char first = trimmed.charAt(0);
     if (first == '[' || first == '(') {
-      return parse_bounded(trimmed);
+      return parseBounded(trimmed);
     }
     return new ExactVersion(Version.parse(trimmed));
   }
 
-  private static VersionRange parse_bounded(String text) {
+  private static VersionRange parseBounded(String text) {
     char lastChar = text.charAt(text.length() - 1);
     if (lastChar != ')' && lastChar != ']') {
       throw new IllegalArgumentException(

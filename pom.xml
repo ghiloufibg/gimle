@@ -158,6 +158,7 @@
           <version>3.6.0</version>
           <configuration>
             <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+            <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}</propertyExpansion>
             <consoleOutput>true</consoleOutput>
             <failOnViolation>true</failOnViolation>
             <violationSeverity>warning</violationSeverity>

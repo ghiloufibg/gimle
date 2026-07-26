@@ -10,7 +10,7 @@ import java.util.List;
  * once per worker JVM from the boot layer plus gimle-core and gimle-api on the module path — but
  * gimle-api doesn't exist yet (it's a later phase), so this stays generic over an arbitrary set of
  * additional module-path entries rather than hard-coding that dependency. Phase 1's own tests use
- * {@link #boot_only()}.
+ * {@link #bootOnly()}.
  */
 public final class PlatformLayer {
 
@@ -20,11 +20,11 @@ public final class PlatformLayer {
     this.layer = layer;
   }
 
-  public static PlatformLayer boot_only() {
+  public static PlatformLayer bootOnly() {
     return new PlatformLayer(ModuleLayer.boot());
   }
 
-  public static PlatformLayer with_additional_modules(
+  public static PlatformLayer withAdditionalModules(
       List<Path> modulePathEntries, List<String> rootModules) {
     ModuleFinder finder = ModuleFinder.of(modulePathEntries.toArray(Path[]::new));
     Configuration cf =

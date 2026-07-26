@@ -36,7 +36,7 @@ final class ControlChannelClient implements AutoCloseable {
     this.out = new OutputStreamWriter(Channels.newOutputStream(channel), StandardCharsets.UTF_8);
   }
 
-  static ControlChannelClient connect_with_retry(
+  static ControlChannelClient connectWithRetry(
       SocketAddress address, Duration retryInterval, Duration timeout) throws IOException {
     Instant deadline = Instant.now().plus(timeout);
     IOException lastFailure = null;

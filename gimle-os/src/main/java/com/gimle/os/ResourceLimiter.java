@@ -19,9 +19,9 @@ public interface ResourceLimiter {
 
   ResourceLimitHandle prepare(String workerId, ResourceSpec limit);
 
-  List<String> jvm_flags(ResourceLimitHandle handle);
+  List<String> jvmFlags(ResourceLimitHandle handle);
 
-  ResourceUsage current_usage(ResourceLimitHandle handle);
+  ResourceUsage currentUsage(ResourceLimitHandle handle);
 
   void release(ResourceLimitHandle handle);
 }

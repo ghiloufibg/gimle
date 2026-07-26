@@ -29,7 +29,7 @@ class TestModuleBuilderTest {
                   exports com.gimle.fixture.greet;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.greet.Greeter",
                 """
                 package com.gimle.fixture.greet;
@@ -39,8 +39,7 @@ class TestModuleBuilderTest {
                   }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.greet", "1.0.0"))
+            .withDescriptor(TestModuleBuilder.minimalDescriptor("com.gimle.fixture.greet", "1.0.0"))
             .build(tempDir, "greet.jar");
 
     assertTrue(java.nio.file.Files.isRegularFile(jar));
@@ -64,7 +63,7 @@ class TestModuleBuilderTest {
                   exports com.gimle.fixture.calc;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.calc.Calc",
                 """
                 package com.gimle.fixture.calc;
@@ -74,8 +73,7 @@ class TestModuleBuilderTest {
                   }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.calc", "1.0.0"))
+            .withDescriptor(TestModuleBuilder.minimalDescriptor("com.gimle.fixture.calc", "1.0.0"))
             .build(tempDir, "calc.jar");
 
     java.lang.module.ModuleFinder finder = java.lang.module.ModuleFinder.of(jar);

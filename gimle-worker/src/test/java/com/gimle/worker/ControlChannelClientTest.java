@@ -29,14 +29,14 @@ class ControlChannelClientTest {
   private Path socketPath;
   private ServerSocketChannel server;
 
-  private Path fresh_socket_path() throws IOException {
+  private Path freshSocketPath() throws IOException {
     // A short path, deliberately not JUnit's @TempDir (nested under the test class/method name),
     // to stay well under AF_UNIX's sun_path length limit on every platform this runs on.
     return Files.createTempDirectory("gimle-uds-").resolve("c.sock");
   }
 
   @AfterEach
-  void tear_down() throws IOException {
+  void tearDown() throws IOException {
     if (server != null) {
       server.close();
     }
@@ -47,7 +47,7 @@ class ControlChannelClientTest {
 
   @Test
   void connect_with_retry_succeeds_once_the_listener_is_up() throws Exception {
-    socketPath = fresh_socket_path();
+    socketPath = freshSocketPath();
     Thread listenerThread =
         Thread.ofVirtual()
             .start(
@@ -62,7 +62,7 @@ class ControlChannelClientTest {
                 });
 
     try (ControlChannelClient client =
-        ControlChannelClient.connect_with_retry(
+        ControlChannelClient.connectWithRetry(
             UnixDomainSocketAddress.of(socketPath), Duration.ofMillis(30), Duration.ofSeconds(5))) {
       assertTrue(true, "connected without throwing");
     } finally {
@@ -72,11 +72,11 @@ class ControlChannelClientTest {
 
   @Test
   void connect_with_retry_gives_up_after_its_timeout_if_nothing_ever_listens() throws Exception {
-    socketPath = fresh_socket_path();
+    socketPath = freshSocketPath();
     assertThrows(
         IOException.class,
         () ->
-            ControlChannelClient.connect_with_retry(
+            ControlChannelClient.connectWithRetry(
                 UnixDomainSocketAddress.of(socketPath),
                 Duration.ofMillis(20),
                 Duration.ofMillis(150)));
@@ -84,34 +84,34 @@ class ControlChannelClientTest {
 
   @Test
   void a_sent_message_is_received_intact_on_the_other_end() throws Exception {
-    socketPath = fresh_socket_path();
+    socketPath = freshSocketPath();
     server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
     server.bind(UnixDomainSocketAddress.of(socketPath));
 
     try (ControlChannelClient client =
-            ControlChannelClient.connect_with_retry(
+            ControlChannelClient.connectWithRetry(
                 UnixDomainSocketAddress.of(socketPath),
                 Duration.ofMillis(20),
                 Duration.ofSeconds(5));
         SocketChannel serverSide = server.accept()) {
       client.send(new ControlMessage.Hello("worker-1", 4242));
 
-      String line = read_line(serverSide);
+      String line = readLine(serverSide);
       assertEquals("HELLO worker-1 4242", line);
     }
   }
 
   @Test
   void receive_returns_empty_once_the_peer_closes_the_connection() throws Exception {
-    socketPath = fresh_socket_path();
+    socketPath = freshSocketPath();
     server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
     server.bind(UnixDomainSocketAddress.of(socketPath));
 
     try (ControlChannelClient client =
-        ControlChannelClient.connect_with_retry(
+        ControlChannelClient.connectWithRetry(
             UnixDomainSocketAddress.of(socketPath), Duration.ofMillis(20), Duration.ofSeconds(5))) {
       try (SocketChannel serverSide = server.accept()) {
-        write_line(serverSide, "PING corr-1");
+        writeLine(serverSide, "PING corr-1");
         Optional<ControlMessage> received = client.receive();
         assertEquals(Optional.of(new ControlMessage.Ping("corr-1")), received);
       }
@@ -120,7 +120,7 @@ class ControlChannelClientTest {
     }
   }
 
-  private static String read_line(SocketChannel channel) throws IOException {
+  private static String readLine(SocketChannel channel) throws IOException {
     java.io.BufferedReader reader =
         new java.io.BufferedReader(
             new java.io.InputStreamReader(
@@ -129,7 +129,7 @@ class ControlChannelClientTest {
     return reader.readLine();
   }
 
-  private static void write_line(SocketChannel channel, String line) throws IOException {
+  private static void writeLine(SocketChannel channel, String line) throws IOException {
     java.io.Writer writer =
         new java.io.OutputStreamWriter(
             java.nio.channels.Channels.newOutputStream(channel),

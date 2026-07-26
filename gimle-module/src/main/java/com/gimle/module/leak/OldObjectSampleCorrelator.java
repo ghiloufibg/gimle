@@ -37,7 +37,7 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
     try {
       stream = new RecordingStream();
       stream.enable("jdk.OldObjectSample");
-      stream.onEvent("jdk.OldObjectSample", this::on_sample);
+      stream.onEvent("jdk.OldObjectSample", this::onSample);
       stream.startAsync();
     } catch (RuntimeException e) {
       // JFR unavailable/disabled in this environment: correlation degrades to "no path found",
@@ -47,7 +47,7 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
     this.recordingStream = stream;
   }
 
-  Optional<String> find_retaining_path(Set<String> modulePackages) {
+  Optional<String> findRetainingPath(Set<String> modulePackages) {
     synchronized (recentSamples) {
       return recentSamples.stream()
           .filter(sample -> modulePackages.contains(sample.packageName()))
@@ -56,11 +56,11 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
     }
   }
 
-  private void on_sample(RecordedEvent event) {
+  private void onSample(RecordedEvent event) {
     if (!event.hasField("object") || !(event.getValue("object") instanceof RecordedObject object)) {
       return;
     }
-    String className = extract_class_name(object);
+    String className = extractClassName(object);
     if (className == null) {
       return;
     }
@@ -75,9 +75,9 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
     }
   }
 
-  private static String extract_class_name(RecordedObject object) {
+  private static String extractClassName(RecordedObject object) {
     for (var field : object.getFields()) {
-      if (safe_get(object, field.getName()) instanceof RecordedClass recordedClass) {
+      if (safeGet(object, field.getName()) instanceof RecordedClass recordedClass) {
         return recordedClass.getName();
       }
     }
@@ -85,11 +85,11 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
   }
 
   private static String describe(RecordedObject object, int depth) {
-    String className = extract_class_name(object);
+    String className = extractClassName(object);
     StringBuilder text = new StringBuilder(className != null ? className : "<unknown>");
     if (depth < MAX_CHAIN_DEPTH) {
       for (var field : object.getFields()) {
-        Object value = safe_get(object, field.getName());
+        Object value = safeGet(object, field.getName());
         if (value instanceof RecordedObject nested && !(value instanceof RecordedClass)) {
           text.append(" <- ").append(describe(nested, depth + 1));
           break;
@@ -99,7 +99,7 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
     return text.toString();
   }
 
-  private static Object safe_get(RecordedObject object, String fieldName) {
+  private static Object safeGet(RecordedObject object, String fieldName) {
     try {
       return object.getValue(fieldName);
     } catch (RuntimeException e) {

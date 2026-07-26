@@ -34,27 +34,25 @@ public final class Scheduler {
     if (antiAffinityAcrossNodes) {
       affinityEligible = tierEligible.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
       if (affinityEligible.isEmpty() && !tierEligible.isEmpty()) {
-        throw GimleSchedulingException.anti_affinity_violated(deploymentName, instanceIndex);
+        throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
       }
     } else {
       affinityEligible = tierEligible;
     }
 
-    long requiredMemory = resourceRequest.memory_bytes();
-    long requiredCpu = resourceRequest.cpu_millicores();
+    long requiredMemory = resourceRequest.memoryBytes();
+    long requiredCpu = resourceRequest.cpuMillicores();
 
     return affinityEligible.stream()
         .sorted(
-            Comparator.comparingLong(NodeCandidate::free_memory_bytes)
-                .thenComparingLong(NodeCandidate::free_cpu_millicores)
+            Comparator.comparingLong(NodeCandidate::freeMemoryBytes)
+                .thenComparingLong(NodeCandidate::freeCpuMillicores)
                 .reversed())
-        .filter(
-            c -> c.free_memory_bytes() >= requiredMemory && c.free_cpu_millicores() >= requiredCpu)
+        .filter(c -> c.freeMemoryBytes() >= requiredMemory && c.freeCpuMillicores() >= requiredCpu)
         .findFirst()
         .map(NodeCandidate::nodeId)
         .orElseThrow(
             () ->
-                GimleSchedulingException.no_feasible_placement(
-                    deploymentName, instanceIndex, tier));
+                GimleSchedulingException.noFeasiblePlacement(deploymentName, instanceIndex, tier));
   }
 }

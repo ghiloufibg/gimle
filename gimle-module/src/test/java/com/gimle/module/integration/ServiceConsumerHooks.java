@@ -5,25 +5,23 @@ import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Looks up a {@link Greeter} on {@code on_start} and records the result for the test to inspect.
- */
+/** Looks up a {@link Greeter} on {@code onStart} and records the result for the test to inspect. */
 public class ServiceConsumerHooks implements ModuleLifecycleHooks {
 
   public static final AtomicReference<Optional<String>> LOOKED_UP_GREETING =
       new AtomicReference<>(Optional.empty());
 
   @Override
-  public void on_install(ModuleContext ctx) {}
+  public void onInstall(ModuleContext ctx) {}
 
   @Override
-  public void on_start(ModuleContext ctx) {
-    LOOKED_UP_GREETING.set(ctx.lookup_service(Greeter.class).map(Greeter::greet));
+  public void onStart(ModuleContext ctx) {
+    LOOKED_UP_GREETING.set(ctx.lookupService(Greeter.class).map(Greeter::greet));
   }
 
   @Override
-  public void on_stop(ModuleContext ctx) {}
+  public void onStop(ModuleContext ctx) {}
 
   @Override
-  public void on_uninstall(ModuleContext ctx) {}
+  public void onUninstall(ModuleContext ctx) {}
 }

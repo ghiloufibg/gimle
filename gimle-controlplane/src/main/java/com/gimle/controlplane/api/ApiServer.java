@@ -53,8 +53,8 @@ public final class ApiServer implements AutoCloseable {
   public ApiServer(StateStore store, int port) throws IOException {
     this.store = store;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
-    server.createContext("/deployments/", this::handle_deployment);
-    server.createContext("/nodes/", this::handle_node);
+    server.createContext("/deployments/", this::handleDeployment);
+    server.createContext("/nodes/", this::handleNode);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
@@ -73,30 +73,30 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- /deployments/{name} ----
 
-  private void handle_deployment(HttpExchange exchange) {
+  private void handleDeployment(HttpExchange exchange) {
     try {
-      String name = path_segment_after(exchange, "/deployments/");
+      String name = pathSegmentAfter(exchange, "/deployments/");
       if (name.isBlank()) {
         respond(exchange, 400, "missing deployment name");
         return;
       }
       switch (exchange.getRequestMethod()) {
-        case "PUT" -> handle_put_deployment(exchange, name);
-        case "GET" -> handle_get_deployment(exchange, name);
-        case "DELETE" -> handle_delete_deployment(exchange, name);
+        case "PUT" -> handlePutDeployment(exchange, name);
+        case "GET" -> handleGetDeployment(exchange, name);
+        case "DELETE" -> handleDeleteDeployment(exchange, name);
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleManifestException | IllegalArgumentException e) {
-      respond_quietly(exchange, 400, String.valueOf(e.getMessage()));
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("deployment request failed: {}", e.getMessage());
-      respond_quietly(exchange, 500, "internal error");
+      respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
   }
 
-  private void handle_put_deployment(HttpExchange exchange, String name) throws IOException {
+  private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
     DeploymentSpec spec = DeploymentManifestParser.parse(exchange.getRequestBody());
     if (!spec.name().equals(name)) {
       respond(
@@ -105,38 +105,38 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    store.put_deployment(spec);
+    store.putDeployment(spec);
     respond(exchange, 200, "ok");
   }
 
-  private void handle_get_deployment(HttpExchange exchange, String name) throws IOException {
-    Optional<DeploymentSpec> spec = store.get_deployment(name);
+  private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
+    Optional<DeploymentSpec> spec = store.getDeployment(name);
     if (spec.isEmpty()) {
       respond(exchange, 404, "no such deployment: " + name);
       return;
     }
-    respond_json(exchange, 200, deployment_status(spec.get()));
+    respondJson(exchange, 200, deploymentStatus(spec.get()));
   }
 
-  private void handle_delete_deployment(HttpExchange exchange, String name) throws IOException {
-    store.remove_deployment(name);
+  private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
+    store.removeDeployment(name);
     respond(exchange, 200, "ok");
   }
 
-  private Map<String, Object> deployment_status(DeploymentSpec spec) {
+  private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
     specMap.put("name", spec.name());
-    specMap.put("moduleId", module_id_to_json(spec.moduleId()));
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
 
     List<Map<String, Object>> instances = new ArrayList<>();
-    for (InstanceAssignment assignment : store.list_assignments_for(spec.name())) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
-      find_observation(assignment)
-          .ifPresent(obs -> instance.put("observation", observation_to_json(obs)));
+      findObservation(assignment)
+          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
       instances.add(instance);
     }
 
@@ -147,9 +147,9 @@ public final class ApiServer implements AutoCloseable {
     return status;
   }
 
-  private Optional<InstanceObservation> find_observation(InstanceAssignment assignment) {
+  private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
     return store
-        .get_node_heartbeat(assignment.nodeId())
+        .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
         .flatMap(
             heartbeat ->
@@ -163,7 +163,7 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- /nodes/{nodeId}/... ----
 
-  private void handle_node(HttpExchange exchange) {
+  private void handleNode(HttpExchange exchange) {
     try {
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
@@ -179,58 +179,58 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       switch (action) {
-        case "register" -> handle_register(exchange, nodeId);
-        case "heartbeat" -> handle_heartbeat(exchange, nodeId);
-        case "assignments" -> handle_assignments(exchange, nodeId);
+        case "register" -> handleRegister(exchange, nodeId);
+        case "heartbeat" -> handleHeartbeat(exchange, nodeId);
+        case "assignments" -> handleAssignments(exchange, nodeId);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
     } catch (IllegalArgumentException e) {
-      respond_quietly(exchange, 400, String.valueOf(e.getMessage()));
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("node request failed: {}", e.getMessage());
-      respond_quietly(exchange, 500, "internal error");
+      respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
   }
 
-  private void handle_register(HttpExchange exchange, String nodeId) throws IOException {
+  private void handleRegister(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    Map<?, ?> body = (Map<?, ?>) Json.parse(read_body(exchange));
-    NodeCapabilities capabilities = capabilities_from_json((Map<?, ?>) body.get("capabilities"));
-    store.put_node_registration(new NodeRegistration(nodeId, capabilities));
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
+    store.putNodeRegistration(new NodeRegistration(nodeId, capabilities));
     respond(exchange, 200, "ok");
   }
 
-  private void handle_heartbeat(HttpExchange exchange, String nodeId) throws IOException {
+  private void handleHeartbeat(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    Map<?, ?> body = (Map<?, ?>) Json.parse(read_body(exchange));
-    ResourceUsageSnapshot capacity = capacity_from_json((Map<?, ?>) body.get("capacity"));
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    ResourceUsageSnapshot capacity = capacityFromJson((Map<?, ?>) body.get("capacity"));
     List<InstanceObservation> instances = new ArrayList<>();
     for (Object entry : (List<?>) body.get("instances")) {
-      instances.add(observation_from_json((Map<?, ?>) entry));
+      instances.add(observationFromJson((Map<?, ?>) entry));
     }
-    store.put_node_heartbeat(new NodeHeartbeat(nodeId, capacity, instances));
+    store.putNodeHeartbeat(new NodeHeartbeat(nodeId, capacity, instances));
     respond(exchange, 200, "ok");
   }
 
-  private void handle_assignments(HttpExchange exchange, String nodeId) throws IOException {
+  private void handleAssignments(HttpExchange exchange, String nodeId) throws IOException {
     if (!"GET".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
       return;
     }
     List<Map<String, Object>> assigned = new ArrayList<>();
-    for (InstanceAssignment assignment : store.list_assignments()) {
+    for (InstanceAssignment assignment : store.listAssignments()) {
       if (!assignment.nodeId().equals(nodeId)) {
         continue;
       }
-      Optional<DeploymentSpec> spec = store.get_deployment(assignment.deploymentName());
+      Optional<DeploymentSpec> spec = store.getDeployment(assignment.deploymentName());
       if (spec.isEmpty()) {
         continue; // stale assignment; DeploymentReconciler will remove it shortly
       }
@@ -240,25 +240,25 @@ public final class ApiServer implements AutoCloseable {
               assignment.instanceIndex(),
               spec.get().moduleId(),
               spec.get().artifactPath());
-      assigned.add(assigned_instance_to_json(instance));
+      assigned.add(assignedInstanceToJson(instance));
     }
-    respond_json(exchange, 200, assigned);
+    respondJson(exchange, 200, assigned);
   }
 
   // ---- (de)serialization ----
 
-  private static Map<String, Object> module_id_to_json(ModuleId id) {
+  private static Map<String, Object> moduleIdToJson(ModuleId id) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("name", id.name());
     map.put("version", id.version().toString());
     return map;
   }
 
-  private static ModuleId module_id_from_json(Map<?, ?> map) {
+  private static ModuleId moduleIdFromJson(Map<?, ?> map) {
     return new ModuleId((String) map.get("name"), Version.parse((String) map.get("version")));
   }
 
-  private static NodeCapabilities capabilities_from_json(Map<?, ?> map) {
+  private static NodeCapabilities capabilitiesFromJson(Map<?, ?> map) {
     List<?> tiers = (List<?>) map.get("supportedTiers");
     Set<IsolationTier> supportedTiers = new LinkedHashSet<>();
     for (Object tier : tiers) {
@@ -267,7 +267,7 @@ public final class ApiServer implements AutoCloseable {
     return new NodeCapabilities(supportedTiers);
   }
 
-  private static ResourceUsageSnapshot capacity_from_json(Map<?, ?> map) {
+  private static ResourceUsageSnapshot capacityFromJson(Map<?, ?> map) {
     return new ResourceUsageSnapshot(
         ((Number) map.get("totalMemoryBytes")).longValue(),
         ((Number) map.get("assignedMemoryBytes")).longValue(),
@@ -275,42 +275,42 @@ public final class ApiServer implements AutoCloseable {
         ((Number) map.get("assignedCpuMillicores")).longValue());
   }
 
-  private static InstanceObservation observation_from_json(Map<?, ?> map) {
+  private static InstanceObservation observationFromJson(Map<?, ?> map) {
     return new InstanceObservation(
         (String) map.get("deploymentName"),
         ((Number) map.get("instanceIndex")).intValue(),
-        module_id_from_json((Map<?, ?>) map.get("moduleId")),
+        moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
         (String) map.get("lifecycleState"),
         (Boolean) map.get("alive"),
         (Boolean) map.get("ready"));
   }
 
-  private static Map<String, Object> observation_to_json(InstanceObservation obs) {
+  private static Map<String, Object> observationToJson(InstanceObservation obs) {
     Map<String, Object> map = new LinkedHashMap<>();
-    map.put("moduleId", module_id_to_json(obs.moduleId()));
+    map.put("moduleId", moduleIdToJson(obs.moduleId()));
     map.put("lifecycleState", obs.lifecycleState());
     map.put("alive", obs.alive());
     map.put("ready", obs.ready());
     return map;
   }
 
-  private static Map<String, Object> assigned_instance_to_json(AssignedInstance instance) {
+  private static Map<String, Object> assignedInstanceToJson(AssignedInstance instance) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("deploymentName", instance.deploymentName());
     map.put("instanceIndex", instance.instanceIndex());
-    map.put("moduleId", module_id_to_json(instance.moduleId()));
+    map.put("moduleId", moduleIdToJson(instance.moduleId()));
     map.put("artifactPath", instance.artifactPath());
     return map;
   }
 
   // ---- HTTP plumbing ----
 
-  private static String path_segment_after(HttpExchange exchange, String prefix) {
+  private static String pathSegmentAfter(HttpExchange exchange, String prefix) {
     String path = exchange.getRequestURI().getPath();
     return path.substring(prefix.length());
   }
 
-  private static String read_body(HttpExchange exchange) throws IOException {
+  private static String readBody(HttpExchange exchange) throws IOException {
     try (InputStream body = exchange.getRequestBody()) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
@@ -325,7 +325,7 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private static void respond_json(HttpExchange exchange, int status, Object value)
+  private static void respondJson(HttpExchange exchange, int status, Object value)
       throws IOException {
     byte[] bytes = Json.write(value).getBytes(StandardCharsets.UTF_8);
     exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
@@ -335,7 +335,7 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private static void respond_quietly(HttpExchange exchange, int status, String body) {
+  private static void respondQuietly(HttpExchange exchange, int status, String body) {
     try {
       respond(exchange, status, body);
     } catch (IOException e) {

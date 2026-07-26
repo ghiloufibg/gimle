@@ -38,8 +38,8 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
       started = new RecordingStream();
       started.enable("jdk.ExecutionSample");
       started.enable("jdk.ThreadAllocationStatistics");
-      started.onEvent("jdk.ExecutionSample", this::on_execution_sample);
-      started.onEvent("jdk.ThreadAllocationStatistics", this::on_allocation_sample);
+      started.onEvent("jdk.ExecutionSample", this::onExecutionSample);
+      started.onEvent("jdk.ThreadAllocationStatistics", this::onAllocationSample);
       started.startAsync();
     } catch (RuntimeException e) {
       // JFR unavailable/disabled in this environment: attribution degrades to "no samples,"
@@ -49,17 +49,17 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
     this.stream = started;
   }
 
-  public void register_module(ModuleId id) {
-    livePrefixes.add(prefix_for(id));
+  public void registerModule(ModuleId id) {
+    livePrefixes.add(prefixFor(id));
   }
 
-  public void unregister_module(ModuleId id) {
-    String prefix = prefix_for(id);
+  public void unregisterModule(ModuleId id) {
+    String prefix = prefixFor(id);
     livePrefixes.remove(prefix);
     threadNameToPrefix.values().removeIf(prefix::equals);
   }
 
-  private void on_execution_sample(RecordedEvent event) {
+  private void onExecutionSample(RecordedEvent event) {
     RecordedThread thread = event.getThread("sampledThread");
     classify(thread)
         .ifPresent(
@@ -70,7 +70,7 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
                     .increment());
   }
 
-  private void on_allocation_sample(RecordedEvent event) {
+  private void onAllocationSample(RecordedEvent event) {
     RecordedThread thread = event.getThread("thread");
     Optional<String> prefix = classify(thread);
     if (prefix.isEmpty() || !event.hasField("allocated")) {
@@ -103,7 +103,7 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
     return Optional.empty();
   }
 
-  private static String prefix_for(ModuleId id) {
+  private static String prefixFor(ModuleId id) {
     return "gimle-" + id.name() + "-" + id.version() + "-";
   }
 

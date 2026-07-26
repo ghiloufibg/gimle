@@ -21,28 +21,24 @@ public final class ControlMessageCodec {
       case ControlMessage.Hello m -> line("HELLO", m.workerId(), Long.toString(m.pid()));
       case ControlMessage.Ack m -> line("ACK", m.correlationId());
       case ControlMessage.Nack m -> line("NACK", m.correlationId(), escape(m.reason()));
-      case ControlMessage.ModuleStateChanged m ->
-          line("MODULE_STATE", encode_id(m.id()), m.state());
+      case ControlMessage.ModuleStateChanged m -> line("MODULE_STATE", encodeId(m.id()), m.state());
       case ControlMessage.HealthReport m ->
           line(
-              "HEALTH",
-              encode_id(m.id()),
-              Boolean.toString(m.alive()),
-              Boolean.toString(m.ready()));
+              "HEALTH", encodeId(m.id()), Boolean.toString(m.alive()), Boolean.toString(m.ready()));
       case ControlMessage.MetricsReport m ->
           line(
               "METRICS",
-              encode_id(m.id()),
+              encodeId(m.id()),
               Long.toString(m.cpuMillicoresUsed()),
               Long.toString(m.memoryBytesUsed()));
       case ControlMessage.Pong m -> line("PONG", m.correlationId());
       case ControlMessage.InstallModule m ->
           line("INSTALL", m.correlationId(), escape(m.artifactPath()));
-      case ControlMessage.ResolveModule m -> line("RESOLVE", m.correlationId(), encode_id(m.id()));
-      case ControlMessage.StartModule m -> line("START", m.correlationId(), encode_id(m.id()));
-      case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encode_id(m.id()));
+      case ControlMessage.ResolveModule m -> line("RESOLVE", m.correlationId(), encodeId(m.id()));
+      case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
+      case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
       case ControlMessage.UninstallModule m ->
-          line("UNINSTALL", m.correlationId(), encode_id(m.id()));
+          line("UNINSTALL", m.correlationId(), encodeId(m.id()));
       case ControlMessage.Ping m -> line("PING", m.correlationId());
     };
   }
@@ -58,26 +54,26 @@ public final class ControlMessageCodec {
       case "ACK" -> new ControlMessage.Ack(field(fields, 1));
       case "NACK" -> new ControlMessage.Nack(field(fields, 1), unescape(field(fields, 2)));
       case "MODULE_STATE" ->
-          new ControlMessage.ModuleStateChanged(decode_id(field(fields, 1)), field(fields, 2));
+          new ControlMessage.ModuleStateChanged(decodeId(field(fields, 1)), field(fields, 2));
       case "HEALTH" ->
           new ControlMessage.HealthReport(
-              decode_id(field(fields, 1)),
+              decodeId(field(fields, 1)),
               Boolean.parseBoolean(field(fields, 2)),
               Boolean.parseBoolean(field(fields, 3)));
       case "METRICS" ->
           new ControlMessage.MetricsReport(
-              decode_id(field(fields, 1)),
+              decodeId(field(fields, 1)),
               Long.parseLong(field(fields, 2)),
               Long.parseLong(field(fields, 3)));
       case "PONG" -> new ControlMessage.Pong(field(fields, 1));
       case "INSTALL" ->
           new ControlMessage.InstallModule(field(fields, 1), unescape(field(fields, 2)));
       case "RESOLVE" ->
-          new ControlMessage.ResolveModule(field(fields, 1), decode_id(field(fields, 2)));
-      case "START" -> new ControlMessage.StartModule(field(fields, 1), decode_id(field(fields, 2)));
-      case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decode_id(field(fields, 2)));
+          new ControlMessage.ResolveModule(field(fields, 1), decodeId(field(fields, 2)));
+      case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));
+      case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decodeId(field(fields, 2)));
       case "UNINSTALL" ->
-          new ControlMessage.UninstallModule(field(fields, 1), decode_id(field(fields, 2)));
+          new ControlMessage.UninstallModule(field(fields, 1), decodeId(field(fields, 2)));
       case "PING" -> new ControlMessage.Ping(field(fields, 1));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
@@ -98,11 +94,11 @@ public final class ControlMessageCodec {
     return fields.get(index);
   }
 
-  private static String encode_id(ModuleId id) {
+  private static String encodeId(ModuleId id) {
     return id.name() + "@" + id.version();
   }
 
-  private static ModuleId decode_id(String text) {
+  private static ModuleId decodeId(String text) {
     int at = text.lastIndexOf('@');
     if (at < 0) {
       throw new IllegalArgumentException("malformed module id on wire: " + text);

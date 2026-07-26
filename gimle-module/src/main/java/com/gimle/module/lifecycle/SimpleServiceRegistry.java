@@ -45,7 +45,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public synchronized void mark_unready(ModuleId owner) {
+  public synchronized void markUnready(ModuleId owner) {
     for (List<Entry> entries : entriesByInterface.values()) {
       for (Entry entry : entries) {
         if (entry.owner().equals(owner)) {

@@ -31,7 +31,7 @@ class ModuleLayerFactoryTest {
                   exports com.gimle.fixture.leaf;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.leaf.Leaf",
                 """
                 package com.gimle.fixture.leaf;
@@ -39,12 +39,11 @@ class ModuleLayerFactoryTest {
                   public String value() { return "leaf"; }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.leaf", "1.0.0"))
+            .withDescriptor(TestModuleBuilder.minimalDescriptor("com.gimle.fixture.leaf", "1.0.0"))
             .build(tempDir, "leaf.jar");
 
     ModuleId id = new ModuleId("com.gimle.fixture.leaf", Version.parse("1.0.0"));
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleLayerHandle handle =
         ModuleLayerFactory.create(id, jar, List.of(platform), ClassLoader.getSystemClassLoader());
 
@@ -61,7 +60,7 @@ class ModuleLayerFactoryTest {
                   exports com.gimle.fixture.catalog;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.catalog.Catalog",
                 """
                 package com.gimle.fixture.catalog;
@@ -69,12 +68,12 @@ class ModuleLayerFactoryTest {
                   public String sku() { return "SKU-42"; }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.catalog", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.0.0"))
             .build(tempDir, "catalog.jar");
 
     ModuleId depId = new ModuleId("com.gimle.fixture.catalog", Version.parse("1.0.0"));
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleLayerHandle depHandle =
         ModuleLayerFactory.create(
             depId, depJar, List.of(platform), ClassLoader.getSystemClassLoader());
@@ -87,7 +86,7 @@ class ModuleLayerFactoryTest {
                   exports com.gimle.fixture.orders;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.orders.Orders",
                 """
                 package com.gimle.fixture.orders;
@@ -96,9 +95,9 @@ class ModuleLayerFactoryTest {
                   public String describe() { return "order for " + new Catalog().sku(); }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.orders", "1.0.0"))
-            .depends_on(depJar)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.orders", "1.0.0"))
+            .dependsOn(depJar)
             .build(tempDir, "orders.jar");
 
     ModuleId orderId = new ModuleId("com.gimle.fixture.orders", Version.parse("1.0.0"));
@@ -128,19 +127,19 @@ class ModuleLayerFactoryTest {
         package com.gimle.fixture.versioned;
         public class Marker {}
         """;
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     Path jarV1 =
         TestModuleBuilder.module(moduleInfo)
-            .with_class("com.gimle.fixture.versioned.Marker", classSource)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.versioned", "1.0.0"))
+            .withClass("com.gimle.fixture.versioned.Marker", classSource)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.versioned", "1.0.0"))
             .build(tempDir, "versioned-1.jar");
     Path jarV2 =
         TestModuleBuilder.module(moduleInfo)
-            .with_class("com.gimle.fixture.versioned.Marker", classSource)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.versioned", "2.0.0"))
+            .withClass("com.gimle.fixture.versioned.Marker", classSource)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.versioned", "2.0.0"))
             .build(tempDir, "versioned-2.jar");
 
     ModuleLayerHandle v1 =
@@ -173,14 +172,14 @@ class ModuleLayerFactoryTest {
                   exports com.gimle.fixture.needed;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.needed.Needed",
                 """
                 package com.gimle.fixture.needed;
                 public class Needed {}
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.needed", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.needed", "1.0.0"))
             .build(tempDir, "needed.jar");
 
     Path brokenJar =
@@ -190,13 +189,13 @@ class ModuleLayerFactoryTest {
                   requires com.gimle.fixture.needed;
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.broken", "1.0.0"))
-            .depends_on(neededJar)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.broken", "1.0.0"))
+            .dependsOn(neededJar)
             .build(tempDir, "broken.jar");
 
     ModuleId id = new ModuleId("com.gimle.fixture.broken", Version.parse("1.0.0"));
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     // Deliberately omit the "needed" layer from the parents.
     assertThrows(

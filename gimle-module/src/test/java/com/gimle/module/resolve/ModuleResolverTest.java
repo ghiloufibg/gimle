@@ -19,13 +19,13 @@ class ModuleResolverTest {
     return new Requirement(name, VersionRange.parse(range));
   }
 
-  private static void install_and_resolve(
+  private static void installAndResolve(
       ModuleRegistry registry, ModuleResolver resolver, ModuleId id) {
     ModuleWiring wiring = resolver.resolve(id);
-    registry.mark_resolved(id, wiring, dummy_handle());
+    registry.markResolved(id, wiring, dummyHandle());
   }
 
-  private static com.gimle.module.layer.ModuleLayerHandle dummy_handle() {
+  private static com.gimle.module.layer.ModuleLayerHandle dummyHandle() {
     return new com.gimle.module.layer.ModuleLayerHandle(
         ModuleLayer.boot(), ClassLoader.getSystemClassLoader());
   }
@@ -37,7 +37,7 @@ class ModuleResolverTest {
 
     ModuleArtifact catalog = artifact("com.gimle.catalog", "1.0.0");
     ModuleId catalogId = registry.register(catalog);
-    install_and_resolve(registry, resolver, catalogId);
+    installAndResolve(registry, resolver, catalogId);
 
     ModuleArtifact orders =
         artifact("com.gimle.orders", "1.0.0", req("com.gimle.catalog", "[1.0.0,2.0.0)"));
@@ -55,8 +55,8 @@ class ModuleResolverTest {
 
     ModuleId low = registry.register(artifact("com.gimle.catalog", "1.0.0"));
     ModuleId high = registry.register(artifact("com.gimle.catalog", "1.5.0"));
-    install_and_resolve(registry, resolver, low);
-    install_and_resolve(registry, resolver, high);
+    installAndResolve(registry, resolver, low);
+    installAndResolve(registry, resolver, high);
 
     ModuleId ordersId =
         registry.register(
@@ -125,15 +125,15 @@ class ModuleResolverTest {
     ModuleResolver resolver = new ModuleResolver(registry);
 
     ModuleId sharedId = registry.register(artifact("com.gimle.shared", "1.0.0"));
-    install_and_resolve(registry, resolver, sharedId);
+    installAndResolve(registry, resolver, sharedId);
 
     ModuleId aId =
         registry.register(artifact("com.gimle.a", "1.0.0", req("com.gimle.shared", "[1.0.0,)")));
-    install_and_resolve(registry, resolver, aId);
+    installAndResolve(registry, resolver, aId);
 
     ModuleId bId =
         registry.register(artifact("com.gimle.b", "1.0.0", req("com.gimle.shared", "[1.0.0,)")));
-    install_and_resolve(registry, resolver, bId);
+    installAndResolve(registry, resolver, bId);
 
     ModuleId topId =
         registry.register(
@@ -153,17 +153,17 @@ class ModuleResolverTest {
     ModuleResolver resolver = new ModuleResolver(registry);
 
     ModuleId catalogV1 = registry.register(artifact("com.gimle.catalog", "1.0.0"));
-    install_and_resolve(registry, resolver, catalogV1);
+    installAndResolve(registry, resolver, catalogV1);
 
     ModuleId oldDependentId =
         registry.register(
             artifact("com.gimle.orders", "1.0.0", req("com.gimle.catalog", "[1.0.0,2.0.0)")));
     ModuleWiring oldWiring = resolver.resolve(oldDependentId);
-    registry.mark_resolved(oldDependentId, oldWiring, dummy_handle());
+    registry.markResolved(oldDependentId, oldWiring, dummyHandle());
 
     // A newer catalog version installs; the already-resolved dependent is NOT rewired.
     ModuleId catalogV2 = registry.register(artifact("com.gimle.catalog", "1.1.0"));
-    install_and_resolve(registry, resolver, catalogV2);
+    installAndResolve(registry, resolver, catalogV2);
 
     ModuleId newDependentId =
         registry.register(
@@ -180,7 +180,7 @@ class ModuleResolverTest {
     ModuleResolver resolver = new ModuleResolver(registry);
 
     ModuleId tooNew = registry.register(artifact("com.gimle.catalog", "2.0.0"));
-    install_and_resolve(registry, resolver, tooNew);
+    installAndResolve(registry, resolver, tooNew);
 
     ModuleId ordersId =
         registry.register(

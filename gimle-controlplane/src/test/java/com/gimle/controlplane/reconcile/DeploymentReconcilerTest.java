@@ -31,10 +31,10 @@ class DeploymentReconcilerTest {
 
   private static int counter = 0;
 
-  private Path build_fixture_jar() {
+  private Path buildFixtureJar() {
     String uniqueName = "com.gimle.fixture.reconciler" + (counter++);
     return TestModuleBuilder.module("module " + uniqueName + " {\n}\n")
-        .with_descriptor(TestModuleBuilder.minimal_descriptor(uniqueName, "1.0.0"))
+        .withDescriptor(TestModuleBuilder.minimalDescriptor(uniqueName, "1.0.0"))
         .build(tempDir, uniqueName + ".jar");
   }
 
@@ -48,12 +48,12 @@ class DeploymentReconcilerTest {
         placement);
   }
 
-  private static void register_node(
+  private static void registerNode(
       StateStore store, String nodeId, long freeMemoryBytes, long freeCpuMillicores) {
-    store.put_node_registration(
+    store.putNodeRegistration(
         new NodeRegistration(
             nodeId, new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2))));
-    store.put_node_heartbeat(
+    store.putNodeHeartbeat(
         new NodeHeartbeat(
             nodeId,
             new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
@@ -64,14 +64,14 @@ class DeploymentReconcilerTest {
   void creates_assignments_for_every_missing_index_when_capacity_exists() {
     StateStore store = new StateStore(tempDir.resolve("store-basic"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
+    Path jar = buildFixtureJar();
     DeploymentSpec spec = deployment("orders-service", 2, jar, PlacementConstraints.NONE);
-    store.put_deployment(spec);
-    register_node(store, "node-a", 500L * 1024 * 1024, 4000);
+    store.putDeployment(spec);
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
 
-    new DeploymentReconciler(store, scheduler).reconcile_once();
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> assignments = store.list_assignments_for("orders-service");
+    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
     assertEquals(2, assignments.size());
     assertEquals(
         Set.of(0, 1),
@@ -82,31 +82,31 @@ class DeploymentReconcilerTest {
   void leaves_indices_unplaced_without_throwing_when_no_node_has_capacity() {
     StateStore store = new StateStore(tempDir.resolve("store-no-capacity"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
-    store.put_deployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
+    Path jar = buildFixtureJar();
+    store.putDeployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
     // no nodes registered at all
 
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
-    reconciler.reconcile_once();
-    reconciler.reconcile_once(); // idempotent: calling again doesn't error or duplicate
+    reconciler.reconcileOnce();
+    reconciler.reconcileOnce(); // idempotent: calling again doesn't error or duplicate
 
-    assertTrue(store.list_assignments_for("orders-service").isEmpty());
+    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
   }
 
   @Test
   void scale_down_removes_assignments_at_or_beyond_the_new_replica_count() {
     StateStore store = new StateStore(tempDir.resolve("store-scale-down"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
-    register_node(store, "node-a", 500L * 1024 * 1024, 4000);
-    store.put_deployment(deployment("orders-service", 3, jar, PlacementConstraints.NONE));
-    new DeploymentReconciler(store, scheduler).reconcile_once();
-    assertEquals(3, store.list_assignments_for("orders-service").size());
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    store.putDeployment(deployment("orders-service", 3, jar, PlacementConstraints.NONE));
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
+    assertEquals(3, store.listAssignmentsFor("orders-service").size());
 
-    store.put_deployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
-    new DeploymentReconciler(store, scheduler).reconcile_once();
+    store.putDeployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> remaining = store.list_assignments_for("orders-service");
+    List<InstanceAssignment> remaining = store.listAssignmentsFor("orders-service");
     assertEquals(1, remaining.size());
     assertEquals(0, remaining.get(0).instanceIndex());
   }
@@ -115,32 +115,32 @@ class DeploymentReconcilerTest {
   void deleting_a_deployment_removes_all_of_its_assignments() {
     StateStore store = new StateStore(tempDir.resolve("store-delete"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
-    register_node(store, "node-a", 500L * 1024 * 1024, 4000);
-    store.put_deployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
-    new DeploymentReconciler(store, scheduler).reconcile_once();
-    assertEquals(2, store.list_assignments_for("orders-service").size());
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    store.putDeployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
+    assertEquals(2, store.listAssignmentsFor("orders-service").size());
 
-    store.remove_deployment("orders-service");
-    new DeploymentReconciler(store, scheduler).reconcile_once();
+    store.removeDeployment("orders-service");
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.list_assignments_for("orders-service").isEmpty());
-    assertTrue(store.list_assignments().isEmpty());
+    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertTrue(store.listAssignments().isEmpty());
   }
 
   @Test
   void anti_affinity_spreads_replicas_across_distinct_nodes() {
     StateStore store = new StateStore(tempDir.resolve("store-anti-affinity"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
-    register_node(store, "node-a", 500L * 1024 * 1024, 4000);
-    register_node(store, "node-b", 500L * 1024 * 1024, 4000);
-    store.put_deployment(
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    registerNode(store, "node-b", 500L * 1024 * 1024, 4000);
+    store.putDeployment(
         deployment("orders-service", 2, jar, new PlacementConstraints(Optional.empty(), true)));
 
-    new DeploymentReconciler(store, scheduler).reconcile_once();
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> assignments = store.list_assignments_for("orders-service");
+    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
     assertEquals(2, assignments.size());
     assertEquals(
         2, Set.copyOf(assignments.stream().map(InstanceAssignment::nodeId).toList()).size());
@@ -153,18 +153,18 @@ class DeploymentReconcilerTest {
     // starting from this exact snapshot has no history to consult, only what's here right now.
     StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
     Scheduler scheduler = new Scheduler();
-    Path jar = build_fixture_jar();
-    register_node(store, "node-a", 500L * 1024 * 1024, 4000);
-    store.put_deployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
-    store.put_assignment(new InstanceAssignment("orders-service", 0, "node-a"));
-    store.put_assignment(new InstanceAssignment("orders-service", 2, "node-a"));
-    store.put_assignment(new InstanceAssignment("ghost-deployment", 0, "node-a"));
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    store.putDeployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putAssignment(new InstanceAssignment("orders-service", 2, "node-a"));
+    store.putAssignment(new InstanceAssignment("ghost-deployment", 0, "node-a"));
 
-    new DeploymentReconciler(store, scheduler).reconcile_once();
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> orders = store.list_assignments_for("orders-service");
+    List<InstanceAssignment> orders = store.listAssignmentsFor("orders-service");
     assertEquals(
         Set.of(0, 1), Set.copyOf(orders.stream().map(InstanceAssignment::instanceIndex).toList()));
-    assertTrue(store.list_assignments_for("ghost-deployment").isEmpty());
+    assertTrue(store.listAssignmentsFor("ghost-deployment").isEmpty());
   }
 }

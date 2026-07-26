@@ -35,7 +35,7 @@ public final class CapacityTracker {
    * JVM's {@code jdk.management} module (Linux, macOS, and Windows alike) -- a JDK API, not an
    * OS-specific mechanism this project branches on.
    */
-  public static CapacityTracker of_this_machine() {
+  public static CapacityTracker ofThisMachine() {
     OperatingSystemMXBean osBean =
         (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
     long totalMemory = osBean.getTotalMemorySize();
@@ -44,16 +44,16 @@ public final class CapacityTracker {
   }
 
   /** Assigns {@code limit} to {@code workerId} if doing so would not exceed total capacity. */
-  public synchronized boolean try_assign(String workerId, ResourceSpec limit) {
+  public synchronized boolean tryAssign(String workerId, ResourceSpec limit) {
     if (assigned.containsKey(workerId)) {
       throw new IllegalStateException("worker " + workerId + " already has an assignment");
     }
-    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memory_bytes).sum();
-    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpu_millicores).sum();
-    if (assignedMemory + limit.memory_bytes() > totalMemoryBytes) {
+    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
+    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
+    if (assignedMemory + limit.memoryBytes() > totalMemoryBytes) {
       return false;
     }
-    if (assignedCpu + limit.cpu_millicores() > totalCpuMillicores) {
+    if (assignedCpu + limit.cpuMillicores() > totalCpuMillicores) {
       return false;
     }
     assigned.put(workerId, limit);
@@ -65,8 +65,8 @@ public final class CapacityTracker {
   }
 
   public synchronized Snapshot snapshot() {
-    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memory_bytes).sum();
-    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpu_millicores).sum();
+    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
+    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
     return new Snapshot(totalMemoryBytes, assignedMemory, totalCpuMillicores, assignedCpu);
   }
 

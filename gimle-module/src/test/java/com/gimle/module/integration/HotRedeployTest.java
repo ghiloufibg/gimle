@@ -59,7 +59,7 @@ class HotRedeployTest {
 
   @Test
   void old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring() {
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleRegistry registry = new ModuleRegistry();
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleController controller =
@@ -73,9 +73,9 @@ class HotRedeployTest {
 
     Path catalogV1Jar =
         TestModuleBuilder.module(CATALOG_MODULE_INFO)
-            .with_class("com.gimle.fixture.catalog.Catalog", CATALOG_CLASS)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.catalog", "1.0.0"))
+            .withClass("com.gimle.fixture.catalog.Catalog", CATALOG_CLASS)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.0.0"))
             .build(tempDir, "catalog-1.0.0.jar");
     ModuleId catalogV1 = registry.register(ModuleArtifactReader.read(catalogV1Jar));
     controller.resolve(catalogV1);
@@ -83,9 +83,9 @@ class HotRedeployTest {
 
     Path ordersV1Jar =
         TestModuleBuilder.module(ORDERS_MODULE_INFO)
-            .with_class("com.gimle.fixture.orders.Orders", ORDERS_CLASS)
-            .with_descriptor(orders_descriptor("1.0.0"))
-            .depends_on(catalogV1Jar)
+            .withClass("com.gimle.fixture.orders.Orders", ORDERS_CLASS)
+            .withDescriptor(ordersDescriptor("1.0.0"))
+            .dependsOn(catalogV1Jar)
             .build(tempDir, "orders-1.0.0.jar");
     ModuleId ordersV1 = registry.register(ModuleArtifactReader.read(ordersV1Jar));
     controller.resolve(ordersV1);
@@ -94,9 +94,9 @@ class HotRedeployTest {
     // A newer catalog installs and activates; ordersV1 is NOT rewired.
     Path catalogV2Jar =
         TestModuleBuilder.module(CATALOG_MODULE_INFO)
-            .with_class("com.gimle.fixture.catalog.Catalog", CATALOG_CLASS)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.catalog", "1.1.0"))
+            .withClass("com.gimle.fixture.catalog.Catalog", CATALOG_CLASS)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.1.0"))
             .build(tempDir, "catalog-1.1.0.jar");
     ModuleId catalogV2 = registry.register(ModuleArtifactReader.read(catalogV2Jar));
     controller.resolve(catalogV2);
@@ -104,9 +104,9 @@ class HotRedeployTest {
 
     Path ordersV2Jar =
         TestModuleBuilder.module(ORDERS_MODULE_INFO)
-            .with_class("com.gimle.fixture.orders.Orders", ORDERS_CLASS)
-            .with_descriptor(orders_descriptor("1.1.0"))
-            .depends_on(catalogV1Jar)
+            .withClass("com.gimle.fixture.orders.Orders", ORDERS_CLASS)
+            .withDescriptor(ordersDescriptor("1.1.0"))
+            .dependsOn(catalogV1Jar)
             .build(tempDir, "orders-1.1.0.jar");
     ModuleId ordersV2 = registry.register(ModuleArtifactReader.read(ordersV2Jar));
     var ordersV2Wiring = controller.resolve(ordersV2);
@@ -127,7 +127,7 @@ class HotRedeployTest {
     assertEquals(ModuleState.ACTIVE, registry.state(catalogV2));
   }
 
-  private static String orders_descriptor(String version) {
+  private static String ordersDescriptor(String version) {
     return """
         name: com.gimle.fixture.orders
         version: %s

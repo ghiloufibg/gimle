@@ -9,7 +9,7 @@ public final class ControllableReadinessProbe implements ReadinessProbe {
   public static final AtomicBoolean READY = new AtomicBoolean(true);
 
   @Override
-  public boolean is_ready() {
+  public boolean isReady() {
     return READY.get();
   }
 }

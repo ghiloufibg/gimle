@@ -38,7 +38,7 @@ public final class ModuleRegistry {
     return id;
   }
 
-  public List<ModuleId> ids_by_name(String name) {
+  public List<ModuleId> idsByName(String name) {
     return entries.keySet().stream()
         .filter(id -> id.name().equals(name))
         .sorted(Comparator.comparing(ModuleId::version))
@@ -61,30 +61,30 @@ public final class ModuleRegistry {
     return Optional.ofNullable(entry(id).wiring);
   }
 
-  public Optional<ModuleLayerHandle> layer_handle(ModuleId id) {
+  public Optional<ModuleLayerHandle> layerHandle(ModuleId id) {
     return Optional.ofNullable(entry(id).layerHandle);
   }
 
-  public synchronized void mark_resolved(
+  public synchronized void markResolved(
       ModuleId id, ModuleWiring wiring, ModuleLayerHandle layerHandle) {
     Entry current = entry(id);
     entries.put(id, new Entry(current.artifact, ModuleState.RESOLVED, wiring, layerHandle));
   }
 
-  public synchronized void mark_starting(ModuleId id) {
-    replace_state(id, ModuleState.STARTING);
+  public synchronized void markStarting(ModuleId id) {
+    replaceState(id, ModuleState.STARTING);
   }
 
-  public synchronized void mark_active(ModuleId id) {
-    replace_state(id, ModuleState.ACTIVE);
+  public synchronized void markActive(ModuleId id) {
+    replaceState(id, ModuleState.ACTIVE);
   }
 
-  public synchronized void mark_stopping(ModuleId id) {
-    replace_state(id, ModuleState.STOPPING);
+  public synchronized void markStopping(ModuleId id) {
+    replaceState(id, ModuleState.STOPPING);
   }
 
-  public synchronized void mark_failed(ModuleId id) {
-    replace_state(id, ModuleState.FAILED);
+  public synchronized void markFailed(ModuleId id) {
+    replaceState(id, ModuleState.FAILED);
   }
 
   /**
@@ -95,7 +95,7 @@ public final class ModuleRegistry {
     entries.remove(id);
   }
 
-  private void replace_state(ModuleId id, ModuleState newState) {
+  private void replaceState(ModuleId id, ModuleState newState) {
     Entry current = entry(id);
     entries.put(id, new Entry(current.artifact, newState, current.wiring, current.layerHandle));
   }

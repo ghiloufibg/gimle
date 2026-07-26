@@ -35,7 +35,7 @@ public final class ProbeLoop implements AutoCloseable {
       Duration interval,
       Duration timeout,
       Consumer<Boolean> onResult) {
-    Runnable tick = () -> run_one_tick(moduleScheduler, check, timeout, onResult);
+    Runnable tick = () -> runOneTick(moduleScheduler, check, timeout, onResult);
     ScheduledFuture<?> handle =
         ticker.scheduleAtFixedRate(
             tick, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
@@ -52,7 +52,7 @@ public final class ProbeLoop implements AutoCloseable {
     }
   }
 
-  private void run_one_tick(
+  private void runOneTick(
       BoundedModuleScheduler moduleScheduler,
       Callable<Boolean> check,
       Duration timeout,

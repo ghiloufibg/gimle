@@ -46,7 +46,7 @@ class RedeployLoopFlatMetaspaceTest {
                   exports com.gimle.fixture.redeployloop;
                 }
                 """)
-            .with_class(
+            .withClass(
                 "com.gimle.fixture.redeployloop.Marker",
                 """
                 package com.gimle.fixture.redeployloop;
@@ -54,8 +54,8 @@ class RedeployLoopFlatMetaspaceTest {
                   public String value() { return "marker"; }
                 }
                 """)
-            .with_descriptor(
-                TestModuleBuilder.minimal_descriptor("com.gimle.fixture.redeployloop", "1.0.0"))
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.redeployloop", "1.0.0"))
             .build(tempDir, "redeployloop.jar");
 
     // Exercised once here so a broken fixture fails fast with a clear message, before spending
@@ -63,8 +63,8 @@ class RedeployLoopFlatMetaspaceTest {
     ModuleId id = ModuleArtifactReader.read(jar).id();
     assertEquals("com.gimle.fixture.redeployloop", id.name());
 
-    String javaExecutable = java_executable();
-    String classpath = build_classpath();
+    String javaExecutable = javaExecutable();
+    String classpath = buildClasspath();
 
     ProcessBuilder pb =
         new ProcessBuilder(
@@ -115,7 +115,7 @@ class RedeployLoopFlatMetaspaceTest {
     }
 
     assertTrue(samples.size() >= 4, "expected several metaspace samples, got " + samples.size());
-    assert_plateaus(samples);
+    assertPlateaus(samples);
   }
 
   /**
@@ -123,7 +123,7 @@ class RedeployLoopFlatMetaspaceTest {
    * metadata leak keeps climbing throughout that window, while healthy behavior settles into a
    * narrow band after initial classloading/JIT warm-up.
    */
-  private static void assert_plateaus(List<long[]> samples) {
+  private static void assertPlateaus(List<long[]> samples) {
     int half = samples.size() / 2;
     List<long[]> latterHalf = samples.subList(half, samples.size());
     long min = latterHalf.stream().mapToLong(s -> s[1]).min().orElseThrow();
@@ -147,7 +147,7 @@ class RedeployLoopFlatMetaspaceTest {
    * check — just "which of these files exists") for the rare environment where {@link
    * ProcessHandle.Info#command()} isn't populated.
    */
-  private static String java_executable() {
+  private static String javaExecutable() {
     Optional<String> command = ProcessHandle.current().info().command();
     if (command.isPresent()) {
       return command.get();
@@ -162,13 +162,13 @@ class RedeployLoopFlatMetaspaceTest {
     throw new IllegalStateException("could not locate the java launcher under " + javaBin);
   }
 
-  private static String build_classpath() throws IOException {
+  private static String buildClasspath() throws IOException {
     List<Path> entries =
         List.of(
-            module_path_entry_of(com.gimle.core.module.ModuleId.class),
-            module_path_entry_of(com.gimle.module.lifecycle.ModuleController.class),
-            module_path_entry_of(RedeployLoopDriver.class),
-            module_path_entry_of(org.yaml.snakeyaml.Yaml.class));
+            modulePathEntryOf(com.gimle.core.module.ModuleId.class),
+            modulePathEntryOf(com.gimle.module.lifecycle.ModuleController.class),
+            modulePathEntryOf(RedeployLoopDriver.class),
+            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class));
     StringBuilder cp = new StringBuilder();
     for (Path entry : entries) {
       if (cp.length() > 0) {
@@ -179,7 +179,7 @@ class RedeployLoopFlatMetaspaceTest {
     return cp.toString();
   }
 
-  private static Path module_path_entry_of(Class<?> anchor) {
+  private static Path modulePathEntryOf(Class<?> anchor) {
     try {
       return Path.of(anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
     } catch (java.net.URISyntaxException e) {

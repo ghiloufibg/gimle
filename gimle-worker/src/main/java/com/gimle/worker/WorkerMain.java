@@ -41,20 +41,19 @@ public final class WorkerMain {
 
     UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[0]));
     ControlChannelClient channel =
-        ControlChannelClient.connect_with_retry(
+        ControlChannelClient.connectWithRetry(
             address, Duration.ofMillis(200), Duration.ofSeconds(30));
     log.info("connected to agent control socket at {}", address);
 
     ModuleRegistry registry = new ModuleRegistry();
     ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
         event -> {
-          runtimeRef.get().on_lifecycle_event(event);
-          send_quietly(
-              channel, new ControlMessage.ModuleStateChanged(event.id(), state_name(event)));
+          runtimeRef.get().onLifecycleEvent(event);
+          sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
         };
     ModuleController controller =
         new ModuleController(
@@ -104,19 +103,19 @@ public final class WorkerMain {
         }
       }
       case ControlMessage.ResolveModule m ->
-          run_command(m.correlationId(), channel, () -> controller.resolve(m.id()));
+          runCommand(m.correlationId(), channel, () -> controller.resolve(m.id()));
       case ControlMessage.StartModule m ->
-          run_command(m.correlationId(), channel, () -> controller.start(m.id()));
+          runCommand(m.correlationId(), channel, () -> controller.start(m.id()));
       case ControlMessage.StopModule m ->
-          run_command(m.correlationId(), channel, () -> controller.stop(m.id()));
+          runCommand(m.correlationId(), channel, () -> controller.stop(m.id()));
       case ControlMessage.UninstallModule m ->
-          run_command(m.correlationId(), channel, () -> controller.uninstall(m.id()));
+          runCommand(m.correlationId(), channel, () -> controller.uninstall(m.id()));
       case ControlMessage.Ping m -> channel.send(new ControlMessage.Pong(m.correlationId()));
       default -> log.warn("unexpected control message from agent: {}", message);
     }
   }
 
-  private static void run_command(
+  private static void runCommand(
       String correlationId, ControlChannelClient channel, Runnable action) throws IOException {
     try {
       action.run();
@@ -126,7 +125,7 @@ public final class WorkerMain {
     }
   }
 
-  private static String state_name(LifecycleEvent event) {
+  private static String stateName(LifecycleEvent event) {
     return switch (event) {
       case LifecycleEvent.Installed ignored -> "INSTALLED";
       case LifecycleEvent.Resolved ignored -> "RESOLVED";
@@ -138,7 +137,7 @@ public final class WorkerMain {
     };
   }
 
-  private static void send_quietly(ControlChannelClient channel, ControlMessage message) {
+  private static void sendQuietly(ControlChannelClient channel, ControlMessage message) {
     try {
       channel.send(message);
     } catch (IOException e) {

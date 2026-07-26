@@ -55,16 +55,16 @@ class ModuleRegistryTest {
     ModuleArtifact a = artifact("com.gimle.a", "1.0.0");
     ModuleId id = registry.register(a);
 
-    registry.mark_resolved(id, new ModuleWiring(id, java.util.Map.of()), null_handle());
+    registry.markResolved(id, new ModuleWiring(id, java.util.Map.of()), nullHandle());
     assertEquals(ModuleState.RESOLVED, registry.state(id));
 
-    registry.mark_starting(id);
+    registry.markStarting(id);
     assertEquals(ModuleState.STARTING, registry.state(id));
 
-    registry.mark_active(id);
+    registry.markActive(id);
     assertEquals(ModuleState.ACTIVE, registry.state(id));
 
-    registry.mark_stopping(id);
+    registry.markStopping(id);
     assertEquals(ModuleState.STOPPING, registry.state(id));
 
     registry.remove(id);
@@ -77,13 +77,13 @@ class ModuleRegistryTest {
     ModuleRegistry registry = new ModuleRegistry();
     ModuleArtifact a = artifact("com.gimle.a", "1.0.0");
     ModuleId id = registry.register(a);
-    registry.mark_failed(id);
+    registry.markFailed(id);
     assertEquals(ModuleState.FAILED, registry.state(id));
   }
 
-  // mark_resolved requires a ModuleLayerHandle in production use, but these registry-level tests
+  // markResolved requires a ModuleLayerHandle in production use, but these registry-level tests
   // don't need a real one — layer construction is exercised separately once that package exists.
-  private static com.gimle.module.layer.ModuleLayerHandle null_handle() {
+  private static com.gimle.module.layer.ModuleLayerHandle nullHandle() {
     return new com.gimle.module.layer.ModuleLayerHandle(
         ModuleLayer.boot(), ClassLoader.getSystemClassLoader());
   }

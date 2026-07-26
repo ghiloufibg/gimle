@@ -30,8 +30,8 @@ public final class RedeployLoopDriver {
     int iterations = Integer.parseInt(args[1]);
     int sampleEvery = Integer.parseInt(args[2]);
 
-    MemoryPoolMXBean metaspacePool = find_metaspace_pool();
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    MemoryPoolMXBean metaspacePool = findMetaspacePool();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     for (int i = 1; i <= iterations; i++) {
       ModuleRegistry registry = new ModuleRegistry();
@@ -61,7 +61,7 @@ public final class RedeployLoopDriver {
     System.out.println("DONE");
   }
 
-  private static MemoryPoolMXBean find_metaspace_pool() {
+  private static MemoryPoolMXBean findMetaspacePool() {
     return ManagementFactory.getMemoryPoolMXBeans().stream()
         .filter(pool -> pool.getName().equals("Metaspace"))
         .findFirst()

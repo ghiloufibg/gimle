@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * {@code Stopping}-vs-{@code Uninstalled} service-registry teardown timing that {@link
  * ModuleController} deliberately leaves to its caller.
  *
- * <p>{@link #on_lifecycle_event} is exactly the {@code Consumer<LifecycleEvent>} {@link
+ * <p>{@link #onLifecycleEvent} is exactly the {@code Consumer<LifecycleEvent>} {@link
  * ModuleController}'s constructor already accepts — no changes to {@code gimle-module} were needed
  * to wire this in, confirming that event sink was designed generally enough in Phase 1.
  */
@@ -72,23 +72,23 @@ public final class WorkerRuntime {
     this.onModuleRestartBudgetExhausted = onModuleRestartBudgetExhausted;
   }
 
-  public void on_lifecycle_event(LifecycleEvent event) {
+  public void onLifecycleEvent(LifecycleEvent event) {
     switch (event) {
-      case LifecycleEvent.Active active -> on_active(active.id());
-      case LifecycleEvent.Stopping stopping -> on_stopping(stopping.id());
-      case LifecycleEvent.Uninstalled uninstalled -> on_uninstalled(uninstalled.id());
+      case LifecycleEvent.Active active -> onActive(active.id());
+      case LifecycleEvent.Stopping stopping -> onStopping(stopping.id());
+      case LifecycleEvent.Uninstalled uninstalled -> onUninstalled(uninstalled.id());
       default -> {}
     }
   }
 
-  private void on_active(ModuleId id) {
+  private void onActive(ModuleId id) {
     BoundedModuleScheduler scheduler = new BoundedModuleScheduler(id, defaultMaxConcurrency);
     schedulers.put(id, scheduler);
-    restartTrackers.computeIfAbsent(id, key -> new_restart_tracker());
+    restartTrackers.computeIfAbsent(id, key -> newRestartTracker());
     consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger());
 
     ModuleDescriptor descriptor = registry.artifact(id).descriptor();
-    Optional<ModuleLayerHandle> handleOpt = registry.layer_handle(id);
+    Optional<ModuleLayerHandle> handleOpt = registry.layerHandle(id);
     if (handleOpt.isEmpty()) {
       log.warn("module {} is ACTIVE but has no layer handle; skipping probe setup", id);
       return;
@@ -102,12 +102,12 @@ public final class WorkerRuntime {
             className -> {
               LivenessProbe probe = instantiate(id, className, handle, LivenessProbe.class);
               probeLoop.start(
-                  probe_key(id, "liveness"),
+                  probeKey(id, "liveness"),
                   scheduler,
-                  probe::is_alive,
+                  probe::isAlive,
                   probeInterval,
                   probeTimeout,
-                  alive -> on_liveness_result(id, alive));
+                  alive -> onLivenessResult(id, alive));
             });
 
     descriptor
@@ -117,22 +117,22 @@ public final class WorkerRuntime {
             className -> {
               ReadinessProbe probe = instantiate(id, className, handle, ReadinessProbe.class);
               probeLoop.start(
-                  probe_key(id, "readiness"),
+                  probeKey(id, "readiness"),
                   scheduler,
-                  probe::is_ready,
+                  probe::isReady,
                   probeInterval,
                   probeTimeout,
-                  ready -> on_readiness_result(id, ready));
+                  ready -> onReadinessResult(id, ready));
             });
   }
 
-  private void on_stopping(ModuleId id) {
-    probeLoop.stop(probe_key(id, "liveness"));
-    probeLoop.stop(probe_key(id, "readiness"));
-    serviceRegistry.mark_unready(id);
+  private void onStopping(ModuleId id) {
+    probeLoop.stop(probeKey(id, "liveness"));
+    probeLoop.stop(probeKey(id, "readiness"));
+    serviceRegistry.markUnready(id);
   }
 
-  private void on_uninstalled(ModuleId id) {
+  private void onUninstalled(ModuleId id) {
     BoundedModuleScheduler scheduler = schedulers.remove(id);
     if (scheduler != null) {
       scheduler.close();
@@ -142,19 +142,19 @@ public final class WorkerRuntime {
     serviceRegistry.remove(id);
   }
 
-  private void on_readiness_result(ModuleId id, boolean ready) {
+  private void onReadinessResult(ModuleId id, boolean ready) {
     if (!ready) {
-      serviceRegistry.mark_unready(id);
+      serviceRegistry.markUnready(id);
     }
     // Becoming ready again is re-established the next time the module registers a service
-    // (on_start/on_install) or is naturally re-marked by a caller with fresher state; readiness
+    // (onStart/onInstall) or is naturally re-marked by a caller with fresher state; readiness
     // probes here only ever demote, matching the design's "readiness failures... just flip the
     // module's tracked readiness state" — there is deliberately no separate "mark ready" call
     // wired through this loop, since ServiceRegistry has no ambiguity to resolve by re-adding
     // an already-registered, already-ready entry.
   }
 
-  private void on_liveness_result(ModuleId id, boolean alive) {
+  private void onLivenessResult(ModuleId id, boolean alive) {
     if (alive) {
       consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger()).set(0);
       return;
@@ -167,10 +167,10 @@ public final class WorkerRuntime {
       return;
     }
     consecutiveLivenessFailures.get(id).set(0);
-    restart_module(id);
+    restartModule(id);
   }
 
-  private void restart_module(ModuleId id) {
+  private void restartModule(ModuleId id) {
     // The probe loop keeps ticking the (still ACTIVE-until-the-attempt-actually-runs) module the
     // whole time an attempt is in flight, so without this guard every subsequent liveness failure
     // during that window would trigger its own concurrent stop()/resolve()/start() sequence,
@@ -180,9 +180,9 @@ public final class WorkerRuntime {
       return;
     }
 
-    RestartTracker tracker = restartTrackers.computeIfAbsent(id, key -> new_restart_tracker());
+    RestartTracker tracker = restartTrackers.computeIfAbsent(id, key -> newRestartTracker());
     Instant now = Instant.now();
-    if (!tracker.record_failure_and_check_should_retry(now)) {
+    if (!tracker.recordFailureAndCheckShouldRetry(now)) {
       log.error("module {} exhausted its restart budget; giving up on this worker", id);
       restartsInFlight.remove(id);
       onModuleRestartBudgetExhausted.accept(id);
@@ -196,7 +196,7 @@ public final class WorkerRuntime {
     // not just resolve+start on an id that's still sitting there.
     var artifact = registry.artifact(id);
 
-    Duration delay = tracker.delay_until_next_attempt(now);
+    Duration delay = tracker.delayUntilNextAttempt(now);
     Runnable attempt =
         () -> {
           try {
@@ -211,7 +211,7 @@ public final class WorkerRuntime {
               registry.register(artifact);
               controller.resolve(id);
               controller.start(id);
-              tracker.record_success();
+              tracker.recordSuccess();
             } catch (RuntimeException e) {
               log.warn("module {} restart attempt failed: {}", id, e.getMessage());
             }
@@ -220,7 +220,7 @@ public final class WorkerRuntime {
           }
         };
     // Deliberately not run via this module's own BoundedModuleScheduler: controller.stop(id)
-    // above synchronously reaches on_uninstalled(), which closes that very scheduler -- an
+    // above synchronously reaches onUninstalled(), which closes that very scheduler -- an
     // ExecutorService#close() call blocks awaiting termination of its own in-flight tasks, so
     // running the restart on the scheduler it's about to close would deadlock the restart against
     // itself. Restarting is worker-orchestration, not module request work, so it doesn't belong
@@ -228,12 +228,12 @@ public final class WorkerRuntime {
     Thread.ofVirtual().name("gimle-restart-" + id.name() + "-" + id.version()).start(attempt);
   }
 
-  private static RestartTracker new_restart_tracker() {
+  private static RestartTracker newRestartTracker() {
     return new RestartTracker(
         Duration.ofMillis(100), 2.0, Duration.ofSeconds(5), 5, Duration.ofSeconds(60));
   }
 
-  private static String probe_key(ModuleId id, String kind) {
+  private static String probeKey(ModuleId id, String kind) {
     return id + "#" + kind;
   }
 

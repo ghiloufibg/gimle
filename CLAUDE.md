@@ -103,7 +103,7 @@ Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped v
 
 - **Build**: Maven.
 - **Formatting**: Google Java Format, enforced via `fmt-maven-plugin` in CI and pre-commit.
-- **Method naming**: `snake_case` — a deliberate project-wide deviation from standard Java camelCase, enforced by a custom Checkstyle `MethodName` rule. Apply this consistently; don't "fix" it back to camelCase.
+- **Method naming**: standard Java `camelCase` everywhere — production code, JUnit lifecycle hooks (`@BeforeEach`/`@AfterEach`/`@BeforeAll`/`@AfterAll`), and private/helper methods in test classes. The one exception: methods directly annotated `@Test` are `snake_case`, so a test's name reads as a sentence describing the behavior it verifies. Enforced by two Checkstyle `MethodName` instances (one scoped to `@Test` methods, one to everything else) via XPath-based suppressions in `checkstyle-suppressions.xml`, not inline `@SuppressWarnings`.
 - **No checked exceptions anywhere.** Gimlé failures use dedicated unchecked types in `gimle-core` (`GimleResolutionException`, `GimleLifecycleException`, `GimleSchedulingException`, `GimleManifestException`, `GimleClusterException`, `GimleIsolationException`), all extending `RuntimeException`. Control-plane errors map to structured API responses, not propagated stack traces.
 - **Immutability**: records / `List.of`/unmodifiable collections preferred everywhere feasible. Desired state, observed state, and reconciliation events are strictly immutable snapshots — a reconciler reads a snapshot and returns actions, never mutates in place.
 - **`final`** on variables, fields, and parameters wherever possible.

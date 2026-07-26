@@ -8,5 +8,5 @@ package com.gimle.module.probe;
  */
 public interface ReadinessProbe {
 
-  boolean is_ready();
+  boolean isReady();
 }

@@ -72,7 +72,7 @@ public final class AgentMain {
     List<String> commandTail = List.of(args).subList(3, args.length);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
-    CapacityTracker capacityTracker = CapacityTracker.of_this_machine();
+    CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = HttpClient.newHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
 
@@ -81,7 +81,7 @@ public final class AgentMain {
 
     while (!Thread.currentThread().isInterrupted()) {
       try {
-        reconcile_assignments(
+        reconcileAssignments(
             httpClient,
             baseUrl,
             nodeId,
@@ -90,7 +90,7 @@ public final class AgentMain {
             commandTail,
             resourceLimiter,
             capacityTracker);
-        send_heartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
+        sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
       } catch (RuntimeException | IOException e) {
         log.error("agent tick failed: {}", e.getMessage(), e);
       }
@@ -121,7 +121,7 @@ public final class AgentMain {
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
-  private static void send_heartbeat(
+  private static void sendHeartbeat(
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
@@ -137,7 +137,7 @@ public final class AgentMain {
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {
-      instances.add(observation_json(instance));
+      instances.add(observationJson(instance));
     }
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -151,7 +151,7 @@ public final class AgentMain {
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
-  private static Map<String, Object> observation_json(SupervisedInstance instance) {
+  private static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
     boolean alive = !"FAILED".equals(state);
     boolean ready = "ACTIVE".equals(state);
@@ -171,7 +171,7 @@ public final class AgentMain {
   }
 
   @SuppressWarnings("unchecked")
-  private static List<AssignedInstance> fetch_assignments(
+  private static List<AssignedInstance> fetchAssignments(
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments")).GET().build();
@@ -197,7 +197,7 @@ public final class AgentMain {
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
-  private static void reconcile_assignments(
+  private static void reconcileAssignments(
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
@@ -207,14 +207,14 @@ public final class AgentMain {
       ResourceLimiter resourceLimiter,
       CapacityTracker capacityTracker)
       throws IOException, InterruptedException {
-    List<AssignedInstance> assignments = fetch_assignments(httpClient, baseUrl, nodeId);
+    List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
     for (AssignedInstance assigned : assignments) {
-      String key = instance_key(assigned);
+      String key = instanceKey(assigned);
       currentKeys.add(key);
       if (!supervised.containsKey(key)) {
         try {
-          start_instance(
+          startInstance(
               assigned,
               key,
               supervised,
@@ -229,12 +229,12 @@ public final class AgentMain {
     }
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
-        stop_instance(key, supervised, capacityTracker);
+        stopInstance(key, supervised, capacityTracker);
       }
     }
   }
 
-  private static void start_instance(
+  private static void startInstance(
       AssignedInstance assigned,
       String key,
       Map<String, SupervisedInstance> supervised,
@@ -246,7 +246,7 @@ public final class AgentMain {
     ModuleDescriptor descriptor =
         ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
     if (!resourceLimiter.supports(descriptor.isolationTier())) {
-      throw GimleIsolationException.tier_unsupported(
+      throw GimleIsolationException.tierUnsupported(
           assigned.moduleId(), descriptor.isolationTier());
     }
 
@@ -255,7 +255,7 @@ public final class AgentMain {
     ResourceLimitHandle handle = resourceLimiter.prepare(key, descriptor.resourceRequest());
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
-    baseCommand.addAll(resourceLimiter.jvm_flags(handle));
+    baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
 
     RestartTracker restartTracker =
@@ -278,33 +278,32 @@ public final class AgentMain {
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
-    capacityTracker.try_assign(key, descriptor.resourceRequest());
+    capacityTracker.tryAssign(key, descriptor.resourceRequest());
     supervisor.start();
 
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
-        .start(() -> drive_instance_up(instance, key));
+        .start(() -> driveInstanceUp(instance, key));
   }
 
-  private static void drive_instance_up(SupervisedInstance instance, String key) {
+  private static void driveInstanceUp(SupervisedInstance instance, String key) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
-      Thread.ofVirtual().name("gimle-instance-reader-" + key).start(() -> read_loop(instance, key));
+      Thread.ofVirtual().name("gimle-instance-reader-" + key).start(() -> readLoop(instance, key));
 
       connection.send(
-          new ControlMessage.InstallModule(
-              next_correlation_id(), instance.assigned.artifactPath()));
+          new ControlMessage.InstallModule(nextCorrelationId(), instance.assigned.artifactPath()));
       connection.send(
-          new ControlMessage.ResolveModule(next_correlation_id(), instance.assigned.moduleId()));
+          new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
       connection.send(
-          new ControlMessage.StartModule(next_correlation_id(), instance.assigned.moduleId()));
+          new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
     }
   }
 
-  private static void read_loop(SupervisedInstance instance, String key) {
+  private static void readLoop(SupervisedInstance instance, String key) {
     try {
       Optional<ControlMessage> received;
       while ((received = instance.connection.receive()).isPresent()) {
@@ -321,7 +320,7 @@ public final class AgentMain {
     }
   }
 
-  private static void stop_instance(
+  private static void stopInstance(
       String key, Map<String, SupervisedInstance> supervised, CapacityTracker capacityTracker) {
     SupervisedInstance instance = supervised.remove(key);
     if (instance == null) {
@@ -331,7 +330,7 @@ public final class AgentMain {
     if (connection != null) {
       try {
         connection.send(
-            new ControlMessage.StopModule(next_correlation_id(), instance.assigned.moduleId()));
+            new ControlMessage.StopModule(nextCorrelationId(), instance.assigned.moduleId()));
       } catch (IOException e) {
         log.warn("failed to send StopModule to instance {}: {}", key, e.getMessage());
       }
@@ -345,11 +344,11 @@ public final class AgentMain {
     capacityTracker.release(key);
   }
 
-  private static String instance_key(AssignedInstance assigned) {
+  private static String instanceKey(AssignedInstance assigned) {
     return assigned.deploymentName() + "#" + assigned.instanceIndex();
   }
 
-  private static String next_correlation_id() {
+  private static String nextCorrelationId() {
     return "c" + CORRELATION_COUNTER.incrementAndGet();
   }
 }

@@ -4,22 +4,22 @@ import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 
 /**
- * Begins a request in {@code on_start} and never ends it — see {@link RecordingHooks} for why this
+ * Begins a request in {@code onStart} and never ends it — see {@link RecordingHooks} for why this
  * lives here.
  */
 public class NeverDrainsHooks implements ModuleLifecycleHooks {
 
   @Override
-  public void on_install(ModuleContext ctx) {}
+  public void onInstall(ModuleContext ctx) {}
 
   @Override
-  public void on_start(ModuleContext ctx) {
-    ctx.begin_request();
+  public void onStart(ModuleContext ctx) {
+    ctx.beginRequest();
   }
 
   @Override
-  public void on_stop(ModuleContext ctx) {}
+  public void onStop(ModuleContext ctx) {}
 
   @Override
-  public void on_uninstall(ModuleContext ctx) {}
+  public void onUninstall(ModuleContext ctx) {}
 }

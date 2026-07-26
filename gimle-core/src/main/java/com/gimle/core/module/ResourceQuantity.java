@@ -9,7 +9,7 @@ final class ResourceQuantity {
 
   private ResourceQuantity() {}
 
-  static long parse_memory(String text) {
+  static long parseMemory(String text) {
     String trimmed = text.strip();
     if (trimmed.endsWith("Ki")) {
       return suffixed(trimmed, "Ki", 1024L, text);
@@ -35,13 +35,13 @@ final class ResourceQuantity {
     if (trimmed.endsWith("T")) {
       return suffixed(trimmed, "T", 1_000_000_000_000L, text);
     }
-    return parse_positive_long(trimmed, text);
+    return parsePositiveLong(trimmed, text);
   }
 
-  static long parse_cpu(String text) {
+  static long parseCpu(String text) {
     String trimmed = text.strip();
     if (trimmed.endsWith("m")) {
-      return parse_positive_long(trimmed.substring(0, trimmed.length() - 1), text);
+      return parsePositiveLong(trimmed.substring(0, trimmed.length() - 1), text);
     }
     double cores;
     try {
@@ -57,10 +57,10 @@ final class ResourceQuantity {
 
   private static long suffixed(String trimmed, String suffix, long multiplier, String original) {
     String numberPart = trimmed.substring(0, trimmed.length() - suffix.length());
-    return parse_positive_long(numberPart, original) * multiplier;
+    return parsePositiveLong(numberPart, original) * multiplier;
   }
 
-  private static long parse_positive_long(String numberPart, String original) {
+  private static long parsePositiveLong(String numberPart, String original) {
     long value;
     try {
       value = Long.parseLong(numberPart.strip());

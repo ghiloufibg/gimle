@@ -30,14 +30,14 @@ public record ModuleDescriptor(
     if (resourceRequest == null || resourceLimit == null) {
       throw new IllegalArgumentException("resource request/limit must not be null");
     }
-    if (resourceRequest.memory_bytes() > resourceLimit.memory_bytes()) {
+    if (resourceRequest.memoryBytes() > resourceLimit.memoryBytes()) {
       throw new IllegalArgumentException(
           "memory request exceeds limit: "
               + resourceRequest.memory()
               + " > "
               + resourceLimit.memory());
     }
-    if (resourceRequest.cpu_millicores() > resourceLimit.cpu_millicores()) {
+    if (resourceRequest.cpuMillicores() > resourceLimit.cpuMillicores()) {
       throw new IllegalArgumentException(
           "cpu request exceeds limit: " + resourceRequest.cpu() + " > " + resourceLimit.cpu());
     }

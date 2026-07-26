@@ -45,7 +45,7 @@ class WorkerRuntimeTest {
   private static int counter = 0;
 
   @BeforeEach
-  void reset_probe_state() {
+  void resetProbeState() {
     ControllableLivenessProbe.ALIVE.set(true);
     ControllableReadinessProbe.READY.set(true);
   }
@@ -58,7 +58,7 @@ class WorkerRuntimeTest {
       ModuleId id,
       List<LifecycleEvent> events) {}
 
-  private Path build_fixture_jar(String name) {
+  private Path buildFixtureJar(String name) {
     String uniqueName = name + (counter++);
     return TestModuleBuilder.module(
             """
@@ -66,7 +66,7 @@ class WorkerRuntimeTest {
             }
             """
                 .formatted(uniqueName))
-        .with_descriptor(
+        .withDescriptor(
             """
             name: %s
             version: 1.0.0
@@ -89,13 +89,13 @@ class WorkerRuntimeTest {
         .build(tempDir, uniqueName + ".jar");
   }
 
-  private Fixture start_fixture(String name, int livenessFailureThreshold) {
-    Path jar = build_fixture_jar(name);
+  private Fixture startFixture(String name, int livenessFailureThreshold) {
+    Path jar = buildFixtureJar(name);
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
     ModuleId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.boot_only().layer();
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
     List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
 
@@ -105,7 +105,7 @@ class WorkerRuntimeTest {
           events.add(event);
           WorkerRuntime runtime = runtimeRef.get();
           if (runtime != null) {
-            runtime.on_lifecycle_event(event);
+            runtime.onLifecycleEvent(event);
           }
         };
 
@@ -137,13 +137,13 @@ class WorkerRuntimeTest {
     return new Fixture(registry, controller, runtime, serviceRegistry, id, events);
   }
 
-  private static long active_transition_count(List<LifecycleEvent> events) {
+  private static long activeTransitionCount(List<LifecycleEvent> events) {
     return events.stream().filter(e -> e instanceof LifecycleEvent.Active).count();
   }
 
   @Test
   void on_active_registers_the_modules_service_and_it_is_immediately_lookupable() {
-    Fixture f = start_fixture("com.gimle.fixture.service", 2);
+    Fixture f = startFixture("com.gimle.fixture.service", 2);
 
     assertEquals(
         Optional.of("hello from provider"),
@@ -152,30 +152,30 @@ class WorkerRuntimeTest {
 
   @Test
   void repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active() {
-    Fixture f = start_fixture("com.gimle.fixture.restart", 2);
-    assertEquals(1, active_transition_count(f.events()));
+    Fixture f = startFixture("com.gimle.fixture.restart", 2);
+    assertEquals(1, activeTransitionCount(f.events()));
 
     ControllableLivenessProbe.ALIVE.set(false);
     // At least one full restart cycle (Stopping -> Uninstalled -> Resolved -> Starting -> Active)
     // must complete; how many happen before this observes one is inherently racy against the
     // probe loop's own ticking, so this only asserts "at least one", not an exact count.
-    Await.at_least(
+    Await.atLeast(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.Uninstalled),
         Duration.ofSeconds(10));
     ControllableLivenessProbe.ALIVE.set(true);
-    Await.at_least(() -> active_transition_count(f.events()) >= 2, Duration.ofSeconds(10));
+    Await.atLeast(() -> activeTransitionCount(f.events()) >= 2, Duration.ofSeconds(10));
 
-    // The core regression this test guards: WorkerRuntime#restart_module used to call
+    // The core regression this test guards: WorkerRuntime#restartModule used to call
     // controller.resolve(id) right after controller.stop(id), but stop() drives the module all
     // the way to UNINSTALLED, which removes it from the registry -- so resolve() would throw
     // NoSuchElementException instead of the module coming back up. If that regression returns,
     // this assertion (and the module's continued presence at all) is what catches it.
     assertTrue(f.registry().contains(f.id()));
 
-    // on_start's hook re-registers the Greeter service against the restarted module's fresh
+    // onStart's hook re-registers the Greeter service against the restarted module's fresh
     // ModuleContext -- proving the restart didn't just flip lifecycle state but actually
     // re-ran module startup.
-    Await.at_least(
+    Await.atLeast(
         () -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
     assertEquals(
         Optional.of("hello from provider"),
@@ -184,25 +184,24 @@ class WorkerRuntimeTest {
 
   @Test
   void a_readiness_failure_marks_the_service_unready_without_stopping_the_module() {
-    Fixture f = start_fixture("com.gimle.fixture.readiness", 99);
+    Fixture f = startFixture("com.gimle.fixture.readiness", 99);
 
     ControllableReadinessProbe.READY.set(false);
-    Await.at_least(
-        () -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
+    Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
 
-    assertEquals(1, active_transition_count(f.events()));
+    assertEquals(1, activeTransitionCount(f.events()));
     assertTrue(f.registry().contains(f.id()));
   }
 
   @Test
   void stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry() {
-    Fixture f = start_fixture("com.gimle.fixture.stopping", 99);
+    Fixture f = startFixture("com.gimle.fixture.stopping", 99);
     assertEquals(
         Optional.of("hello from provider"),
         f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));
 
     // ModuleController#stop() drains and disposes in one synchronous call, so WorkerRuntime's
-    // Stopping (mark_unready) and Uninstalled (remove) reactions both fire before this returns --
+    // Stopping (markUnready) and Uninstalled (remove) reactions both fire before this returns --
     // either one alone is enough to make the service unreachable here.
     f.controller().stop(f.id());
 
