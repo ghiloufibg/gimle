@@ -38,34 +38,32 @@ Kubernetes gets isolation from cgroups and namespaces. Gimlé reaches equivalent
 
 ```
 Machine (Node Agent, JVM)
- └── Worker JVM  ── hard memory/CPU boundary, own -Xmx, own cgroup
+ └── Worker JVM  ── memory/CPU boundary, own -Xmx, own resource limiter
       └── Module ── ModuleLayer + classloader, soft accounting
            └── Instance ── bounded virtual-thread scheduler
 ```
 
 **Tier 1 — Module inside a shared worker JVM.** Deploy cost: milliseconds, megabytes. Isolation: classloader-level encapsulation, soft resource accounting via JFR, bounded thread scheduler. Appropriate for trusted co-tenant modules. This is the Karaf half and the density win.
 
-**Tier 2 — Module in a dedicated worker JVM.** Deploy cost: sub-second with AppCDS. Isolation: hard memory ceiling (`-Xmx`), hard CPU ceiling (cgroup + `ActiveProcessorCount`), independent crash domain. This is the Kubernetes-equivalent guarantee, and it is available *per module* as a manifest setting rather than as an all-or-nothing platform decision.
+**Tier 2 — Module in a dedicated worker JVM.** Deploy cost: sub-second with AppCDS. Isolation: hard memory ceiling (`-Xmx`), hard CPU ceiling (`ActiveProcessorCount`), independent crash domain. This is the Kubernetes-equivalent guarantee, and it is available *per module* as a manifest setting rather than as an all-or-nothing platform decision. **Platform independence first:** this ceiling is enforced today purely through JVM flags (`ResourceLimiter` / `PortableJvmFlagsResourceLimiter` in `gimle-os`), identically on every OS — no cgroup, no kernel-level enforcement. A second, kernel-enforced `ResourceLimiter` implementation is a deliberately deferred later addition behind the same interface, not a parallel path built alongside the portable one from day one.
 
-**Tier 3 — Worker JVM in a namespace.** Additional filesystem and network isolation via Linux namespaces, entered through FFM downcalls to `unshare`/`setns`. For hostile-neighbour scenarios.
+**Tier 3 — Worker JVM in a namespace.** Additional filesystem and network isolation via Linux namespaces, entered through FFM downcalls to `unshare`/`setns`. For hostile-neighbour scenarios. Not implemented yet, on any platform — requests are rejected outright rather than silently downgraded.
 
-The manifest declares what a module needs; the scheduler places it accordingly. A module asking for a hard memory limit gets its own worker; one that doesn't shares. **This is the design's central claim: container-grade isolation and classloader-grade density in one system, selected per workload.**
+The manifest declares what a module needs; the scheduler places it accordingly. A module asking for a hard memory limit gets its own worker; one that doesn't shares. **This is the design's central claim: container-grade isolation and classloader-grade density in one system, selected per workload** — the tiering model holds today even though the strongest enforcement mechanisms arrive incrementally behind it.
 
-## Resource control without containers
+## Resource control: platform-independent first, kernel-level later
 
-The key enabling fact: **Linux resource control on cgroup v2 is a filesystem interface.** Creating a cgroup is `Files.createDirectory`; setting a memory ceiling is `Files.writeString` to `memory.max`; CPU weight is `cpu.weight`; reading usage is `Files.readString` of `memory.current`. No syscalls, no native code, no privileged runtime — plain `java.nio.file` against `/sys/fs/cgroup`.
+Building genuinely platform-specific enforcement (cgroups, namespaces) before the portable foundation was solid would get the emphasis backwards for a project whose whole premise is a JVM-native platform. So the near-term reality is: Tier 1 and Tier 2 are enforced purely through portable JVM mechanisms (`-Xmx`, `ActiveProcessorCount`) behind the `ResourceLimiter` interface — identical on Linux, macOS, and Windows, no OS-specific code anywhere in that path today.
 
-What genuinely requires syscalls — `unshare` for namespace creation, `setns` for entry, `sched_setaffinity` for CPU pinning — is reachable through the **FFM API** as ordinary downcalls to libc. No JNI, no C, no build toolchain.
+The enabling fact that makes the later, kernel-level work cheap once it's picked up: **Linux resource control on cgroup v2 is a filesystem interface.** Creating a cgroup is `Files.createDirectory`; setting a memory ceiling is `Files.writeString` to `memory.max`; CPU weight is `cpu.weight`; reading usage is `Files.readString` of `memory.current`. No syscalls, no native code, no privileged runtime — plain `java.nio.file` against `/sys/fs/cgroup`. What genuinely requires syscalls — `unshare` for namespace creation, `setns` for entry, `sched_setaffinity` for CPU pinning — is reachable through the **FFM API** as ordinary downcalls to libc, no JNI required. So the resource-management layer that Kubernetes delegates to containerd and runc will be, on Linux, a few hundred lines of Java — but it arrives as a second `ResourceLimiter` implementation once the portable foundation has proven itself, not as an early spike gating everything else.
 
-So the resource-management layer that Kubernetes delegates to containerd and runc is, on Linux, a few hundred lines of Java. This is the single most important technical realization behind the project, and it should be validated in Phase 1 before anything else is built on top of it.
-
-Platform support degrades honestly: full tiering on Linux, Tier 1 and 2 (JVM-level limits only) on macOS and Windows, with the manifest validator rejecting Tier 3 requests on unsupported platforms rather than silently downgrading.
+Tier 3 (namespaces) is rejected outright today, on every platform uniformly — "not implemented yet," not "your platform doesn't support it." Platform detection for choosing between resource-limiter implementations is itself deferred until there's a second implementation to choose between.
 
 ## Node topology
 
 Three Java processes, no other runtime on the machine:
 
-- **Node Agent** — one JVM per machine. Owns the machine: spawns and supervises worker JVMs via the `Process` API, manages their cgroups, reports machine capacity and observed state to the control plane, executes placement directives. Never runs user code, so it cannot be crashed by one.
+- **Node Agent** — one JVM per machine. Owns the machine: spawns and supervises worker JVMs via the `Process` API, assigns their resource limits (portable JVM flags today, see "Resource control" above), reports machine capacity and observed state to the control plane, executes placement directives. Never runs user code, so it cannot be crashed by one.
 - **Worker JVM** — hosts module instances in `ModuleLayer`s. Started with limits derived from its assigned modules' requests. Reports health and per-module metrics to its agent over a local channel. Disposable by design.
 - **Control Plane** — one or more JVMs, Raft-replicated. API server, state store, scheduler, reconcilers.
 
@@ -120,12 +118,10 @@ Note the escape hatch this buys: a module that leaks despite everything can be m
 ## Phases
 
 ### Phase 0 — Validate the foundation (week 1)
-Before anything else, prove the enabling assumptions with throwaway spikes:
-- Create a cgroup v2 group, set `memory.max`, launch a JVM into it, confirm the limit binds and reads back through `java.nio.file`.
-- FFM downcall to `unshare` creating a namespace from Java.
+Before anything else, prove the enabling assumptions with a throwaway spike:
 - Measure AppCDS-assisted JVM startup to establish the real Tier 2 restart cost.
 
-If these do not hold, the architecture changes — so they come first.
+Platform independence first (see "Resource control" above): validating cgroup v2 and an FFM `unshare` downcall is *not* a Phase 0 gate. That work is deliberately deferred until the portable resource-limiting foundation (Phase 2) has proven itself — spiking platform-specific mechanisms early, before anything consumes them, is exactly the kind of speculative work this design avoids.
 
 ### Phase 1 — Module system (weeks 2–5)
 - Descriptor format, artifact layout, resolver with version-range satisfaction.
@@ -135,8 +131,8 @@ If these do not hold, the architecture changes — so they come first.
 
 ### Phase 2 — Worker runtime and supervision (weeks 6–9)
 - Worker JVM: module hosting, per-module bounded virtual-thread schedulers, probe loop, in-JVM service registry.
-- Node agent: worker spawning via `Process` API, cgroup management, supervision and restart, capacity reporting.
-- Tier 1 and Tier 2 placement working end to end on one machine.
+- Node agent: worker spawning via `Process` API, portable resource limiting (`ResourceLimiter`/JVM flags — no cgroups yet, see "Resource control" above), supervision and restart, capacity reporting.
+- Tier 1 and Tier 2 placement working end to end on one machine, identically on every OS.
 - Per-module metrics via Micrometer and JFR streaming.
 
 ### Phase 3 — Control plane (weeks 10–14)
@@ -153,6 +149,7 @@ If these do not hold, the architecture changes — so they come first.
 
 ### Phase 5 — Availability and hardening (weeks 20+)
 - Raft-replicated control plane.
+- Kernel-level Tier 2 enforcement: a `CgroupResourceLimiter` (cgroup v2) behind the existing `ResourceLimiter` interface, plus the platform detection needed to select it.
 - Tier 3 namespace isolation via FFM.
 - Multi-tenancy: namespaces, per-tenant quotas, module permissions.
 - Secrets and configuration distribution.
@@ -173,7 +170,7 @@ If these do not hold, the architecture changes — so they come first.
   - Commit messages follow Conventional Commits style: prefix (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`, ...), short subject, max 3 lines total.
   - `pre-commit` hook running `mvn verify` (build + tests) and blocking the commit on failure.
 - **Code style**: clean, self-documenting code (clear names, small methods) preferred over Javadoc/comments. Add a comment only where logic is genuinely complex or non-obvious (e.g. layer parent selection, leak-detection reference handling, FFM struct layouts, reconciler convergence edge cases). Applies to test code as well as production code.
-- **Naming convention**: method names use `snake_case` (deliberate deviation from standard Java camelCase, project-wide). Enforced via a Checkstyle rule (custom `MethodName` regex), not Google Java Format.
+- **Naming convention**: standard Java `camelCase` everywhere — production code, JUnit lifecycle hooks, and private/helper methods in test classes — except methods directly annotated `@Test`, which are `snake_case` so a test's name reads as a sentence describing the behavior it verifies. Enforced via two Checkstyle `MethodName` instances split by an XPath suppression keyed on `@Test` presence (`checkstyle.xml`/`checkstyle-suppressions.xml`), not Google Java Format.
 - **Test coverage**: tests must cover both normal/happy paths and exception/error paths (e.g. unresolvable dependency, version conflict, probe timeout, worker OOM, network partition, no feasible placement, corrupt manifest, cgroup write failure), not just the success case. Reconcilers additionally require convergence tests from arbitrary starting states; the module system requires a repeated-redeploy leak test; the supervisor requires kill-and-recover tests at every tier.
 - **Error types**: Gimlé-specific failures use dedicated unchecked exception types in `gimle-core` (e.g. `GimleResolutionException`, `GimleLifecycleException`, `GimleSchedulingException`, `GimleManifestException`, `GimleClusterException`, `GimleIsolationException`), all extending `RuntimeException` — no checked exceptions anywhere in the project. Control-plane errors map to structured API responses rather than propagating stack traces to clients.
 - **Immutability**: immutable data structures (records, `List.of`/unmodifiable collections) preferred over mutable ones wherever feasible. Desired state, observed state, and reconciliation events are strictly immutable snapshots — a reconciler reads a snapshot and returns actions, never mutating in place. This is what makes reconciliation testable.
@@ -184,7 +181,7 @@ If these do not hold, the architecture changes — so they come first.
   - `gimle-core` — shared model/domain types, exceptions, logging config.
   - `gimle-module` — descriptor model, resolver, `ModuleLayer` construction, lifecycle state machine, leak detection.
   - `gimle-api` — platform service API exposed to hosted modules (probes, service registry, config, metrics).
-  - `gimle-os` — cgroup v2 management, FFM syscall bindings, platform capability detection.
+  - `gimle-os` — resource limiting (`ResourceLimiter`); portable JVM-flags implementation today, kernel-level cgroup v2 + FFM syscall bindings a deferred later addition (see "Resource control" above).
   - `gimle-worker` — worker JVM runtime: module hosting, schedulers, probing, local registry.
   - `gimle-agent` — node agent: worker supervision, resource assignment, capacity reporting.
   - `gimle-controlplane` — API server, state store, Raft, scheduler, reconcilers.

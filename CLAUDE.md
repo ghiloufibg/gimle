@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repository currently contains only the design specification (`gimle-PROJECT-v2.md`) and IDE project files. **No source code, `pom.xml`, or build exists yet.** There are no build/lint/test commands to run until the Maven project scaffolding described below is created. When starting implementation, follow the module layout, tooling, and conventions specified in `gimle-PROJECT-v2.md` (summarized below) rather than improvising a different structure.
+Phases 1–3 are implemented and committed: `gimle-core`, `gimle-module`, `gimle-os`, `gimle-worker`, `gimle-agent`, `gimle-controlplane`, and `gimle-observability` all exist as working Maven modules with tests. `gimle-api`, `gimle-fabric`, and `gimle-cli` don't exist yet — later-phase work. Build/test with `mvn verify` from the repo root (requires JDK 25 on `PATH`/`JAVA_HOME`).
 
-Read `gimle-PROJECT-v2.md` in full before doing any non-trivial work — it is the authoritative spec. This CLAUDE.md summarizes it for quick orientation only.
+Read `gimle-PROJECT-v2.md` in full before doing any non-trivial work — it is the authoritative spec. This CLAUDE.md summarizes it for quick orientation only. `claudedocs/phase{1,2,3}-*-design.md` (gitignored, local to this checkout) hold the as-built design detail — including revisions made mid-implementation — for each phase already done; check them before assuming the top-level spec alone reflects the latest decisions on a given area.
 
 ## What Gimlé is
 
@@ -20,7 +20,7 @@ Java 25 (LTS). These are architectural dependencies, not incidental choices — 
 
 - `ModuleLayer` / dynamic JPMS — module system foundation, replaces OSGi classloading
 - `Process` API (`onExit`, `destroyForcibly`, `pid`) — worker JVM supervision
-- FFM API (`Linker`, `MemorySegment`) — direct libc/syscall access (namespaces, CPU affinity); **no JNI, no native code anywhere**
+- FFM API (`Linker`, `MemorySegment`) — direct libc/syscall access (namespaces, CPU affinity), for the deferred kernel-level resource limiter and Tier 3 namespaces (not built yet, see "Core architecture" below); **no JNI, no native code anywhere**, now or once it lands
 - Virtual threads (unpinned, JEP 491), Scoped values (JEP 506), Structured concurrency
 - JFR event streaming — per-module resource accounting
 - AppCDS / CDS archives — sub-second worker JVM startup
@@ -33,22 +33,22 @@ The central design claim is container-grade isolation and classloader-grade dens
 
 ```
 Machine (Node Agent, JVM)
- └── Worker JVM  ── hard memory/CPU boundary, own -Xmx, own cgroup
+ └── Worker JVM  ── memory/CPU boundary, own -Xmx, own resource limiter
       └── Module ── ModuleLayer + classloader, soft accounting
            └── Instance ── bounded virtual-thread scheduler
 ```
 
 - **Tier 1** — module in a shared worker JVM. Millisecond deploys, classloader-level isolation, soft JFR-based accounting. Density win.
-- **Tier 2** — module in a dedicated worker JVM. Sub-second deploy (AppCDS), hard `-Xmx`/cgroup CPU ceiling, independent crash domain. Kubernetes-equivalent guarantee, available per module.
+- **Tier 2** — module in a dedicated worker JVM. Sub-second deploy (AppCDS), hard `-Xmx`/CPU ceiling, independent crash domain. Kubernetes-equivalent guarantee, available per module.
 - **Tier 3** — worker JVM in a Linux namespace (via FFM `unshare`/`setns`). For hostile-neighbour scenarios.
 
-Resource control on Linux is implemented as plain filesystem I/O against cgroup v2 (`Files.createDirectory`, `Files.writeString` to `memory.max`/`cpu.weight`, `Files.readString` of `memory.current`) — no containerd/runc equivalent needed. Namespace/affinity syscalls go through FFM downcalls to libc. Platform support degrades honestly: full tiering on Linux, Tier 1/2 only (JVM-level limits) on macOS/Windows, with the manifest validator rejecting unsupported Tier 3 requests rather than silently downgrading.
+**Platform independence first, platform-specific enforcement later** (deliberate design revision — see `claudedocs/phase2-worker-runtime-design.md` §1 and §2.4). Tier 1/2 limits are enforced today entirely through the portable `ResourceLimiter` interface (`gimle-os`) and its only current implementation, `PortableJvmFlagsResourceLimiter` — `-Xmx`/`ActiveProcessorCount`, identical on Linux/macOS/Windows, zero OS-specific code. Real kernel-level enforcement (cgroup v2 on Linux via plain `java.nio.file` I/O against `/sys/fs/cgroup` — no containerd/runc equivalent needed) is a deliberately deferred second `ResourceLimiter` implementation, not a parallel path built alongside the portable one. Tier 3 (FFM downcalls to `unshare`/`setns`) is unimplemented on every platform today and rejected outright (`GimleIsolationException`) rather than silently downgraded — "not built yet," not "your platform doesn't support it." Don't add cgroup/FFM code, or platform-detection branching, to satisfy a capability nothing yet consumes — that's exactly the speculative work this revision avoids.
 
 ## Node topology
 
 Three Java process roles, nothing else runs on the machine:
 
-- **Node Agent** — one per machine, owns cgroups and worker `Process` lifecycle, reports capacity/state, never runs user code.
+- **Node Agent** — one per machine, owns worker `Process` lifecycle and resource-limit assignment (portable JVM flags today, see "Core architecture" above), reports capacity/state, never runs user code.
 - **Worker JVM** — hosts module instances in `ModuleLayer`s, reports health/metrics to its agent, disposable by design.
 - **Control Plane** — Raft-replicated, one or more JVMs: API server, state store, scheduler, reconcilers.
 
@@ -86,18 +86,18 @@ Node/worker/module failure are distinct events with distinct recovery costs (sec
 
 Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped values (including across in-JVM hops), JFR-backed per-module allocation/CPU accounting (what makes Tier 1 soft limits enforceable), and a structured, queryable event log of every lifecycle/reconciliation decision.
 
-## Project structure (multi-module Maven, to be created)
+## Project structure (multi-module Maven)
 
 - `gimle-core` — shared model/domain types, exceptions, logging config
 - `gimle-module` — descriptor model, resolver, `ModuleLayer` construction, lifecycle state machine, leak detection
-- `gimle-api` — platform service API exposed to hosted modules (probes, service registry, config, metrics)
-- `gimle-os` — cgroup v2 management, FFM syscall bindings, platform capability detection
+- `gimle-api` — *(not created yet)* platform service API exposed to hosted modules (probes, service registry, config, metrics) — probe/service-registry types currently live in `gimle-module` instead
+- `gimle-os` — resource limiting (`ResourceLimiter`); portable JVM-flags implementation only today, kernel-level cgroup v2 deferred (see "Core architecture" above)
 - `gimle-worker` — worker JVM runtime: module hosting, schedulers, probing, local registry
 - `gimle-agent` — node agent: worker supervision, resource assignment, capacity reporting
-- `gimle-controlplane` — API server, state store, Raft, scheduler, reconcilers
-- `gimle-fabric` — service registry, three-path invocation, load balancing, circuit breaking, gossip membership
+- `gimle-controlplane` — API server, state store, scheduler, reconcilers (Raft still single-node)
+- `gimle-fabric` — *(not created yet)* service registry, three-path invocation, load balancing, circuit breaking, gossip membership
 - `gimle-observability` — metrics, tracing, JFR accounting, event log
-- `gimle-cli` — control-plane client, agent launcher, worker launcher
+- `gimle-cli` — *(not created yet)* control-plane client, agent launcher, worker launcher
 
 ## Conventions (binding, not optional)
 
