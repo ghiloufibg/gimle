@@ -10,12 +10,15 @@
   naming deviation from standard Java camelCase (see CLAUDE.md).
 -->
 <module name="Checker">
-  <!-- Enables @SuppressWarnings("checkstyle:<CheckName>") for the rare, unavoidable case:
-       a method overriding a fixed JDK contract (Comparable#compareTo, Object#toString, ...)
-       cannot be snake_case. Suppression must be explicit and per-method, never blanket. -->
-  <module name="SuppressWarningsFilter"/>
+  <!-- The rare, unavoidable exception: a method overriding a fixed JDK contract
+       (Comparable#compareTo, Object#toString, ...) cannot be snake_case. Suppressions
+       are centralized in checkstyle-suppressions.xml (by method, via XPath — not by
+       line number, which would silently drift as the file changes) rather than
+       @SuppressWarnings in source, per project preference. -->
   <module name="TreeWalker">
-    <module name="SuppressWarningsHolder"/>
+    <module name="SuppressionXpathFilter">
+      <property name="file" value="checkstyle-suppressions.xml"/>
+    </module>
     <module name="MethodName">
       <property name="format" value="^[a-z][a-z0-9]*(_[a-z0-9]+)*$"/>
       <message key="name.invalidPattern"

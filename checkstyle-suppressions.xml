@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionXpathFilter Experimental Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_xpath_1_2.xsd">
+
+<!--
+  MethodName exceptions: methods overriding a fixed JDK contract (Comparable#compareTo,
+  Object#toString) can't be renamed to snake_case. Matched by method name via XPath rather
+  than line number, so entries don't silently drift as the surrounding code changes.
+-->
+<suppressions>
+  <suppress-xpath checks="MethodName" files="[\\/]ModuleId\.java$"
+                   query="//METHOD_DEF[./IDENT[@text='toString']]"/>
+
+  <suppress-xpath checks="MethodName" files="[\\/]Version\.java$"
+                   query="//METHOD_DEF[./IDENT[@text='compareTo' or @text='toString']]"/>
+
+  <!-- Matches both ExactVersion#toString and BoundedRange#toString, the two nested
+       records in this file that need it. -->
+  <suppress-xpath checks="MethodName" files="[\\/]VersionRange\.java$"
+                   query="//METHOD_DEF[./IDENT[@text='toString']]"/>
+</suppressions>

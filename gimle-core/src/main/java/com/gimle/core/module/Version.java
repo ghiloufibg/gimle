@@ -37,7 +37,6 @@ public record Version(int major, int minor, int patch, String qualifier)
     return new Version(major, minor, patch, qualifier == null ? "" : qualifier);
   }
 
-  @SuppressWarnings("checkstyle:MethodName")
   @Override
   public int compareTo(Version other) {
     int cmp = Integer.compare(major, other.major);
@@ -71,7 +70,6 @@ public record Version(int major, int minor, int patch, String qualifier)
     return a.compareTo(b);
   }
 
-  @SuppressWarnings("checkstyle:MethodName")
   @Override
   public String toString() {
     String base = major + "." + minor + "." + patch;

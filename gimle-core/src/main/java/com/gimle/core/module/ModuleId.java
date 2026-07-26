@@ -11,7 +11,6 @@ public record ModuleId(String name, Version version) {
     }
   }
 
-  @SuppressWarnings("checkstyle:MethodName")
   @Override
   public String toString() {
     return name + "@" + version;

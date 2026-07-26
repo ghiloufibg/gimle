@@ -60,7 +60,6 @@ public sealed interface VersionRange permits VersionRange.ExactVersion, VersionR
       return version.equals(candidate);
     }
 
-    @SuppressWarnings("checkstyle:MethodName")
     @Override
     public String toString() {
       return version.toString();
@@ -95,7 +94,6 @@ public sealed interface VersionRange permits VersionRange.ExactVersion, VersionR
       return upperInclusive ? upperCmp <= 0 : upperCmp < 0;
     }
 
-    @SuppressWarnings("checkstyle:MethodName")
     @Override
     public String toString() {
       String lowerBracket = lowerInclusive ? "[" : "(";
