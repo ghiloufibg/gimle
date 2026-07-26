@@ -23,7 +23,7 @@ The wager is that the JVM and its ecosystem now provide every primitive an orche
 |---|---|
 | `ModuleLayer` / dynamic JPMS | Module system foundation — dynamic module graphs with real encapsulation, disposable on undeploy |
 | `Process` API (`onExit`, `destroyForcibly`, `pid`) | Worker JVM supervision — spawn, monitor, kill, restart, entirely from Java |
-| FFM API (`Linker`, `MemorySegment`) | Direct libc/syscall access for namespace and affinity control without JNI or native code |
+| FFM API (`Linker`, `MemorySegment`) | Direct libc/syscall access for namespace and affinity control without JNI or native code — for the deferred kernel-level resource limiter and Tier 3 namespaces (Phase 5, not built yet) |
 | Virtual threads, unpinned (JEP 491) | Thousands of in-flight requests per worker; per-module bounded schedulers |
 | Scoped values (JEP 506) | Module identity, tenant, and trace context propagation without `ThreadLocal` leaks |
 | Structured concurrency | Reconciliation loops and health-probe fan-out with automatic cancellation and deadlines |
