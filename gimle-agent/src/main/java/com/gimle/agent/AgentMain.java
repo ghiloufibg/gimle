@@ -2,115 +2,354 @@ package com.gimle.agent;
 
 import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
-import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
+import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
+import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The node agent's entry point (design §4). Phase 2 has no control plane to receive a placement
- * from, so this spawns and supervises exactly the one worker its CLI arguments describe -- proving
- * the spawn/supervise/control-channel wiring end to end without inventing a scheduling API that
- * only Phase 3's API-server integration would actually call.
+ * The node agent's entry point (design §4, extended by §1/§9 for Phase 3). Registers with the
+ * control plane once, then loops forever: poll {@code GET /nodes/{nodeId}/assignments} and
+ * reconcile the locally-supervised {@link WorkerProcessSupervisor} set against it (spawning a
+ * worker JVM per newly-assigned instance, tearing one down per instance no longer assigned -- each
+ * replica gets its own worker JVM, matching the scheduler's anti-affinity assumption), then report
+ * a heartbeat. This replaces Phase 2's single hardcoded worker with a dynamically-changing,
+ * control-plane-driven set -- the structural gap the Phase 3 design flagged as blocking the
+ * machine-level escalation path.
  *
- * <p>Usage: {@code AgentMain <workerId> <isolationTier> <memory> <cpu> <controlSocketPath>
- * <javaExecutable> <worker-command-tail...>} -- the worker command tail is everything after the
- * java executable that launches {@code gimle-worker}'s {@code WorkerMain} (module-path/classpath
- * and main class), in the exact order the caller wants; the derived {@code -Xmx}/{@code
- * -XX:ActiveProcessorCount} flags are inserted immediately after the executable, and the
- * control-socket path is appended as the worker's sole application argument by {@link
- * WorkerProcessSupervisor} itself.
+ * <p>Per-instance liveness/readiness in the heartbeat is derived from the last {@code
+ * ModuleStateChanged} lifecycle state this agent has observed from that instance's worker, not from
+ * a dedicated health push (Phase 2's {@code WorkerMain} never gained one): {@code ACTIVE} is
+ * reported alive+ready, {@code FAILED} is reported neither, every other state (installing,
+ * resolving, starting, stopping) is reported alive-but-not-yet-ready. This is an honest, documented
+ * simplification given the current wire protocol, not a claim of real probe-level fidelity.
  */
 public final class AgentMain {
 
   private static final Logger log = LoggerFactory.getLogger(AgentMain.class);
+  private static final Duration TICK_INTERVAL = Duration.ofSeconds(5);
+  private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
   private AgentMain() {}
 
-  public static void main(String[] args) throws IOException {
-    if (args.length < 6) {
+  public static void main(String[] args) throws IOException, InterruptedException {
+    if (args.length < 3) {
       System.err.println(
-          "usage: AgentMain <workerId> <isolationTier> <memory> <cpu> <controlSocketPath>"
-              + " <javaExecutable> <worker-command-tail...>");
+          "usage: AgentMain <nodeId> <controlPlaneBaseUrl> <javaExecutable> <worker-command-tail...>");
       System.exit(2);
       return;
     }
-
-    String workerId = args[0];
-    IsolationTier tier = IsolationTier.valueOf(args[1]);
-    ResourceSpec limit = new ResourceSpec(args[2], args[3]);
-    Path controlSocketPath = Path.of(args[4]);
-    String javaExecutable = args[5];
-    List<String> commandTail = List.of(args).subList(6, args.length);
+    String nodeId = args[0];
+    URI baseUrl = URI.create(args[1]);
+    String javaExecutable = args[2];
+    List<String> commandTail = List.of(args).subList(3, args.length);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
-    if (!resourceLimiter.supports(tier)) {
-      throw GimleIsolationException.tier_unsupported(
-          new ModuleId(workerId, Version.parse("0.0.0")), tier);
-    }
-
     CapacityTracker capacityTracker = CapacityTracker.of_this_machine();
-    if (!capacityTracker.try_assign(workerId, limit)) {
-      log.error("worker {} does not fit this machine's remaining capacity", workerId);
-      System.exit(1);
-      return;
+    HttpClient httpClient = HttpClient.newHttpClient();
+    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+
+    register(httpClient, baseUrl, nodeId, resourceLimiter);
+    log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
+
+    while (!Thread.currentThread().isInterrupted()) {
+      try {
+        reconcile_assignments(
+            httpClient,
+            baseUrl,
+            nodeId,
+            supervised,
+            javaExecutable,
+            commandTail,
+            resourceLimiter,
+            capacityTracker);
+        send_heartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
+      } catch (RuntimeException | IOException e) {
+        log.error("agent tick failed: {}", e.getMessage(), e);
+      }
+      Thread.sleep(TICK_INTERVAL.toMillis());
+    }
+  }
+
+  // ---- control-plane registration/heartbeat/assignment fetch ----
+
+  private static void register(
+      HttpClient httpClient, URI baseUrl, String nodeId, ResourceLimiter resourceLimiter)
+      throws IOException, InterruptedException {
+    Set<IsolationTier> supportedTiers = new LinkedHashSet<>();
+    for (IsolationTier tier : IsolationTier.values()) {
+      if (resourceLimiter.supports(tier)) {
+        supportedTiers.add(tier);
+      }
+    }
+    Map<String, Object> capabilities = new LinkedHashMap<>();
+    capabilities.put("supportedTiers", supportedTiers.stream().map(Enum::name).toList());
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("capabilities", capabilities);
+
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/register"))
+            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .build();
+    httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  private static void send_heartbeat(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      Map<String, SupervisedInstance> supervised,
+      CapacityTracker capacityTracker)
+      throws IOException, InterruptedException {
+    CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
+    Map<String, Object> capacity = new LinkedHashMap<>();
+    capacity.put("totalMemoryBytes", snapshot.totalMemoryBytes());
+    capacity.put("assignedMemoryBytes", snapshot.assignedMemoryBytes());
+    capacity.put("totalCpuMillicores", snapshot.totalCpuMillicores());
+    capacity.put("assignedCpuMillicores", snapshot.assignedCpuMillicores());
+
+    List<Map<String, Object>> instances = new ArrayList<>();
+    for (SupervisedInstance instance : supervised.values()) {
+      instances.add(observation_json(instance));
     }
 
-    ResourceLimitHandle handle = resourceLimiter.prepare(workerId, limit);
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("capacity", capacity);
+    body.put("instances", instances);
+
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/heartbeat"))
+            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .build();
+    httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  private static Map<String, Object> observation_json(SupervisedInstance instance) {
+    String state = instance.lifecycleState;
+    boolean alive = !"FAILED".equals(state);
+    boolean ready = "ACTIVE".equals(state);
+
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", instance.assigned.moduleId().name());
+    moduleId.put("version", instance.assigned.moduleId().version().toString());
+
+    Map<String, Object> observation = new LinkedHashMap<>();
+    observation.put("deploymentName", instance.assigned.deploymentName());
+    observation.put("instanceIndex", instance.assigned.instanceIndex());
+    observation.put("moduleId", moduleId);
+    observation.put("lifecycleState", state);
+    observation.put("alive", alive);
+    observation.put("ready", ready);
+    return observation;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<AssignedInstance> fetch_assignments(
+      HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments")).GET().build();
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    List<Object> raw = (List<Object>) Json.parse(response.body());
+    List<AssignedInstance> result = new ArrayList<>();
+    for (Object entry : raw) {
+      Map<String, Object> map = (Map<String, Object>) entry;
+      Map<String, Object> moduleIdMap = (Map<String, Object>) map.get("moduleId");
+      ModuleId moduleId =
+          new ModuleId(
+              (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+      result.add(
+          new AssignedInstance(
+              (String) map.get("deploymentName"),
+              ((Number) map.get("instanceIndex")).intValue(),
+              moduleId,
+              (String) map.get("artifactPath")));
+    }
+    return result;
+  }
+
+  // ---- reconciling the locally-supervised set against the control plane's assignments ----
+
+  private static void reconcile_assignments(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      Map<String, SupervisedInstance> supervised,
+      String javaExecutable,
+      List<String> commandTail,
+      ResourceLimiter resourceLimiter,
+      CapacityTracker capacityTracker)
+      throws IOException, InterruptedException {
+    List<AssignedInstance> assignments = fetch_assignments(httpClient, baseUrl, nodeId);
+    Set<String> currentKeys = new LinkedHashSet<>();
+    for (AssignedInstance assigned : assignments) {
+      String key = instance_key(assigned);
+      currentKeys.add(key);
+      if (!supervised.containsKey(key)) {
+        try {
+          start_instance(
+              assigned,
+              key,
+              supervised,
+              javaExecutable,
+              commandTail,
+              resourceLimiter,
+              capacityTracker);
+        } catch (IOException | RuntimeException e) {
+          log.error("failed to start instance {}: {}", key, e.getMessage(), e);
+        }
+      }
+    }
+    for (String key : List.copyOf(supervised.keySet())) {
+      if (!currentKeys.contains(key)) {
+        stop_instance(key, supervised, capacityTracker);
+      }
+    }
+  }
+
+  private static void start_instance(
+      AssignedInstance assigned,
+      String key,
+      Map<String, SupervisedInstance> supervised,
+      String javaExecutable,
+      List<String> commandTail,
+      ResourceLimiter resourceLimiter,
+      CapacityTracker capacityTracker)
+      throws IOException {
+    ModuleDescriptor descriptor =
+        ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
+    if (!resourceLimiter.supports(descriptor.isolationTier())) {
+      throw GimleIsolationException.tier_unsupported(
+          assigned.moduleId(), descriptor.isolationTier());
+    }
+
+    Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
+    ControlChannelServer server = new ControlChannelServer(socketPath);
+    ResourceLimitHandle handle = resourceLimiter.prepare(key, descriptor.resourceRequest());
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
     baseCommand.addAll(resourceLimiter.jvm_flags(handle));
     baseCommand.addAll(commandTail);
 
-    try (ControlChannelServer server = new ControlChannelServer(controlSocketPath)) {
-      RestartTracker restartTracker =
-          new RestartTracker(
-              Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
-      WorkerProcessSupervisor supervisor =
-          new WorkerProcessSupervisor(
-              workerId,
-              baseCommand,
-              controlSocketPath,
-              restartTracker,
-              exhaustedId -> {
-                log.error(
-                    "worker {} is permanently down; its budget is exhausted with no control plane"
-                        + " to reschedule to",
-                    exhaustedId);
-                resourceLimiter.release(handle);
-                capacityTracker.release(exhaustedId);
-              });
-      supervisor.start();
+    RestartTracker restartTracker =
+        new RestartTracker(
+            Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+    WorkerProcessSupervisor supervisor =
+        new WorkerProcessSupervisor(
+            key,
+            baseCommand,
+            socketPath,
+            restartTracker,
+            exhaustedKey -> {
+              log.error(
+                  "instance {} exhausted its restart budget on this node; giving up locally",
+                  exhaustedKey);
+              resourceLimiter.release(handle);
+              capacityTracker.release(exhaustedKey);
+              supervised.remove(exhaustedKey);
+            });
 
-      try (WorkerConnection connection = server.accept()) {
-        log.info("worker {} connected", workerId);
-        Optional<ControlMessage> received;
-        while ((received = connection.receive()).isPresent()) {
-          ControlMessage message = received.get();
-          switch (message) {
-            case ControlMessage.Ping ping ->
-                connection.send(new ControlMessage.Pong(ping.correlationId()));
-            default -> log.info("worker {} reported: {}", workerId, message);
-          }
+    SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
+    supervised.put(key, instance);
+    capacityTracker.try_assign(key, descriptor.resourceRequest());
+    supervisor.start();
+
+    Thread.ofVirtual()
+        .name("gimle-instance-starter-" + key)
+        .start(() -> drive_instance_up(instance, key));
+  }
+
+  private static void drive_instance_up(SupervisedInstance instance, String key) {
+    try {
+      WorkerConnection connection = instance.server.accept();
+      instance.connection = connection;
+      Thread.ofVirtual().name("gimle-instance-reader-" + key).start(() -> read_loop(instance, key));
+
+      connection.send(
+          new ControlMessage.InstallModule(
+              next_correlation_id(), instance.assigned.artifactPath()));
+      connection.send(
+          new ControlMessage.ResolveModule(next_correlation_id(), instance.assigned.moduleId()));
+      connection.send(
+          new ControlMessage.StartModule(next_correlation_id(), instance.assigned.moduleId()));
+    } catch (IOException e) {
+      log.error("failed to bring up instance {}: {}", key, e.getMessage());
+    }
+  }
+
+  private static void read_loop(SupervisedInstance instance, String key) {
+    try {
+      Optional<ControlMessage> received;
+      while ((received = instance.connection.receive()).isPresent()) {
+        ControlMessage message = received.get();
+        if (message instanceof ControlMessage.ModuleStateChanged changed) {
+          instance.lifecycleState = changed.state();
+        } else if (message instanceof ControlMessage.Nack nack) {
+          log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
         }
-        log.info("worker {} disconnected", workerId);
-      } finally {
-        supervisor.close();
-        resourceLimiter.release(handle);
-        capacityTracker.release(workerId);
+      }
+      log.info("instance {} control channel closed", key);
+    } catch (IOException e) {
+      log.warn("instance {} control channel failed: {}", key, e.getMessage());
+    }
+  }
+
+  private static void stop_instance(
+      String key, Map<String, SupervisedInstance> supervised, CapacityTracker capacityTracker) {
+    SupervisedInstance instance = supervised.remove(key);
+    if (instance == null) {
+      return;
+    }
+    WorkerConnection connection = instance.connection;
+    if (connection != null) {
+      try {
+        connection.send(
+            new ControlMessage.StopModule(next_correlation_id(), instance.assigned.moduleId()));
+      } catch (IOException e) {
+        log.warn("failed to send StopModule to instance {}: {}", key, e.getMessage());
       }
     }
+    instance.supervisor.close();
+    try {
+      instance.server.close();
+    } catch (IOException e) {
+      log.warn("failed to close control channel server for instance {}: {}", key, e.getMessage());
+    }
+    capacityTracker.release(key);
+  }
+
+  private static String instance_key(AssignedInstance assigned) {
+    return assigned.deploymentName() + "#" + assigned.instanceIndex();
+  }
+
+  private static String next_correlation_id() {
+    return "c" + CORRELATION_COUNTER.incrementAndGet();
   }
 }

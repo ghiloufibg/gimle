@@ -1,0 +1,130 @@
+package com.gimle.controlplane.schedule;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.gimle.core.exception.GimleSchedulingException;
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ResourceSpec;
+import com.gimle.core.protocol.NodeCapabilities;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
+import java.util.List;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+
+class SchedulerTest {
+
+  private static final ResourceSpec REQUEST = new ResourceSpec("100Mi", "100m");
+  private static final NodeCapabilities TIER_1_AND_2 =
+      new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2));
+  private static final NodeCapabilities TIER_1_ONLY =
+      new NodeCapabilities(Set.of(IsolationTier.TIER_1));
+
+  private final Scheduler scheduler = new Scheduler();
+
+  private static NodeCandidate node(
+      String id,
+      NodeCapabilities capabilities,
+      long freeMemoryBytes,
+      long freeCpuMillicores,
+      boolean alreadyRuns) {
+    return new NodeCandidate(
+        id,
+        capabilities,
+        new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
+        alreadyRuns);
+  }
+
+  @Test
+  void places_on_the_only_feasible_node() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-a", TIER_1_AND_2, 500L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-a", chosen);
+  }
+
+  @Test
+  void prefers_the_node_with_more_free_capacity() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-small", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false),
+            node("node-big", TIER_1_AND_2, 800L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-big", chosen);
+  }
+
+  @Test
+  void rejects_a_node_that_does_not_support_the_requested_tier() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-tier1-only", TIER_1_ONLY, 800L * 1024 * 1024, 1000, false),
+            node("node-both", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_2, REQUEST, false, candidates);
+
+    assertEquals("node-both", chosen);
+  }
+
+  @Test
+  void throws_when_no_node_supports_the_requested_tier() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-a", TIER_1_ONLY, 800L * 1024 * 1024, 1000, false));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 0, IsolationTier.TIER_2, REQUEST, false, candidates));
+  }
+
+  @Test
+  void throws_when_no_node_has_enough_free_capacity() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-a", TIER_1_AND_2, 10L * 1024 * 1024, 1000, false));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates));
+  }
+
+  @Test
+  void anti_affinity_excludes_nodes_already_running_a_replica_of_the_same_deployment() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-occupied", TIER_1_AND_2, 800L * 1024 * 1024, 1000, true),
+            node("node-free", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 1, IsolationTier.TIER_1, REQUEST, true, candidates);
+
+    assertEquals("node-free", chosen);
+  }
+
+  @Test
+  void anti_affinity_fails_outright_rather_than_placing_on_an_occupied_node() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-occupied", TIER_1_AND_2, 800L * 1024 * 1024, 1000, true));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 1, IsolationTier.TIER_1, REQUEST, true, candidates));
+  }
+
+  @Test
+  void anti_affinity_is_not_enforced_when_not_requested() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-occupied", TIER_1_AND_2, 800L * 1024 * 1024, 1000, true));
+
+    String chosen = scheduler.place("orders", 1, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-occupied", chosen);
+  }
+
+  @Test
+  void no_candidates_at_all_throws() {
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, List.of()));
+  }
+}

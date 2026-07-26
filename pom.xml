@@ -22,6 +22,7 @@
     <module>gimle-observability</module>
     <module>gimle-worker</module>
     <module>gimle-agent</module>
+    <module>gimle-controlplane</module>
   </modules>
 
   <properties>
@@ -94,6 +95,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-agent</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-controlplane</artifactId>
         <version>${project.version}</version>
       </dependency>
     </dependencies>
