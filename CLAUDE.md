@@ -1,0 +1,120 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project status
+
+This repository currently contains only the design specification (`gimle-PROJECT-v2.md`) and IDE project files. **No source code, `pom.xml`, or build exists yet.** There are no build/lint/test commands to run until the Maven project scaffolding described below is created. When starting implementation, follow the module layout, tooling, and conventions specified in `gimle-PROJECT-v2.md` (summarized below) rather than improvising a different structure.
+
+Read `gimle-PROJECT-v2.md` in full before doing any non-trivial work — it is the authoritative spec. This CLAUDE.md summarizes it for quick orientation only.
+
+## What Gimlé is
+
+A fully-Java application platform that combines Karaf/OSGi-style dynamic module lifecycle with Kubernetes-style declarative orchestration (self-healing, scaling, load balancing, service discovery, observability) — implemented entirely on the JVM with no containers, no external orchestrator, and no non-Java runtime dependencies.
+
+Non-goals worth remembering when reviewing design choices: not OSGi-compliant (no Felix/Equinox, JPMS `ModuleLayer` instead), not Kubernetes-API-compatible (no CRDs/kubectl/OCI images), not a general untrusted-workload runtime, and not built on Spring Boot/Quarkus/Netty/an existing service mesh — the module system, supervisor, control plane, and service fabric are the point of the project, not glue over existing frameworks.
+
+## Host language & load-bearing JDK features
+
+Java 25 (LTS). These are architectural dependencies, not incidental choices — don't suggest alternatives that bypass them:
+
+- `ModuleLayer` / dynamic JPMS — module system foundation, replaces OSGi classloading
+- `Process` API (`onExit`, `destroyForcibly`, `pid`) — worker JVM supervision
+- FFM API (`Linker`, `MemorySegment`) — direct libc/syscall access (namespaces, CPU affinity); **no JNI, no native code anywhere**
+- Virtual threads (unpinned, JEP 491), Scoped values (JEP 506), Structured concurrency
+- JFR event streaming — per-module resource accounting
+- AppCDS / CDS archives — sub-second worker JVM startup
+- `jlink` / `jpackage` — minimal per-node-role runtime images
+- Sealed interfaces + records for state/event/protocol types
+
+## Core architecture: tiered isolation
+
+The central design claim is container-grade isolation and classloader-grade density in one system, selected per workload via the module manifest:
+
+```
+Machine (Node Agent, JVM)
+ └── Worker JVM  ── hard memory/CPU boundary, own -Xmx, own cgroup
+      └── Module ── ModuleLayer + classloader, soft accounting
+           └── Instance ── bounded virtual-thread scheduler
+```
+
+- **Tier 1** — module in a shared worker JVM. Millisecond deploys, classloader-level isolation, soft JFR-based accounting. Density win.
+- **Tier 2** — module in a dedicated worker JVM. Sub-second deploy (AppCDS), hard `-Xmx`/cgroup CPU ceiling, independent crash domain. Kubernetes-equivalent guarantee, available per module.
+- **Tier 3** — worker JVM in a Linux namespace (via FFM `unshare`/`setns`). For hostile-neighbour scenarios.
+
+Resource control on Linux is implemented as plain filesystem I/O against cgroup v2 (`Files.createDirectory`, `Files.writeString` to `memory.max`/`cpu.weight`, `Files.readString` of `memory.current`) — no containerd/runc equivalent needed. Namespace/affinity syscalls go through FFM downcalls to libc. Platform support degrades honestly: full tiering on Linux, Tier 1/2 only (JVM-level limits) on macOS/Windows, with the manifest validator rejecting unsupported Tier 3 requests rather than silently downgrading.
+
+## Node topology
+
+Three Java process roles, nothing else runs on the machine:
+
+- **Node Agent** — one per machine, owns cgroups and worker `Process` lifecycle, reports capacity/state, never runs user code.
+- **Worker JVM** — hosts module instances in `ModuleLayer`s, reports health/metrics to its agent, disposable by design.
+- **Control Plane** — Raft-replicated, one or more JVMs: API server, state store, scheduler, reconcilers.
+
+Node/worker/module failure are distinct events with distinct recovery costs (seconds/sub-second/milliseconds) and are reconciled accordingly.
+
+## Module system
+
+- A module artifact = JAR + `gimle-module.yaml` (name, version, required-module version ranges, exported services, isolation tier, resource requests/limits, health probe class, lifecycle hooks).
+- Each instance gets its own `ModuleLayer`/classloader parented on a shared platform layer (JDK + Gimlé service API). Hoisting common libraries into shared layers is the density lever and must be an explicit, measured decision.
+- Lifecycle: `INSTALLED → RESOLVED → STARTING → ACTIVE → STOPPING → UNINSTALLED` (deliberately OSGi-like).
+- Hot redeploy: install new version alongside old, drain, dispose old layer.
+- **Classloader leak detection is first-class**: after undeploy, a `PhantomReference` to the disposed layer's loader is held; if it survives a configurable window, a leak is reported with the retaining path via heap walk. Redeploy-in-a-loop with flat metaspace is a mandatory acceptance test. A module that leaks anyway can be moved to Tier 2, where undeploy just kills a JVM.
+
+## Control plane
+
+- **API server** accepts manifests (desired state), persisted to the state store.
+- **State store** — embedded, Raft-backed for HA (single-node until Phase 5).
+- **Scheduler** places instances by resource requests, isolation tier, anti-affinity (replicas of one module must not share a worker JVM), and machine load — a two-dimensional bin-packing problem (resources × tier).
+- **Reconcilers** — one control loop per resource kind, **level-triggered, not edge-triggered**: must converge from any starting state, including after missing every event. This is the hardest-to-test and most important correctness property in the codebase — reconciler changes need convergence tests from arbitrary starting states, not just the happy-path transition.
+- **Membership/failure detection** — SWIM-style gossip over UDP between node agents, off the control plane's critical path.
+
+## Service fabric
+
+- Modules publish/consume services via a registry keyed by interface + version.
+- Same-worker calls are direct in-JVM invocations (no serialization/network/proxy). Cross-worker-same-machine uses a Unix domain socket with a compact binary codec. Cross-machine uses the same codec over TCP with virtual-thread-per-connection.
+- Load balancing prefers locality: same-worker → same-machine → remote (least-outstanding-requests), with circuit breaking/outlier ejection at the registry level.
+
+## Health, scaling, self-healing
+
+- Probes are Java interfaces (`LivenessProbe`/`ReadinessProbe`) called directly by the worker — no HTTP, no sidecar.
+- Tiered self-healing matches isolation tiers (module dispose+reinstantiate → worker `destroyForcibly`+respawn → machine-level reschedule), with automatic escalation and `CrashLoopBackOff`-style backoff.
+- Horizontal scaling driven by per-module metrics (request rate, latency, queue depth, allocation rate); scale-up may pack onto the same worker, which is why anti-affinity must stay configurable.
+
+## Observability
+
+Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped values (including across in-JVM hops), JFR-backed per-module allocation/CPU accounting (what makes Tier 1 soft limits enforceable), and a structured, queryable event log of every lifecycle/reconciliation decision.
+
+## Project structure (multi-module Maven, to be created)
+
+- `gimle-core` — shared model/domain types, exceptions, logging config
+- `gimle-module` — descriptor model, resolver, `ModuleLayer` construction, lifecycle state machine, leak detection
+- `gimle-api` — platform service API exposed to hosted modules (probes, service registry, config, metrics)
+- `gimle-os` — cgroup v2 management, FFM syscall bindings, platform capability detection
+- `gimle-worker` — worker JVM runtime: module hosting, schedulers, probing, local registry
+- `gimle-agent` — node agent: worker supervision, resource assignment, capacity reporting
+- `gimle-controlplane` — API server, state store, Raft, scheduler, reconcilers
+- `gimle-fabric` — service registry, three-path invocation, load balancing, circuit breaking, gossip membership
+- `gimle-observability` — metrics, tracing, JFR accounting, event log
+- `gimle-cli` — control-plane client, agent launcher, worker launcher
+
+## Conventions (binding, not optional)
+
+- **Build**: Maven.
+- **Formatting**: Google Java Format, enforced via `fmt-maven-plugin` in CI and pre-commit.
+- **Method naming**: `snake_case` — a deliberate project-wide deviation from standard Java camelCase, enforced by a custom Checkstyle `MethodName` rule. Apply this consistently; don't "fix" it back to camelCase.
+- **No checked exceptions anywhere.** Gimlé failures use dedicated unchecked types in `gimle-core` (`GimleResolutionException`, `GimleLifecycleException`, `GimleSchedulingException`, `GimleManifestException`, `GimleClusterException`, `GimleIsolationException`), all extending `RuntimeException`. Control-plane errors map to structured API responses, not propagated stack traces.
+- **Immutability**: records / `List.of`/unmodifiable collections preferred everywhere feasible. Desired state, observed state, and reconciliation events are strictly immutable snapshots — a reconciler reads a snapshot and returns actions, never mutates in place.
+- **`final`** on variables, fields, and parameters wherever possible.
+- **No Lombok.** Plain Java (records, standard getters/constructors).
+- **No JNI, no native code.** OS interaction only via `java.nio.file` or FFM downcalls.
+- **Logging**: SLF4J API + Logback binding, configured once in `gimle-core`, inherited by all modules; hosted modules see the platform logging API through the shared layer rather than bundling their own binding.
+- **Comments**: clear names/small methods over Javadoc; add a comment only where logic is genuinely non-obvious (e.g. layer parent selection, leak-detection reference handling, FFM struct layouts, reconciler convergence edge cases). Applies to test code too.
+- **Test coverage**: cover both happy paths and failure paths (unresolvable dependency, version conflict, probe timeout, worker OOM, network partition, no feasible placement, corrupt manifest, cgroup write failure). Reconcilers additionally require convergence tests from arbitrary starting states; the module system requires a repeated-redeploy leak test; the supervisor requires kill-and-recover tests at every tier.
+- **Git hooks**: `commit-msg` rejects any commit message mentioning an AI assistant (Claude, Copilot, ChatGPT, etc.) — do not attribute commits to AI tooling. Commit messages follow Conventional Commits (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`, ...), short subject, max 3 lines total. `pre-commit` runs `mvn verify` and blocks on failure.
+- **Repo hygiene**: commit only essential source and config. No generated reports or ad-hoc markdown files except `CLAUDE.md`/`README.md`. `claudedocs/` is gitignored.
+
+## Naming
+
+Norse/Viking naming line (consistent with Drakkar, Þjappa, Skald, Bifrost, Galdr, Muninn) — keep new component/tool names in that register.
