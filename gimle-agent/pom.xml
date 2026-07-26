@@ -13,7 +13,7 @@
   <artifactId>gimle-agent</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Agent</name>
+  <name>Gimle Agent</name>
   <description>
     Node agent: worker spawning via the Process API, resource assignment, supervision
     and restart, capacity reporting. Never runs hosted-module code itself.

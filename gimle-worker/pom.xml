@@ -13,7 +13,7 @@
   <artifactId>gimle-worker</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Worker</name>
+  <name>Gimle Worker</name>
   <description>
     Worker JVM runtime: module hosting, per-module bounded schedulers, probing,
     in-JVM service registry, control-channel client.

@@ -13,8 +13,8 @@
   <artifactId>gimle-core</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Core</name>
-  <description>Shared model/domain types and exceptions used across all Gimlé modules.</description>
+  <name>Gimle Core</name>
+  <description>Shared model/domain types and exceptions used across all Gimle modules.</description>
 
   <dependencies>
     <!-- Runtime-only: gimle-core doesn't log itself, but hosts the one central logback.xml

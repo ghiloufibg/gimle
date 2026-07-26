@@ -9,7 +9,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
-  <name>Gimlé</name>
+  <name>Gimle</name>
   <description>
     A fully-Java application platform combining Karaf/OSGi's dynamic module lifecycle
     with Kubernetes' declarative orchestration, implemented end to end on the JVM.

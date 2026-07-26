@@ -13,7 +13,7 @@
   <artifactId>gimle-controlplane</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Control Plane</name>
+  <name>Gimle Control Plane</name>
   <description>
     Manifest model, embedded state store, API server, scheduler, and level-triggered
     reconcilers for deployment, replica count, and health.

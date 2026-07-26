@@ -13,7 +13,7 @@
   <artifactId>gimle-module</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Module</name>
+  <name>Gimle Module</name>
   <description>
     Module descriptor model, resolver, ModuleLayer construction, lifecycle state
     machine, and classloader leak detection.

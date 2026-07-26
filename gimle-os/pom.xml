@@ -13,7 +13,7 @@
   <artifactId>gimle-os</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé OS</name>
+  <name>Gimle OS</name>
   <description>
     Platform capability detection and resource limiting: cgroup v2 management on Linux,
     a portable JVM-flags-only fallback everywhere else.

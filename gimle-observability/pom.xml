@@ -13,7 +13,7 @@
   <artifactId>gimle-observability</artifactId>
   <packaging>jar</packaging>
 
-  <name>Gimlé Observability</name>
+  <name>Gimle Observability</name>
   <description>
     Per-module metrics (Micrometer) and JFR-backed CPU/allocation accounting.
   </description>
