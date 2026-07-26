@@ -170,18 +170,17 @@ public final class AgentMain {
     return observation;
   }
 
-  @SuppressWarnings("unchecked")
   private static List<AssignedInstance> fetchAssignments(
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments")).GET().build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    List<Object> raw = (List<Object>) Json.parse(response.body());
+    List<Object> raw = Json.asArray(Json.parse(response.body()));
     List<AssignedInstance> result = new ArrayList<>();
     for (Object entry : raw) {
-      Map<String, Object> map = (Map<String, Object>) entry;
-      Map<String, Object> moduleIdMap = (Map<String, Object>) map.get("moduleId");
+      Map<String, Object> map = Json.asObject(entry);
+      Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
       ModuleId moduleId =
           new ModuleId(
               (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));

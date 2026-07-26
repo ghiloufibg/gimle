@@ -81,10 +81,8 @@ class ApiServerTest {
                 .GET()
                 .build());
     assertEquals(200, get.statusCode());
-    @SuppressWarnings("unchecked")
-    Map<String, Object> status = (Map<String, Object>) Json.parse(get.body());
-    @SuppressWarnings("unchecked")
-    Map<String, Object> spec = (Map<String, Object>) status.get("spec");
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
     assertEquals("orders-service", spec.get("name"));
     assertEquals(3L, spec.get("replicas"));
     assertEquals(3L, status.get("unplacedCount"));
@@ -192,15 +190,13 @@ class ApiServerTest {
                 .build());
 
     assertEquals(200, assignments.statusCode());
-    @SuppressWarnings("unchecked")
-    List<Map<String, Object>> body = (List<Map<String, Object>>) Json.parse(assignments.body());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(assignments.body()));
     assertEquals(1, body.size());
     Map<String, Object> instance = body.get(0);
     assertEquals("orders-service", instance.get("deploymentName"));
     assertEquals(0L, instance.get("instanceIndex"));
     assertEquals("/var/gimle/artifacts/orders-1.0.0.jar", instance.get("artifactPath"));
-    @SuppressWarnings("unchecked")
-    Map<String, Object> moduleId = (Map<String, Object>) instance.get("moduleId");
+    Map<String, Object> moduleId = Json.asObject(instance.get("moduleId"));
     assertEquals("com.gimle.example.orders", moduleId.get("name"));
     assertEquals("1.0.0", moduleId.get("version"));
   }

@@ -30,6 +30,28 @@ public final class Json {
     return value;
   }
 
+  /**
+   * Casts a parsed value to {@code Map<String, Object>}. The single unchecked cast this dynamic,
+   * erasure-based JSON model requires lives here once, so callers reading a parsed object don't
+   * each need their own {@code @SuppressWarnings("unchecked")}.
+   */
+  @SuppressWarnings("unchecked")
+  public static Map<String, Object> asObject(Object value) {
+    return (Map<String, Object>) value;
+  }
+
+  /** Same rationale as {@link #asObject(Object)}, for a JSON array of arbitrary values. */
+  @SuppressWarnings("unchecked")
+  public static List<Object> asArray(Object value) {
+    return (List<Object>) value;
+  }
+
+  /** Same rationale as {@link #asObject(Object)}, for a JSON array of objects. */
+  @SuppressWarnings("unchecked")
+  public static List<Map<String, Object>> asObjectList(Object value) {
+    return (List<Map<String, Object>>) (List<?>) value;
+  }
+
   public static String write(Object value) {
     StringBuilder sb = new StringBuilder();
     writeValue(value, sb);

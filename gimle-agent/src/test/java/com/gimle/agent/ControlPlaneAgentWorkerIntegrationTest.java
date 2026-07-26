@@ -8,6 +8,7 @@ import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.store.StateStore;
+import com.gimle.core.protocol.Json;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
 import java.net.URI;
@@ -209,7 +210,6 @@ class ControlPlaneAgentWorkerIntegrationTest {
     }
   }
 
-  @SuppressWarnings("unchecked")
   private static Map<String, Object> deploymentStatus(
       HttpClient httpClient, String baseUrl, String name) throws Exception {
     HttpResponse<String> response =
@@ -219,12 +219,11 @@ class ControlPlaneAgentWorkerIntegrationTest {
     if (response.statusCode() != 200) {
       return Map.of("instances", List.of());
     }
-    return (Map<String, Object>) com.gimle.core.protocol.Json.parse(response.body());
+    return Json.asObject(Json.parse(response.body()));
   }
 
-  @SuppressWarnings("unchecked")
   private static List<Map<String, Object>> instancesOf(Map<String, Object> status) {
-    return (List<Map<String, Object>>) (List<?>) status.get("instances");
+    return Json.asObjectList(status.get("instances"));
   }
 
   private static long activeInstanceCount(HttpClient httpClient, String baseUrl, String name)
