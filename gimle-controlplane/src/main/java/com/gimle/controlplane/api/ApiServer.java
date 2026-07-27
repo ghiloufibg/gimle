@@ -2,6 +2,9 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.raft.RaftLog;
+import com.gimle.controlplane.raft.RaftNode;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.secret.KeyFileManager;
 import com.gimle.controlplane.secret.SecretCipher;
 import com.gimle.controlplane.store.InstanceAssignment;
@@ -10,6 +13,7 @@ import com.gimle.controlplane.store.StateStore;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -31,6 +35,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -60,26 +65,56 @@ public final class ApiServer implements AutoCloseable {
   private final StateStore store;
   private final HttpServer server;
   private final SecretKey secretKey;
+  private final RaftNode raftNode;
+  private final Map<String, String> peerApiAddresses;
 
   /**
    * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
    * secrets to survive a restart, but not real deployments (see the three-argument constructor).
+   * Also builds an internal single-node {@link RaftNode} (majority of one, trivially always leader)
+   * rather than requiring every existing single-process caller to wire up Raft explicitly.
    */
   public ApiServer(StateStore store, int port) throws IOException {
-    this(store, port, KeyFileManager.loadOrCreate(ephemeralKeyPath()));
+    this(store, port, ephemeralKeyPath());
   }
 
   /**
    * {@code secretKeyFilePath} (Phase 5 design §6.1) is the control plane's persistent AES-256
-   * secrets master key, generated on first run if absent.
+   * secrets master key, generated on first run if absent. Builds an internal single-node {@link
+   * RaftNode} exactly like the two-argument constructor -- this overload only changes secrets
+   * persistence, not replication topology.
    */
   public ApiServer(StateStore store, int port, Path secretKeyFilePath) throws IOException {
-    this(store, port, KeyFileManager.loadOrCreate(secretKeyFilePath));
+    this(store, port, secretKeyFilePath, singleNodeRaft(store), Map.of());
   }
 
-  private ApiServer(StateStore store, int port, SecretKey secretKey) throws IOException {
+  /**
+   * The real, multi-node-aware constructor (raft design §2.6/§3): {@code raftNode} is this
+   * control-plane node's already-started {@link RaftNode}; {@code peerApiAddresses} maps every
+   * peer's Raft address to its HTTP API address, needed only to resolve a not-leader redirect's
+   * {@code Location} header to something an HTTP client can actually reach.
+   */
+  public ApiServer(
+      StateStore store,
+      int port,
+      Path secretKeyFilePath,
+      RaftNode raftNode,
+      Map<String, String> peerApiAddresses)
+      throws IOException {
+    this(store, port, KeyFileManager.loadOrCreate(secretKeyFilePath), raftNode, peerApiAddresses);
+  }
+
+  private ApiServer(
+      StateStore store,
+      int port,
+      SecretKey secretKey,
+      RaftNode raftNode,
+      Map<String, String> peerApiAddresses)
+      throws IOException {
     this.store = store;
     this.secretKey = secretKey;
+    this.raftNode = raftNode;
+    this.peerApiAddresses = Map.copyOf(peerApiAddresses);
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/deployments/", this::handleDeployment);
     server.createContext("/nodes/", this::handleNode);
@@ -89,9 +124,21 @@ public final class ApiServer implements AutoCloseable {
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
+  /**
+   * A single-node Raft cluster (peer set = {@code {self}}, majority = 1, so this node is trivially
+   * always leader) backed by a fresh temp directory -- what every constructor that predates Raft
+   * gets automatically, so existing single-process callers/tests need no changes.
+   */
+  private static RaftNode singleNodeRaft(StateStore store) throws IOException {
+    Path dir = Files.createTempDirectory("gimle-apiserver-ephemeral-raft-");
+    RaftNode node = new RaftNode("self", Map.of(), new RaftLog(dir.resolve("raft")), store);
+    node.start();
+    return node;
+  }
+
   /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */
   private static Path ephemeralKeyPath() throws IOException {
-    Path dir = java.nio.file.Files.createTempDirectory("gimle-apiserver-ephemeral-key-");
+    Path dir = Files.createTempDirectory("gimle-apiserver-ephemeral-key-");
     return dir.resolve("secret.key");
   }
 
@@ -123,6 +170,8 @@ public final class ApiServer implements AutoCloseable {
         case "DELETE" -> handleDeleteDeployment(exchange, name);
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
     } catch (GimleManifestException | IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -147,7 +196,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 409, quotaRejection.get());
       return;
     }
-    store.putDeployment(spec);
+    raftNode.propose(new StateMutation.PutDeployment(spec));
     respond(exchange, 200, "ok");
   }
 
@@ -203,7 +252,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
-    store.removeDeployment(name);
+    raftNode.propose(new StateMutation.RemoveDeployment(name));
     respond(exchange, 200, "ok");
   }
 
@@ -270,6 +319,8 @@ public final class ApiServer implements AutoCloseable {
         case "assignments" -> handleAssignments(exchange, nodeId);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -287,13 +338,25 @@ public final class ApiServer implements AutoCloseable {
     }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
-    store.putNodeRegistration(new NodeRegistration(nodeId, capabilities));
+    raftNode.propose(
+        new StateMutation.PutNodeRegistration(new NodeRegistration(nodeId, capabilities)));
     respond(exchange, 200, "ok");
   }
 
+  /**
+   * Heartbeats are deliberately never Raft-replicated (raft design §2.1): high-frequency, tolerate
+   * a brief gap after a leader change, and replicating every one would make the log's write rate
+   * scale with cluster size for no correctness benefit. Only the leader's own {@code StateStore}
+   * ever receives them directly -- a non-leader rejects with the same not-leader response every
+   * other write uses, even though this path never touches the Raft log.
+   */
   private void handleHeartbeat(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
+      return;
+    }
+    if (!raftNode.isLeader()) {
+      respondNotLeader(exchange);
       return;
     }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
@@ -448,6 +511,8 @@ public final class ApiServer implements AutoCloseable {
         case "DELETE" -> handleDeleteTenant(exchange, id);
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -466,7 +531,7 @@ public final class ApiServer implements AutoCloseable {
             ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
             ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
             ((Number) quotaMap.get("maxInstances")).intValue());
-    store.putTenant(new Tenant(id, quota));
+    raftNode.propose(new StateMutation.PutTenant(new Tenant(id, quota)));
     respond(exchange, 200, "ok");
   }
 
@@ -480,7 +545,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteTenant(HttpExchange exchange, String id) throws IOException {
-    store.removeTenant(id);
+    raftNode.propose(new StateMutation.RemoveTenant(id));
     respond(exchange, 200, "ok");
   }
 
@@ -528,6 +593,8 @@ public final class ApiServer implements AutoCloseable {
         case "DELETE" -> handleDeleteConfig(exchange, tenantId, key);
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -547,13 +614,14 @@ public final class ApiServer implements AutoCloseable {
         encrypted
             ? SecretCipher.encrypt(value.getBytes(StandardCharsets.UTF_8), secretKey)
             : value.getBytes(StandardCharsets.UTF_8);
-    store.putConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted));
+    raftNode.propose(
+        new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted)));
     respond(exchange, 200, "ok");
   }
 
   private void handleDeleteConfig(HttpExchange exchange, String tenantId, String key)
       throws IOException {
-    store.removeConfigEntry(tenantId, key);
+    raftNode.propose(new StateMutation.RemoveConfigEntry(tenantId, key));
     respond(exchange, 200, "ok");
   }
 
@@ -614,6 +682,31 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, status, body);
     } catch (IOException e) {
       log.warn("failed to write error response: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * A write rejected by a non-leader (raft design §2.6): {@code 307} preserves the original method
+   * on redirect (required for PUT/POST/DELETE), with a {@code Location} header pointing at the
+   * current leader's HTTP address when known, plus a JSON body serving a Gimlé-aware caller that
+   * reads structured fields instead of following the redirect.
+   */
+  private void respondNotLeader(HttpExchange exchange) {
+    try {
+      Optional<String> leaderRaftId = raftNode.leaderHint();
+      Optional<String> leaderApiAddress = leaderRaftId.map(peerApiAddresses::get);
+      leaderApiAddress.ifPresent(
+          address ->
+              exchange
+                  .getResponseHeaders()
+                  .add("Location", "http://" + address + exchange.getRequestURI().getPath()));
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("error", "not-leader");
+      body.put("leaderRaftId", leaderRaftId.orElse(null));
+      body.put("leaderApiAddress", leaderApiAddress.orElse(null));
+      respondJson(exchange, 307, body);
+    } catch (IOException e) {
+      log.warn("failed to write not-leader response: {}", e.getMessage());
     }
   }
 }

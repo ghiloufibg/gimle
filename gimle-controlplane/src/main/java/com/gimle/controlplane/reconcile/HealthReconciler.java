@@ -1,5 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.raft.MutationSink;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.ObservedHeartbeat;
 import com.gimle.controlplane.store.StateStore;
@@ -41,7 +43,9 @@ public final class HealthReconciler {
   private final Map<String, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
   private final Set<String> pendingRetry = ConcurrentHashMap.newKeySet();
   private final Set<String> permanentlyFailed = ConcurrentHashMap.newKeySet();
+  private final MutationSink mutations;
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public HealthReconciler(StateStore store) {
     // Deliberately looser than either Phase 2 tier (module-level: 100ms/5s cap; worker-level:
     // 1s/30s cap) -- rescheduling to a different node is a heavier operation than either, and
@@ -50,6 +54,7 @@ public final class HealthReconciler {
     this(store, Duration.ofSeconds(2), 2.0, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
   }
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public HealthReconciler(
       StateStore store,
       Duration initialDelay,
@@ -57,12 +62,31 @@ public final class HealthReconciler {
       Duration cap,
       int maxAttemptsPerWindow,
       Duration window) {
+    this(
+        store,
+        initialDelay,
+        multiplier,
+        cap,
+        maxAttemptsPerWindow,
+        window,
+        mutation -> mutation.applyTo(store));
+  }
+
+  public HealthReconciler(
+      StateStore store,
+      Duration initialDelay,
+      double multiplier,
+      Duration cap,
+      int maxAttemptsPerWindow,
+      Duration window,
+      MutationSink mutations) {
     this.store = store;
     this.initialDelay = initialDelay;
     this.multiplier = multiplier;
     this.cap = cap;
     this.maxAttemptsPerWindow = maxAttemptsPerWindow;
     this.window = window;
+    this.mutations = mutations;
   }
 
   public void reconcileOnce() {
@@ -101,7 +125,9 @@ public final class HealthReconciler {
 
     Duration delay = tracker.delayUntilNextAttempt(now);
     if (delay.compareTo(Duration.ZERO) <= 0) {
-      store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
+      mutations.propose(
+          new StateMutation.RemoveAssignment(
+              assignment.deploymentName(), assignment.instanceIndex()));
       pendingRetry.remove(key);
     }
   }

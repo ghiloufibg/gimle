@@ -11,5 +11,6 @@ module com.gimle.controlplane {
   exports com.gimle.controlplane.schedule;
   exports com.gimle.controlplane.reconcile;
   exports com.gimle.controlplane.api;
+  exports com.gimle.controlplane.raft;
   exports com.gimle.controlplane;
 }

@@ -17,10 +17,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -174,6 +172,17 @@ public final class StateStore {
     return List.copyOf(nodeRegistrations.values());
   }
 
+  /**
+   * Not read by any reconciler today (a node re-registers on restart rather than being explicitly
+   * deregistered), but required by {@link #restoreFromSnapshot} (raft design §2.4): installing a
+   * snapshot must be able to wipe every registration this replica previously knew about before
+   * repopulating from the snapshot's own set, the same way every other resource kind here can.
+   */
+  public void removeNodeRegistration(String nodeId) {
+    deleteQuietly(registrationFile(nodeId));
+    nodeRegistrations.remove(nodeId);
+  }
+
   // ---- node heartbeats ----
 
   public void putNodeHeartbeat(NodeHeartbeat heartbeat) {
@@ -250,6 +259,52 @@ public final class StateStore {
   public void removeConfigEntry(String tenantId, String key) {
     deleteQuietly(configFile(tenantId, key));
     configEntries.remove(configKey(tenantId, key));
+  }
+
+  // ---- full-state snapshot (raft design §2.4) ----
+
+  /**
+   * A point-in-time copy of every resource kind Raft replicates -- deliberately excludes {@code
+   * nodeHeartbeats}, matching design §2.1: heartbeats never enter the replicated log, so they have
+   * no business surviving into a snapshot a follower installs either.
+   */
+  public StateSnapshot snapshot() {
+    return new StateSnapshot(
+        List.copyOf(deployments.values()),
+        List.copyOf(assignments.values()),
+        List.copyOf(nodeRegistrations.values()),
+        Map.copyOf(rollingIndices),
+        Map.copyOf(effectiveReplicas),
+        List.copyOf(tenants.values()),
+        quotaViolations.entrySet().stream()
+            .filter(Map.Entry::getValue)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toUnmodifiableSet()),
+        List.copyOf(configEntries.values()));
+  }
+
+  /**
+   * Replaces every resource this store holds with {@code snapshot}'s contents -- a follower's
+   * response to a leader's {@code InstallSnapshot} (raft design §2.4), used when this replica has
+   * fallen too far behind to catch up via ordinary log replay.
+   */
+  public void restoreFromSnapshot(StateSnapshot snapshot) {
+    List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
+    List.copyOf(assignments.values())
+        .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
+    List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
+    List.copyOf(tenants.keySet()).forEach(this::removeTenant);
+    List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
+    List.copyOf(configEntries.values()).forEach(e -> removeConfigEntry(e.tenantId(), e.key()));
+
+    snapshot.deployments().forEach(this::putDeployment);
+    snapshot.assignments().forEach(this::putAssignment);
+    snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
+    snapshot.rollingIndices().forEach(this::putRollingIndex);
+    snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
+    snapshot.tenants().forEach(this::putTenant);
+    snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
+    snapshot.configEntries().forEach(this::putConfigEntry);
   }
 
   // ---- disk layout ----
@@ -452,27 +507,11 @@ public final class StateStore {
   }
 
   private static void writeAtomically(Path target, String content) {
-    try {
-      Files.createDirectories(target.getParent());
-      Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
-      Files.writeString(tmp, content, StandardCharsets.UTF_8);
-      try {
-        Files.move(
-            tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-      } catch (AtomicMoveNotSupportedException e) {
-        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-      }
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
+    AtomicFiles.writeAtomically(target, content);
   }
 
   private static void deleteQuietly(Path file) {
-    try {
-      Files.deleteIfExists(file);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
+    AtomicFiles.deleteQuietly(file);
   }
 
   // ---- YAML (de)serialization: hand-rolled Map<->record mapping, same posture as

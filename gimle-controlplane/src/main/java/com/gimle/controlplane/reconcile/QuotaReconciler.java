@@ -1,6 +1,8 @@
 package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.raft.MutationSink;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.store.StateStore;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.tenant.Tenant;
@@ -28,9 +30,16 @@ public final class QuotaReconciler {
   private static final Logger log = LoggerFactory.getLogger(QuotaReconciler.class);
 
   private final StateStore store;
+  private final MutationSink mutations;
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public QuotaReconciler(StateStore store) {
+    this(store, mutation -> mutation.applyTo(store));
+  }
+
+  public QuotaReconciler(StateStore store, MutationSink mutations) {
     this.store = store;
+    this.mutations = mutations;
   }
 
   public void reconcileOnce() {
@@ -78,7 +87,7 @@ public final class QuotaReconciler {
                       spec.name());
                 }
               });
-      store.putQuotaViolation(spec.name(), violating[0]);
+      mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating[0]));
     }
   }
 }

@@ -1,5 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.raft.MutationSink;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.ObservedHeartbeat;
 import com.gimle.controlplane.store.StateStore;
@@ -44,16 +46,28 @@ public final class ReplicaCountReconciler {
   private final Duration nodeDarkTimeout;
   private final Duration placementGracePeriod;
   private final Map<String, Instant> firstSeenMissingAt = new ConcurrentHashMap<>();
+  private final MutationSink mutations;
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public ReplicaCountReconciler(StateStore store, Duration nodeDarkTimeout) {
     this(store, nodeDarkTimeout, nodeDarkTimeout);
   }
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public ReplicaCountReconciler(
       StateStore store, Duration nodeDarkTimeout, Duration placementGracePeriod) {
+    this(store, nodeDarkTimeout, placementGracePeriod, mutation -> mutation.applyTo(store));
+  }
+
+  public ReplicaCountReconciler(
+      StateStore store,
+      Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
+      MutationSink mutations) {
     this.store = store;
     this.nodeDarkTimeout = nodeDarkTimeout;
     this.placementGracePeriod = placementGracePeriod;
+    this.mutations = mutations;
   }
 
   public void reconcileOnce() {
@@ -74,7 +88,9 @@ public final class ReplicaCountReconciler {
             assignment.deploymentName(),
             assignment.instanceIndex(),
             assignment.nodeId());
-        store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
+        mutations.propose(
+            new StateMutation.RemoveAssignment(
+                assignment.deploymentName(), assignment.instanceIndex()));
         firstSeenMissingAt.remove(key);
       }
     }

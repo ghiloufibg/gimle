@@ -1,6 +1,8 @@
 package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.raft.MutationSink;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.store.InstanceAssignment;
@@ -48,10 +50,17 @@ public final class DeploymentReconciler {
 
   private final StateStore store;
   private final Scheduler scheduler;
+  private final MutationSink mutations;
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DeploymentReconciler(StateStore store, Scheduler scheduler) {
+    this(store, scheduler, mutation -> mutation.applyTo(store));
+  }
+
+  public DeploymentReconciler(StateStore store, Scheduler scheduler, MutationSink mutations) {
     this.store = store;
     this.scheduler = scheduler;
+    this.mutations = mutations;
   }
 
   public void reconcileOnce() {
@@ -63,7 +72,9 @@ public final class DeploymentReconciler {
     // A deployment no longer in desired state: every one of its assignments is stale.
     for (InstanceAssignment assignment : store.listAssignments()) {
       if (!deploymentNames.contains(assignment.deploymentName())) {
-        store.removeAssignment(assignment.deploymentName(), assignment.instanceIndex());
+        mutations.propose(
+            new StateMutation.RemoveAssignment(
+                assignment.deploymentName(), assignment.instanceIndex()));
       }
     }
 
@@ -84,7 +95,8 @@ public final class DeploymentReconciler {
     // not this reconciler (design §11.4).
     for (InstanceAssignment assignment : existing) {
       if (assignment.instanceIndex() >= replicas) {
-        store.removeAssignment(spec.name(), assignment.instanceIndex());
+        mutations.propose(
+            new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
       }
     }
 
@@ -125,9 +137,10 @@ public final class DeploymentReconciler {
                 spec.placement().antiAffinityAcrossNodes(),
                 spec.tenantId(),
                 candidates);
-        store.putAssignment(
-            new InstanceAssignment(
-                spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath()));
+        mutations.propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())));
       } catch (GimleSchedulingException e) {
         // Left unplaced; the next tick retries from the same full snapshot, no special-cased
         // retry bookkeeping needed -- this is what "level-triggered, converge from any snapshot"
@@ -158,7 +171,7 @@ public final class DeploymentReconciler {
       if (current.isPresent()
           && current.get().moduleId().equals(spec.moduleId())
           && isReady(current.get())) {
-        store.clearRollingIndex(spec.name());
+        mutations.propose(new StateMutation.ClearRollingIndex(spec.name()));
       }
       // Either still waiting for the replacement to become ready, or it was already removed and
       // is awaiting re-placement below -- either way, only one index migrates at a time.
@@ -174,8 +187,10 @@ public final class DeploymentReconciler {
         .min(Comparator.comparingInt(InstanceAssignment::instanceIndex))
         .ifPresent(
             mismatched -> {
-              store.removeAssignment(spec.name(), mismatched.instanceIndex());
-              store.putRollingIndex(spec.name(), mismatched.instanceIndex());
+              mutations.propose(
+                  new StateMutation.RemoveAssignment(spec.name(), mismatched.instanceIndex()));
+              mutations.propose(
+                  new StateMutation.PutRollingIndex(spec.name(), mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; rolling it forward",
                   spec.name(),

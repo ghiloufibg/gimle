@@ -1,6 +1,8 @@
 package com.gimle.controlplane.autoscale;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.raft.MutationSink;
+import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.ObservedHeartbeat;
 import com.gimle.controlplane.store.StateStore;
@@ -31,9 +33,16 @@ public final class AutoscaleReconciler {
   private static final Logger log = LoggerFactory.getLogger(AutoscaleReconciler.class);
 
   private final StateStore store;
+  private final MutationSink mutations;
 
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public AutoscaleReconciler(StateStore store) {
+    this(store, mutation -> mutation.applyTo(store));
+  }
+
+  public AutoscaleReconciler(StateStore store, MutationSink mutations) {
     this.store = store;
+    this.mutations = mutations;
   }
 
   public void reconcileOnce() {
@@ -55,19 +64,19 @@ public final class AutoscaleReconciler {
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
-      store.putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
       return;
     }
     long cpuRequestMillicores = descriptor.resourceRequest().cpuMillicores();
     if (cpuRequestMillicores <= 0) {
-      store.putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
       return;
     }
 
     List<InstanceObservation> readyObservations = readyInstanceObservations(spec.name());
     if (readyObservations.isEmpty()) {
       // No signal yet (nothing ready/reporting): hold the current count rather than guessing.
-      store.putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
       return;
     }
 
@@ -102,7 +111,11 @@ public final class AutoscaleReconciler {
           currentEffective,
           nextEffective);
     }
-    store.putEffectiveReplicas(spec.name(), nextEffective);
+    putEffectiveReplicas(spec.name(), nextEffective);
+  }
+
+  private void putEffectiveReplicas(String deploymentName, int replicas) {
+    mutations.propose(new StateMutation.PutEffectiveReplicas(deploymentName, replicas));
   }
 
   private static int clamp(int value, AutoscalePolicy policy) {
