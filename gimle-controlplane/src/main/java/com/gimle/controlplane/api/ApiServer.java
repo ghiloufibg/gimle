@@ -127,6 +127,20 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * Registers a static-file context at {@code /console} serving the built SPA under {@code
+   * staticRoot} (design doc §6), with client-side-route fallback to whichever shell file the SPA's
+   * tooling produced -- {@code _shell.html} if present (TanStack Start's SPA mode, per the Lovable
+   * diff review), else the conventional {@code index.html}. Opt-in: no constructor calls this, so
+   * every existing caller/test is unaffected until something explicitly wires a console directory
+   * in (design doc §11's "reversible" build-integration plan).
+   */
+  public void serveConsole(Path staticRoot) {
+    String shellFileName =
+        Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
+    server.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
+  }
+
+  /**
    * A single-node Raft cluster (peer set = {@code {self}}, majority = 1, so this node is trivially
    * always leader) backed by a fresh temp directory -- what every constructor that predates Raft
    * gets automatically, so existing single-process callers/tests need no changes.
@@ -445,7 +459,11 @@ public final class ApiServer implements AutoCloseable {
         node.put("capabilities", capabilities);
         store
             .getNodeHeartbeat(registration.nodeId())
-            .ifPresent(observed -> node.put("lastHeartbeatAt", observed.receivedAt().toString()));
+            .ifPresent(
+                observed -> {
+                  node.put("lastHeartbeatAt", observed.receivedAt().toString());
+                  node.put("capacity", capacityToJson(observed.heartbeat().capacity()));
+                });
         nodes.add(node);
       }
       respondJson(exchange, 200, nodes);
@@ -477,6 +495,15 @@ public final class ApiServer implements AutoCloseable {
       supportedTiers.add(IsolationTier.valueOf((String) tier));
     }
     return new NodeCapabilities(supportedTiers);
+  }
+
+  private static Map<String, Object> capacityToJson(ResourceUsageSnapshot capacity) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("totalMemoryBytes", capacity.totalMemoryBytes());
+    map.put("assignedMemoryBytes", capacity.assignedMemoryBytes());
+    map.put("totalCpuMillicores", capacity.totalCpuMillicores());
+    map.put("assignedCpuMillicores", capacity.assignedCpuMillicores());
+    return map;
   }
 
   private static ResourceUsageSnapshot capacityFromJson(Map<?, ?> map) {

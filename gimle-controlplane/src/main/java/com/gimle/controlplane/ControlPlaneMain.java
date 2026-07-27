@@ -16,6 +16,7 @@ import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.logging.GimleLogging;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -61,7 +62,8 @@ public final class ControlPlaneMain {
     if (args.length < 3) {
       System.err.println(
           "usage: ControlPlaneMain <port> <stateDir> <raftPort> [--host <hostname>] "
-              + "[--peers host1:raftPort1:apiPort1,host2:raftPort2:apiPort2,...]");
+              + "[--peers host1:raftPort1:apiPort1,host2:raftPort2:apiPort2,...] "
+              + "[--console-dir <path>]");
       System.exit(2);
       return;
     }
@@ -70,11 +72,14 @@ public final class ControlPlaneMain {
     int raftPort = Integer.parseInt(args[2]);
     String selfHost = "127.0.0.1";
     List<PeerSpec> peerSpecs = List.of();
+    Path consoleDir = Path.of("console-dist");
     for (int i = 3; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
       } else if ("--peers".equals(args[i]) && i + 1 < args.length) {
         peerSpecs = parsePeers(args[++i]);
+      } else if ("--console-dir".equals(args[i]) && i + 1 < args.length) {
+        consoleDir = Path.of(args[++i]);
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
@@ -144,6 +149,13 @@ public final class ControlPlaneMain {
         apiServer.port(),
         selfRaftId,
         stateDir);
+
+    if (Files.isDirectory(consoleDir)) {
+      apiServer.serveConsole(consoleDir);
+      log.info("serving web console from {} at /console", consoleDir.toAbsolutePath());
+    } else {
+      log.info("console directory {} not found; /console disabled", consoleDir.toAbsolutePath());
+    }
 
     Runtime.getRuntime()
         .addShutdownHook(

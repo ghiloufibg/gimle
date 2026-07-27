@@ -17,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -196,10 +197,16 @@ class ApiServerTest {
     assertEquals(1, body.size());
     assertEquals("node-a", body.get(0).get("nodeId"));
     assertTrue(body.get(0).containsKey("lastHeartbeatAt"));
+    Map<String, Object> capacity = Json.asObject(body.get(0).get("capacity"));
+    assertEquals(1000L, capacity.get("totalMemoryBytes"));
+    assertEquals(0L, capacity.get("assignedMemoryBytes"));
+    assertEquals(1000L, capacity.get("totalCpuMillicores"));
+    assertEquals(0L, capacity.get("assignedCpuMillicores"));
   }
 
   @Test
-  void nodes_list_endpoint_omits_last_heartbeat_for_a_node_that_never_sent_one() throws Exception {
+  void nodes_list_endpoint_omits_last_heartbeat_and_capacity_for_a_node_that_never_sent_one()
+      throws Exception {
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
             .POST(
@@ -214,6 +221,7 @@ class ApiServerTest {
     List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
     assertEquals(1, body.size());
     assertFalse(body.get(0).containsKey("lastHeartbeatAt"));
+    assertFalse(body.get(0).containsKey("capacity"));
   }
 
   @Test
@@ -498,5 +506,27 @@ class ApiServerTest {
     HttpResponse<String> list =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
     assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void console_static_files_are_served_once_wired() throws Exception {
+    Path consoleRoot = tempDir.resolve("console-dist");
+    Files.createDirectories(consoleRoot);
+    Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
+    Files.writeString(consoleRoot.resolve("app.js"), "console.log('hi');");
+    server.serveConsole(consoleRoot);
+
+    HttpResponse<String> asset =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/console/app.js")).GET().build());
+    assertEquals(200, asset.statusCode());
+    assertEquals("console.log('hi');", asset.body());
+
+    HttpResponse<String> deepLink =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/console/deployments/orders-service"))
+                .GET()
+                .build());
+    assertEquals(200, deepLink.statusCode());
+    assertEquals("<html>shell</html>", deepLink.body());
   }
 }
