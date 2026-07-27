@@ -3,6 +3,7 @@ package com.gimle.controlplane.raft;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.controlplane.autoscale.AutoscalePolicy;
 import com.gimle.controlplane.manifest.DeploymentSpec;
@@ -10,6 +11,7 @@ import com.gimle.controlplane.manifest.PlacementConstraints;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.StateSnapshot;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -133,6 +135,24 @@ class RaftCodecTest {
   @Test
   void reading_past_a_clean_end_of_stream_returns_null() throws IOException {
     assertNull(RaftCodec.read(new ByteArrayInputStream(new byte[0])));
+  }
+
+  @Test
+  void rejects_an_oversized_length_prefix_before_allocating() throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    new java.io.DataOutputStream(buffer).writeInt(Integer.MAX_VALUE);
+    assertThrows(
+        GimleCodecException.class,
+        () -> RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
+  }
+
+  @Test
+  void rejects_a_negative_length_prefix_before_allocating() throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    new java.io.DataOutputStream(buffer).writeInt(-1);
+    assertThrows(
+        GimleCodecException.class,
+        () -> RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
   }
 
   @Test

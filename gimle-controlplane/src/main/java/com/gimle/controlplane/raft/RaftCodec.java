@@ -6,6 +6,7 @@ import com.gimle.controlplane.manifest.PlacementConstraints;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.StateSnapshot;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -65,7 +66,23 @@ public final class RaftCodec {
   private static final byte MUT_PUT_CONFIG_ENTRY = 11;
   private static final byte MUT_REMOVE_CONFIG_ENTRY = 12;
 
+  /**
+   * Generous upper bound for any single length-prefixed frame or byte-array field this codec ever
+   * produces (a {@link StateSnapshot} is the largest payload in practice) -- far below what a
+   * corrupted or adversarial peer could otherwise force this reader to allocate.
+   */
+  private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
+
   private RaftCodec() {}
+
+  private static void checkFrameLength(int length) {
+    if (length < 0) {
+      throw GimleCodecException.invalidFrameLength(length);
+    }
+    if (length > MAX_FRAME_LENGTH) {
+      throw GimleCodecException.frameTooLarge(length, MAX_FRAME_LENGTH);
+    }
+  }
 
   // ---- top-level RaftRpc framing (length-prefixed, matching FabricCodec) ----
 
@@ -88,6 +105,7 @@ public final class RaftCodec {
     } catch (EOFException e) {
       return null;
     }
+    checkFrameLength(length);
     byte[] body = new byte[length];
     data.readFully(body);
     return decodeRpcBody(body);
@@ -480,6 +498,7 @@ public final class RaftCodec {
 
   private static byte[] readBytes(DataInputStream in) throws IOException {
     int length = in.readInt();
+    checkFrameLength(length);
     byte[] bytes = new byte[length];
     in.readFully(bytes);
     return bytes;

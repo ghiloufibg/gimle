@@ -3,10 +3,13 @@ package com.gimle.fabric.transport;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.gimle.core.exception.GimleCodecException;
 import com.gimle.fabric.trace.TraceContext;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -50,6 +53,24 @@ class FabricCodecTest {
   void reading_past_a_clean_end_of_stream_returns_null() throws IOException {
     FabricFrame decoded = FabricCodec.read(new ByteArrayInputStream(new byte[0]));
     assertNull(decoded);
+  }
+
+  @Test
+  void rejects_an_oversized_length_prefix_before_allocating() throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    new DataOutputStream(buffer).writeInt(Integer.MAX_VALUE);
+    assertThrows(
+        GimleCodecException.class,
+        () -> FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
+  }
+
+  @Test
+  void rejects_a_negative_length_prefix_before_allocating() throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    new DataOutputStream(buffer).writeInt(-1);
+    assertThrows(
+        GimleCodecException.class,
+        () -> FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
   }
 
   @Test

@@ -1,5 +1,6 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.exception.GimleCodecException;
 import com.gimle.fabric.trace.TraceContext;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -25,7 +26,23 @@ public final class FabricCodec {
   private static final byte TAG_INVOKE_RESPONSE = 1;
   private static final byte TAG_INVOKE_ERROR = 2;
 
+  /**
+   * Generous upper bound for any single length-prefixed frame or byte-array field this codec ever
+   * produces -- far below what a corrupted or adversarial peer could otherwise force this reader to
+   * allocate.
+   */
+  private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
+
   private FabricCodec() {}
+
+  private static void checkFrameLength(int length) {
+    if (length < 0) {
+      throw GimleCodecException.invalidFrameLength(length);
+    }
+    if (length > MAX_FRAME_LENGTH) {
+      throw GimleCodecException.frameTooLarge(length, MAX_FRAME_LENGTH);
+    }
+  }
 
   public static void write(OutputStream out, FabricFrame frame) throws IOException {
     byte[] body = encodeBody(frame);
@@ -47,6 +64,7 @@ public final class FabricCodec {
     } catch (EOFException e) {
       return null;
     }
+    checkFrameLength(length);
     byte[] body = new byte[length];
     data.readFully(body);
     return decodeBody(body);
@@ -134,6 +152,7 @@ public final class FabricCodec {
 
   private static byte[] readBytes(DataInputStream in) throws IOException {
     int length = in.readInt();
+    checkFrameLength(length);
     byte[] bytes = new byte[length];
     in.readFully(bytes);
     return bytes;
