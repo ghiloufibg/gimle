@@ -5,9 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.store.StateStore;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -228,5 +232,114 @@ class GimleCliTest {
     int exit = run("frobnicate");
     assertEquals(1, exit);
     assertTrue(stderr().contains("usage:"));
+  }
+
+  @Test
+  void an_unreachable_control_plane_produces_a_clear_error_and_nonzero_exit() {
+    int exit =
+        GimleCli.run(new String[] {"get", "tenants", "--server", "localhost:1"}, out, err);
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("could not reach control plane"));
+  }
+
+  @Test
+  void a_malformed_server_response_produces_a_clear_error_not_a_stack_trace() throws Exception {
+    try (ServerSocket serverSocket = new ServerSocket(0)) {
+      Thread.ofVirtual().start(() -> serveOneGarbageResponse(serverSocket));
+
+      int exit =
+          GimleCli.run(
+              new String[] {
+                "get", "tenants", "--server", "localhost:" + serverSocket.getLocalPort()
+              },
+              out,
+              err);
+      assertEquals(1, exit);
+      assertTrue(stderr().contains("unexpected response from control plane"));
+    }
+  }
+
+  /**
+   * A minimal hand-rolled HTTP/1.1 responder over a raw socket -- avoids requiring {@code
+   * jdk.httpserver} in {@code gimle-cli}'s production module descriptor purely for one test's sake.
+   */
+  private static void serveOneGarbageResponse(ServerSocket serverSocket) {
+    try (Socket socket = serverSocket.accept()) {
+      BufferedReader in =
+          new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+      String line;
+      while ((line = in.readLine()) != null && !line.isEmpty()) {
+        // drain the request line and headers; the body this test sends back doesn't depend on them
+      }
+      byte[] body = "not json {{{".getBytes(StandardCharsets.UTF_8);
+      String response =
+          "HTTP/1.1 200 OK\r\n"
+              + "Content-Type: application/json\r\n"
+              + "Content-Length: "
+              + body.length
+              + "\r\n"
+              + "Connection: close\r\n\r\n";
+      socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+      socket.getOutputStream().write(body);
+      socket.getOutputStream().flush();
+    } catch (IOException e) {
+      // best-effort; the client-side assertions in the test are what actually matter
+    }
+  }
+
+  @Test
+  void set_and_delete_tenant_succeed_with_json_output_format() throws Exception {
+    int setExit =
+        run(
+            "-o",
+            "json",
+            "set",
+            "tenant",
+            "acme",
+            "--max-memory-bytes",
+            "1",
+            "--max-cpu-millicores",
+            "1",
+            "--max-instances",
+            "1");
+    assertEquals(0, setExit);
+    assertTrue(stdout().contains("tenant/acme configured"));
+
+    outBuffer.reset();
+    int deleteExit = run("-o", "json", "delete", "tenant", "acme");
+    assertEquals(0, deleteExit);
+    assertTrue(stdout().contains("tenant/acme deleted"));
+  }
+
+  @Test
+  void set_and_delete_config_succeed_with_json_output_format() throws Exception {
+    run(
+        "set",
+        "tenant",
+        "acme",
+        "--max-memory-bytes",
+        "1",
+        "--max-cpu-millicores",
+        "1",
+        "--max-instances",
+        "1");
+
+    int setExit = run("-o", "json", "set", "config", "acme", "greeting", "hello");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int deleteExit = run("-o", "json", "delete", "config", "acme", "greeting");
+    assertEquals(0, deleteExit);
+    assertTrue(stdout().contains("config/acme/greeting deleted"));
+  }
+
+  @Test
+  void delete_deployment_succeeds_with_json_output_format() throws Exception {
+    Path manifest = writeManifest("json-delete-service", 1);
+    run("apply", "-f", manifest.toString());
+
+    int deleteExit = run("-o", "json", "delete", "deployment", "json-delete-service");
+    assertEquals(0, deleteExit);
+    assertTrue(stdout().contains("deployment/json-delete-service deleted"));
   }
 }
