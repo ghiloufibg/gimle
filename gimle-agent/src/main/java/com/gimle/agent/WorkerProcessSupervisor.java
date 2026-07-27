@@ -209,12 +209,14 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     return systemLogStream;
   }
 
-  private void closeSystemLog() {
+  private synchronized void closeSystemLog() {
     if (systemLogStream != null) {
       try {
         systemLogStream.close();
       } catch (IOException e) {
         // best-effort close when the worker's output pipe closes
+      } finally {
+        systemLogStream = null;
       }
     }
   }
