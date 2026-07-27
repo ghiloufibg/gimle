@@ -57,7 +57,7 @@ class WorkerProcessSupervisorTest {
               exhaustedLatch.countDown();
             },
             Optional.empty(),
-            Duration.ofMillis(200))) {
+            Duration.ofMillis(2000))) {
       supervisor.start();
 
       List<Instant> spawnTimes =
