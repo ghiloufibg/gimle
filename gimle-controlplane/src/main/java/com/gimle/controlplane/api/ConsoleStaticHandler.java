@@ -22,8 +22,8 @@ final class ConsoleStaticHandler implements HttpHandler {
   private final Path staticRoot;
   private final Path shellFile;
 
-  ConsoleStaticHandler(Path staticRoot, String shellFileName) {
-    this.staticRoot = staticRoot.toAbsolutePath().normalize();
+  ConsoleStaticHandler(Path staticRoot, String shellFileName) throws IOException {
+    this.staticRoot = staticRoot.toRealPath();
     this.shellFile = this.staticRoot.resolve(shellFileName);
   }
 
@@ -45,7 +45,7 @@ final class ConsoleStaticHandler implements HttpHandler {
             "invalid path".getBytes(StandardCharsets.UTF_8));
         return;
       }
-      if (Files.isRegularFile(resolved)) {
+      if (Files.isRegularFile(resolved) && isWithinRoot(resolved)) {
         String contentType = Files.probeContentType(resolved);
         respond(
             exchange,
@@ -62,6 +62,19 @@ final class ConsoleStaticHandler implements HttpHandler {
           exchange, 404, "text/plain; charset=utf-8", "not found".getBytes(StandardCharsets.UTF_8));
     } finally {
       exchange.close();
+    }
+  }
+
+  /**
+   * Guards against a symlink inside {@code staticRoot} pointing outside it: {@code resolved}
+   * already passed the lexical {@code normalize()}/{@code startsWith} check above, but that check
+   * can't see through a symlink -- only a real-path comparison can (audit finding F-02, third pass).
+   */
+  private boolean isWithinRoot(Path candidate) {
+    try {
+      return candidate.toRealPath().startsWith(staticRoot);
+    } catch (IOException e) {
+      return false;
     }
   }
 

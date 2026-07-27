@@ -134,7 +134,7 @@ public final class ApiServer implements AutoCloseable {
    * every existing caller/test is unaffected until something explicitly wires a console directory
    * in (design doc §11's "reversible" build-integration plan).
    */
-  public void serveConsole(Path staticRoot) {
+  public void serveConsole(Path staticRoot) throws IOException {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
     server.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));

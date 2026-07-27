@@ -11,10 +11,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -110,5 +112,30 @@ class ConsoleStaticHandlerTest {
     HttpResponse<String> response = get("/console/anything");
 
     assertEquals(404, response.statusCode());
+  }
+
+  /**
+   * Audit finding F-02 (third pass): a symlink inside {@code staticRoot} pointing at a file outside
+   * it must not be served. Skipped, not failed, where the account lacks the privilege to create a
+   * symlink (unprivileged Windows without Developer Mode) -- that's an environment limitation, not
+   * evidence the guard works or doesn't.
+   */
+  @Test
+  void rejects_a_symlink_that_escapes_the_static_root() throws Exception {
+    Path secret = tempDir.resolve("secret.txt");
+    Files.writeString(secret, "outside the static root");
+    Path link = staticRoot.resolve("escape.txt");
+    try {
+      Files.createSymbolicLink(link, secret);
+    } catch (FileSystemException | UnsupportedOperationException e) {
+      Assumptions.abort("this account cannot create symlinks: " + e.getMessage());
+    }
+    Files.writeString(staticRoot.resolve("index.html"), "<html>shell</html>");
+    startWithShell("index.html");
+
+    HttpResponse<String> response = get("/console/escape.txt");
+
+    assertEquals(200, response.statusCode());
+    assertEquals("<html>shell</html>", response.body());
   }
 }
