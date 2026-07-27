@@ -35,13 +35,13 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
- * Embedded, single-node, file-backed state store (design §3): a directory of small YAML files, one
- * per resource, written via a temp file plus atomic move so a crash mid-write never leaves a torn
- * file where a reader could see it. An in-memory index is rebuilt from disk on construction; every
+ * Embedded, single-node, file-backed state store: a directory of small YAML files, one per
+ * resource, written via a temp file plus atomic move so a crash mid-write never leaves a torn file
+ * where a reader could see it. An in-memory index is rebuilt from disk on construction; every
  * mutation writes through to disk before it's reflected in memory. Deliberately not an embedded SQL
- * engine or a hand-rolled binary format -- Phase 5 replaces this layer's internals with a
- * Raft-replicated log regardless of what's built here, so this is the least engineering that
- * survives a control-plane process restart, not a storage engine to build on.
+ * engine or a hand-rolled binary format -- a Raft-replicated log sits on top of this layer
+ * regardless of what's built here, so this is the least engineering that survives a control-plane
+ * process restart, not a storage engine to build on.
  */
 public final class StateStore {
 
@@ -121,7 +121,7 @@ public final class StateStore {
         .toList();
   }
 
-  // ---- rolling-update bookkeeping (Phase 4 §9) ----
+  // ---- rolling-update bookkeeping ----
 
   /**
    * The logical instance index currently being replaced by a rolling update, if any -- persisted so
@@ -141,7 +141,7 @@ public final class StateStore {
     return Optional.ofNullable(rollingIndices.get(deploymentName));
   }
 
-  // ---- autoscaling bookkeeping (Phase 4 §10) ----
+  // ---- autoscaling bookkeeping ----
 
   /**
    * The autoscaler's current target replica count, read by {@link
@@ -174,9 +174,9 @@ public final class StateStore {
 
   /**
    * Not read by any reconciler today (a node re-registers on restart rather than being explicitly
-   * deregistered), but required by {@link #restoreFromSnapshot} (raft design §2.4): installing a
-   * snapshot must be able to wipe every registration this replica previously knew about before
-   * repopulating from the snapshot's own set, the same way every other resource kind here can.
+   * deregistered), but required by {@link #restoreFromSnapshot}: installing a snapshot must be able
+   * to wipe every registration this replica previously knew about before repopulating from the
+   * snapshot's own set, the same way every other resource kind here can.
    */
   public void removeNodeRegistration(String nodeId) {
     deleteQuietly(registrationFile(nodeId));
@@ -199,7 +199,7 @@ public final class StateStore {
     return List.copyOf(nodeHeartbeats.values());
   }
 
-  // ---- tenants (Phase 5 design §5.1) ----
+  // ---- tenants ----
 
   public void putTenant(Tenant tenant) {
     writeAtomically(tenantFile(tenant.id()), tenantToYaml(tenant));
@@ -219,7 +219,7 @@ public final class StateStore {
     tenants.remove(id);
   }
 
-  // ---- quota-violation bookkeeping (Phase 5 design §5.2) ----
+  // ---- quota-violation bookkeeping ----
 
   /**
    * Set by {@code QuotaReconciler} every tick, read by the API server's deployment status surface
@@ -240,7 +240,7 @@ public final class StateStore {
     return quotaViolations.getOrDefault(deploymentName, Boolean.FALSE);
   }
 
-  // ---- tenant-scoped config/secrets (Phase 5 design §6.2) ----
+  // ---- tenant-scoped config/secrets ----
 
   public void putConfigEntry(ConfigEntry entry) {
     String key = configKey(entry.tenantId(), entry.key());
@@ -261,12 +261,12 @@ public final class StateStore {
     configEntries.remove(configKey(tenantId, key));
   }
 
-  // ---- full-state snapshot (raft design §2.4) ----
+  // ---- full-state snapshot ----
 
   /**
    * A point-in-time copy of every resource kind Raft replicates -- deliberately excludes {@code
-   * nodeHeartbeats}, matching design §2.1: heartbeats never enter the replicated log, so they have
-   * no business surviving into a snapshot a follower installs either.
+   * nodeHeartbeats}: heartbeats never enter the replicated log, so they have no business surviving
+   * into a snapshot a follower installs either.
    */
   public StateSnapshot snapshot() {
     return new StateSnapshot(
@@ -285,8 +285,8 @@ public final class StateStore {
 
   /**
    * Replaces every resource this store holds with {@code snapshot}'s contents -- a follower's
-   * response to a leader's {@code InstallSnapshot} (raft design §2.4), used when this replica has
-   * fallen too far behind to catch up via ordinary log replay.
+   * response to a leader's {@code InstallSnapshot}, used when this replica has fallen too far
+   * behind to catch up via ordinary log replay.
    */
   public void restoreFromSnapshot(StateSnapshot snapshot) {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);

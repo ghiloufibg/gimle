@@ -17,13 +17,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Horizontal autoscaling (Phase 4 §10): for every deployment carrying an {@link AutoscalePolicy},
- * computes average observed CPU utilization ({@code cpuMillicoresUsed} &divide; the module
- * descriptor's {@code resourceRequest.cpuMillicores()}) across every currently-{@code ready}
- * instance, and writes an effective replica count clamped to {@code [minReplicas, maxReplicas]},
- * adjusted by exactly one replica per tick toward the computed ideal rather than jumping straight
- * there -- avoiding thrash on a single noisy sample, the same reasoning {@code RestartTracker}'s
- * backoff already applies to a different oscillation risk. {@link
+ * Horizontal autoscaling: for every deployment carrying an {@link AutoscalePolicy}, computes
+ * average observed CPU utilization ({@code cpuMillicoresUsed} &divide; the module descriptor's
+ * {@code resourceRequest.cpuMillicores()}) across every currently-{@code ready} instance, and
+ * writes an effective replica count clamped to {@code [minReplicas, maxReplicas]}, adjusted by
+ * exactly one replica per tick toward the computed ideal rather than jumping straight there --
+ * avoiding thrash on a single noisy sample, the same reasoning {@code RestartTracker}'s backoff
+ * already applies to a different oscillation risk. {@link
  * com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in place of the
  * user-submitted {@code replicas} whenever a policy is present; this reconciler never touches
  * {@link com.gimle.controlplane.store.InstanceAssignment}s itself.

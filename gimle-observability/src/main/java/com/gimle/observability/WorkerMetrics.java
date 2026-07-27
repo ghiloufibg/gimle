@@ -12,14 +12,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Per-module tagged Micrometer wiring — one {@link MeterRegistry} per worker JVM (design §5.1):
- * request rate/latency/error counters, thread counts, classloader/metaspace footprint. Defaults to
- * an in-memory {@link SimpleMeterRegistry} (no exporter wired up yet — Phase 2 doesn't need one,
- * just the counters existing and queryable); a real registry can be supplied instead once a later
- * phase adds a backend.
+ * Per-module tagged Micrometer wiring -- one {@link MeterRegistry} per worker JVM tracking request
+ * rate/latency/error counters, thread counts, and classloader/metaspace footprint. Defaults to an
+ * in-memory {@link SimpleMeterRegistry} with no exporter wired up, since the counters just need to
+ * exist and be queryable; a real registry backed by an external exporter can be supplied instead.
  *
  * <p>Gauges are backed by an internally-tracked, mutable {@link AtomicLong} per module, registered
- * once and updated in place — passing a boxed primitive to {@code MeterRegistry#gauge} directly
+ * once and updated in place -- passing a boxed primitive to {@code MeterRegistry#gauge} directly
  * would silently freeze at whatever value was passed the first time, since the registry only
  * re-reads the same (immutable) {@code Long} instance thereafter.
  */

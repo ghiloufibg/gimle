@@ -10,7 +10,7 @@ import org.slf4j.MDC;
 
 /**
  * Builds the MDC tag set for one module instance and applies it around either a direct method
- * invocation (via a dynamic proxy, design §3's chosen choke point: wrapping a service reference at
+ * invocation (via a dynamic proxy, the chosen choke point: wrapping a service reference at
  * registration time covers both same-worker calls and {@code FabricServer}'s local-invoke path,
  * since both ultimately call through that same registered reference) or an arbitrary {@link
  * Callable} (used for {@code BoundedModuleScheduler}'s probe-check dispatch, which never goes

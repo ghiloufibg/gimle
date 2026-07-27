@@ -8,15 +8,14 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 
 /**
- * Installs the process-wide {@link OpenTelemetry} instance {@code gimle-fabric}'s {@code
- * FabricServer}/{@code FabricServiceRegistry} read via {@link GlobalOpenTelemetry} (Phase 4 §11 --
- * this is where OpenTelemetry is actually introduced, matching the spec's own phase placement).
+ * Installs the process-wide {@link OpenTelemetry} instance that {@code gimle-fabric}'s {@code
+ * FabricServer}/{@code FabricServiceRegistry} reads via {@link GlobalOpenTelemetry}.
  *
  * <p>Which exporter backend a real deployment wants (OTLP to a collector, something else, or none)
- * is a deployment concern independent of the propagation mechanism this phase wires end to end
- * (design §14, open question 1); defaulting to {@link LoggingSpanExporter} here mirrors {@link
- * WorkerMetrics}'s own "{@code SimpleMeterRegistry}, no exporter wired up yet" precedent -- spans
- * are real and correctly parented, just not shipped anywhere yet.
+ * is a deployment concern independent of the trace-propagation mechanism wired here; defaulting to
+ * {@link LoggingSpanExporter} mirrors {@link WorkerMetrics}'s own "{@code SimpleMeterRegistry}, no
+ * exporter wired up yet" approach -- spans are real and correctly parented, just not shipped
+ * anywhere yet.
  */
 public final class GimleTracing {
 

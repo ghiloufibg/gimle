@@ -22,17 +22,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Spawns and supervises one worker JVM (design §4.1, §4.3). {@code baseCommand} is everything up to
- * (but not including) the worker's sole application argument -- the control-socket path, which this
- * class appends itself, so the same base command is reused across every respawn. Caller supplies
- * the fully-formed command (java executable, any {@code ResourceLimiter}-derived JVM flags,
- * module-path/classpath, main class) since discovering {@code gimle-worker}'s own runtime artifacts
- * is a packaging concern outside this class's job.
+ * Spawns and supervises one worker JVM. {@code baseCommand} is everything up to (but not including)
+ * the worker's sole application argument -- the control-socket path, which this class appends
+ * itself, so the same base command is reused across every respawn. Caller supplies the fully-formed
+ * command (java executable, any {@code ResourceLimiter}-derived JVM flags, module-path/classpath,
+ * main class) since discovering {@code gimle-worker}'s own runtime artifacts is a packaging concern
+ * outside this class's job.
  *
  * <p>Restart is driven by {@link Process#onExit()} without a prior deliberate {@link #stop()} --
- * "destroy-and-respawn... sub-second," per the design's worker-level restart tier -- using the same
- * {@link RestartTracker} shape module-level restart uses inside {@code gimle-worker}, just with
- * different (caller-supplied) numeric parameters.
+ * matching this platform's worker-level restart tier of destroy-and-respawn within sub-second
+ * latency -- using the same {@link RestartTracker} shape module-level restart uses inside {@code
+ * gimle-worker}, just with different (caller-supplied) numeric parameters.
  */
 public final class WorkerProcessSupervisor implements AutoCloseable {
 
@@ -78,11 +78,11 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   }
 
   /**
-   * {@code systemLogFile} (log-explorer-design.md §5) is where drained stdout lines that don't
-   * parse as JSON get appended verbatim, tagged {@code category: "SYSTEM"} -- raw output that
-   * bypassed the worker's own Logback JSON encoding entirely (a JVM startup banner before Logback
-   * initializes, a module's stray {@code System.out.println}). Empty for a caller that doesn't want
-   * SYSTEM capture (e.g. tests).
+   * {@code systemLogFile} is where drained stdout lines that don't parse as JSON get appended
+   * verbatim, tagged {@code category: "SYSTEM"} -- raw output that bypassed the worker's own
+   * Logback JSON encoding entirely (a JVM startup banner before Logback initializes, a module's
+   * stray {@code System.out.println}). Empty for a caller that doesn't want SYSTEM capture (e.g.
+   * tests).
    */
   public WorkerProcessSupervisor(
       String workerId,
@@ -154,7 +154,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       String line;
       while ((line = reader.readLine()) != null) {
         if (isJsonLine(line)) {
-          // Already captured structurally by the worker's own Logback file appenders (design §5);
+          // Already captured structurally by the worker's own Logback file appenders;
           // re-logging it here would just duplicate it in a different, non-JSON format.
           continue;
         }

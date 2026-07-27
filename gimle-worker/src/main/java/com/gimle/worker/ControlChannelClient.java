@@ -16,11 +16,10 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Worker-side half of the newline-delimited control channel (design §4.2): the worker always
- * connects <em>out</em> to the agent's listening socket, retrying until the agent's listener is up
- * -- the agent (long-lived) vs. worker (transient, just spawned) startup race is exactly the
- * asymmetry that connection direction is meant to sidestep rather than solve with extra
- * coordination.
+ * Worker-side half of the newline-delimited control channel: the worker always connects
+ * <em>out</em> to the agent's listening socket, retrying until the agent's listener is up -- the
+ * agent (long-lived) vs. worker (transient, just spawned) startup race is exactly the asymmetry
+ * that connection direction is meant to sidestep rather than solve with extra coordination.
  */
 final class ControlChannelClient implements AutoCloseable {
 

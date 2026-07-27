@@ -8,9 +8,9 @@ import java.util.Optional;
 
 /**
  * Wraps a delegate {@link ServiceRegistry}, tagging each registered service instance with an MDC
- * dynamic proxy (log-explorer-design.md §3) at the moment it's registered -- the single choke point
- * that covers both same-worker direct calls (a plain reference returned from {@code lookup()}) and
- * {@code FabricServer}'s local-invoke path, since both ultimately call through this same registered
+ * dynamic proxy at the moment it's registered -- the single choke point that covers both
+ * same-worker direct calls (a plain reference returned from {@code lookup()}) and {@code
+ * FabricServer}'s local-invoke path, since both ultimately call through this same registered
  * reference. A module whose identity isn't known yet (the agent hasn't wired instance identity
  * through, or {@code identities} has no entry for its {@link ModuleId}) is registered untagged
  * rather than failing -- matches this codebase's "degrade, don't fail, over instrumentation"

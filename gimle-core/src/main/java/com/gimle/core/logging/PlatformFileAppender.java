@@ -11,8 +11,8 @@ import java.util.Map;
 
 /**
  * Writes every PLATFORM-category line (this process's own component code -- API server, scheduler,
- * reconcilers, agent supervisor, worker runtime/scheduler) to one rolling-free append file, design
- * §5. Deliberately skips APPLICATION lines (both {@link InstanceMdcKeys#DEPLOYMENT_NAME} and {@link
+ * reconcilers, agent supervisor, worker runtime/scheduler) to one rolling-free append file.
+ * Deliberately skips APPLICATION lines (both {@link InstanceMdcKeys#DEPLOYMENT_NAME} and {@link
  * InstanceMdcKeys#INSTANCE_INDEX} present in MDC) -- those are {@link
  * InstanceSiftingFileAppender}'s job, attached alongside this one in a worker process.
  */

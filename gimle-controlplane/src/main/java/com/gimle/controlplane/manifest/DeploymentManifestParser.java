@@ -77,9 +77,7 @@ public final class DeploymentManifestParser {
     }
   }
 
-  /**
-   * {@code tenantId} (Phase 5 design §5.1) is optional: absent means untenanted, today's behavior.
-   */
+  /** {@code tenantId} is optional: absent means untenanted. */
   private static Optional<String> parseTenantId(Map<?, ?> root) {
     Object value = root.get("tenantId");
     if (value == null) {

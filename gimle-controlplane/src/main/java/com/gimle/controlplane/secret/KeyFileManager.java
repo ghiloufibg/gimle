@@ -16,13 +16,13 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Loads the control plane's AES-256 secrets master key from {@code keyFilePath}, generating one on
- * first run if absent (Phase 5 design §6.1: "platform-generated local key file" -- self-contained,
- * no external KMS dependency, consistent with this project's MVP-first/YAGNI posture). File
- * permissions are restricted to owner-read-only wherever the filesystem supports POSIX permissions
- * (every real deployment target -- Linux, macOS); on a filesystem that doesn't (Windows, common
- * only in local development), the key is still written but the restriction is skipped with a logged
- * warning rather than a hard failure, since {@code java.nio.file}'s own POSIX view is simply
- * unavailable there, not a platform this design chooses to special-case.
+ * first run if absent. A platform-generated local key file is self-contained, with no external KMS
+ * dependency, consistent with this project's MVP-first/YAGNI posture. File permissions are
+ * restricted to owner-read-only wherever the filesystem supports POSIX permissions (every real
+ * deployment target -- Linux, macOS); on a filesystem that doesn't (Windows, common only in local
+ * development), the key is still written but the restriction is skipped with a logged warning
+ * rather than a hard failure, since {@code java.nio.file}'s own POSIX view is simply unavailable
+ * there.
  */
 public final class KeyFileManager {
 

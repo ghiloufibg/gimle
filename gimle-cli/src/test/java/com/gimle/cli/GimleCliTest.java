@@ -236,8 +236,7 @@ class GimleCliTest {
 
   @Test
   void an_unreachable_control_plane_produces_a_clear_error_and_nonzero_exit() {
-    int exit =
-        GimleCli.run(new String[] {"get", "tenants", "--server", "localhost:1"}, out, err);
+    int exit = GimleCli.run(new String[] {"get", "tenants", "--server", "localhost:1"}, out, err);
     assertEquals(1, exit);
     assertTrue(stderr().contains("could not reach control plane"));
   }
@@ -266,7 +265,8 @@ class GimleCliTest {
   private static void serveOneGarbageResponse(ServerSocket serverSocket) {
     try (Socket socket = serverSocket.accept()) {
       BufferedReader in =
-          new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+          new BufferedReader(
+              new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
       String line;
       while ((line = in.readLine()) != null && !line.isEmpty()) {
         // drain the request line and headers; the body this test sends back doesn't depend on them

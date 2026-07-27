@@ -10,9 +10,9 @@ import java.util.Set;
 
 /**
  * A full, point-in-time copy of every resource kind {@link StateStore} holds except {@code
- * nodeHeartbeats} (raft design §2.1: heartbeats are never replicated, so they never enter a
- * snapshot either) -- what a Raft leader sends via {@code InstallSnapshot} to a follower that has
- * fallen behind the leader's retained log.
+ * nodeHeartbeats} (heartbeats are never Raft-replicated, so they never enter a snapshot either) --
+ * what a Raft leader sends via {@code InstallSnapshot} to a follower that has fallen behind the
+ * leader's retained log.
  */
 public record StateSnapshot(
     List<DeploymentSpec> deployments,

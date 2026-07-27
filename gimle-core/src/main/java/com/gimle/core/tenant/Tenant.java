@@ -1,11 +1,10 @@
 package com.gimle.core.tenant;
 
 /**
- * A tenant's identity and resource quota (Phase 5 design §5.1). Named {@code Tenant} rather than
- * "namespace" -- the spec's own wording -- because this codebase already uses "namespace" for two
- * other, unrelated concepts (JPMS {@code ModuleLayer} namespacing, Linux namespace isolation);
- * reusing the word here would invite exactly the ambiguity this project's naming conventions
- * elsewhere try to avoid.
+ * A tenant's identity and resource quota. Named {@code Tenant} rather than "namespace" because this
+ * codebase already uses "namespace" for two other, unrelated concepts (JPMS {@code ModuleLayer}
+ * namespacing, Linux namespace isolation); reusing the word here would invite exactly the ambiguity
+ * this project's naming conventions elsewhere try to avoid.
  */
 public record Tenant(String id, ResourceQuota quota) {
 

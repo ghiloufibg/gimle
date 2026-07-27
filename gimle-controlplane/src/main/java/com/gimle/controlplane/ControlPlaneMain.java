@@ -30,19 +30,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The control plane's entry point (design §9): wires the Raft-replicated state store (raft design
- * §2), scheduler, the five reconcilers, and the API server together. The three original reconcilers
- * are independent in what they each compute (design §7), but share one ticker thread here rather
- * than separate timers -- the same "one shared ticker, independent per-check logic" shape {@code
- * gimle-worker}'s {@code ProbeLoop} already established; fixed-interval ticking is what the
- * level-triggered design needs, not literal thread independence. Tick order matters for same-tick
- * convergence, not for correctness across ticks: {@link ReplicaCountReconciler} and {@link
- * HealthReconciler} release assignments that are missing or unhealthy, and {@link
- * DeploymentReconciler} -- run last -- fills every gap that exists by the time it runs, whether
- * that gap is from a prior tick or this one. {@link AutoscaleReconciler} runs just before it, for
- * the identical reason: {@code DeploymentReconciler} reads whatever effective replica count it just
- * computed, same-tick. The tick itself only ever runs on whichever replica is currently Raft leader
- * (raft design §2 wiring): a follower's local state may be momentarily behind and about to be
+ * The control plane's entry point: wires the Raft-replicated state store, scheduler, the five
+ * reconcilers, and the API server together. The reconcilers are independent in what they each
+ * compute, but share one ticker thread here rather than separate timers -- the same "one shared
+ * ticker, independent per-check logic" shape {@code gimle-worker}'s {@code ProbeLoop} already
+ * established; fixed-interval ticking is what a level-triggered design needs, not literal thread
+ * independence. Tick order matters for same-tick convergence, not for correctness across ticks:
+ * {@link ReplicaCountReconciler} and {@link HealthReconciler} release assignments that are missing
+ * or unhealthy, and {@link DeploymentReconciler} -- run last -- fills every gap that exists by the
+ * time it runs, whether that gap is from a prior tick or this one. {@link AutoscaleReconciler} runs
+ * just before it, for the identical reason: {@code DeploymentReconciler} reads whatever effective
+ * replica count it just computed, same-tick. The tick itself only ever runs on whichever replica is
+ * currently Raft leader: a follower's local state may be momentarily behind and about to be
  * overwritten by replication, and any mutation a reconciler produces must go through consensus for
  * the other replicas to ever see it.
  */
@@ -50,7 +49,7 @@ public final class ControlPlaneMain {
 
   private static final Logger log = LoggerFactory.getLogger(ControlPlaneMain.class);
 
-  // See design §11.3: heartbeats every 5s, a node considered dark after 3 missed ones.
+  // Heartbeats every 5s; a node is considered dark after 3 missed ones.
   private static final Duration NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
   private static final Duration RECONCILE_INTERVAL = Duration.ofSeconds(2);
 

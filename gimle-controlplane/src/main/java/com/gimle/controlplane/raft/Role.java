@@ -1,6 +1,6 @@
 package com.gimle.controlplane.raft;
 
-/** A Raft node's current role (design §2.2). */
+/** A Raft node's current role. */
 public enum Role {
   FOLLOWER,
   CANDIDATE,

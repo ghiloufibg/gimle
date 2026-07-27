@@ -2,7 +2,7 @@ package com.gimle.controlplane.raft;
 
 /**
  * One entry in a {@link RaftLog}: the term it was created in, its 1-based index, and the mutation
- * it carries (design §2.1).
+ * it carries.
  */
 public record LogEntry(long term, long index, StateMutation mutation) {
 

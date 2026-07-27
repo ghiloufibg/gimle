@@ -3,11 +3,11 @@ package com.gimle.module.lifecycle;
 import java.util.Optional;
 
 /**
- * A module's view into the platform, passed to its lifecycle hooks. This is a Phase 1/2
- * placeholder: the full platform service API (config, metrics) that hosted modules see belongs to
- * {@code gimle-api}, a later phase. This — and {@link ModuleLifecycleHooks}, which hosted-module
- * authors implement — temporarily lives in {@code gimle-module} rather than the hosted-code-facing
- * module it architecturally belongs in. Migrate both once {@code gimle-api} exists.
+ * A module's view into the platform, passed to its lifecycle hooks. This is a placeholder: the full
+ * platform service API (config, metrics) that hosted modules see belongs in {@code gimle-api},
+ * which doesn't exist yet. This — and {@link ModuleLifecycleHooks}, which hosted-module authors
+ * implement — temporarily lives in {@code gimle-module} rather than the hosted-code-facing module
+ * it architecturally belongs in, and should migrate once {@code gimle-api} exists.
  */
 public interface ModuleContext {
 
@@ -32,8 +32,8 @@ public interface ModuleContext {
 
   /**
    * Looks up a tenant-scoped configuration or secret value the agent has relayed down for this
-   * instance (Phase 5 design §6.3) — always plaintext by the time a module sees it, whether or not
-   * it was encrypted at rest. Absent if the key was never delivered.
+   * instance — always plaintext by the time a module sees it, whether or not it was encrypted at
+   * rest. Absent if the key was never delivered.
    */
   Optional<String> config(String key);
 }

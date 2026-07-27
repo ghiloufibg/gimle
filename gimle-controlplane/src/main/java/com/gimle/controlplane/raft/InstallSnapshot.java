@@ -2,7 +2,7 @@ package com.gimle.controlplane.raft;
 
 /**
  * Sent by the leader instead of {@link AppendEntries} when a follower's {@code nextIndex} falls at
- * or below the leader's own log-compaction floor (design §2.4). {@code snapshotBytes} is a {@link
+ * or below the leader's own log-compaction floor. {@code snapshotBytes} is a {@link
  * RaftCodec}-encoded {@code com.gimle.controlplane.store.StateSnapshot}.
  */
 public record InstallSnapshot(

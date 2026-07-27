@@ -40,9 +40,9 @@ public class GimleSchedulingException extends RuntimeException {
   }
 
   /**
-   * Phase 5 design §5.4: a Tier 2/3 replica for a tenant couldn't be placed without co-residing on
-   * a node already running a different tenant's instance -- the node-level segregation this design
-   * enforces for tiers with a real process/kernel isolation boundary.
+   * A Tier 2/3 replica for a tenant couldn't be placed without co-residing on a node already
+   * running a different tenant's instance -- the node-level segregation enforced for tiers with a
+   * real process/kernel isolation boundary.
    */
   public static GimleSchedulingException tenantIsolationViolated(
       String deploymentName, int instanceIndex) {

@@ -18,17 +18,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Watches each {@link InstanceObservation}'s {@code alive} flag and {@code lifecycleState} (design
- * §7). An instance its own node still reports, but as unhealthy, is exactly the "missing/unhealthy
- * -> reschedule" trigger {@link DeploymentReconciler} already handles generically once this
- * reconciler removes its assignment; this class's distinct job is the {@link RestartTracker}-shaped
- * backoff gating *when* that removal happens, per deployment-instance-index, so a replica that
- * fails immediately after every reschedule (a bad artifact, not a transient node problem) doesn't
- * get rescheduled in a tight loop across every node in the cluster -- the same shape of problem
+ * Watches each {@link InstanceObservation}'s {@code alive} flag and {@code lifecycleState}. An
+ * instance its own node still reports, but as unhealthy, is exactly the "missing/unhealthy ->
+ * reschedule" trigger {@link DeploymentReconciler} already handles generically once this reconciler
+ * removes its assignment; this class's distinct job is the {@link RestartTracker}-shaped backoff
+ * gating *when* that removal happens, per deployment-instance-index, so a replica that fails
+ * immediately after every reschedule (a bad artifact, not a transient node problem) doesn't get
+ * rescheduled in a tight loop across every node in the cluster -- the same shape of problem
  * module-level and worker-level restart already solved, recurring one tier up.
  *
- * <p>Readiness ({@code ready=false}) never triggers a reschedule here, consistent with Phase 2's
- * own rule that readiness failures only flip tracked readiness state, never restart anything.
+ * <p>Readiness ({@code ready=false}) never triggers a reschedule here: readiness failures only flip
+ * tracked readiness state, never restart anything.
  */
 public final class HealthReconciler {
 
@@ -47,10 +47,9 @@ public final class HealthReconciler {
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public HealthReconciler(StateStore store) {
-    // Deliberately looser than either Phase 2 tier (module-level: 100ms/5s cap; worker-level:
-    // 1s/30s cap) -- rescheduling to a different node is a heavier operation than either, and
-    // this tier is already crossing the same network hop the heartbeat/dark-node timing (design
-    // §11.3) reasons about.
+    // Deliberately looser than module-level (100ms/5s cap) or worker-level (1s/30s cap) restart
+    // backoff -- rescheduling to a different node is a heavier operation than either, and this
+    // tier is already crossing the same network hop the heartbeat/dark-node timing reasons about.
     this(store, Duration.ofSeconds(2), 2.0, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
   }
 

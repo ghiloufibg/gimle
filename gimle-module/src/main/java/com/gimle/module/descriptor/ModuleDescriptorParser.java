@@ -112,9 +112,8 @@ public final class ModuleDescriptorParser {
   }
 
   /**
-   * {@code allowedTenants} (Phase 5 design §5.3) is optional per export: absent means "any tenant
-   * may consume this," today's implicit behavior for every manifest written before this field
-   * existed.
+   * {@code allowedTenants} is optional per export: absent means "any tenant may consume this,"
+   * today's implicit behavior for every manifest written before this field existed.
    */
   private static Optional<Set<String>> parseAllowedTenants(Map<?, ?> exportEntry) {
     Object value = exportEntry.get("allowedTenants");

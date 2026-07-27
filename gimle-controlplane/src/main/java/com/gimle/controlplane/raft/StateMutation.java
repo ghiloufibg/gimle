@@ -8,11 +8,11 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 
 /**
- * Every mutating operation {@link StateStore} exposes, replicated through the Raft log (design
- * §2.1) -- one variant per {@code StateStore} method that changes durable state, dispatched by
- * {@link RaftNode#apply} via {@link #applyTo}. {@code putNodeHeartbeat} deliberately has no variant
- * here: heartbeats are high-frequency, tolerate a brief gap after a leader change, and would make
- * the log's write rate scale with cluster size for no correctness benefit (design §2.1) -- only the
+ * Every mutating operation {@link StateStore} exposes, replicated through the Raft log -- one
+ * variant per {@code StateStore} method that changes durable state, applied to the store via {@link
+ * #applyTo} once a {@link RaftNode} commits the entry. {@code putNodeHeartbeat} deliberately has no
+ * variant here: heartbeats are high-frequency, tolerate a brief gap after a leader change, and
+ * would make the log's write rate scale with cluster size for no correctness benefit -- only the
  * leader's own {@code StateStore} ever receives them, outside the log entirely.
  */
 public sealed interface StateMutation {

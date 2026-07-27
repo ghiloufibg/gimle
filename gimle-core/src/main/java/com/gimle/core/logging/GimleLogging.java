@@ -6,14 +6,13 @@ import java.nio.file.Path;
 import org.slf4j.LoggerFactory;
 
 /**
- * Attaches the file appenders design §5 needs directly in Java, rather than through {@code
- * logback.xml} property substitution: each process's {@code Main} class calls these once, right
- * after parsing its own node id / role from CLI args, so the target file path is a plain
- * constructor argument under this code's own control -- no property-resolution-timing hazard
- * against Logback's own auto-configuration (which already ran, attaching the shared {@code CONSOLE}
- * appender, before any {@code main} method body executes). The one central {@code logback.xml} (see
- * its own header comment) stays exactly as-is; this only ever adds appenders on top, never replaces
- * it.
+ * Attaches file appenders directly in Java, rather than through {@code logback.xml} property
+ * substitution: each process's {@code Main} class calls these once, right after parsing its own
+ * node id / role from CLI args, so the target file path is a plain constructor argument under this
+ * code's own control -- no property-resolution-timing hazard against Logback's own
+ * auto-configuration (which already ran, attaching the shared {@code CONSOLE} appender, before any
+ * {@code main} method body executes). The one central {@code logback.xml} stays exactly as-is; this
+ * only ever adds appenders on top, never replaces it.
  */
 public final class GimleLogging {
 

@@ -3,18 +3,18 @@ package com.gimle.fabric.cluster;
 import java.util.List;
 
 /**
- * The four fixed shapes of SWIM's own message set (Phase 4 §3) -- hand-rolled by {@code SwimCodec},
- * matching {@code ControlMessageCodec}'s "hand-roll it, it's small, schema is fixed and fully known
- * up front" precedent. Neither {@code Ping} nor {@code PingReq} names their sender: a reply always
- * goes back to the UDP packet's source address (the same "reply-to-sender" trick a stateless
- * protocol like this needs no address book for), and every outgoing message's {@code piggyback}
- * always includes the sender's own current {@link MemberState} so a brand-new member becomes known
- * to whoever it first contacts without a dedicated "from" field on every message shape.
+ * The four fixed shapes of SWIM's own message set, hand-rolled by {@code SwimCodec} rather than a
+ * general-purpose serialization framework, since the schema is small and fully known up front.
+ * Neither {@code Ping} nor {@code PingReq} names their sender: a reply always goes back to the UDP
+ * packet's source address (the same "reply-to-sender" trick a stateless protocol like this needs no
+ * address book for), and every outgoing message's {@code piggyback} always includes the sender's
+ * own current {@link MemberState} so a brand-new member becomes known to whoever it first contacts
+ * without a dedicated "from" field on every message shape.
  *
- * <p>{@code catalogPayload} is the opaque {@link PiggybackExtension} slot the service catalog
- * (Phase 4 §5) rides on -- the confirmed decision to disseminate the catalog over "the same gossip
- * piggyback channel as membership" rather than a second mechanism, made concrete as one more
- * additive field alongside membership's own {@code piggyback} list.
+ * <p>{@code catalogPayload} is the opaque {@link PiggybackExtension} slot the service catalog rides
+ * on: the catalog is disseminated over the same gossip piggyback channel as membership rather than
+ * a second mechanism, made concrete as one more additive field alongside membership's own {@code
+ * piggyback} list.
  */
 public sealed interface SwimMessage {
 

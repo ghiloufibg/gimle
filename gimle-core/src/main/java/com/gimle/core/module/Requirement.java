@@ -1,5 +1,6 @@
 package com.gimle.core.module;
 
+/** A dependency one module declares on another: the required module's name and version range. */
 public record Requirement(String moduleName, VersionRange range) {
 
   public Requirement {

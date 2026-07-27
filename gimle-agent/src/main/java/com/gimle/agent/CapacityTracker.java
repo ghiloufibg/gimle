@@ -7,10 +7,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The locally-queryable half of capacity reporting (design §4.4): Phase 2 has no control plane to
- * report *to*, so this only tracks total machine capacity against what's currently assigned to
- * spawned workers and exposes it as a plain in-process method -- not a network endpoint -- for
- * Phase 3's eventual API-server integration to call into.
+ * Tracks this machine's total resource capacity against what is currently assigned to spawned
+ * workers, exposing the result as a plain in-process query rather than a network endpoint --
+ * callers such as the control-plane API-server integration read the snapshot directly.
  */
 public final class CapacityTracker {
 

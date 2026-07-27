@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption;
  * Temp-file-then-atomic-move write helper, extracted from {@link StateStore} so {@code raft}'s
  * {@code RaftLog} (which persists binary log entries, not just YAML strings) can reuse the exact
  * same durability idiom rather than duplicating it -- one write-durability mechanism for the whole
- * control plane, per Phase 5 design §2.5.
+ * control plane.
  */
 public final class AtomicFiles {
 

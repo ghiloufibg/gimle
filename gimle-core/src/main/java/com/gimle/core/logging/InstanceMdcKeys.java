@@ -3,8 +3,8 @@ package com.gimle.core.logging;
 /**
  * MDC key names shared between whatever tags a log-emitting call (currently {@code gimle-worker}'s
  * service-registration-time proxy and probe scheduler) and {@link JsonLogEncoder}, which reads them
- * back out to decide a line's {@code category} (log-explorer-design.md §3/§4): {@code
- * DEPLOYMENT_NAME}+{@code INSTANCE_INDEX} both present means APPLICATION, absent means PLATFORM.
+ * back out to decide a line's {@code category}: {@code DEPLOYMENT_NAME}+{@code INSTANCE_INDEX} both
+ * present means APPLICATION, absent means PLATFORM.
  */
 public final class InstanceMdcKeys {
 

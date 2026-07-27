@@ -5,18 +5,15 @@ import com.gimle.core.module.ModuleId;
 /**
  * One node's current view of one deployment instance it's supervising: which module it's running,
  * its lifecycle state, and liveness/readiness. {@code lifecycleState} travels as a plain {@code
- * String} (a {@code ModuleState} name), not {@code gimle-module}'s own enum -- same choice {@link
- * ControlMessage.ModuleStateChanged} already made and for the identical reason: {@code gimle-core}
- * has no dependency on {@code gimle-module}, and the control plane only needs to track/relay/diff
- * the state, not interpret it.
+ * String} rather than {@code gimle-module}'s own state enum, since {@code gimle-core} has no
+ * dependency on {@code gimle-module} and the control plane only needs to track, relay, and diff the
+ * state, not interpret it.
  *
  * <p>{@code requestRatePerSecond}/{@code queueDepth}/{@code cpuMillicoresUsed}/{@code
- * memoryBytesUsed} (Phase 4 §10) feed {@code AutoscaleReconciler} -- {@code cpuMillicoresUsed}
- * divided by the module descriptor's {@code resourceRequest.cpuMillicores()} is exactly the
- * "average observed CPU utilization" the design's autoscaling formula computes, so it travels
- * alongside the other two scaling signals here rather than being tracked separately. The
- * six-argument constructor defaults all four to {@code 0} for every call site that only ever
- * tracked lifecycle/health, not scaling metrics.
+ * memoryBytesUsed} feed autoscaling decisions: {@code cpuMillicoresUsed} divided by the module
+ * descriptor's requested CPU gives the observed CPU utilization used as a scaling signal, alongside
+ * request rate and queue depth. The six-argument constructor defaults all four to {@code 0} for
+ * call sites that only track lifecycle/health, not scaling metrics.
  */
 public record InstanceObservation(
     String deploymentName,

@@ -1,4 +1,4 @@
 package com.gimle.controlplane.raft;
 
-/** A follower's response to {@link InstallSnapshot} (design §2.4). */
+/** A follower's response to {@link InstallSnapshot}. */
 public record InstallSnapshotResponse(long term) implements RaftRpc {}

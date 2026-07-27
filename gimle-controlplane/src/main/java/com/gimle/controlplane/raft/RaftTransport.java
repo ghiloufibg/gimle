@@ -11,11 +11,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The receiving side of the Raft RPC surface (design §2.2): a {@code ServerSocketChannel} bound to
- * a TCP address, one virtual thread per accepted connection, modeled directly on {@code
- * gimle-fabric}'s {@code FabricServer} -- the same shape (long-lived connections served in a loop,
- * not open-per-call), since Raft peers hold connections open across many RPCs, exactly like
- * fabric's own cross-hop calls hold theirs.
+ * The receiving side of the Raft RPC surface: a {@code ServerSocketChannel} bound to a TCP address,
+ * one virtual thread per accepted connection, modeled directly on {@code gimle-fabric}'s {@code
+ * FabricServer} -- the same shape (long-lived connections served in a loop, not open-per-call),
+ * since Raft peers hold connections open across many RPCs, exactly like fabric's own cross-hop
+ * calls hold theirs.
  */
 public final class RaftTransport implements AutoCloseable {
 

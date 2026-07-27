@@ -11,12 +11,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Sifts APPLICATION-category lines into one file per (deploymentName, instanceIndex), design §5.
- * Deliberately hand-rolled rather than Logback's own {@code SiftingAppender}: a worker JVM's live
- * key space is small (bounded by however many instances it hosts concurrently, Tier 1 density
- * aside) and this class's lifetime is driven by an authoritative uninstall signal already flowing
- * through {@code WorkerRuntime} (via {@link #closeInstance}), not by an idle-timeout heuristic a
- * generic sifting appender would need instead.
+ * Sifts APPLICATION-category lines into one file per (deploymentName, instanceIndex). Deliberately
+ * hand-rolled rather than Logback's own {@code SiftingAppender}: a worker JVM's live key space is
+ * small (bounded by however many instances it hosts concurrently, Tier 1 density aside) and this
+ * class's lifetime is driven by an authoritative uninstall signal already flowing through {@code
+ * WorkerRuntime} (via {@link #closeInstance}), not by an idle-timeout heuristic a generic sifting
+ * appender would need instead.
  */
 public final class InstanceSiftingFileAppender extends UnsynchronizedAppenderBase<ILoggingEvent>
     implements InstanceLogCloser {

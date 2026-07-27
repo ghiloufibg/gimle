@@ -19,13 +19,13 @@ import java.util.Set;
 
 /**
  * Encodes/decodes a bounded {@code List<CatalogDelta>} to the opaque {@code byte[]} payload {@link
- * ServiceCatalog} hands {@code GossipMember} for its {@code PiggybackExtension} slot (Phase 4 §5).
+ * ServiceCatalog} hands {@code GossipMember} for its {@code PiggybackExtension} slot.
  * Package-private wire plumbing, same posture as {@code SwimCodec}.
  *
- * <p>{@code allowedTenantIds} (Phase 5 design §5.3) is framed as a length-prefixed field rather
- * than comma-joined text: {@code -1} means {@code Optional.empty()} ("any tenant"), otherwise a
- * non-negative count followed by that many {@code writeUTF} entries -- avoids inventing a
- * delimiter-escaping scheme for a value {@code DataOutputStream} already frames robustly.
+ * <p>{@code allowedTenantIds} is framed as a length-prefixed field rather than comma-joined text:
+ * {@code -1} means {@code Optional.empty()} ("any tenant"), otherwise a non-negative count followed
+ * by that many {@code writeUTF} entries -- avoids inventing a delimiter-escaping scheme for a value
+ * {@code DataOutputStream} already frames robustly.
  */
 final class ServiceCatalogCodec {
 

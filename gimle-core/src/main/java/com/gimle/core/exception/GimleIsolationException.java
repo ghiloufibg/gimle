@@ -7,8 +7,8 @@ import com.gimle.core.module.ModuleId;
  * A module's declared isolation tier isn't implemented by the active {@code ResourceLimiter}, or
  * applying a resource limit failed. Tier mismatches are rejected outright — never silently placed
  * on a weaker tier. The active limiter is the sole authority on what it supports; this is
- * deliberately not framed as a platform check (see the Phase 2 design doc §1) — the same rejection
- * applies uniformly on every OS rather than branching on one.
+ * deliberately not framed as a platform check, so the same rejection applies uniformly on every OS
+ * rather than branching on one.
  */
 public class GimleIsolationException extends RuntimeException {
 

@@ -4,6 +4,10 @@ import com.gimle.core.module.ModuleId;
 import java.time.Duration;
 import java.util.Optional;
 
+/**
+ * Reported by {@link LeakTracker} when a disposed module's classloader is still reachable after its
+ * detection window has elapsed, meaning it was not garbage collected as expected.
+ */
 public record ModuleLeakDetected(
     ModuleId id, Duration survivalTime, Optional<String> retainingPath) {
 

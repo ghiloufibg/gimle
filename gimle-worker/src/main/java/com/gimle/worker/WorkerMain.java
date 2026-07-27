@@ -33,16 +33,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The worker JVM's entry point (design §3.1): connects out to the agent's control socket, then
- * treats every module operation -- including the very first module this worker ever hosts -- as
- * arriving over that channel. There's deliberately no separate "initial load" path: a
- * freshly-started worker and one mid-redeploy look identical from here.
+ * The worker JVM's entry point: connects out to the agent's control socket, then treats every
+ * module operation -- including the very first module this worker ever hosts -- as arriving over
+ * that channel. There's deliberately no separate "initial load" path: a freshly-started worker and
+ * one mid-redeploy look identical from here.
  *
- * <p>Phase 4 addition: also binds a {@link FabricServer} (one UDS listener for same-machine
- * callers, one TCP listener for cross-machine callers) and wraps the worker's {@link
- * SimpleServiceRegistry} in a {@link FabricServiceRegistry} -- design §1's stated integration point
- * -- so services registered here become reachable from other workers on this machine and other
- * nodes in the cluster, not just from other modules in this same worker.
+ * <p>Also binds a {@link FabricServer} (one UDS listener for same-machine callers, one TCP listener
+ * for cross-machine callers) and wraps the worker's {@link SimpleServiceRegistry} in a {@link
+ * FabricServiceRegistry}, so services registered here become reachable from other workers on this
+ * machine and other nodes in the cluster, not just from other modules in this same worker.
  */
 public final class WorkerMain {
 
@@ -57,18 +56,18 @@ public final class WorkerMain {
       return;
     }
     String nodeId = args[0];
-    // Phase 5 design §5.1/§6.3: the deployment's tenant, if any, passed the same
-    // "AgentMain's existing all-CLI-args bootstrapping" way node id and gossip seeds already are.
-    // A blank argument means untenanted, matching every other optional-field's "absent means
-    // today's unchanged behavior" precedent. Always present (never a variable-arity 2-vs-3 form)
-    // so WorkerProcessSupervisor's own "controlSocketPath is always the last appended argument"
+    // The deployment's tenant, if any, is passed the same way node id and gossip seeds already
+    // are: as a positional CLI argument set by AgentMain's bootstrapping. A blank argument means
+    // untenanted, matching every other optional field's "absent means today's unchanged
+    // behavior" convention. Always present (never a variable-arity 2-vs-3 form) so
+    // WorkerProcessSupervisor's own "controlSocketPath is always the last appended argument"
     // invariant stays true regardless of whether this instance has a tenant.
     Optional<String> tenantId = args[1].isBlank() ? Optional.empty() : Optional.of(args[1]);
 
-    // log-explorer-design.md §4/§5: read fresh by JsonLogEncoder on every event (process-global,
-    // not thread-local, so this is safe however early other threads start logging) and by the two
-    // file appenders attached just below, which need the actual path now rather than at
-    // logback.xml parse time (which already happened, before this line, via the CONSOLE appender).
+    // Read fresh by JsonLogEncoder on every event (process-global, not thread-local, so this is
+    // safe however early other threads start logging) and by the two file appenders attached
+    // just below, which need the actual path now rather than at logback.xml parse time (which
+    // already happened, before this line, via the CONSOLE appender).
     System.setProperty("gimle.process.role", "WORKER");
     System.setProperty("gimle.node.id", nodeId);
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));

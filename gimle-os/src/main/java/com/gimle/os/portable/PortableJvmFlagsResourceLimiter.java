@@ -8,13 +8,12 @@ import com.gimle.os.ResourceLimiter;
 import java.util.List;
 
 /**
- * The guaranteed-minimum, and for Phase 2 the <em>only</em>, resource limiter: no cgroup, no live
- * kernel enforcement, runs identically on Linux/macOS/Windows. Derives {@code -Xmx} and {@code
+ * The guaranteed-minimum, and today the only, resource limiter: no cgroup, no live kernel
+ * enforcement, runs identically on Linux/macOS/Windows. Derives {@code -Xmx} and {@code
  * -XX:ActiveProcessorCount} from the requested {@link ResourceSpec} and relies on the JVM to
  * self-limit — weaker than kernel-level enforcement (a runaway native allocation isn't caught),
  * which is exactly what "JVM-level limits" means. Kernel-level enforcement is a deliberately
- * deferred, later addition (see the Phase 2 design doc §2.4), not a parallel implementation built
- * alongside this one.
+ * deferred, later addition, not a parallel implementation built alongside this one.
  */
 public final class PortableJvmFlagsResourceLimiter implements ResourceLimiter {
 

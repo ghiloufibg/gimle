@@ -7,13 +7,11 @@ import java.net.InetSocketAddress;
 import java.util.Optional;
 
 /**
- * One module instance's advertisement of one exported service, as tracked by {@link ServiceCatalog}
- * (Phase 4 §5). Extends the design's literal record with the two dialable addresses a caller
- * actually needs to reach it -- {@code udsPath} for the same-machine tier, {@code tcpAddress} for
- * the cross-machine tier (§7's "the node agent... publishes this map to its own GossipMember as
- * part of each ServiceEndpoint's address" only makes sense once the endpoint carries a real
- * address, not just a node id). {@code udsPath} is empty for an endpoint this node only ever
- * learned about remotely, since a Unix domain socket path is meaningless off its own machine.
+ * One module instance's advertisement of one exported service, as tracked by {@link
+ * ServiceCatalog}. Carries the two dialable addresses a caller actually needs to reach it -- {@code
+ * udsPath} for the same-machine tier, {@code tcpAddress} for the cross-machine tier. {@code
+ * udsPath} is empty for an endpoint this node only ever learned about remotely, since a Unix domain
+ * socket path is meaningless off its own machine.
  */
 public record ServiceEndpoint(
     MemberId node,

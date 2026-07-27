@@ -20,8 +20,8 @@ public interface ServiceRegistry {
    * method dispatch, by design: no proxy, no call-site instrumentation, so outstanding call counts
    * genuinely can't be measured without undermining that zero-overhead dispatch.
    * Least-outstanding-requests remains the right algorithm once a call crosses a real network
-   * boundary with its own dispatch layer to instrument — {@code gimle-fabric}'s job in Phase 4, not
-   * this same-JVM case.
+   * boundary with its own dispatch layer to instrument — {@code gimle-fabric}'s job, not this
+   * same-JVM case.
    */
   <T> Optional<T> lookup(Class<T> iface);
 

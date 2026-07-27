@@ -8,11 +8,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Default {@link ModuleContext}: an atomic in-flight counter, a thin delegate onto a shared {@link
- * ServiceRegistry}, and a live view onto a shared {@code configValues} map (Phase 5 design §6.3).
- * The map is shared across every context {@link ModuleController} creates for one worker, not
- * copied per instance -- config delivered by the agent before or after a given module resolves both
- * work identically, since every context reads through to the same live map rather than a snapshot
- * taken at construction time.
+ * ServiceRegistry}, and a live view onto a shared {@code configValues} map. The map is shared
+ * across every context {@link ModuleController} creates for one worker, not copied per instance --
+ * config delivered by the agent before or after a given module resolves both work identically,
+ * since every context reads through to the same live map rather than a snapshot taken at
+ * construction time.
  */
 public final class SimpleModuleContext implements ModuleContext {
 

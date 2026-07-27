@@ -23,7 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The event-driven glue between Phase 1's {@link ModuleController} and Phase 2's worker-level
+ * The event-driven glue between {@link ModuleController}'s module lifecycle and this worker's own
  * concerns: creates/disposes each module's {@link BoundedModuleScheduler} and probes in lockstep
  * with {@link LifecycleEvent}s, escalates repeated liveness failures to a module restart (and, once
  * that module's own restart budget is exhausted, to giving up on the whole worker), and owns the
@@ -31,8 +31,8 @@ import org.slf4j.LoggerFactory;
  * ModuleController} deliberately leaves to its caller.
  *
  * <p>{@link #onLifecycleEvent} is exactly the {@code Consumer<LifecycleEvent>} {@link
- * ModuleController}'s constructor already accepts — no changes to {@code gimle-module} were needed
- * to wire this in, confirming that event sink was designed generally enough in Phase 1.
+ * ModuleController}'s constructor already accepts -- no changes to {@code gimle-module} were needed
+ * to wire this in, confirming that event sink was designed generally enough from the start.
  */
 public final class WorkerRuntime {
 
@@ -79,10 +79,10 @@ public final class WorkerRuntime {
   }
 
   /**
-   * {@code identityRegistry}/{@code onInstanceUninstalled} (log-explorer-design.md §3/§5): looked
-   * up in {@link #onActive} to tag this module's probe-check scheduler with its instance identity,
-   * and consulted in {@link #onUninstalled} (before {@code serviceRegistry.remove} clears it) to
-   * let the caller close that instance's sifted log file.
+   * {@code identityRegistry}/{@code onInstanceUninstalled}: looked up in {@link #onActive} to tag
+   * this module's probe-check scheduler with its instance identity, and consulted in {@link
+   * #onUninstalled} (before {@code serviceRegistry.remove} clears it) to let the caller close that
+   * instance's sifted log file.
    */
   public WorkerRuntime(
       ModuleController controller,

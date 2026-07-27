@@ -8,9 +8,9 @@ import java.util.List;
 /**
  * The shared parent layer every module layer parents on. In the real worker runtime this is built
  * once per worker JVM from the boot layer plus gimle-core and gimle-api on the module path — but
- * gimle-api doesn't exist yet (it's a later phase), so this stays generic over an arbitrary set of
- * additional module-path entries rather than hard-coding that dependency. Phase 1's own tests use
- * {@link #bootOnly()}.
+ * gimle-api doesn't exist yet, so this stays generic over an arbitrary set of additional
+ * module-path entries rather than hard-coding that dependency. Tests that don't need the platform
+ * API can use {@link #bootOnly()}.
  */
 public final class PlatformLayer {
 

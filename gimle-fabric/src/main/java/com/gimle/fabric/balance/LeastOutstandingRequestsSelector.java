@@ -8,13 +8,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Least-outstanding-requests selection among a candidate set, ties broken round-robin (Phase 4 §8)
- * -- the algorithm {@code SimpleServiceRegistry}'s own Javadoc named two phases in advance as "the
- * right algorithm once a call crosses a real network boundary with its own dispatch layer to
- * instrument." That dispatch layer is the proxy's {@code InvocationHandler}, which is exactly where
- * {@link #begin}/{@link #end} get called around each cross-hop invocation -- outstanding counts
- * genuinely can't be tracked without a dispatch layer to instrument, which same-worker calls
- * deliberately don't have.
+ * Least-outstanding-requests selection among a candidate set, with ties broken round-robin. Used by
+ * the proxy's {@code InvocationHandler} dispatch layer, which calls {@link #begin}/{@link #end}
+ * around each cross-hop invocation -- outstanding counts can only be tracked where a dispatch layer
+ * exists to instrument them, which same-worker calls deliberately don't have.
  */
 public final class LeastOutstandingRequestsSelector<E> {
 

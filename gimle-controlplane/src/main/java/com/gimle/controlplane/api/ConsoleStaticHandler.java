@@ -10,10 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Serves a built single-page-app's static output under whatever context path it's registered on
- * (design doc §6): a real file under {@code staticRoot} is streamed back with a guessed content
- * type; anything else falls back to {@code shellFileName} with {@code 200} so the SPA's own
- * client-side router handles the path -- the standard SPA-fallback pattern, needed because {@code
+ * Serves a built single-page-app's static output under whatever context path it's registered on: a
+ * real file under {@code staticRoot} is streamed back with a guessed content type; anything else
+ * falls back to {@code shellFileName} with {@code 200} so the SPA's own client-side router handles
+ * the path -- the standard SPA-fallback pattern, needed because {@code
  * com.sun.net.httpserver.SimpleFileServer}'s handler has no hook to intercept its own 404s with a
  * fallback.
  */
@@ -68,7 +68,7 @@ final class ConsoleStaticHandler implements HttpHandler {
   /**
    * Guards against a symlink inside {@code staticRoot} pointing outside it: {@code resolved}
    * already passed the lexical {@code normalize()}/{@code startsWith} check above, but that check
-   * can't see through a symlink -- only a real-path comparison can (audit finding F-02, third pass).
+   * can't see through a symlink -- only a real-path comparison can.
    */
   private boolean isWithinRoot(Path candidate) {
     try {

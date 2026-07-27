@@ -24,14 +24,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A single Raft node, implemented directly against Figure 2 of Ongaro &amp; Ousterhout, "In Search
- * of an Understandable Consensus Algorithm" (design §2), with the safety-mechanics rules of design
- * §2.3 (election restriction, {@code AppendEntries} consistency check, conflicting-entry
+ * A single Raft node, implementing consensus directly against Figure 2 of Ongaro &amp; Ousterhout,
+ * "In Search of an Understandable Consensus Algorithm," including the algorithm's safety-mechanics
+ * rules -- election restriction, the {@code AppendEntries} consistency check, conflicting-entry
  * truncation, the commit-index term rule, and separate {@code commitIndex}/{@code lastApplied}
- * tracking) as a cross-check, not a substitute for the paper. {@link #propose} is the only entry
- * point a caller (an {@code ApiServer} handler, or a reconciler via {@link MutationSink}) ever
- * needs; every RPC handler here exists to serve replication among {@link RaftNode} peers, not to be
- * called directly by application code.
+ * tracking. {@link #propose} is the only entry point a caller (an {@code ApiServer} handler, or a
+ * reconciler via {@link MutationSink}) ever needs; every RPC handler here exists to serve
+ * replication among {@link RaftNode} peers, not to be called directly by application code.
  *
  * <p>One {@link ReentrantLock} guards every piece of mutable state below -- role, term/vote (via
  * {@link RaftLog}), {@code commitIndex}/{@code lastApplied}, and the leader's per-peer {@code
@@ -48,7 +47,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final int ELECTION_TIMEOUT_MAX_MS = 300;
   private static final Duration PROPOSE_TIMEOUT = Duration.ofSeconds(5);
 
-  /** Design §2.4: a concrete, tunable starting threshold, not left open-ended. */
+  /** A concrete, tunable threshold for triggering log compaction, not left open-ended. */
   private static final long SNAPSHOT_THRESHOLD = 10_000;
 
   private final String selfId;
@@ -136,13 +135,13 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     return selfId;
   }
 
-  // ---- propose: the only entry point application code calls (design §2) ----
+  // ---- propose: the only entry point application code calls ----
 
   /**
    * Replicates {@code mutation} through the cluster and applies it to {@link StateStore}, blocking
    * until this node itself has applied it. Throws {@link GimleRaftException#notLeader} immediately
-   * if this node isn't currently leader -- nothing is appended, nothing is sent, matching design
-   * §2.6's "reject with a redirect, don't silently forward."
+   * if this node isn't currently leader -- nothing is appended, nothing is sent; a non-leader
+   * rejects with a redirect rather than silently forwarding the write.
    */
   @Override
   public void propose(StateMutation mutation) {
@@ -187,7 +186,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     }
   }
 
-  // ---- election (design §2.2) ----
+  // ---- election ----
 
   private void resetElectionTimerLocked() {
     if (electionTimeoutFuture != null) {
@@ -306,7 +305,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     }
   }
 
-  // ---- leader replication (design §2.2) ----
+  // ---- leader replication ----
 
   private void wakePeerSenders() {
     for (Semaphore wake : peerWake.values()) {
@@ -371,8 +370,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     try {
       response = client.appendEntries(request);
     } catch (RuntimeException e) {
-      return; // unreachable this cycle; the next tick retries (design §2's "acceptable, bounded
-      // gap")
+      // unreachable this cycle; the next tick retries. A bounded gap in replication is acceptable.
+      return;
     }
 
     lock.lock();
@@ -390,8 +389,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         nextIndex.put(peerId, newMatchIndex + 1);
         advanceCommitIndexLocked();
       } else {
-        // one-index-at-a-time backtrack (design §2.3): correct but O(divergence) in the worst
-        // case, acceptable for a small control-plane cluster where divergence is rare and small.
+        // one-index-at-a-time backtrack: correct but O(divergence) in the worst case, acceptable
+        // for a small control-plane cluster where divergence is rare and small.
         long backedOff = Math.max(1, nextIndex.getOrDefault(peerId, 1L) - 1);
         nextIndex.put(peerId, backedOff);
       }
@@ -451,8 +450,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   /**
    * Forces this node into {@code LEADER} with the given {@code matchIndex} table and runs the real
-   * commit-index advancement logic -- a deterministic seam for exercising the design §2.3
-   * commit-index term rule (the Figure 8 scenario) and apply-ordering without driving a full,
+   * commit-index advancement logic -- a deterministic seam for exercising the commit-index term
+   * rule (the Figure 8 scenario from the Raft paper) and apply-ordering without driving a full,
    * timing-sensitive multi-node election. Package-private: exercised only by {@code
    * RaftNodeSafetyMechanicsTest} in this same package, never by application code.
    */
@@ -489,9 +488,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   /**
    * Advances {@code commitIndex} to the highest index a majority of {@code matchIndex} values
    * (including this leader's own, always fully caught up with itself) reach, but only if that entry
-   * was written in this leader's own current term (design §2.3, the Figure 8 rule) -- the condition
-   * a naive implementation omits, so it is its own explicit guard rather than folded into one
-   * boolean expression.
+   * was written in this leader's own current term (the Figure 8 rule from the Raft paper) -- the
+   * condition a naive implementation omits, so it is its own explicit guard rather than folded into
+   * one boolean expression.
    */
   private void advanceCommitIndexLocked() {
     List<Long> matchIndexes = new ArrayList<>();
@@ -509,8 +508,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   /**
    * Applies every entry from {@code lastApplied + 1} through {@code commitIndex}, strictly in
-   * order, never skipping ahead (design §2.3) -- {@code commitIndex} and {@code lastApplied} are
-   * two separate fields for exactly this reason, never collapsed into one.
+   * order, never skipping ahead -- {@code commitIndex} and {@code lastApplied} are two separate
+   * fields for exactly this reason, never collapsed into one.
    */
   private void applyCommittedLocked() {
     while (lastApplied < commitIndex) {
@@ -602,8 +601,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         }
         Optional<LogEntry> existing = raftLog.get(entry.index());
         if (existing.isPresent() && existing.get().term() != entry.term()) {
-          // conflicting-entry truncation (design §2.3): delete it and everything after before
-          // appending the leader's version -- never a mix of old and new at overlapping indices.
+          // conflicting-entry truncation: delete it and everything after before appending the
+          // leader's version -- never a mix of old and new at overlapping indices.
           raftLog.truncateFrom(entry.index());
           raftLog.append(entry);
         } else if (existing.isEmpty()) {

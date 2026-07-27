@@ -9,11 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Hand-rolled structured JSON log line encoder (log-explorer-design.md §4) -- plain {@code
- * logback-classic} ships no JSON encoder itself (a correction to that design doc's assumption; see
- * the addendum), so this follows the same "hand-roll it, it's small" posture already established by
- * {@code Json}/{@code ControlMessageCodec}, reusing {@link Json#write} for the actual serialization
- * rather than a third hand-rolled writer.
+ * Hand-rolled structured JSON log line encoder. Plain {@code logback-classic} ships no JSON encoder
+ * itself, so this follows the same "hand-roll it, it's small" posture already established by {@code
+ * Json}/{@code ControlMessageCodec}, reusing {@link Json#write} for the actual serialization rather
+ * than a third hand-rolled writer.
  *
  * <p>{@code processRole}/{@code nodeId} are process-wide constants read fresh from system
  * properties on every call (not cached, not passed at construction) so this works correctly however
@@ -24,7 +23,7 @@ import java.util.Map;
  *
  * <p>{@code category} is derived, never itself stored in MDC: APPLICATION exactly when both {@link
  * InstanceMdcKeys#DEPLOYMENT_NAME} and {@link InstanceMdcKeys#INSTANCE_INDEX} are present, PLATFORM
- * otherwise (design §3). Optional fields are omitted rather than null-padded, per design §4.
+ * otherwise. Optional fields are omitted rather than null-padded.
  */
 public final class JsonLogEncoder extends EncoderBase<ILoggingEvent> {
 

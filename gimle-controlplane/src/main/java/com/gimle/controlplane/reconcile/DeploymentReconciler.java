@@ -27,22 +27,22 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Ensures an {@link InstanceAssignment} exists for every index {@code 0..replicas-1} of every
- * {@link DeploymentSpec} (design §7). Level-triggered: every tick re-derives the full set of
- * assignments a from-scratch run would produce from the current snapshot, rather than reacting to
- * what changed since last tick -- deleting a deployment, scaling it, or a fresh empty store all
- * converge through the exact same code path.
+ * {@link DeploymentSpec}. Level-triggered: every tick re-derives the full set of assignments a
+ * from-scratch run would produce from the current snapshot, rather than reacting to what changed
+ * since last tick -- deleting a deployment, scaling it, or a fresh empty store all converge through
+ * the exact same code path.
  *
- * <p>Rolling updates (Phase 4 §9, minimal by design confirmation: no {@code maxSurge}/{@code
- * maxUnavailable} knobs) piggyback on this same convergence loop rather than a parallel mechanism:
- * when the lowest-indexed assignment still on the deployment's old {@code moduleId} is found,
- * {@link #handleRollingUpdate} simply removes it (persisting which index is mid-transition via
- * {@link StateStore#putRollingIndex}) and lets the ordinary missing-index placement logic below
- * re-place it with the current spec's {@code moduleId} -- exactly the same code path a fresh
- * scale-up already uses, so a rolling update needs no dedicated placement logic of its own. One
- * index at a time: no new mismatch is picked up while the current one hasn't reported {@code ready}
- * (checked directly against the node's own heartbeat, the same source {@code HealthReconciler}
- * reads), and this state survives a reconciler restart because it's read back from the persisted
- * {@code rollingIndex} rather than kept only in memory.
+ * <p>Rolling updates (deliberately minimal: no {@code maxSurge}/{@code maxUnavailable} knobs)
+ * piggyback on this same convergence loop rather than a parallel mechanism: when the lowest-indexed
+ * assignment still on the deployment's old {@code moduleId} is found, {@link #handleRollingUpdate}
+ * simply removes it (persisting which index is mid-transition via {@link
+ * StateStore#putRollingIndex}) and lets the ordinary missing-index placement logic below re-place
+ * it with the current spec's {@code moduleId} -- exactly the same code path a fresh scale-up
+ * already uses, so a rolling update needs no dedicated placement logic of its own. One index at a
+ * time: no new mismatch is picked up while the current one hasn't reported {@code ready} (checked
+ * directly against the node's own heartbeat, the same source {@code HealthReconciler} reads), and
+ * this state survives a reconciler restart because it's read back from the persisted {@code
+ * rollingIndex} rather than kept only in memory.
  */
 public final class DeploymentReconciler {
 
@@ -85,14 +85,14 @@ public final class DeploymentReconciler {
 
   private void reconcileDeployment(DeploymentSpec spec) {
     // The autoscaler's effective count stands in for the user-submitted replicas whenever a
-    // policy is present (Phase 4 §10); absent a policy (or absent any computed value yet), the
-    // submitted count is exactly what's used, unchanged from before autoscaling existed.
+    // policy is present; absent a policy (or absent any computed value yet), the submitted count
+    // is exactly what's used, unchanged from before autoscaling existed.
     int replicas = store.getEffectiveReplicas(spec.name()).orElse(spec.replicas());
     List<InstanceAssignment> existing = store.listAssignmentsFor(spec.name());
 
     // Scale-down: an assigned index beyond the current replica count is removed immediately (a
     // desired-state edit only) -- the agent's own stop()/StopModule drain timing owns teardown,
-    // not this reconciler (design §11.4).
+    // not this reconciler.
     for (InstanceAssignment assignment : existing) {
       if (assignment.instanceIndex() >= replicas) {
         mutations.propose(
@@ -154,11 +154,11 @@ public final class DeploymentReconciler {
   /**
    * If a rollout is already in flight for this deployment, checks whether the replacement at that
    * index has both landed with the new {@code moduleId} and reported ready -- clearing {@code
-   * rollingIndex} once it has, otherwise leaving everything untouched (§9's "stalls without
-   * touching other indices"). Only once no rollout is in flight does it look for a new mismatch to
-   * start, picking the lowest such index and removing its stale assignment so the caller's ordinary
-   * missing-index placement logic re-places it with the current spec's {@code moduleId} -- the
-   * exact same placement path a fresh scale-up already uses.
+   * rollingIndex} once it has, otherwise leaving everything untouched (a stalled rollout blocks
+   * only itself, never other indices). Only once no rollout is in flight does it look for a new
+   * mismatch to start, picking the lowest such index and removing its stale assignment so the
+   * caller's ordinary missing-index placement logic re-places it with the current spec's {@code
+   * moduleId} -- the exact same placement path a fresh scale-up already uses.
    */
   private void handleRollingUpdate(DeploymentSpec spec) {
     Optional<Integer> rollingIndex = store.getRollingIndex(spec.name());
@@ -224,9 +224,9 @@ public final class DeploymentReconciler {
 
   private List<NodeCandidate> buildCandidates(String deploymentName) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>();
-    // Phase 5 design §5.4: every distinct tenantId already assigned to each node, across every
-    // deployment (not just this one) -- the scheduler needs the full picture to enforce node-level
-    // tenant segregation for Tier 2/3 placements.
+    // Every distinct tenantId already assigned to each node, across every deployment (not just
+    // this one) -- the scheduler needs the full picture to enforce node-level tenant segregation
+    // for Tier 2/3 placements.
     Map<String, Set<String>> tenantsByNode = new HashMap<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
       if (assignment.deploymentName().equals(deploymentName)) {

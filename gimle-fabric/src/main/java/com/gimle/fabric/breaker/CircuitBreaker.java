@@ -5,12 +5,12 @@ import java.time.Instant;
 import java.util.Arrays;
 
 /**
- * Per-endpoint sliding-window error-rate breaker (Phase 4 §8): closed under normal operation, opens
- * once the error rate over the last {@code windowSize} calls crosses {@code errorRateThreshold},
- * half-opens after {@code cooldown} to let exactly one trial call through, and closes again on that
- * trial's success or re-opens on its failure. An open breaker is what removes an endpoint from
- * {@code FabricServiceRegistry}'s tier (2)/(3) candidate lists -- this class *is* the spec's
- * "outlier ejection at the registry level," not a separate component layered on top.
+ * Per-endpoint sliding-window error-rate breaker: closed under normal operation, opens once the
+ * error rate over the last {@code windowSize} calls crosses {@code errorRateThreshold}, half-opens
+ * after {@code cooldown} to let exactly one trial call through, and closes again on that trial's
+ * success or re-opens on its failure. An open breaker removes an endpoint from {@code
+ * FabricServiceRegistry}'s remote-tier candidate lists -- this class implements outlier ejection at
+ * the registry level, rather than as a separate component layered on top.
  */
 public final class CircuitBreaker {
 
@@ -69,9 +69,9 @@ public final class CircuitBreaker {
 
   /**
    * A side-effect-free "is this endpoint excluded from candidacy right now" check for building a
-   * candidate list (Phase 4 §8: "whose circuit breaker is closed or half-open") -- {@code OPEN}
-   * past its cooldown still reads as excluded here (the transition to {@code HALF_OPEN} still
-   * happens, since it's purely time-based, but no trial slot is claimed by merely checking).
+   * candidate list of endpoints whose circuit breaker is closed or half-open -- {@code OPEN} past
+   * its cooldown still reads as excluded here (the transition to {@code HALF_OPEN} still happens,
+   * since it's purely time-based, but no trial slot is claimed by merely checking).
    */
   public synchronized boolean isExcluded() {
     transitionIfCooldownElapsed();

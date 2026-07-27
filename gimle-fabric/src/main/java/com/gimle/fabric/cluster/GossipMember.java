@@ -29,18 +29,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * One node agent's SWIM membership protocol participant (Phase 4 §3): a protocol-period loop (ping
- * a random member; on timeout, ask {@code indirectFanout} random relays to probe on this node's
- * behalf; no ack from anyone within the suspicion timeout flips the member to {@code SUSPECT}, and
- * unrefuted {@code SUSPECT} past its grace period becomes {@code DEAD}), running entirely over
- * {@link DatagramChannel} independent of the control plane -- gossip must keep functioning with the
+ * One node agent's SWIM membership protocol participant: a protocol-period loop (ping a random
+ * member; on timeout, ask {@code indirectFanout} random relays to probe on this node's behalf; no
+ * ack from anyone within the suspicion timeout flips the member to {@code SUSPECT}, and unrefuted
+ * {@code SUSPECT} past its grace period becomes {@code DEAD}), running entirely over {@link
+ * DatagramChannel} independent of the control plane -- gossip must keep functioning with the
  * control plane down or unreachable.
  *
- * <p>A member can refute its own suspicion by gossiping a higher incarnation of itself (§3); this
- * class does that automatically the moment it observes a piggyback entry naming itself as anything
- * other than {@code ALIVE}. Every message this node sends piggybacks its own current {@link
- * MemberState} plus a bounded number of the most-recently-changed other members' states -- the same
- * slot the service catalog (§5) rides on.
+ * <p>A member can refute its own suspicion by gossiping a higher incarnation of itself; this class
+ * does that automatically the moment it observes a piggyback entry naming itself as anything other
+ * than {@code ALIVE}. Every message this node sends piggybacks its own current {@link MemberState}
+ * plus a bounded number of the most-recently-changed other members' states -- the same slot the
+ * service catalog rides on.
  */
 public final class GossipMember implements AutoCloseable {
 
@@ -68,9 +68,10 @@ public final class GossipMember implements AutoCloseable {
     channel.bind(self.gossipAddress());
     // Rebind self's advertised address to whatever the OS actually assigned -- most relevant
     // when the caller requested an ephemeral port (port 0): every other member learns this
-    // node's address only from what it advertises about itself (§3's "no dedicated 'from' field"
-    // design), so advertising the literal port 0 it was constructed with would make this node
-    // permanently undialable by anyone except the very first UDP reply-to-source-address hop.
+    // node's address only from what it advertises about itself, since no message carries a
+    // dedicated "from" field, so advertising the literal port 0 it was constructed with would
+    // make this node permanently undialable by anyone except the very first UDP
+    // reply-to-source-address hop.
     this.self = new MemberId(self.nodeId(), (InetSocketAddress) channel.getLocalAddress());
     this.ticker =
         Executors.newSingleThreadScheduledExecutor(
@@ -84,7 +85,7 @@ public final class GossipMember implements AutoCloseable {
 
   /**
    * Attaches the (optional) application payload that rides on this member's gossip piggyback
-   * channel -- {@code com.gimle.fabric.catalog.ServiceCatalog} in practice (§5).
+   * channel -- {@code com.gimle.fabric.catalog.ServiceCatalog} in practice.
    */
   public void attachCatalog(PiggybackExtension extension) {
     this.catalogExtension = extension;
@@ -104,8 +105,8 @@ public final class GossipMember implements AutoCloseable {
   /**
    * Contacts every configured seed and blocks until at least one acks or {@code pingTimeout}
    * elapses. A single unreachable seed is treated as this being the very first node of a new
-   * cluster (design §4) rather than an error; two or more configured seeds with none reachable is a
-   * genuine failure to join.
+   * cluster rather than an error; two or more configured seeds with none reachable is a genuine
+   * failure to join.
    */
   public void join(List<InetSocketAddress> seeds) {
     List<InetSocketAddress> others =

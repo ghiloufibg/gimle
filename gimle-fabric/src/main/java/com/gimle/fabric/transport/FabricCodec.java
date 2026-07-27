@@ -14,11 +14,10 @@ import java.io.UncheckedIOException;
 /**
  * Encodes/decodes a {@link FabricFrame} as a 4-byte big-endian length prefix followed by a one-byte
  * frame-type tag and the frame's fields, each {@code byte[]} field itself length-prefixed. This
- * diverges from {@code ControlMessageCodec}'s line-oriented text framing for the first genuinely
- * new reason in the codebase (Phase 4 §7): {@code serializedArgs}/{@code serializedReturn}/{@code
- * serializedThrowable} are arbitrary {@code ObjectOutputStream} bytes that can contain any byte
- * value including newlines, so a text codec's escaping trick doesn't apply -- length-prefixing is
- * the standard, minimal fix.
+ * diverges from {@code ControlMessageCodec}'s line-oriented text framing because {@code
+ * serializedArgs}/{@code serializedReturn}/{@code serializedThrowable} are arbitrary {@code
+ * ObjectOutputStream} bytes that can contain any byte value including newlines, so a text codec's
+ * escaping trick doesn't apply -- length-prefixing is the standard, minimal fix.
  */
 public final class FabricCodec {
 

@@ -3,9 +3,8 @@ package com.gimle.fabric.cluster;
 import java.time.Duration;
 
 /**
- * SWIM protocol-period/suspicion tunables (Phase 4 design §14, open question 2: not fixed
- * numerically by the design itself). {@link #defaults()} mirrors the reference SWIM paper's own
- * starting points -- protocol period ~1s, suspicion timeout ~3 periods -- pending confirmation
+ * SWIM protocol-period/suspicion tunables. {@link #defaults()} mirrors the reference SWIM paper's
+ * own starting points -- protocol period ~1s, suspicion timeout ~3 periods -- pending confirmation
  * against real cross-machine latency once it's observable.
  */
 public record GossipConfig(

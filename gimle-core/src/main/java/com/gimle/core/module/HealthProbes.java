@@ -2,6 +2,10 @@ package com.gimle.core.module;
 
 import java.util.Optional;
 
+/**
+ * The fully-qualified class names of a module's liveness and readiness probes, each optional.
+ * {@link #NONE} is a module with neither probe configured.
+ */
 public record HealthProbes(Optional<String> livenessClass, Optional<String> readinessClass) {
 
   public static final HealthProbes NONE = new HealthProbes(Optional.empty(), Optional.empty());

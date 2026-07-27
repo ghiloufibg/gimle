@@ -26,13 +26,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The receiving side of a cross-hop service call (Phase 4 §7/§11): accepts already-connected byte
- * channels -- one {@code ServerSocketChannel} bound to a {@link UnixDomainSocketAddress} for the
- * same-machine tier, another bound to a TCP {@link java.net.InetSocketAddress} for the
- * cross-machine tier -- and serves both through the identical request-handling loop, since the two
- * paths differ only in which socket accepted the connection, never in how frames are decoded or
- * dispatched. One virtual thread per accepted connection (spec's "virtual-thread-per-connection
- * handling").
+ * The receiving side of a cross-hop service call: accepts already-connected byte channels -- one
+ * {@code ServerSocketChannel} bound to a {@link UnixDomainSocketAddress} for the same-machine tier,
+ * another bound to a TCP {@link java.net.InetSocketAddress} for the cross-machine tier -- and
+ * serves both through the identical request-handling loop, since the two paths differ only in which
+ * socket accepted the connection, never in how frames are decoded or dispatched. One virtual thread
+ * per accepted connection.
  */
 public final class FabricServer implements AutoCloseable {
 

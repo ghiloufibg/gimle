@@ -13,15 +13,15 @@ import jdk.jfr.consumer.RecordingStream;
 
 /**
  * Attributes JFR {@code jdk.ExecutionSample}/{@code jdk.ThreadAllocationStatistics} events to
- * modules by thread-name prefix ({@code gimle-<module>-<version>-}), per design §5.2 — a different
- * key than Phase 1's {@code LeakTracker} package-heuristic, because the question here is "whose
- * <em>work</em> is this," not "whose <em>classes</em> are these." Memoizes the
+ * modules by thread-name prefix ({@code gimle-<module>-<version>-}) -- a different classification
+ * key than the module system's classloader-package heuristic used elsewhere, because the question
+ * here is "whose <em>work</em> is this," not "whose <em>classes</em> are these." Memoizes the
  * thread-name-to-prefix classification (a virtual thread's name never changes after creation), so
  * repeated samples for the same thread don't re-scan the live prefix set every time.
  *
  * <p>Field names below ({@code sampledThread}, {@code thread}) were confirmed against this JDK's
- * actual {@code EventType} metadata rather than assumed — {@code jdk.ExecutionSample} in particular
- * does <em>not</em> use the generic {@code eventThread} convention {@link
+ * actual {@code EventType} metadata rather than assumed -- {@code jdk.ExecutionSample} in
+ * particular does <em>not</em> use the generic {@code eventThread} convention {@link
  * RecordedEvent#getThread()} would read; its field is explicitly {@code sampledThread}.
  */
 public final class ThreadNameJfrAttributor implements AutoCloseable {
@@ -43,7 +43,8 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
       started.startAsync();
     } catch (RuntimeException e) {
       // JFR unavailable/disabled in this environment: attribution degrades to "no samples,"
-      // never fails the worker over it -- same posture as Phase 1's LeakTracker correlator.
+      // never fails the worker over it -- same degrade-don't-fail posture this codebase uses
+      // elsewhere for JFR-dependent instrumentation.
       started = null;
     }
     this.stream = started;

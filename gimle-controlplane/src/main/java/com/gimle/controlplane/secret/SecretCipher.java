@@ -8,11 +8,11 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * AES-256-GCM encrypt/decrypt for {@code ConfigEntry} values (Phase 5 design §6.2) -- the JDK's own
- * {@code Cipher}/{@code SecretKeySpec}, no external crypto library, matching this project's "prefer
- * what the JDK already provides" posture (AppCDS/JFR/{@code ModuleLayer} are all stock-JDK
- * mechanisms too). Output is {@code iv || ciphertext-with-tag}, self-contained so a single {@code
- * byte[]} round-trips through {@code decrypt} without a caller having to track the IV separately.
+ * AES-256-GCM encrypt/decrypt for {@code ConfigEntry} values -- the JDK's own {@code Cipher}/{@code
+ * SecretKeySpec}, no external crypto library, matching this project's "prefer what the JDK already
+ * provides" posture (AppCDS/JFR/{@code ModuleLayer} are all stock-JDK mechanisms too). Output is
+ * {@code iv || ciphertext-with-tag}, self-contained so a single {@code byte[]} round-trips through
+ * {@code decrypt} without a caller having to track the IV separately.
  */
 public final class SecretCipher {
 

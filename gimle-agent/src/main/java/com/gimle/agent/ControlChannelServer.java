@@ -8,12 +8,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * The agent's listening end of the control channel (design §4.2): a Unix domain socket bound at a
- * filesystem path, portable across Linux/macOS/Windows 10 1803+ ({@code
- * java.net.UnixDomainSocketAddress} is a JDK API, not an OS-specific mechanism this project
- * branches on). The agent binds once and accepts one connection per spawned worker; direction is
- * deliberately worker-connects-out (see {@code ControlChannelClient}'s javadoc) so there's no
- * agent-not-ready-yet race for a caller to solve.
+ * The agent's listening end of the control channel: a Unix domain socket bound at a filesystem
+ * path, portable across Linux/macOS/Windows 10 1803+ ({@code java.net.UnixDomainSocketAddress} is a
+ * JDK API, not an OS-specific mechanism this project branches on). The agent binds once and accepts
+ * one connection per spawned worker; direction is deliberately worker-connects-out (see {@code
+ * ControlChannelClient}'s javadoc) so there's no agent-not-ready-yet race for a caller to solve.
  */
 public final class ControlChannelServer implements AutoCloseable {
 

@@ -19,13 +19,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The cluster-wide service catalog (Phase 4 §5): keyed by {@link ServiceExport}, merged from gossip
- * piggyback deltas, last-writer-wins by {@code (node, workerId, moduleId)} within one export's
- * bucket using each entry's own incarnation-style version counter -- the same conflict-resolution
- * shape SWIM already uses for membership. One instance runs per node agent, attached to that node's
- * {@code GossipMember} via {@link PiggybackExtension} so catalog data rides the exact same
- * infection-style dissemination as membership, never a second mechanism and never routed through
- * the control plane.
+ * The cluster-wide service catalog: keyed by {@link ServiceExport}, merged from gossip piggyback
+ * deltas, last-writer-wins by {@code (node, workerId, moduleId)} within one export's bucket using
+ * each entry's own incarnation-style version counter -- the same conflict-resolution shape SWIM
+ * already uses for membership. One instance runs per node agent, attached to that node's {@code
+ * GossipMember} via {@link PiggybackExtension} so catalog data rides the exact same infection-style
+ * dissemination as membership, never a second mechanism and never routed through the control plane.
  */
 public final class ServiceCatalog implements PiggybackExtension {
 
@@ -55,8 +54,8 @@ public final class ServiceCatalog implements PiggybackExtension {
   }
 
   /**
-   * Called the moment a locally-supervised worker reports a new export (Phase 4 §5's {@code
-   * ControlMessage.ServiceRegistered} wiring point).
+   * Called the moment a locally-supervised worker reports a new export, via {@code
+   * ControlMessage.ServiceRegistered}.
    */
   public void localRegister(
       MemberId node,
@@ -120,17 +119,17 @@ public final class ServiceCatalog implements PiggybackExtension {
   /**
    * Registers a callback invoked once for every delta that actually changes this catalog's state (a
    * fresh registration/unregistration or a genuinely newer version merged from gossip) -- never for
-   * a stale/duplicate delta the merge rule ignored. The node agent uses this to relay a
-   * newly-learned delta down to its own supervised workers (Phase 4 §5), regardless of whether the
-   * delta originated from a locally-registered worker or from gossip about a remote one.
+   * a stale/duplicate delta the merge rule ignored. A node agent uses this to relay a newly-learned
+   * delta down to its own supervised workers, regardless of whether the delta originated from a
+   * locally-registered worker or from gossip about a remote one.
    */
   public void onDelta(Consumer<CatalogDelta> listener) {
     listeners.add(listener);
   }
 
   /**
-   * Applies a delta relayed from this node's agent over the control channel (Phase 4 §5's
-   * agent-&gt;worker direction, {@code ControlMessage.CatalogUpdate}) into a worker's own locally
+   * Applies a delta relayed from this node's agent over the control channel ({@code
+   * ControlMessage.CatalogUpdate}, in the agent-to-worker direction) into a worker's own locally
    * cached view. {@code nodeId} is wrapped in a placeholder {@link MemberId} whose gossip address
    * is never dialed by anything downstream of this cache -- routing always uses {@code udsPath}/
    * {@code tcpAddress} directly, never the member id's own address, so a real gossip address isn't
@@ -160,9 +159,8 @@ public final class ServiceCatalog implements PiggybackExtension {
 
   /**
    * Every currently-present endpoint whose export's interface name matches, regardless of version
-   * -- needed because {@code ServiceRegistry#lookup(Class)} never carries a version to narrow by
-   * (unchanged since Phase 1), so a cross-tier fabric lookup can't disambiguate by version at the
-   * call site either.
+   * -- needed because {@code ServiceRegistry#lookup(Class)} never carries a version to narrow by,
+   * so a cross-tier fabric lookup can't disambiguate by version at the call site either.
    */
   public List<ServiceEndpoint> endpointsForInterface(String interfaceName) {
     List<ServiceEndpoint> result = new ArrayList<>();

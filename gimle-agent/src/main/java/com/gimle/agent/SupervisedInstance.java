@@ -13,10 +13,10 @@ import java.net.InetSocketAddress;
  * spawned worker JVM actually connects, so creating this instance never blocks the assignment-poll
  * loop on a slow-starting JVM.
  *
- * <p>{@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} (Phase 4 §5/§7) are
- * populated from the worker's {@code Hello} handshake -- the addressing needed to advertise a
- * dialable {@link com.gimle.fabric.catalog.ServiceEndpoint} once this instance later reports a
- * {@code ServiceRegistered}.
+ * <p>{@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} are populated from the
+ * worker's {@code Hello} handshake -- the addressing needed to advertise a dialable {@link
+ * com.gimle.fabric.catalog.ServiceEndpoint} once this instance later reports a {@code
+ * ServiceRegistered}.
  */
 final class SupervisedInstance {
 

@@ -7,23 +7,22 @@ import java.util.Optional;
 /**
  * Desired state for one deployment: how many replicas of a module should run, and where. The
  * module's own {@code gimle-module.yaml} (isolation tier, resource request/limit, health probes) is
- * read from the artifact once resolved -- never duplicated here, matching the separation Phase 1/2
- * already draw between "artifact contents" and "runtime assignment." {@code artifactPath} is the
- * one exception the scheduler needs up front: it must read the descriptor's isolation tier and
- * resource request *before* any node has resolved anything, so the manifest carries a path the
- * control plane can read directly -- the same "artifact path travels as a plain string, resolved
- * locally by whoever needs it" precedent {@code ControlMessage.InstallModule} already established.
+ * read from the artifact once resolved -- never duplicated here, keeping "artifact contents"
+ * separate from "runtime assignment." {@code artifactPath} is the one exception the scheduler needs
+ * up front: it must read the descriptor's isolation tier and resource request *before* any node has
+ * resolved anything, so the manifest carries a path the control plane can read directly -- the same
+ * "artifact path travels as a plain string, resolved locally by whoever needs it" precedent {@code
+ * ControlMessage.InstallModule} already established.
  *
- * <p>{@code autoscale} (Phase 4 §10) is optional: when present, {@code AutoscaleReconciler}
- * computes an effective replica count {@code DeploymentReconciler} reads in place of {@code
- * replicas} -- {@code replicas} itself stays the user-submitted floor/starting point, never
- * overwritten by the autoscaler.
+ * <p>{@code autoscale} is optional: when present, {@code AutoscaleReconciler} computes an effective
+ * replica count {@code DeploymentReconciler} reads in place of {@code replicas} -- {@code replicas}
+ * itself stays the user-submitted floor/starting point, never overwritten by the autoscaler.
  *
- * <p>{@code tenantId} (Phase 5 design §5.1) is optional, matching the {@code autoscale} precedent
- * exactly: a deployment with no {@code tenantId} is untenanted, today's behavior, unchanged. When
- * present, it must name a {@link com.gimle.core.tenant.Tenant} already registered with the control
- * plane -- checked by the API server at admission (design §5.2), not by this record's own compact
- * constructor, which has no {@code StateStore} to check against.
+ * <p>{@code tenantId} is optional, matching the {@code autoscale} precedent exactly: a deployment
+ * with no {@code tenantId} is untenanted. When present, it must name a {@link
+ * com.gimle.core.tenant.Tenant} already registered with the control plane -- checked by the API
+ * server at admission, not by this record's own compact constructor, which has no {@code
+ * StateStore} to check against.
  */
 public record DeploymentSpec(
     String name,

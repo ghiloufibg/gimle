@@ -1,5 +1,6 @@
 package com.gimle.core.module;
 
+/** A module's identity: its name paired with its version. */
 public record ModuleId(String name, Version version) {
 
   public ModuleId {

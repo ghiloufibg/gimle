@@ -39,18 +39,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The worker-side {@link ServiceRegistry} Phase 4 wires in place of a bare {@code
- * SimpleServiceRegistry} (design §1's stated integration point, {@code WorkerMain.java}): wraps
- * {@code localRegistry} unchanged for the same-worker tier, and adds the same-machine and remote
- * tiers on top via a locally-cached {@link ServiceCatalog}, one {@link CircuitBreaker} per remote
- * endpoint, and least-outstanding-requests selection among the endpoints each tier currently allows
- * (§8).
+ * The worker-side {@link ServiceRegistry} implementation that replaces a bare {@code
+ * SimpleServiceRegistry}, wired in by {@code WorkerMain}: wraps {@code localRegistry} unchanged for
+ * the same-worker tier, and adds the same-machine and remote tiers on top via a locally-cached
+ * {@link ServiceCatalog}, one {@link CircuitBreaker} per remote endpoint, and
+ * least-outstanding-requests selection among the endpoints each tier currently allows.
  *
  * <p>{@code lookup(Class<T>)} tries, in order: (1) same-worker -- a direct reference, unchanged
  * behavior; (2) same-machine catalog entries; (3) remote catalog entries. Tiers (2)/(3) both
  * dispatch through a dynamic {@link Proxy} whose {@link InvocationHandler} marshals the call over
- * the fabric wire protocol (§6/§7) -- exactly the dispatch layer {@code SimpleServiceRegistry}'s
- * own Javadoc named as the missing piece for least-outstanding-requests to become measurable.
+ * the fabric wire protocol -- the dispatch layer needed for least-outstanding-requests tracking to
+ * become measurable in the first place.
  */
 public final class FabricServiceRegistry implements ServiceRegistry {
 
@@ -100,10 +99,10 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   /**
-   * {@code selfTenantId} (Phase 5 design §5.3) is this worker's own tenant, if any -- consulted in
-   * {@link #lookup} to filter out any candidate whose export restricts {@code allowedTenantIds} to
-   * a set this tenant isn't in. An untenanted worker ({@code Optional.empty()}) can never satisfy a
-   * restricted export's allow-list (it can't prove membership in any tenant), matching {@link
+   * {@code selfTenantId} is this worker's own tenant, if any -- consulted in {@link #lookup} to
+   * filter out any candidate whose export restricts {@code allowedTenantIds} to a set this tenant
+   * isn't in. An untenanted worker ({@code Optional.empty()}) can never satisfy a restricted
+   * export's allow-list (it can't prove membership in any tenant), matching {@link
    * ServiceExport#permitsTenant}'s own safe-by-default semantics.
    */
   public FabricServiceRegistry(
@@ -170,7 +169,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
         continue; // this worker's own entry: already covered by the local-registry tier above
       }
       if (!endpoint.export().permitsTenant(selfTenantId)) {
-        continue; // Phase 5 §5.3: this tenant isn't on the export's allow-list
+        continue; // this tenant isn't on the export's allow-list
       }
       if (breakerFor(endpoint).isExcluded()) {
         continue;
@@ -189,9 +188,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   @Override
   public void markUnready(ModuleId owner) {
     localRegistry.markUnready(owner);
-    // Deliberately no catalog/wire effect (design §5): a same-worker readiness demotion is
-    // tolerated as ordinary staleness the receiving endpoint's circuit breaker already handles,
-    // not a special case requiring cluster-wide propagation.
+    // Deliberately no catalog/wire effect: a same-worker readiness demotion is tolerated as
+    // ordinary staleness the receiving endpoint's circuit breaker already handles, not a special
+    // case requiring cluster-wide propagation.
   }
 
   @Override

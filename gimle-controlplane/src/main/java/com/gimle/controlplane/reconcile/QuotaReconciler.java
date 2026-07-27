@@ -13,17 +13,16 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Continuously re-derives each tenant's current total assigned resources and marks a deployment's
- * status as quota-violating if a quota was retroactively lowered below what's already running
- * (Phase 5 design §5.2). Level-triggered like every other reconciler: every tick recomputes every
- * tenant's usage from scratch against {@link StateStore#listDeployments}, rather than tracking
- * deltas since last tick, so a quota edit, a deployment edit, or a fresh empty store all converge
- * through the same code path.
+ * status as quota-violating if a quota was retroactively lowered below what's already running.
+ * Level-triggered like every other reconciler: every tick recomputes every tenant's usage from
+ * scratch against {@link StateStore#listDeployments}, rather than tracking deltas since last tick,
+ * so a quota edit, a deployment edit, or a fresh empty store all converge through the same code
+ * path.
  *
  * <p>Deliberately does <b>not</b> evict instances to force compliance -- an even more
- * consequential, unrequested action than Phase 4's own "no automatic rollback" call for a stalled
- * rolling update (Phase 4 design §9); a human operator resolves an over-quota tenant explicitly,
- * this reconciler only surfaces it via {@link StateStore#putQuotaViolation}, read by the API
- * server's deployment status surface.
+ * consequential, unrequested action than leaving a stalled rolling update unrolled-back; a human
+ * operator resolves an over-quota tenant explicitly, this reconciler only surfaces it via {@link
+ * StateStore#putQuotaViolation}, read by the API server's deployment status surface.
  */
 public final class QuotaReconciler {
 

@@ -5,8 +5,7 @@ import java.util.Set;
 
 /**
  * Placement-time constraints layered on top of a module's own descriptor (which says nothing about
- * placement). Phase 3 keeps this deliberately minimal: a flat label-set match, no label expressions
- * or operators, matching the spec's own scope for this phase.
+ * placement). Deliberately minimal: a flat label-set match, no label expressions or operators.
  */
 public record PlacementConstraints(
     Optional<Set<String>> requiredNodeLabels, boolean antiAffinityAcrossNodes) {

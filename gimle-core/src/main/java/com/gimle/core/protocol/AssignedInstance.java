@@ -4,16 +4,13 @@ import com.gimle.core.module.ModuleId;
 import java.util.Optional;
 
 /**
- * One work order the control plane's scheduler has assigned to a specific node: what to run and
- * where to read it from. {@code artifactPath} is a path the receiving node can read directly, same
- * "resolved locally by whoever needs it" precedent {@code ControlMessage.InstallModule} already
- * established for the agent&harr;worker channel -- this is the same idea one hop further out.
+ * One work order the control plane's scheduler has assigned to a specific node: which module to
+ * run, and where to read its artifact from. {@code artifactPath} is resolved locally by the
+ * receiving node rather than shipped by the control plane.
  *
- * <p>{@code tenantId} (Phase 5 design §5.1/§6.3) is the deployment's tenant, if any -- carried here
- * so the agent can pass it down to the worker it spawns (as a launch argument, the same
- * "AgentMain's existing all-CLI-args bootstrapping" precedent used for node id and gossip seeds),
- * which needs it to scope {@code FabricServiceRegistry} permission checks and {@code
- * ModuleContext.config} lookups to this instance's own tenant.
+ * <p>{@code tenantId}, when present, is the deployment's tenant. The agent passes it down to the
+ * worker it spawns so the worker can scope service-registry permission checks and configuration
+ * lookups to that tenant.
  */
 public record AssignedInstance(
     String deploymentName,

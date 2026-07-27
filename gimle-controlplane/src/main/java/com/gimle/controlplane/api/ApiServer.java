@@ -50,13 +50,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The control plane's HTTP surface (design §4): {@code com.sun.net.httpserver.HttpServer}, JDK-
- * bundled, no framework dependency -- matches the project's explicit non-goal of pulling in
+ * The control plane's HTTP surface: {@code com.sun.net.httpserver.HttpServer}, JDK-bundled, no
+ * framework dependency -- matches the project's explicit non-goal of pulling in
  * Spring/Netty/Quarkus for something this small. Deployment manifests travel as YAML bodies
  * (matching {@code gimle-module.yaml}'s own convention); node registration/heartbeat/assignment
  * traffic travels as hand-rolled JSON (see {@link Json}) -- different audiences, same reasoning
  * {@code ControlMessage}'s text codec used to justify differing from {@code gimle-fabric}'s
- * eventual binary codec (design §11.1).
+ * eventual binary codec.
  */
 public final class ApiServer implements AutoCloseable {
 
@@ -79,20 +79,20 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code secretKeyFilePath} (Phase 5 design §6.1) is the control plane's persistent AES-256
-   * secrets master key, generated on first run if absent. Builds an internal single-node {@link
-   * RaftNode} exactly like the two-argument constructor -- this overload only changes secrets
-   * persistence, not replication topology.
+   * {@code secretKeyFilePath} is the control plane's persistent AES-256 secrets master key,
+   * generated on first run if absent. Builds an internal single-node {@link RaftNode} exactly like
+   * the two-argument constructor -- this overload only changes secrets persistence, not replication
+   * topology.
    */
   public ApiServer(StateStore store, int port, Path secretKeyFilePath) throws IOException {
     this(store, port, secretKeyFilePath, singleNodeRaft(store), Map.of());
   }
 
   /**
-   * The real, multi-node-aware constructor (raft design §2.6/§3): {@code raftNode} is this
-   * control-plane node's already-started {@link RaftNode}; {@code peerApiAddresses} maps every
-   * peer's Raft address to its HTTP API address, needed only to resolve a not-leader redirect's
-   * {@code Location} header to something an HTTP client can actually reach.
+   * The real, multi-node-aware constructor: {@code raftNode} is this control-plane node's
+   * already-started {@link RaftNode}; {@code peerApiAddresses} maps every peer's Raft address to
+   * its HTTP API address, needed only to resolve a not-leader redirect's {@code Location} header to
+   * something an HTTP client can actually reach.
    */
   public ApiServer(
       StateStore store,
@@ -128,11 +128,10 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Registers a static-file context at {@code /console} serving the built SPA under {@code
-   * staticRoot} (design doc §6), with client-side-route fallback to whichever shell file the SPA's
-   * tooling produced -- {@code _shell.html} if present (TanStack Start's SPA mode, per the Lovable
-   * diff review), else the conventional {@code index.html}. Opt-in: no constructor calls this, so
-   * every existing caller/test is unaffected until something explicitly wires a console directory
-   * in (design doc §11's "reversible" build-integration plan).
+   * staticRoot}, with client-side-route fallback to whichever shell file the SPA's tooling produced
+   * -- {@code _shell.html} if present (TanStack Start's SPA mode), else the conventional {@code
+   * index.html}. Opt-in: no constructor calls this, so every existing caller/test is unaffected
+   * until something explicitly wires a console directory in.
    */
   public void serveConsole(Path staticRoot) throws IOException {
     String shellFileName =
@@ -217,13 +216,13 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Admission-time quota check (Phase 5 design §5.2): absent if the deployment is untenanted (no
-   * check to run) or would keep the tenant within quota; present with a rejection reason otherwise.
-   * Reads the module descriptor control-plane-side, the same way {@code DeploymentReconciler}
-   * already does to learn a resource request before any node has resolved anything -- an unreadable
-   * artifact rejects the submission outright here (unlike {@code DeploymentReconciler}, which just
-   * retries next tick with nothing yet at stake), since admission can't safely let through a
-   * submission it has no way to verify against the tenant's quota.
+   * Admission-time quota check: absent if the deployment is untenanted (no check to run) or would
+   * keep the tenant within quota; present with a rejection reason otherwise. Reads the module
+   * descriptor control-plane-side, the same way {@code DeploymentReconciler} already does to learn
+   * a resource request before any node has resolved anything -- an unreadable artifact rejects the
+   * submission outright here (unlike {@code DeploymentReconciler}, which just retries next tick
+   * with nothing yet at stake), since admission can't safely let through a submission it has no way
+   * to verify against the tenant's quota.
    */
   private Optional<String> checkTenantQuota(DeploymentSpec spec) {
     if (spec.tenantId().isEmpty()) {
@@ -377,11 +376,11 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Heartbeats are deliberately never Raft-replicated (raft design §2.1): high-frequency, tolerate
-   * a brief gap after a leader change, and replicating every one would make the log's write rate
-   * scale with cluster size for no correctness benefit. Only the leader's own {@code StateStore}
-   * ever receives them directly -- a non-leader rejects with the same not-leader response every
-   * other write uses, even though this path never touches the Raft log.
+   * Heartbeats are deliberately never Raft-replicated: high-frequency, tolerate a brief gap after a
+   * leader change, and replicating every one would make the log's write rate scale with cluster
+   * size for no correctness benefit. Only the leader's own {@code StateStore} ever receives them
+   * directly -- a non-leader rejects with the same not-leader response every other write uses, even
+   * though this path never touches the Raft log.
    */
   private void handleHeartbeat(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -418,9 +417,9 @@ public final class ApiServer implements AutoCloseable {
       }
       // moduleId/artifactPath come from the assignment itself, not the deployment's current spec:
       // mid-rolling-update, an index that hasn't migrated yet must keep telling its agent to run
-      // whatever it was actually placed with, not the spec's already-advanced target version
-      // (Phase 4 §9). An assignment that never specified its own (the pre-Phase-4 three-argument
-      // constructor) falls back to the spec's, matching the only behavior that existed before.
+      // whatever it was actually placed with, not the spec's already-advanced target version. An
+      // assignment that never specified its own (the three-argument constructor, predating rolling
+      // updates) falls back to the spec's, matching the only behavior that existed before.
       ModuleId moduleId =
           assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE)
               ? spec.get().moduleId()
@@ -556,7 +555,7 @@ public final class ApiServer implements AutoCloseable {
     return map;
   }
 
-  // ---- /tenants and /tenants/{id} (Phase 5 design §5.1) ----
+  // ---- /tenants and /tenants/{id} ----
 
   private void handleTenantsList(HttpExchange exchange) {
     try {
@@ -636,7 +635,7 @@ public final class ApiServer implements AutoCloseable {
     return map;
   }
 
-  // ---- /config/{tenantId} and /config/{tenantId}/{key} (Phase 5 design §6) ----
+  // ---- /config/{tenantId} and /config/{tenantId}/{key} ----
 
   private void handleConfig(HttpExchange exchange) {
     try {
@@ -702,10 +701,10 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Returns every entry for {@code tenantId}, decrypted -- the node agent's fetch point (Phase 5
-   * design §6.3): "the node agent... fetches that deployment's tenant-scoped ConfigEntry set from
-   * the control plane (decrypted server-side...)". Plaintext leaves this process only over the same
-   * authenticated control-plane connection every other agent request already uses.
+   * Returns every entry for {@code tenantId}, decrypted -- the node agent's fetch point: an agent
+   * fetches a deployment's tenant-scoped {@code ConfigEntry} set from the control plane, already
+   * decrypted server-side. Plaintext leaves this process only over the same authenticated
+   * control-plane connection every other agent request already uses.
    */
   private void handleListConfig(HttpExchange exchange, String tenantId) throws IOException {
     List<Map<String, Object>> list = new ArrayList<>();
@@ -762,10 +761,10 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A write rejected by a non-leader (raft design §2.6): {@code 307} preserves the original method
-   * on redirect (required for PUT/POST/DELETE), with a {@code Location} header pointing at the
-   * current leader's HTTP address when known, plus a JSON body serving a Gimlé-aware caller that
-   * reads structured fields instead of following the redirect.
+   * A write rejected by a non-leader: {@code 307} preserves the original method on redirect
+   * (required for PUT/POST/DELETE), with a {@code Location} header pointing at the current leader's
+   * HTTP address when known, plus a JSON body serving a Gimlé-aware caller that reads structured
+   * fields instead of following the redirect.
    */
   private void respondNotLeader(HttpExchange exchange) {
     try {

@@ -20,13 +20,13 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
- * A Raft node's persisted log plus current term/vote and its latest installed snapshot (design
- * §2.5): every entry survives a crash before it's ever acknowledged, in a {@code raft/} directory
- * sibling to {@code StateStore}'s own {@code deployments/}/{@code assignments/}/{@code nodes/},
- * written through {@link AtomicFiles} -- the same durability idiom, not a second one. Term/vote is
- * kept in one file (design §2.5: "must never be observed torn relative to each other"); each log
- * entry is its own immutable file, {@link RaftCodec}-encoded; a compaction floor and the snapshot
- * bytes it replaced everything up to are kept alongside.
+ * A Raft node's persisted log plus current term/vote and its latest installed snapshot: every entry
+ * survives a crash before it's ever acknowledged, in a {@code raft/} directory sibling to {@code
+ * StateStore}'s own {@code deployments/}/{@code assignments/}/{@code nodes/}, written through
+ * {@link AtomicFiles} -- the same durability idiom, not a second one. Term and vote are kept in a
+ * single file, since the two must never be observed torn relative to each other; each log entry is
+ * its own immutable file, {@link RaftCodec}-encoded; a compaction floor and the snapshot bytes it
+ * replaced everything up to are kept alongside.
  *
  * <p>Not thread-safe on its own -- callers ({@link RaftNode}) are expected to serialize access
  * under their own lock, matching how {@code StateStore} itself relies on its maps' own concurrency
@@ -96,7 +96,7 @@ public final class RaftLog {
 
   /**
    * The term of the entry at {@code index} -- consulting the snapshot floor for an index at or
-   * below it (design §2.3/§2.4), since that entry's own file no longer exists once compacted.
+   * below it, since that entry's own file no longer exists once compacted.
    */
   public long termAt(long index) {
     if (index == 0) {
@@ -114,7 +114,8 @@ public final class RaftLog {
   }
 
   /**
-   * Deletes every entry at or after {@code index} -- conflicting-entry truncation (design §2.3).
+   * Deletes every entry at or after {@code index} -- truncation of conflicting entries once a
+   * follower's log is found to diverge from the leader's.
    */
   public void truncateFrom(long index) {
     for (Long key : new ArrayList<>(entries.tailMap(index, true).keySet())) {
@@ -123,7 +124,7 @@ public final class RaftLog {
     }
   }
 
-  // ---- snapshot (design §2.4) ----
+  // ---- snapshot ----
 
   /**
    * Persists {@code snapshotBytes} as this node's new compaction point and discards every log entry

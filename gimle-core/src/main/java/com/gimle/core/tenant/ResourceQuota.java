@@ -1,11 +1,11 @@
 package com.gimle.core.tenant;
 
 /**
- * A tenant's resource ceiling (Phase 5 design §5.2): the sum of {@code resourceRequest * replicas}
- * across every deployment sharing a {@code tenantId} must not exceed these values. Checked at
- * admission (control-plane API) and continuously ({@code QuotaReconciler}) -- the same "reject
- * early, reject again where it actually matters" shape {@code ModuleDescriptor}'s request-vs-limit
- * check and {@code Scheduler.place}'s capacity check already establish elsewhere.
+ * A tenant's resource ceiling: the sum of {@code resourceRequest * replicas} across every
+ * deployment sharing a {@code tenantId} must not exceed these values. Checked at admission
+ * (control-plane API) and continuously ({@code QuotaReconciler}) -- the same "reject early, reject
+ * again where it actually matters" shape {@code ModuleDescriptor}'s request-vs-limit check and
+ * {@code Scheduler.place}'s capacity check already establish elsewhere.
  */
 public record ResourceQuota(long maxMemoryBytes, long maxCpuMillicores, int maxInstances) {
 

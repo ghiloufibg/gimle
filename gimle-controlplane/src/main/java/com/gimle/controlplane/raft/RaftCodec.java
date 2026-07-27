@@ -33,15 +33,15 @@ import java.util.Set;
 
 /**
  * Encodes/decodes a {@link RaftRpc} the same way {@code gimle-fabric}'s {@code FabricCodec} encodes
- * a {@code FabricFrame} (design §2.2's transport section): a 4-byte big-endian length prefix, a
- * one-byte type tag, then {@link DataOutputStream} primitive fields, with every {@code byte[]}
- * field itself separately length-prefixed. A {@link LogEntry} carrying a {@link StateMutation} is
- * exactly the same kind of arbitrary-byte payload {@code InvokeRequest}'s {@code serializedArgs}
- * already is, so this reuses that framing shape rather than inventing a third one.
+ * a {@code FabricFrame}: a 4-byte big-endian length prefix, a one-byte type tag, then {@link
+ * DataOutputStream} primitive fields, with every {@code byte[]} field itself separately
+ * length-prefixed. A {@link LogEntry} carrying a {@link StateMutation} is exactly the same kind of
+ * arbitrary-byte payload {@code InvokeRequest}'s {@code serializedArgs} already is, so this reuses
+ * that framing shape rather than inventing a third one.
  *
- * <p>Also encodes/decodes a {@link StateSnapshot} (design §2.4) as a standalone byte array -- the
- * payload an {@link InstallSnapshot} RPC carries, and what {@link RaftLog} persists to disk after a
- * local compaction.
+ * <p>Also encodes/decodes a {@link StateSnapshot} as a standalone byte array -- the payload an
+ * {@link InstallSnapshot} RPC carries, and what {@link RaftLog} persists to disk after a local
+ * compaction.
  */
 public final class RaftCodec {
 
@@ -499,7 +499,7 @@ public final class RaftCodec {
     return bytes;
   }
 
-  // ---- StateSnapshot (design §2.4): standalone byte[] payload, not RaftRpc-framed ----
+  // ---- StateSnapshot: standalone byte[] payload, not RaftRpc-framed ----
 
   public static byte[] encodeSnapshot(StateSnapshot snapshot) {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();

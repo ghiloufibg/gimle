@@ -8,13 +8,13 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 
 /**
- * Shared quota-summation logic (Phase 5 design §5.2), used both at admission (the API server,
- * before a deployment is durably stored) and continuously ({@code QuotaReconciler}, every tick) --
- * one calculation, not two copies that could drift. Reads each tenant deployment's module
- * descriptor from its artifact the same way {@code DeploymentReconciler} already does
- * control-plane-side to learn a resource request before any node has resolved anything; an
- * unreadable artifact is skipped (not a resource this calculation can charge against a tenant) the
- * same way {@code DeploymentReconciler} itself tolerates one and simply retries next tick.
+ * Shared quota-summation logic, used both at admission (the API server, before a deployment is
+ * durably stored) and continuously ({@code QuotaReconciler}, every tick) -- one calculation, not
+ * two copies that could drift. Reads each tenant deployment's module descriptor from its artifact
+ * the same way {@code DeploymentReconciler} already does control-plane-side to learn a resource
+ * request before any node has resolved anything; an unreadable artifact is skipped (not a resource
+ * this calculation can charge against a tenant) the same way {@code DeploymentReconciler} itself
+ * tolerates one and simply retries next tick.
  */
 public final class TenantUsage {
 

@@ -16,14 +16,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Cross-checks assignments against the *observed* instance list from the latest heartbeats (design
- * §7): an assignment whose node has gone dark (no heartbeat within {@code nodeDarkTimeout}), or
- * whose latest heartbeat simply doesn't mention the instance at all, is removed once that's been
- * true for longer than {@code placementGracePeriod} -- {@link DeploymentReconciler}'s next tick
- * sees the gap and re-places it, the same code path a fresh assignment takes. This is the
- * machine-level tier of the spec's self-healing escalation ladder: a node going dark turns into
- * replacement placement on a different node, which Phase 2's module-level and worker-level restart
- * couldn't reach on their own.
+ * Cross-checks assignments against the *observed* instance list from the latest heartbeats: an
+ * assignment whose node has gone dark (no heartbeat within {@code nodeDarkTimeout}), or whose
+ * latest heartbeat simply doesn't mention the instance at all, is removed once that's been true for
+ * longer than {@code placementGracePeriod} -- {@link DeploymentReconciler}'s next tick sees the gap
+ * and re-places it, the same code path a fresh assignment takes. This is the machine-level tier of
+ * the spec's self-healing escalation ladder: a node going dark turns into replacement placement on
+ * a different node, which module-level and worker-level restart couldn't reach on their own.
  *
  * <p>The grace period exists because a brand-new assignment is, by construction, never mentioned in
  * *any* heartbeat sent before the owning agent has even fetched it -- an agent polls assignments on

@@ -5,10 +5,10 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * A Raft-replicated control plane's consensus failures (Phase 5 design §2): a write rejected by a
- * non-leader, a proposal that never commits, or a follower/restarting node that can't trust its own
- * persisted snapshot. Never thrown for ordinary follower-vs-leader staleness on reads -- design
- * §2.6 explicitly accepts that as normal, not a failure.
+ * A Raft-replicated control plane's consensus failures: a write rejected by a non-leader, a
+ * proposal that never commits, or a follower/restarting node that can't trust its own persisted
+ * snapshot. Never thrown for ordinary follower-vs-leader staleness on reads -- that is normal,
+ * expected behavior, not a failure.
  */
 public class GimleRaftException extends RuntimeException {
 

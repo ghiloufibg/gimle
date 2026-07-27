@@ -11,17 +11,15 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * The CLI's HTTP calling logic, shared by every command class. Follows the request-building shape
- * {@code gimle-agent}'s {@code AgentMain} already establishes ({@code HttpClient}, {@code
- * HttpRequest.BodyPublishers.ofString(Json.write(...))}), but adds two things a human-facing tool
- * needs that a background agent's own calls don't have: an explicit timeout, and status-code
- * checking (`AgentMain` trusts every response is 2xx).
+ * The CLI's HTTP calling logic, shared by every command class. Wraps {@code HttpClient} with an
+ * explicit request timeout and status-code checking, so callers get a {@link CliException} instead
+ * of a raw response to inspect.
  *
- * <p>{@code HttpClient.Redirect.NORMAL} is the entire client-side handling for a not-leader {@code
- * 307} (raft design §2.6): it follows the redirect while preserving the original method (why the
- * control plane chose {@code 307} over {@code 301}/{@code 302} in the first place), so a write
- * against any reachable replica transparently reaches the real leader. Only a {@code 307} with no
- * {@code Location} header (leader currently unknown) ever reaches {@link #expectSuccess}.
+ * <p>{@code HttpClient.Redirect.NORMAL} handles the client side of a not-leader {@code 307}
+ * response: it follows the redirect while preserving the original HTTP method (why the control
+ * plane returns {@code 307} rather than {@code 301}/{@code 302} for this case), so a write sent to
+ * any reachable replica transparently reaches the current leader. Only a {@code 307} with no {@code
+ * Location} header (leader currently unknown) ever reaches {@link #expectSuccess}.
  */
 public final class ControlPlaneClient {
 

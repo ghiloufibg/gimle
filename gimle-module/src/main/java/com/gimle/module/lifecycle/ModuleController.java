@@ -50,10 +50,10 @@ public final class ModuleController {
   private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
 
   /**
-   * Shared across every {@link SimpleModuleContext} this controller creates -- a Phase 5 config/
-   * secret value delivered via {@link #deliverConfig} before or after a given module resolves both
-   * work identically, since every context reads through to this same live map rather than a
-   * snapshot taken at construction time (design §6.3).
+   * Shared across every {@link SimpleModuleContext} this controller creates -- a config/secret
+   * value delivered via {@link #deliverConfig} before or after a given module resolves both work
+   * identically, since every context reads through to this same live map rather than a snapshot
+   * taken at construction time.
    */
   private final Map<String, String> configValues = new ConcurrentHashMap<>();
 
@@ -133,9 +133,9 @@ public final class ModuleController {
   }
 
   /**
-   * Called by {@code gimle-worker}'s {@code WorkerMain} on {@code ControlMessage.ConfigDelivered}
-   * (Phase 5 design §6.3): makes {@code value} visible via {@code ModuleContext.config(key)} for
-   * every module this controller hosts, whether it resolved before or after this call.
+   * Called by {@code gimle-worker}'s {@code WorkerMain} on {@code ControlMessage.ConfigDelivered}:
+   * makes {@code value} visible via {@code ModuleContext.config(key)} for every module this
+   * controller hosts, whether it resolved before or after this call.
    */
   public void deliverConfig(String key, String value) {
     configValues.put(key, value);

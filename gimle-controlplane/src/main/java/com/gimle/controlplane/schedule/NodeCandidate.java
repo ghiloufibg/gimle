@@ -11,13 +11,11 @@ import java.util.Set;
  * current assignments; the scheduler itself never reads the store directly, keeping it a pure
  * function of its inputs and testable without one).
  *
- * <p>{@code tenantsPresent} (Phase 5 design §5.4) is every distinct {@code tenantId} of a currently
- * assigned deployment on this node, across every deployment, not just the one being placed -- used
- * to enforce node-level tenant segregation for Tier 2/3 placements, which have a real process/
- * kernel isolation boundary regardless of node co-residency but may still need physical separation
- * for compliance reasons. Empty for an untenanted candidate set, which exempts every deployment
- * from this filter, matching {@code tenantId}'s own "absent means today's unchanged behavior"
- * precedent.
+ * <p>{@code tenantsPresent} is every distinct {@code tenantId} of a currently assigned deployment
+ * on this node, across every deployment, not just the one being placed -- used to enforce
+ * node-level tenant segregation for Tier 2/3 placements, which have a real process/kernel isolation
+ * boundary regardless of node co-residency but may still need physical separation for compliance
+ * reasons. Empty for an untenanted candidate set, which exempts every deployment from this filter.
  */
 public record NodeCandidate(
     String nodeId,

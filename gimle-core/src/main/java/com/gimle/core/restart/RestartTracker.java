@@ -5,14 +5,13 @@ import java.time.Instant;
 
 /**
  * Bounded-retry-with-backoff: exponential delay between attempts, capped, giving up after a
- * configured number of attempts within a rolling window — the spec's "{@code
- * CrashLoopBackOff}-equivalent" language. Shared shape for both module-level restart
- * (dispose-and-reinstantiate, inside {@code gimle-worker}) and worker-level restart
- * (destroy-and-respawn, inside {@code gimle-agent}); the two differ only in their numeric
- * parameters, so the policy lives once, here, rather than being duplicated per caller. Not
- * thread-safe by itself — callers own one instance per module/worker and serialize their own access
- * to it (both current callers already do, driven by a single probe-loop/process-exit thread per
- * tracked entity).
+ * configured number of attempts within a rolling window -- a {@code CrashLoopBackOff}-equivalent
+ * policy. Shared shape for both module-level restart (dispose-and-reinstantiate, inside {@code
+ * gimle-worker}) and worker-level restart (destroy-and-respawn, inside {@code gimle-agent}); the
+ * two differ only in their numeric parameters, so the policy lives once, here, rather than being
+ * duplicated per caller. Not thread-safe by itself — callers own one instance per module/worker and
+ * serialize their own access to it (both current callers already do, driven by a single
+ * probe-loop/process-exit thread per tracked entity).
  */
 public final class RestartTracker {
 

@@ -41,12 +41,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The node agent's entry point (design §4, extended by §1/§9 for Phase 3, and by Phase 4 §3/§4/§5
- * for cluster membership and the service catalog). Registers with the control plane once, then
- * loops forever: poll {@code GET /nodes/{nodeId}/assignments} and reconcile the locally-supervised
- * {@link WorkerProcessSupervisor} set against it (spawning a worker JVM per newly-assigned
- * instance, tearing one down per instance no longer assigned -- each replica gets its own worker
- * JVM, matching the scheduler's anti-affinity assumption), then report a heartbeat.
+ * The node agent's entry point. Registers with the control plane once, then loops forever: polls
+ * {@code GET /nodes/{nodeId}/assignments} and reconciles the locally-supervised {@link
+ * WorkerProcessSupervisor} set against it (spawning a worker JVM per newly-assigned instance,
+ * tearing one down per instance no longer assigned -- each replica gets its own worker JVM,
+ * matching the scheduler's anti-affinity assumption), then reports a heartbeat.
  *
  * <p>Independent of that control-plane loop, this agent also runs a {@link GossipMember} (SWIM
  * membership over UDP, joined via {@code seeds}) carrying a {@link ServiceCatalog} on its gossip
@@ -155,7 +154,7 @@ public final class AgentMain {
 
   /**
    * Relays a newly-applied catalog delta -- local or gossip-learned -- to every supervised worker's
-   * own locally-cached catalog (design §5).
+   * own locally-cached catalog.
    */
   private static void relayCatalogDelta(
       com.gimle.fabric.catalog.CatalogDelta delta, Map<String, SupervisedInstance> supervised) {
@@ -271,9 +270,9 @@ public final class AgentMain {
   }
 
   /**
-   * Fetches this tenant's entire tenant-scoped config/secret set, already decrypted server-side
-   * (Phase 5 design §6.3): {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for
-   * that tenant as plaintext, since the control plane alone holds the secrets key file.
+   * Fetches this tenant's entire tenant-scoped config/secret set, already decrypted server-side:
+   * {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for that tenant as plaintext,
+   * since the control plane alone holds the secrets key file.
    */
   private static List<ConfigValue> fetchConfigForTenant(
       HttpClient httpClient, URI baseUrl, String tenantId)
@@ -377,8 +376,8 @@ public final class AgentMain {
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);
     // WorkerMain expects <nodeId> <tenantId-or-empty> <control-socket-path>, in that order;
-    // WorkerProcessSupervisor always appends the control-socket path last (Phase 5 design §5.1),
-    // so tenantId must be appended here, right after nodeId, not after the fact.
+    // WorkerProcessSupervisor always appends the control-socket path last, so tenantId must be
+    // appended here, right after nodeId, not after the fact.
     baseCommand.add(assigned.tenantId().orElse(""));
 
     RestartTracker restartTracker =
@@ -435,7 +434,7 @@ public final class AgentMain {
           new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
       // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
       // Start, over this same ordered channel, so every module hook's config(key) lookups are
-      // already backed by real values from the moment it starts (Phase 5 design §6.3).
+      // already backed by real values from the moment it starts.
       deliverConfig(instance, connection, httpClient, baseUrl);
       connection.send(
           new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));

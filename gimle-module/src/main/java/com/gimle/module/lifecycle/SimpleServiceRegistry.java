@@ -11,9 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A real, complete, round-robin {@link ServiceRegistry} — {@link ModuleController}'s default when
- * nothing richer is supplied. Correct for any number of providers, including the single-provider
- * case every Phase 1 test exercises; {@code gimle-worker} supplies a shared instance across every
- * module it hosts, but nothing here is a stub — it's simply this class's whole job description.
+ * nothing richer is supplied. Correct for any number of providers, including the common
+ * single-provider case; {@code gimle-worker} supplies a shared instance across every module it
+ * hosts, but nothing here is a stub — it's simply this class's whole job description.
  */
 public final class SimpleServiceRegistry implements ServiceRegistry {
 

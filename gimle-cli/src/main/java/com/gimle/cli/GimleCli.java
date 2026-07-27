@@ -7,8 +7,8 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * The CLI's entry point and global-flag/verb dispatch (design: a {@code kubectl}-shaped client for
- * "muscle memory," with no Kubernetes API compatibility claim):
+ * The CLI's entry point and global-flag/verb dispatch: a {@code kubectl}-shaped client for familiar
+ * muscle memory, with no claim of Kubernetes API compatibility:
  *
  * <pre>
  *   gimle get deployments [name]

@@ -9,12 +9,10 @@ import java.io.UncheckedIOException;
 
 /**
  * The {@code ObjectOutputStream}/{@code ObjectInputStream} byte-plumbing behind the cross-JVM
- * dynamic-proxy invocation confirmed in Phase 4 §6 -- kept as one small, well-named helper (same
- * posture {@code CLAUDE.md} asks for around unchecked casts) rather than repeating the
+ * dynamic-proxy invocation: kept as one small, well-named helper rather than repeating the
  * stream-wrapping boilerplate at every call site in both {@code FabricServer} and the proxy's
  * {@code InvocationHandler}. No {@code ObjectInputFilter} allowlist: this only ever deserializes
- * bytes produced by another Gimlé worker inside the same trust boundary (§6's threat-model
- * analysis), never external input.
+ * bytes produced by another Gimlé worker inside the same trust boundary, never external input.
  */
 public final class ObjectMarshalling {
 

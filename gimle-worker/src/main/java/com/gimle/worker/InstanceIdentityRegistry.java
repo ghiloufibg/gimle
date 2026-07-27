@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Maps a hosted module's {@link ModuleId} to the {@link InstanceIdentity} the agent reported for it
- * at install time (design §3). Populated by {@code WorkerMain} when handling {@code
+ * at install time. Populated by {@code WorkerMain} when handling {@code
  * ControlMessage.InstallModule}; consulted by {@code WorkerRuntime} (probe-loop MDC tagging) and
  * {@link InstanceTaggingServiceRegistry} (request-dispatch MDC tagging); cleared by {@link
  * InstanceTaggingServiceRegistry#remove}, which every uninstall path already calls.
