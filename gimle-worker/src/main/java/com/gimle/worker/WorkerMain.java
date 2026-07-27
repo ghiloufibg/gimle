@@ -48,16 +48,23 @@ public final class WorkerMain {
   private WorkerMain() {}
 
   public static void main(String[] args) throws IOException {
-    if (args.length != 2) {
-      System.err.println("usage: WorkerMain <nodeId> <control-socket-path>");
+    if (args.length != 3) {
+      System.err.println("usage: WorkerMain <nodeId> <tenantId-or-empty> <control-socket-path>");
       System.exit(2);
       return;
     }
     String nodeId = args[0];
+    // Phase 5 design §5.1/§6.3: the deployment's tenant, if any, passed the same
+    // "AgentMain's existing all-CLI-args bootstrapping" way node id and gossip seeds already are.
+    // A blank argument means untenanted, matching every other optional-field's "absent means
+    // today's unchanged behavior" precedent. Always present (never a variable-arity 2-vs-3 form)
+    // so WorkerProcessSupervisor's own "controlSocketPath is always the last appended argument"
+    // invariant stays true regardless of whether this instance has a tenant.
+    Optional<String> tenantId = args[1].isBlank() ? Optional.empty() : Optional.of(args[1]);
 
     GimleTracing.installDefault();
 
-    UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[1]));
+    UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[2]));
     ControlChannelClient channel =
         ControlChannelClient.connectWithRetry(
             address, Duration.ofMillis(200), Duration.ofSeconds(30));
@@ -86,7 +93,8 @@ public final class WorkerMain {
             interfaceLoader,
             5,
             0.5,
-            Duration.ofSeconds(5));
+            Duration.ofSeconds(5),
+            tenantId);
 
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
@@ -189,6 +197,7 @@ public final class WorkerMain {
               m.present(),
               m.udsPath().isEmpty() ? Optional.empty() : Optional.of(m.udsPath()),
               new InetSocketAddress(m.tcpHost(), m.tcpPort()));
+      case ControlMessage.ConfigDelivered m -> controller.deliverConfig(m.key(), m.value());
       default -> log.warn("unexpected control message from agent: {}", message);
     }
   }

@@ -47,9 +47,11 @@ public final class DeploymentManifestParser {
     int replicas = parseReplicas(root);
     PlacementConstraints placement = parsePlacement(root);
     Optional<AutoscalePolicy> autoscale = parseAutoscale(root);
+    Optional<String> tenantId = parseTenantId(root);
 
     try {
-      return new DeploymentSpec(name, moduleId, artifactPath, replicas, placement, autoscale);
+      return new DeploymentSpec(
+          name, moduleId, artifactPath, replicas, placement, autoscale, tenantId);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);
@@ -73,6 +75,20 @@ public final class DeploymentManifestParser {
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code tenantId} (Phase 5 design §5.1) is optional: absent means untenanted, today's behavior.
+   */
+  private static Optional<String> parseTenantId(Map<?, ?> root) {
+    Object value = root.get("tenantId");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException("'tenantId' must be a non-blank string if present");
+    }
+    return Optional.of(s);
   }
 
   private static int requiredIntField(Map<?, ?> map, String key) {

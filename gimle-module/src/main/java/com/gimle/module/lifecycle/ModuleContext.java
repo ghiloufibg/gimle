@@ -29,4 +29,11 @@ public interface ModuleContext {
    * ServiceRegistry}.
    */
   <T> Optional<T> lookupService(Class<T> iface);
+
+  /**
+   * Looks up a tenant-scoped configuration or secret value the agent has relayed down for this
+   * instance (Phase 5 design §6.3) — always plaintext by the time a module sees it, whether or not
+   * it was encrypted at rest. Absent if the key was never delivered.
+   */
+  Optional<String> config(String key);
 }

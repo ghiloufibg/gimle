@@ -3,7 +3,12 @@ package com.gimle.core.protocol;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Encodes/decodes a {@link ControlMessage} as one line of space-separated fields, message type
@@ -66,6 +71,12 @@ public final class ControlMessageCodec {
               escape(m.udsPath()),
               escape(m.tcpHost()),
               Integer.toString(m.tcpPort()));
+      case ControlMessage.ConfigDelivered m ->
+          line(
+              "CONFIG_DELIVERED",
+              escape(m.key()),
+              escape(m.value()),
+              Boolean.toString(m.wasEncrypted()));
     };
   }
 
@@ -126,6 +137,11 @@ public final class ControlMessageCodec {
               unescape(field(fields, 7)),
               unescape(field(fields, 8)),
               Integer.parseInt(field(fields, 9)));
+      case "CONFIG_DELIVERED" ->
+          new ControlMessage.ConfigDelivered(
+              unescape(field(fields, 1)),
+              unescape(field(fields, 2)),
+              Boolean.parseBoolean(field(fields, 3)));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
   }
@@ -157,17 +173,41 @@ public final class ControlMessageCodec {
     return new ModuleId(text.substring(0, at), Version.parse(text.substring(at + 1)));
   }
 
+  /**
+   * {@code @}-separated {@code interfaceName@version@tenantsField}, where {@code tenantsField} is
+   * {@code *} for {@code allowedTenantIds().isEmpty()} ("any tenant") or a comma-joined escaped
+   * list otherwise (possibly empty, meaning a present-but-empty set -- "no tenant may consume
+   * this"). Safe to split without a general escaping scheme because neither a Java interface name
+   * nor {@link Version#toString()} ever contains a literal {@code @} (the same assumption {@code
+   * encodeId} already relies on for {@code ModuleId}).
+   */
   private static String encodeExport(ServiceExport export) {
-    return escape(export.interfaceName()) + "@" + export.version();
+    String tenantsField =
+        export.allowedTenantIds().isEmpty()
+            ? "*"
+            : export.allowedTenantIds().get().stream()
+                .map(ControlMessageCodec::escape)
+                .collect(Collectors.joining(","));
+    return escape(export.interfaceName()) + "@" + export.version() + "@" + tenantsField;
   }
 
   private static ServiceExport decodeExport(String text) {
-    int at = text.lastIndexOf('@');
-    if (at < 0) {
+    String[] parts = text.split("@", 3);
+    if (parts.length < 2) {
       throw new IllegalArgumentException("malformed service export on wire: " + text);
     }
-    return new ServiceExport(
-        unescape(text.substring(0, at)), Version.parse(text.substring(at + 1)));
+    String interfaceName = unescape(parts[0]);
+    Version version = Version.parse(parts[1]);
+    if (parts.length < 3 || parts[2].equals("*")) {
+      return new ServiceExport(interfaceName, version);
+    }
+    Set<String> tenants =
+        parts[2].isEmpty()
+            ? Set.of()
+            : Arrays.stream(parts[2].split(","))
+                .map(ControlMessageCodec::unescape)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    return new ServiceExport(interfaceName, version, Optional.of(tenants));
   }
 
   private static String escape(String text) {

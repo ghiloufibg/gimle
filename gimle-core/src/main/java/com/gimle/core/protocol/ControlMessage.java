@@ -104,4 +104,15 @@ public sealed interface ControlMessage {
       String tcpHost,
       int tcpPort)
       implements ControlMessage {}
+
+  /**
+   * The agent relaying one tenant-scoped configuration or secret value down to this worker (Phase 5
+   * design §6.3), fetched from the control plane (already decrypted server-side if it was a secret)
+   * and forwarded over this same per-instance channel -- no plaintext secret ever touches the
+   * agent's own disk, only this in-memory relay. {@code wasEncrypted} is diagnostic only (the
+   * worker never re-encrypts or re-decrypts anything); {@code value} here is always the plaintext
+   * the module should see.
+   */
+  record ConfigDelivered(String key, String value, boolean wasEncrypted)
+      implements ControlMessage {}
 }

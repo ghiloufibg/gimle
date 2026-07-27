@@ -9,6 +9,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -126,5 +127,94 @@ class SchedulerTest {
     assertThrows(
         GimleSchedulingException.class,
         () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, List.of()));
+  }
+
+  // ---- tenant node-level isolation, Phase 5 design §5.4 ----
+
+  private static NodeCandidate nodeWithTenants(
+      String id, NodeCapabilities capabilities, long freeMemoryBytes, Set<String> tenantsPresent) {
+    return new NodeCandidate(
+        id,
+        capabilities,
+        new ResourceUsageSnapshot(freeMemoryBytes, 0, 1000, 0),
+        false,
+        tenantsPresent);
+  }
+
+  @Test
+  void tenant_isolation_excludes_a_tier2_node_already_running_a_different_tenant() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTenants("node-free", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "orders", 0, IsolationTier.TIER_2, REQUEST, false, Optional.of("tenant-a"), candidates);
+
+    assertEquals("node-free", chosen);
+  }
+
+  @Test
+  void tenant_isolation_permits_a_node_already_running_the_same_tenant() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-same-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-a")));
+
+    String chosen =
+        scheduler.place(
+            "orders", 0, IsolationTier.TIER_2, REQUEST, false, Optional.of("tenant-a"), candidates);
+
+    assertEquals("node-same-tenant", chosen);
+  }
+
+  @Test
+  void tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders",
+                0,
+                IsolationTier.TIER_2,
+                REQUEST,
+                false,
+                Optional.of("tenant-a"),
+                candidates));
+  }
+
+  @Test
+  void tenant_isolation_is_not_enforced_at_tier1() {
+    // Tier 1 density packing across separate deployments isn't implemented anywhere in this
+    // codebase (design §5.4's own correction) -- node-level exclusion is deliberately a no-op here.
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+
+    String chosen =
+        scheduler.place(
+            "orders", 0, IsolationTier.TIER_1, REQUEST, false, Optional.of("tenant-a"), candidates);
+
+    assertEquals("node-other-tenant", chosen);
+  }
+
+  @Test
+  void tenant_isolation_is_not_enforced_when_no_tenant_id_given() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_2, REQUEST, false, candidates);
+
+    assertEquals("node-other-tenant", chosen);
   }
 }

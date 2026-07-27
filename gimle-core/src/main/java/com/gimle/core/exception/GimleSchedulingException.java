@@ -38,4 +38,20 @@ public class GimleSchedulingException extends RuntimeException {
             + " cannot be placed without violating its anti-affinity constraint (every node with"
             + " capacity already runs another replica of this deployment)");
   }
+
+  /**
+   * Phase 5 design §5.4: a Tier 2/3 replica for a tenant couldn't be placed without co-residing on
+   * a node already running a different tenant's instance -- the node-level segregation this design
+   * enforces for tiers with a real process/kernel isolation boundary.
+   */
+  public static GimleSchedulingException tenantIsolationViolated(
+      String deploymentName, int instanceIndex) {
+    return new GimleSchedulingException(
+        "deployment "
+            + deploymentName
+            + " instance "
+            + instanceIndex
+            + " cannot be placed without co-residing with a different tenant's instance on every"
+            + " node with capacity and tier support");
+  }
 }

@@ -4,6 +4,7 @@ import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
+import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.store.StateStore;
@@ -55,6 +56,7 @@ public final class ControlPlaneMain {
         new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT);
     HealthReconciler healthReconciler = new HealthReconciler(store);
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(store);
+    QuotaReconciler quotaReconciler = new QuotaReconciler(store);
 
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
@@ -65,12 +67,13 @@ public final class ControlPlaneMain {
                 replicaCountReconciler,
                 healthReconciler,
                 autoscaleReconciler,
+                quotaReconciler,
                 deploymentReconciler),
         0,
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
 
-    ApiServer apiServer = new ApiServer(store, port);
+    ApiServer apiServer = new ApiServer(store, port, stateDir.resolve("secret.key"));
     apiServer.start();
     log.info("control plane listening on port {} (state: {})", apiServer.port(), stateDir);
 
@@ -88,11 +91,13 @@ public final class ControlPlaneMain {
       ReplicaCountReconciler replicaCountReconciler,
       HealthReconciler healthReconciler,
       AutoscaleReconciler autoscaleReconciler,
+      QuotaReconciler quotaReconciler,
       DeploymentReconciler deploymentReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
       autoscaleReconciler.reconcileOnce();
+      quotaReconciler.reconcileOnce();
       deploymentReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);

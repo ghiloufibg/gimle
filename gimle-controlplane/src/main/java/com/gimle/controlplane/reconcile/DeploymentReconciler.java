@@ -14,8 +14,10 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -121,6 +123,7 @@ public final class DeploymentReconciler {
                 descriptor.isolationTier(),
                 descriptor.resourceRequest(),
                 spec.placement().antiAffinityAcrossNodes(),
+                spec.tenantId(),
                 candidates);
         store.putAssignment(
             new InstanceAssignment(
@@ -206,8 +209,22 @@ public final class DeploymentReconciler {
 
   private List<NodeCandidate> buildCandidates(String deploymentName) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>();
-    for (InstanceAssignment assignment : store.listAssignmentsFor(deploymentName)) {
-      nodesAlreadyRunningThisDeployment.add(assignment.nodeId());
+    // Phase 5 design §5.4: every distinct tenantId already assigned to each node, across every
+    // deployment (not just this one) -- the scheduler needs the full picture to enforce node-level
+    // tenant segregation for Tier 2/3 placements.
+    Map<String, Set<String>> tenantsByNode = new HashMap<>();
+    for (InstanceAssignment assignment : store.listAssignments()) {
+      if (assignment.deploymentName().equals(deploymentName)) {
+        nodesAlreadyRunningThisDeployment.add(assignment.nodeId());
+      }
+      store
+          .getDeployment(assignment.deploymentName())
+          .flatMap(DeploymentSpec::tenantId)
+          .ifPresent(
+              tenantId ->
+                  tenantsByNode
+                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
+                      .add(tenantId));
     }
 
     List<NodeCandidate> candidates = new ArrayList<>();
@@ -221,7 +238,8 @@ public final class DeploymentReconciler {
               registration.nodeId(),
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
-              nodesAlreadyRunningThisDeployment.contains(registration.nodeId())));
+              nodesAlreadyRunningThisDeployment.contains(registration.nodeId()),
+              tenantsByNode.getOrDefault(registration.nodeId(), Set.of())));
     }
     return candidates;
   }

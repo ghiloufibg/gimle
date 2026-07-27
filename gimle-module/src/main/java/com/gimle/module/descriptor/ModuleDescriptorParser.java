@@ -11,9 +11,11 @@ import com.gimle.core.module.Version;
 import com.gimle.core.module.VersionRange;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -96,13 +98,41 @@ public final class ModuleDescriptorParser {
       }
       String interfaceName = requireString(entryMap, "service");
       Version version = parseField(entryMap, "version", Version::parse);
+      Optional<Set<String>> allowedTenants = parseAllowedTenants(entryMap);
       try {
-        result.add(new ServiceExport(interfaceName, version));
+        result.add(
+            allowedTenants.isEmpty()
+                ? new ServiceExport(interfaceName, version)
+                : new ServiceExport(interfaceName, version, allowedTenants));
       } catch (IllegalArgumentException e) {
         throw new GimleManifestException("invalid exports entry: " + e.getMessage(), e);
       }
     }
     return result;
+  }
+
+  /**
+   * {@code allowedTenants} (Phase 5 design §5.3) is optional per export: absent means "any tenant
+   * may consume this," today's implicit behavior for every manifest written before this field
+   * existed.
+   */
+  private static Optional<Set<String>> parseAllowedTenants(Map<?, ?> exportEntry) {
+    Object value = exportEntry.get("allowedTenants");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof List<?> list)) {
+      throw new GimleManifestException("'exports[].allowedTenants' must be a list");
+    }
+    Set<String> tenants = new LinkedHashSet<>();
+    for (Object item : list) {
+      if (!(item instanceof String s) || s.isBlank()) {
+        throw new GimleManifestException(
+            "each 'exports[].allowedTenants' entry must be a non-blank string");
+      }
+      tenants.add(s);
+    }
+    return Optional.of(tenants);
   }
 
   private static IsolationTier parseIsolation(Map<?, ?> root) {

@@ -5,6 +5,7 @@ import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity (design §6): first-fit-decreasing
@@ -27,6 +28,33 @@ public final class Scheduler {
       ResourceSpec resourceRequest,
       boolean antiAffinityAcrossNodes,
       List<NodeCandidate> candidates) {
+    return place(
+        deploymentName,
+        instanceIndex,
+        tier,
+        resourceRequest,
+        antiAffinityAcrossNodes,
+        Optional.empty(),
+        candidates);
+  }
+
+  /**
+   * {@code tenantId} (Phase 5 design §5.4) enforces node-level tenant segregation for {@code
+   * TIER_2}/{@code TIER_3} placements only: a candidate already hosting a *different* tenant's
+   * instance is excluded outright, the same "reject, don't silently violate" posture anti-affinity
+   * already uses above. Absent, or for {@code TIER_1}, this filter is a no-op -- Tier 1 density
+   * packing across separate deployments isn't implemented anywhere in this codebase today (Phase 5
+   * design §5.4's own correction), so there is nothing for a same-node Tier 1 exclusion to protect
+   * against yet.
+   */
+  public String place(
+      String deploymentName,
+      int instanceIndex,
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      boolean antiAffinityAcrossNodes,
+      Optional<String> tenantId,
+      List<NodeCandidate> candidates) {
     List<NodeCandidate> tierEligible =
         candidates.stream().filter(c -> c.capabilities().supportedTiers().contains(tier)).toList();
 
@@ -40,10 +68,26 @@ public final class Scheduler {
       affinityEligible = tierEligible;
     }
 
+    List<NodeCandidate> tenantEligible;
+    boolean enforceTenantIsolation =
+        tenantId.isPresent() && (tier == IsolationTier.TIER_2 || tier == IsolationTier.TIER_3);
+    if (enforceTenantIsolation) {
+      String thisTenant = tenantId.get();
+      tenantEligible =
+          affinityEligible.stream()
+              .filter(c -> c.tenantsPresent().stream().allMatch(thisTenant::equals))
+              .toList();
+      if (tenantEligible.isEmpty() && !affinityEligible.isEmpty()) {
+        throw GimleSchedulingException.tenantIsolationViolated(deploymentName, instanceIndex);
+      }
+    } else {
+      tenantEligible = affinityEligible;
+    }
+
     long requiredMemory = resourceRequest.memoryBytes();
     long requiredCpu = resourceRequest.cpuMillicores();
 
-    return affinityEligible.stream()
+    return tenantEligible.stream()
         .sorted(
             Comparator.comparingLong(NodeCandidate::freeMemoryBytes)
                 .thenComparingLong(NodeCandidate::freeCpuMillicores)

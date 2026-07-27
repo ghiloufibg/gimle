@@ -240,15 +240,44 @@ public final class AgentMain {
       ModuleId moduleId =
           new ModuleId(
               (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+      Object tenantId = map.get("tenantId");
       result.add(
           new AssignedInstance(
               (String) map.get("deploymentName"),
               ((Number) map.get("instanceIndex")).intValue(),
               moduleId,
-              (String) map.get("artifactPath")));
+              (String) map.get("artifactPath"),
+              tenantId == null ? Optional.empty() : Optional.of((String) tenantId)));
     }
     return result;
   }
+
+  /**
+   * Fetches this tenant's entire tenant-scoped config/secret set, already decrypted server-side
+   * (Phase 5 design §6.3): {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for
+   * that tenant as plaintext, since the control plane alone holds the secrets key file.
+   */
+  private static List<ConfigValue> fetchConfigForTenant(
+      HttpClient httpClient, URI baseUrl, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId)).GET().build();
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    List<Object> raw = Json.asArray(Json.parse(response.body()));
+    List<ConfigValue> result = new ArrayList<>();
+    for (Object entry : raw) {
+      Map<String, Object> map = Json.asObject(entry);
+      result.add(
+          new ConfigValue(
+              (String) map.get("key"),
+              (String) map.get("value"),
+              Boolean.TRUE.equals(map.get("encrypted"))));
+    }
+    return result;
+  }
+
+  private record ConfigValue(String key, String value, boolean wasEncrypted) {}
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
@@ -281,7 +310,9 @@ public final class AgentMain {
               resourceLimiter,
               capacityTracker,
               gossipMember,
-              catalog);
+              catalog,
+              httpClient,
+              baseUrl);
         } catch (IOException | RuntimeException e) {
           log.error("failed to start instance {}: {}", key, e.getMessage(), e);
         }
@@ -304,7 +335,9 @@ public final class AgentMain {
       ResourceLimiter resourceLimiter,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
-      ServiceCatalog catalog)
+      ServiceCatalog catalog,
+      HttpClient httpClient,
+      URI baseUrl)
       throws IOException {
     ModuleDescriptor descriptor =
         ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
@@ -321,6 +354,10 @@ public final class AgentMain {
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);
+    // WorkerMain expects <nodeId> <tenantId-or-empty> <control-socket-path>, in that order;
+    // WorkerProcessSupervisor always appends the control-socket path last (Phase 5 design §5.1),
+    // so tenantId must be appended here, right after nodeId, not after the fact.
+    baseCommand.add(assigned.tenantId().orElse(""));
 
     RestartTracker restartTracker =
         new RestartTracker(
@@ -347,11 +384,16 @@ public final class AgentMain {
 
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
-        .start(() -> driveInstanceUp(instance, key, gossipMember, catalog));
+        .start(() -> driveInstanceUp(instance, key, gossipMember, catalog, httpClient, baseUrl));
   }
 
   private static void driveInstanceUp(
-      SupervisedInstance instance, String key, GossipMember gossipMember, ServiceCatalog catalog) {
+      SupervisedInstance instance,
+      String key,
+      GossipMember gossipMember,
+      ServiceCatalog catalog,
+      HttpClient httpClient,
+      URI baseUrl) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
@@ -363,10 +405,40 @@ public final class AgentMain {
           new ControlMessage.InstallModule(nextCorrelationId(), instance.assigned.artifactPath()));
       connection.send(
           new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
+      // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
+      // Start, over this same ordered channel, so every module hook's config(key) lookups are
+      // already backed by real values from the moment it starts (Phase 5 design §6.3).
+      deliverConfig(instance, connection, httpClient, baseUrl);
       connection.send(
           new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
+    }
+  }
+
+  private static void deliverConfig(
+      SupervisedInstance instance, WorkerConnection connection, HttpClient httpClient, URI baseUrl)
+      throws IOException {
+    Optional<String> tenantId = instance.assigned.tenantId();
+    if (tenantId.isEmpty()) {
+      return;
+    }
+    List<ConfigValue> entries;
+    try {
+      entries = fetchConfigForTenant(httpClient, baseUrl, tenantId.get());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return;
+    } catch (RuntimeException e) {
+      log.warn(
+          "failed to fetch config for tenant {}: {}; instance will start without it",
+          tenantId.get(),
+          e.getMessage());
+      return;
+    }
+    for (ConfigValue entry : entries) {
+      connection.send(
+          new ControlMessage.ConfigDelivered(entry.key(), entry.value(), entry.wasEncrypted()));
     }
   }
 

@@ -9,6 +9,7 @@ import com.gimle.core.module.IsolationTier;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -219,5 +220,208 @@ class ApiServerTest {
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register")).GET().build());
 
     assertEquals(405, response.statusCode());
+  }
+
+  // ---- tenants (Phase 5 design §5.1) ----
+
+  private static String tenantJson(long maxMemoryBytes, long maxCpuMillicores, int maxInstances) {
+    return """
+        {"quota":{"maxMemoryBytes":%d,"maxCpuMillicores":%d,"maxInstances":%d}}
+        """
+        .formatted(maxMemoryBytes, maxCpuMillicores, maxInstances);
+  }
+
+  @Test
+  void tenant_put_get_list_delete_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> tenant = Json.asObject(Json.parse(get.body()));
+    assertEquals("acme", tenant.get("id"));
+    Map<String, Object> quota = Json.asObject(tenant.get("quota"));
+    assertEquals(10L, quota.get("maxInstances"));
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants")).GET().build());
+    assertEquals(200, list.statusCode());
+    assertEquals(1, Json.asObjectList(Json.parse(list.body())).size());
+
+    HttpResponse<String> delete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> getAfterDelete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).GET().build());
+    assertEquals(404, getAfterDelete.statusCode());
+  }
+
+  @Test
+  void get_of_an_unknown_tenant_is_404() throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/nope")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  // ---- tenant quota admission (Phase 5 design §5.2) ----
+
+  /** {@code TestModuleBuilder.minimalDescriptor} fixes the request at 16Mi memory / 10m cpu. */
+  private Path buildFixtureJar(String uniqueName) {
+    return TestModuleBuilder.module("module " + uniqueName + " {\n}\n")
+        .withDescriptor(TestModuleBuilder.minimalDescriptor(uniqueName, "1.0.0"))
+        .build(tempDir, uniqueName + ".jar");
+  }
+
+  private static String tenantedDeploymentYaml(
+      String name, int replicas, String artifactPath, String moduleName, String tenantId) {
+    return """
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: %d
+        tenantId: %s
+        """
+        .formatted(name, moduleName, artifactPath, replicas, tenantId);
+  }
+
+  @Test
+  void deployment_submission_exceeding_tenant_quota_is_rejected() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/tight"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.quota.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/over-quota"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        tenantedDeploymentYaml(
+                            "over-quota",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.quota.over",
+                            "tight")))
+                .build());
+
+    assertEquals(409, put.statusCode());
+    assertTrue(store.getDeployment("over-quota").isEmpty());
+  }
+
+  @Test
+  void deployment_submission_within_tenant_quota_succeeds() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/roomy"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.quota.within");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/within-quota"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        tenantedDeploymentYaml(
+                            "within-quota",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.quota.within",
+                            "roomy")))
+                .build());
+
+    assertEquals(200, put.statusCode());
+    assertTrue(store.getDeployment("within-quota").isPresent());
+  }
+
+  @Test
+  void deployment_submission_for_an_unregistered_tenant_is_rejected() throws Exception {
+    Path jar = buildFixtureJar("com.gimle.fixture.quota.unknown");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/unknown-tenant"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        tenantedDeploymentYaml(
+                            "unknown-tenant",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.quota.unknown",
+                            "does-not-exist")))
+                .build());
+
+    assertEquals(409, put.statusCode());
+  }
+
+  // ---- config/secrets distribution (Phase 5 design §6) ----
+
+  @Test
+  void plain_config_put_and_list_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"value\":\"hello\",\"encrypted\":false}"))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> entries = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(1, entries.size());
+    assertEquals("greeting", entries.get(0).get("key"));
+    assertEquals("hello", entries.get(0).get("value"));
+    assertEquals(false, entries.get(0).get("encrypted"));
+  }
+
+  @Test
+  void encrypted_config_round_trips_to_plaintext_on_read() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/db-password"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"value\":\"s3cr3t\",\"encrypted\":true}"))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    // The value is stored as ciphertext -- never the plaintext -- in the state store itself.
+    byte[] stored = store.getConfigEntry("acme", "db-password").orElseThrow().value();
+    assertTrue(
+        stored.length > 0 && new String(stored, StandardCharsets.UTF_8).indexOf("s3cr3t") < 0,
+        "stored value must not contain the plaintext secret");
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
+    List<Map<String, Object>> entries = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(1, entries.size());
+    assertEquals("s3cr3t", entries.get(0).get("value"));
+    assertEquals(true, entries.get(0).get("encrypted"));
+  }
+
+  @Test
+  void config_delete_removes_the_entry() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/temp"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"x\",\"encrypted\":false}"))
+            .build());
+
+    HttpResponse<String> delete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/temp")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
   }
 }

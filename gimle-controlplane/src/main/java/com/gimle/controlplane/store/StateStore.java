@@ -2,6 +2,7 @@ package com.gimle.controlplane.store;
 
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -10,6 +11,8 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -20,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,6 +54,9 @@ public final class StateStore {
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, Integer> rollingIndices = new ConcurrentHashMap<>();
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
+  private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
+  private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
+  private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
 
   public StateStore(Path root) {
     this.root = root;
@@ -59,6 +66,9 @@ public final class StateStore {
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
       Files.createDirectories(autoscaleDir());
+      Files.createDirectories(tenantsDir());
+      Files.createDirectories(quotaDir());
+      Files.createDirectories(configDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -180,6 +190,68 @@ public final class StateStore {
     return List.copyOf(nodeHeartbeats.values());
   }
 
+  // ---- tenants (Phase 5 design §5.1) ----
+
+  public void putTenant(Tenant tenant) {
+    writeAtomically(tenantFile(tenant.id()), tenantToYaml(tenant));
+    tenants.put(tenant.id(), tenant);
+  }
+
+  public Optional<Tenant> getTenant(String id) {
+    return Optional.ofNullable(tenants.get(id));
+  }
+
+  public List<Tenant> listTenants() {
+    return List.copyOf(tenants.values());
+  }
+
+  public void removeTenant(String id) {
+    deleteQuietly(tenantFile(id));
+    tenants.remove(id);
+  }
+
+  // ---- quota-violation bookkeeping (Phase 5 design §5.2) ----
+
+  /**
+   * Set by {@code QuotaReconciler} every tick, read by the API server's deployment status surface
+   * -- a level-triggered flag, not an event, so a deployment whose tenant's quota is retroactively
+   * raised again clears automatically on the next tick without any special-cased "resolved" path.
+   */
+  public void putQuotaViolation(String deploymentName, boolean violating) {
+    if (!violating) {
+      deleteQuietly(quotaFile(deploymentName));
+      quotaViolations.remove(deploymentName);
+      return;
+    }
+    writeAtomically(quotaFile(deploymentName), "violating: true\n");
+    quotaViolations.put(deploymentName, Boolean.TRUE);
+  }
+
+  public boolean isQuotaViolating(String deploymentName) {
+    return quotaViolations.getOrDefault(deploymentName, Boolean.FALSE);
+  }
+
+  // ---- tenant-scoped config/secrets (Phase 5 design §6.2) ----
+
+  public void putConfigEntry(ConfigEntry entry) {
+    String key = configKey(entry.tenantId(), entry.key());
+    writeAtomically(configFile(entry.tenantId(), entry.key()), configEntryToYaml(entry));
+    configEntries.put(key, entry);
+  }
+
+  public Optional<ConfigEntry> getConfigEntry(String tenantId, String key) {
+    return Optional.ofNullable(configEntries.get(configKey(tenantId, key)));
+  }
+
+  public List<ConfigEntry> listConfigEntriesFor(String tenantId) {
+    return configEntries.values().stream().filter(e -> e.tenantId().equals(tenantId)).toList();
+  }
+
+  public void removeConfigEntry(String tenantId, String key) {
+    deleteQuietly(configFile(tenantId, key));
+    configEntries.remove(configKey(tenantId, key));
+  }
+
   // ---- disk layout ----
 
   private Path deploymentsDir() {
@@ -230,6 +302,43 @@ public final class StateStore {
     return deploymentName + "#" + instanceIndex;
   }
 
+  private Path tenantsDir() {
+    return root.resolve("tenants");
+  }
+
+  private Path tenantFile(String id) {
+    return tenantsDir().resolve(id + ".yaml");
+  }
+
+  private Path quotaDir() {
+    return root.resolve("quota");
+  }
+
+  private Path quotaFile(String deploymentName) {
+    return quotaDir().resolve(deploymentName + ".yaml");
+  }
+
+  private Path configDir() {
+    return root.resolve("config");
+  }
+
+  private Path configFile(String tenantId, String key) {
+    // Config/secret keys are arbitrary text and may contain characters unsafe in a filename (or
+    // even path separators); base64url-encoding the key -- not the tenantId, which the existing
+    // node-id/deployment-name directory-naming precedent already assumes is filesystem-safe --
+    // keeps this store's "one small file per resource" shape without adding a validation rule
+    // config keys never needed before this.
+    String encodedKey =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(key.getBytes(StandardCharsets.UTF_8));
+    return configDir().resolve(tenantId).resolve(encodedKey + ".yaml");
+  }
+
+  private static String configKey(String tenantId, String key) {
+    return tenantId + "#" + key;
+  }
+
   private void loadAll() {
     loadEach(
         deploymentsDir(),
@@ -276,6 +385,27 @@ public final class StateStore {
           String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
           Map<?, ?> map = loadMap(file);
           effectiveReplicas.put(deploymentName, ((Number) map.get("replicas")).intValue());
+        });
+    loadEach(
+        tenantsDir(),
+        "*.yaml",
+        file -> {
+          Tenant tenant = tenantFromMap(loadMap(file));
+          tenants.put(tenant.id(), tenant);
+        });
+    loadEach(
+        quotaDir(),
+        "*.yaml",
+        file -> {
+          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          quotaViolations.put(deploymentName, Boolean.TRUE);
+        });
+    loadEach(
+        configDir(),
+        "*/*.yaml",
+        file -> {
+          ConfigEntry entry = configEntryFromMap(loadMap(file));
+          configEntries.put(configKey(entry.tenantId(), entry.key()), entry);
         });
   }
 
@@ -373,6 +503,7 @@ public final class StateStore {
               autoscale.put("targetCpuUtilizationPercent", policy.targetCpuUtilizationPercent());
               root.put("autoscale", autoscale);
             });
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
     return new Yaml().dump(root);
   }
 
@@ -505,5 +636,44 @@ public final class StateStore {
               numberOrDefault(m.get("memoryBytesUsed"), 0L).longValue()));
     }
     return new ObservedHeartbeat(new NodeHeartbeat(nodeId, capacity, instances), receivedAt);
+  }
+
+  private static String tenantToYaml(Tenant tenant) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("id", tenant.id());
+    Map<String, Object> quota = new LinkedHashMap<>();
+    quota.put("maxMemoryBytes", tenant.quota().maxMemoryBytes());
+    quota.put("maxCpuMillicores", tenant.quota().maxCpuMillicores());
+    quota.put("maxInstances", tenant.quota().maxInstances());
+    root.put("quota", quota);
+    return new Yaml().dump(root);
+  }
+
+  private static Tenant tenantFromMap(Map<?, ?> root) {
+    Map<?, ?> quotaMap = (Map<?, ?>) root.get("quota");
+    ResourceQuota quota =
+        new ResourceQuota(
+            ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
+            ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
+            ((Number) quotaMap.get("maxInstances")).intValue());
+    return new Tenant((String) root.get("id"), quota);
+  }
+
+  private static String configEntryToYaml(ConfigEntry entry) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("tenantId", entry.tenantId());
+    root.put("key", entry.key());
+    root.put("value", Base64.getEncoder().encodeToString(entry.value()));
+    root.put("encrypted", entry.encrypted());
+    return new Yaml().dump(root);
+  }
+
+  private static ConfigEntry configEntryFromMap(Map<?, ?> root) {
+    byte[] value = Base64.getDecoder().decode((String) root.get("value"));
+    return new ConfigEntry(
+        (String) root.get("tenantId"),
+        (String) root.get("key"),
+        value,
+        (Boolean) root.get("encrypted"));
   }
 }

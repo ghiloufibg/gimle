@@ -18,6 +18,12 @@ import java.util.Optional;
  * computes an effective replica count {@code DeploymentReconciler} reads in place of {@code
  * replicas} -- {@code replicas} itself stays the user-submitted floor/starting point, never
  * overwritten by the autoscaler.
+ *
+ * <p>{@code tenantId} (Phase 5 design §5.1) is optional, matching the {@code autoscale} precedent
+ * exactly: a deployment with no {@code tenantId} is untenanted, today's behavior, unchanged. When
+ * present, it must name a {@link com.gimle.core.tenant.Tenant} already registered with the control
+ * plane -- checked by the API server at admission (design §5.2), not by this record's own compact
+ * constructor, which has no {@code StateStore} to check against.
  */
 public record DeploymentSpec(
     String name,
@@ -25,7 +31,8 @@ public record DeploymentSpec(
     String artifactPath,
     int replicas,
     PlacementConstraints placement,
-    Optional<AutoscalePolicy> autoscale) {
+    Optional<AutoscalePolicy> autoscale,
+    Optional<String> tenantId) {
 
   public DeploymentSpec {
     if (name == null || name.isBlank()) {
@@ -46,6 +53,19 @@ public record DeploymentSpec(
     if (autoscale == null) {
       throw new IllegalArgumentException("autoscale must be Optional.empty(), not null");
     }
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale) {
+    this(name, moduleId, artifactPath, replicas, placement, autoscale, Optional.empty());
   }
 
   public DeploymentSpec(
@@ -54,6 +74,6 @@ public record DeploymentSpec(
       String artifactPath,
       int replicas,
       PlacementConstraints placement) {
-    this(name, moduleId, artifactPath, replicas, placement, Optional.empty());
+    this(name, moduleId, artifactPath, replicas, placement, Optional.empty(), Optional.empty());
   }
 }

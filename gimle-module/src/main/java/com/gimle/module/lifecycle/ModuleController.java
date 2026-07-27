@@ -49,6 +49,14 @@ public final class ModuleController {
   private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
   private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
 
+  /**
+   * Shared across every {@link SimpleModuleContext} this controller creates -- a Phase 5 config/
+   * secret value delivered via {@link #deliverConfig} before or after a given module resolves both
+   * work identically, since every context reads through to this same live map rather than a
+   * snapshot taken at construction time (design §6.3).
+   */
+  private final Map<String, String> configValues = new ConcurrentHashMap<>();
+
   public ModuleController(
       ModuleRegistry registry,
       ModuleResolver resolver,
@@ -124,6 +132,15 @@ public final class ModuleController {
     this.serviceRegistry = serviceRegistry;
   }
 
+  /**
+   * Called by {@code gimle-worker}'s {@code WorkerMain} on {@code ControlMessage.ConfigDelivered}
+   * (Phase 5 design §6.3): makes {@code value} visible via {@code ModuleContext.config(key)} for
+   * every module this controller hosts, whether it resolved before or after this call.
+   */
+  public void deliverConfig(String key, String value) {
+    configValues.put(key, value);
+  }
+
   public ModuleWiring resolve(ModuleId id) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
@@ -160,7 +177,7 @@ public final class ModuleController {
     registry.markResolved(id, wiring, handle);
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
-    SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry);
+    SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry, configValues);
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);

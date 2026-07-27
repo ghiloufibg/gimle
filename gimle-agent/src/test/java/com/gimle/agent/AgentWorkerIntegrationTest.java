@@ -60,8 +60,11 @@ class AgentWorkerIntegrationTest {
     Path socketPath = Files.createTempDirectory("gimle-agent-uds-").resolve("c.sock");
     String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
+    // WorkerMain's third argument is tenantId-or-empty (Phase 5 design §5.1); this scenario doesn't
+    // exercise tenancy, so it's blank -- WorkerProcessSupervisor appends the control-socket path
+    // itself as the final argument.
     List<String> baseCommand =
-        List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain", "test-node");
+        List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain", "test-node", "");
     RestartTracker restartTracker =
         new RestartTracker(
             Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5), 3, Duration.ofMinutes(1));

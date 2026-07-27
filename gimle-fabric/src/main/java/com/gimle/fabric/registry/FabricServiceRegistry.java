@@ -66,6 +66,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final int breakerWindowSize;
   private final double breakerErrorRateThreshold;
   private final Duration breakerCooldown;
+  private final Optional<String> selfTenantId;
 
   private final Map<ServiceEndpoint, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final LeastOutstandingRequestsSelector<ServiceEndpoint> selector =
@@ -84,6 +85,39 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       int breakerWindowSize,
       double breakerErrorRateThreshold,
       Duration breakerCooldown) {
+    this(
+        selfNode,
+        workerId,
+        localRegistry,
+        catalog,
+        exportsOf,
+        controlChannel,
+        interfaceLoader,
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        Optional.empty());
+  }
+
+  /**
+   * {@code selfTenantId} (Phase 5 design §5.3) is this worker's own tenant, if any -- consulted in
+   * {@link #lookup} to filter out any candidate whose export restricts {@code allowedTenantIds} to
+   * a set this tenant isn't in. An untenanted worker ({@code Optional.empty()}) can never satisfy a
+   * restricted export's allow-list (it can't prove membership in any tenant), matching {@link
+   * ServiceExport#permitsTenant}'s own safe-by-default semantics.
+   */
+  public FabricServiceRegistry(
+      MemberId selfNode,
+      String workerId,
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Consumer<ControlMessage> controlChannel,
+      ClassLoader interfaceLoader,
+      int breakerWindowSize,
+      double breakerErrorRateThreshold,
+      Duration breakerCooldown,
+      Optional<String> selfTenantId) {
     this.selfNode = selfNode;
     this.workerId = workerId;
     this.localRegistry = localRegistry;
@@ -94,6 +128,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     this.breakerWindowSize = breakerWindowSize;
     this.breakerErrorRateThreshold = breakerErrorRateThreshold;
     this.breakerCooldown = breakerCooldown;
+    this.selfTenantId = selfTenantId;
   }
 
   @Override
@@ -133,6 +168,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       boolean isSameMachine = endpoint.node().nodeId().equals(selfNode.nodeId());
       if (isSameMachine && endpoint.workerId().equals(workerId)) {
         continue; // this worker's own entry: already covered by the local-registry tier above
+      }
+      if (!endpoint.export().permitsTenant(selfTenantId)) {
+        continue; // Phase 5 §5.3: this tenant isn't on the export's allow-list
       }
       if (breakerFor(endpoint).isExcluded()) {
         continue;

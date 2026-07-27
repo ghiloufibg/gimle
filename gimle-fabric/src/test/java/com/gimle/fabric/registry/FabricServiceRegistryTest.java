@@ -203,6 +203,113 @@ class FabricServiceRegistryTest {
     assertThrows(GimleClusterException.class, () -> registry.lookup(Greeter.class));
   }
 
+  // ---- tenant permission filtering, Phase 5 design §5.3 ----
+
+  private FabricServiceRegistry newRegistryForTenant(
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      ServiceExport export,
+      Optional<String> selfTenantId) {
+    return new FabricServiceRegistry(
+        selfNode,
+        "worker-self",
+        localRegistry,
+        catalog,
+        owner -> List.of(export),
+        message -> {},
+        Greeter.class.getClassLoader(),
+        4,
+        0.5,
+        Duration.ofMillis(200),
+        selfTenantId);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_belonging_to_an_allowed_tenant_reaches_a_restricted_export() throws IOException {
+    ServiceExport restricted =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        restricted,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, restricted, Optional.of("tenant-a"));
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    assertEquals("remote:x", greeter.greet("x"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_from_a_different_tenant_cannot_reach_a_restricted_export() throws IOException {
+    ServiceExport restricted =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        restricted,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, restricted, Optional.of("tenant-b"));
+
+    assertEquals(Optional.empty(), registry.lookup(Greeter.class));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_caller_cannot_reach_a_restricted_export() throws IOException {
+    ServiceExport restricted =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        restricted,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(new SimpleServiceRegistry(), catalog, restricted, Optional.empty());
+
+    assertEquals(Optional.empty(), registry.lookup(Greeter.class));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_unrestricted_export_is_reachable_regardless_of_caller_tenant() throws IOException {
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, GREETER_EXPORT, Optional.of("any-tenant"));
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    assertEquals("remote:x", greeter.greet("x"));
+  }
+
   @Test
   void register_reports_the_export_over_the_control_channel() {
     List<ControlMessage> sent = new ArrayList<>();

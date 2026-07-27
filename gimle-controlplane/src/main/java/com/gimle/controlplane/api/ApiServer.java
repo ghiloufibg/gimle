@@ -2,11 +2,16 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.secret.KeyFileManager;
+import com.gimle.controlplane.secret.SecretCipher;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.ObservedHeartbeat;
 import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.tenant.TenantUsage;
+import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
@@ -16,6 +21,9 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.module.artifact.ModuleArtifactReader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -23,6 +31,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -31,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
+import javax.crypto.SecretKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,13 +59,40 @@ public final class ApiServer implements AutoCloseable {
 
   private final StateStore store;
   private final HttpServer server;
+  private final SecretKey secretKey;
 
+  /**
+   * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
+   * secrets to survive a restart, but not real deployments (see the three-argument constructor).
+   */
   public ApiServer(StateStore store, int port) throws IOException {
+    this(store, port, KeyFileManager.loadOrCreate(ephemeralKeyPath()));
+  }
+
+  /**
+   * {@code secretKeyFilePath} (Phase 5 design §6.1) is the control plane's persistent AES-256
+   * secrets master key, generated on first run if absent.
+   */
+  public ApiServer(StateStore store, int port, Path secretKeyFilePath) throws IOException {
+    this(store, port, KeyFileManager.loadOrCreate(secretKeyFilePath));
+  }
+
+  private ApiServer(StateStore store, int port, SecretKey secretKey) throws IOException {
     this.store = store;
+    this.secretKey = secretKey;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/deployments/", this::handleDeployment);
     server.createContext("/nodes/", this::handleNode);
+    server.createContext("/tenants/", this::handleTenant);
+    server.createContext("/tenants", this::handleTenantsList);
+    server.createContext("/config/", this::handleConfig);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+  }
+
+  /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */
+  private static Path ephemeralKeyPath() throws IOException {
+    Path dir = java.nio.file.Files.createTempDirectory("gimle-apiserver-ephemeral-key-");
+    return dir.resolve("secret.key");
   }
 
   public void start() {
@@ -105,8 +142,55 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
       return;
     }
+    Optional<String> quotaRejection = checkTenantQuota(spec);
+    if (quotaRejection.isPresent()) {
+      respond(exchange, 409, quotaRejection.get());
+      return;
+    }
     store.putDeployment(spec);
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Admission-time quota check (Phase 5 design §5.2): absent if the deployment is untenanted (no
+   * check to run) or would keep the tenant within quota; present with a rejection reason otherwise.
+   * Reads the module descriptor control-plane-side, the same way {@code DeploymentReconciler}
+   * already does to learn a resource request before any node has resolved anything -- an unreadable
+   * artifact rejects the submission outright here (unlike {@code DeploymentReconciler}, which just
+   * retries next tick with nothing yet at stake), since admission can't safely let through a
+   * submission it has no way to verify against the tenant's quota.
+   */
+  private Optional<String> checkTenantQuota(DeploymentSpec spec) {
+    if (spec.tenantId().isEmpty()) {
+      return Optional.empty();
+    }
+    String tenantId = spec.tenantId().get();
+    Optional<Tenant> tenant = store.getTenant(tenantId);
+    if (tenant.isEmpty()) {
+      return Optional.of("unknown tenantId: " + tenantId);
+    }
+    ModuleDescriptor descriptor;
+    try {
+      descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
+    } catch (RuntimeException e) {
+      return Optional.of(
+          "cannot verify tenant quota: artifact unreadable at " + spec.artifactPath());
+    }
+    TenantUsage.Usage existing = TenantUsage.currentlyAssigned(store, tenantId, spec.name());
+    TenantUsage.Usage withThisSubmission =
+        existing.plus(
+            descriptor.resourceRequest().memoryBytes() * spec.replicas(),
+            descriptor.resourceRequest().cpuMillicores() * spec.replicas(),
+            spec.replicas());
+    if (withThisSubmission.exceeds(tenant.get().quota())) {
+      return Optional.of(
+          "deployment "
+              + spec.name()
+              + " would push tenant "
+              + tenantId
+              + " past its resource quota");
+    }
+    return Optional.empty();
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
@@ -129,6 +213,7 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
@@ -144,6 +229,7 @@ public final class ApiServer implements AutoCloseable {
     status.put("spec", specMap);
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
+    status.put("quotaViolating", store.isQuotaViolating(spec.name()));
     return status;
   }
 
@@ -249,7 +335,11 @@ public final class ApiServer implements AutoCloseable {
               : assignment.artifactPath();
       AssignedInstance instance =
           new AssignedInstance(
-              assignment.deploymentName(), assignment.instanceIndex(), moduleId, artifactPath);
+              assignment.deploymentName(),
+              assignment.instanceIndex(),
+              moduleId,
+              artifactPath,
+              spec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);
@@ -323,7 +413,168 @@ public final class ApiServer implements AutoCloseable {
     map.put("instanceIndex", instance.instanceIndex());
     map.put("moduleId", moduleIdToJson(instance.moduleId()));
     map.put("artifactPath", instance.artifactPath());
+    instance.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
     return map;
+  }
+
+  // ---- /tenants and /tenants/{id} (Phase 5 design §5.1) ----
+
+  private void handleTenantsList(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange, 200, store.listTenants().stream().map(ApiServer::tenantToJson).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("tenants list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleTenant(HttpExchange exchange) {
+    try {
+      String id = pathSegmentAfter(exchange, "/tenants/");
+      if (id.isBlank()) {
+        respond(exchange, 400, "missing tenant id");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> handlePutTenant(exchange, id);
+        case "GET" -> handleGetTenant(exchange, id);
+        case "DELETE" -> handleDeleteTenant(exchange, id);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("tenant request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutTenant(HttpExchange exchange, String id) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Map<?, ?> quotaMap = (Map<?, ?>) body.get("quota");
+    ResourceQuota quota =
+        new ResourceQuota(
+            ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
+            ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
+            ((Number) quotaMap.get("maxInstances")).intValue());
+    store.putTenant(new Tenant(id, quota));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetTenant(HttpExchange exchange, String id) throws IOException {
+    Optional<Tenant> tenant = store.getTenant(id);
+    if (tenant.isEmpty()) {
+      respond(exchange, 404, "no such tenant: " + id);
+      return;
+    }
+    respondJson(exchange, 200, tenantToJson(tenant.get()));
+  }
+
+  private void handleDeleteTenant(HttpExchange exchange, String id) throws IOException {
+    store.removeTenant(id);
+    respond(exchange, 200, "ok");
+  }
+
+  private static Map<String, Object> tenantToJson(Tenant tenant) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("id", tenant.id());
+    Map<String, Object> quota = new LinkedHashMap<>();
+    quota.put("maxMemoryBytes", tenant.quota().maxMemoryBytes());
+    quota.put("maxCpuMillicores", tenant.quota().maxCpuMillicores());
+    quota.put("maxInstances", tenant.quota().maxInstances());
+    map.put("quota", quota);
+    return map;
+  }
+
+  // ---- /config/{tenantId} and /config/{tenantId}/{key} (Phase 5 design §6) ----
+
+  private void handleConfig(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/config/");
+      if (tail.isBlank()) {
+        respond(exchange, 400, "expected /config/{tenantId} or /config/{tenantId}/{key}");
+        return;
+      }
+      int slash = tail.indexOf('/');
+      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenantId");
+        return;
+      }
+      if (slash < 0) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        handleListConfig(exchange, tenantId);
+        return;
+      }
+      String key = tail.substring(slash + 1);
+      if (key.isBlank()) {
+        respond(exchange, 400, "missing config key");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> handlePutConfig(exchange, tenantId, key);
+        case "DELETE" -> handleDeleteConfig(exchange, tenantId, key);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("config request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutConfig(HttpExchange exchange, String tenantId, String key)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String value = (String) body.get("value");
+    boolean encrypted = Boolean.TRUE.equals(body.get("encrypted"));
+    byte[] stored =
+        encrypted
+            ? SecretCipher.encrypt(value.getBytes(StandardCharsets.UTF_8), secretKey)
+            : value.getBytes(StandardCharsets.UTF_8);
+    store.putConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleDeleteConfig(HttpExchange exchange, String tenantId, String key)
+      throws IOException {
+    store.removeConfigEntry(tenantId, key);
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Returns every entry for {@code tenantId}, decrypted -- the node agent's fetch point (Phase 5
+   * design §6.3): "the node agent... fetches that deployment's tenant-scoped ConfigEntry set from
+   * the control plane (decrypted server-side...)". Plaintext leaves this process only over the same
+   * authenticated control-plane connection every other agent request already uses.
+   */
+  private void handleListConfig(HttpExchange exchange, String tenantId) throws IOException {
+    List<Map<String, Object>> list = new ArrayList<>();
+    for (ConfigEntry entry : store.listConfigEntriesFor(tenantId)) {
+      byte[] plaintext =
+          entry.encrypted() ? SecretCipher.decrypt(entry.value(), secretKey) : entry.value();
+      Map<String, Object> m = new LinkedHashMap<>();
+      m.put("key", entry.key());
+      m.put("value", new String(plaintext, StandardCharsets.UTF_8));
+      m.put("encrypted", entry.encrypted());
+      list.add(m);
+    }
+    respondJson(exchange, 200, list);
   }
 
   // ---- HTTP plumbing ----
