@@ -1,11 +1,13 @@
 package com.gimle.controlplane.secret;
 
+import com.gimle.core.exception.GimleSecretsException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
+import java.util.Set;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -27,6 +29,7 @@ public final class KeyFileManager {
   private static final Logger log = LoggerFactory.getLogger(KeyFileManager.class);
   private static final String ALGORITHM = "AES";
   private static final int KEY_BITS = 256;
+  private static final Set<Integer> VALID_AES_KEY_LENGTHS = Set.of(16, 24, 32);
 
   private KeyFileManager() {}
 
@@ -34,6 +37,9 @@ public final class KeyFileManager {
     try {
       if (Files.exists(keyFilePath)) {
         byte[] encoded = Files.readAllBytes(keyFilePath);
+        if (!VALID_AES_KEY_LENGTHS.contains(encoded.length)) {
+          throw GimleSecretsException.invalidKeyFile(keyFilePath, encoded.length);
+        }
         return new SecretKeySpec(encoded, ALGORITHM);
       }
       SecretKey key = generateKey();

@@ -1,7 +1,10 @@
 package com.gimle.controlplane.secret;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.gimle.core.exception.GimleSecretsException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
@@ -34,5 +37,21 @@ class KeyFileManagerTest {
     byte[] plaintext = SecretCipher.decrypt(ciphertext, reader);
 
     org.junit.jupiter.api.Assertions.assertEquals("hello", new String(plaintext));
+  }
+
+  @Test
+  void a_corrupted_length_key_file_is_rejected_with_a_clear_error() throws Exception {
+    Path keyFile = tempDir.resolve("corrupted.key");
+    Files.write(keyFile, new byte[] {1, 2, 3, 4, 5, 6, 7});
+
+    assertThrows(GimleSecretsException.class, () -> KeyFileManager.loadOrCreate(keyFile));
+  }
+
+  @Test
+  void an_empty_key_file_is_rejected_with_a_clear_error() throws Exception {
+    Path keyFile = tempDir.resolve("empty.key");
+    Files.write(keyFile, new byte[0]);
+
+    assertThrows(GimleSecretsException.class, () -> KeyFileManager.loadOrCreate(keyFile));
   }
 }
