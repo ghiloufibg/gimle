@@ -1,15 +1,22 @@
 package com.gimle.agent;
 
+import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +38,28 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(WorkerProcessSupervisor.class);
 
+  /**
+   * How long a respawned process must stay alive before its restart is considered a genuine
+   * recovery rather than another lap of a fast crash loop. Calling {@link
+   * RestartTracker#recordSuccess()} unconditionally right after {@code spawn()} returns -- proving
+   * only that the OS accepted the {@code exec()} call, not that the program ran for even one
+   * instant -- would reset the backoff window on every single cycle of a worker that crashes
+   * immediately on every launch, so that loop would retry forever at the initial delay instead of
+   * ever reaching the design's documented "give up after N attempts in the window" outcome.
+   */
+  private static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
+
   private final String workerId;
   private final List<String> baseCommand;
   private final Path controlSocketPath;
   private final RestartTracker restartTracker;
   private final Consumer<String> onRestartBudgetExhausted;
+  private final Optional<Path> systemLogFile;
+  private final Duration stableUptimeThreshold;
 
   private volatile Process process;
   private volatile boolean closed;
+  private volatile OutputStream systemLogStream;
 
   public WorkerProcessSupervisor(
       String workerId,
@@ -46,11 +67,61 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted) {
+    this(
+        workerId,
+        baseCommand,
+        controlSocketPath,
+        restartTracker,
+        onRestartBudgetExhausted,
+        Optional.empty(),
+        DEFAULT_STABLE_UPTIME_THRESHOLD);
+  }
+
+  /**
+   * {@code systemLogFile} (log-explorer-design.md §5) is where drained stdout lines that don't
+   * parse as JSON get appended verbatim, tagged {@code category: "SYSTEM"} -- raw output that
+   * bypassed the worker's own Logback JSON encoding entirely (a JVM startup banner before Logback
+   * initializes, a module's stray {@code System.out.println}). Empty for a caller that doesn't want
+   * SYSTEM capture (e.g. tests).
+   */
+  public WorkerProcessSupervisor(
+      String workerId,
+      List<String> baseCommand,
+      Path controlSocketPath,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Optional<Path> systemLogFile) {
+    this(
+        workerId,
+        baseCommand,
+        controlSocketPath,
+        restartTracker,
+        onRestartBudgetExhausted,
+        systemLogFile,
+        DEFAULT_STABLE_UPTIME_THRESHOLD);
+  }
+
+  /**
+   * Same as the five/six-arg constructors, with an explicit {@code stableUptimeThreshold} (see
+   * {@link #DEFAULT_STABLE_UPTIME_THRESHOLD}) rather than the default -- for tests that need a
+   * respawned process to be confirmed stable inside a bounded test timeout instead of ten real
+   * seconds.
+   */
+  public WorkerProcessSupervisor(
+      String workerId,
+      List<String> baseCommand,
+      Path controlSocketPath,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Optional<Path> systemLogFile,
+      Duration stableUptimeThreshold) {
     this.workerId = workerId;
     this.baseCommand = List.copyOf(baseCommand);
     this.controlSocketPath = controlSocketPath;
     this.restartTracker = restartTracker;
     this.onRestartBudgetExhausted = onRestartBudgetExhausted;
+    this.systemLogFile = systemLogFile;
+    this.stableUptimeThreshold = stableUptimeThreshold;
   }
 
   public synchronized void start() throws IOException {
@@ -82,10 +153,69 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
             new InputStreamReader(worker.getInputStream(), StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
+        if (isJsonLine(line)) {
+          // Already captured structurally by the worker's own Logback file appenders (design §5);
+          // re-logging it here would just duplicate it in a different, non-JSON format.
+          continue;
+        }
         log.info("[worker {}] {}", workerId, line);
+        captureSystemLine(line);
       }
     } catch (IOException e) {
       // The pipe closes when the worker exits; nothing left to drain.
+    } finally {
+      closeSystemLog();
+    }
+  }
+
+  private static boolean isJsonLine(String line) {
+    try {
+      Json.parse(line);
+      return true;
+    } catch (RuntimeException e) {
+      return false;
+    }
+  }
+
+  private void captureSystemLine(String line) {
+    if (systemLogFile.isEmpty()) {
+      return;
+    }
+    Map<String, Object> entry = new LinkedHashMap<>();
+    entry.put("timestamp", Instant.now().toString());
+    entry.put("category", "SYSTEM");
+    entry.put("raw", line);
+    byte[] bytes = (Json.write(entry) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+    try {
+      OutputStream out = systemLogStreamOrOpen();
+      synchronized (this) {
+        out.write(bytes);
+        out.flush();
+      }
+    } catch (IOException e) {
+      log.warn("failed to write SYSTEM capture line for worker {}: {}", workerId, e.getMessage());
+    }
+  }
+
+  private synchronized OutputStream systemLogStreamOrOpen() throws IOException {
+    if (systemLogStream == null) {
+      Path file = systemLogFile.orElseThrow();
+      if (file.getParent() != null) {
+        Files.createDirectories(file.getParent());
+      }
+      systemLogStream =
+          Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+    return systemLogStream;
+  }
+
+  private void closeSystemLog() {
+    if (systemLogStream != null) {
+      try {
+        systemLogStream.close();
+      } catch (IOException e) {
+        // best-effort close when the worker's output pipe closes
+      }
     }
   }
 
@@ -119,9 +249,35 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
                 }
                 try {
                   spawn();
-                  restartTracker.recordSuccess();
+                  scheduleStabilityConfirmation(process);
                 } catch (IOException e) {
                   log.error("worker {} respawn failed: {}", workerId, e.getMessage());
+                }
+              }
+            });
+  }
+
+  /**
+   * Only calls {@link RestartTracker#recordSuccess()} once {@code spawnedProcess} has stayed alive
+   * for {@link #stableUptimeThreshold} -- see {@link #DEFAULT_STABLE_UPTIME_THRESHOLD}'s javadoc
+   * for why an immediate call would defeat backoff escalation for a fast crash loop. Guarded
+   * against a stale confirmation firing after a later respawn already replaced {@link #process}:
+   * that later respawn's own confirmation is what gets to decide, not this one.
+   */
+  private void scheduleStabilityConfirmation(Process spawnedProcess) {
+    Thread.ofVirtual()
+        .name("gimle-worker-stability-check-" + workerId)
+        .start(
+            () -> {
+              try {
+                Thread.sleep(stableUptimeThreshold);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              synchronized (this) {
+                if (!closed && process == spawnedProcess && spawnedProcess.isAlive()) {
+                  restartTracker.recordSuccess();
                 }
               }
             });
