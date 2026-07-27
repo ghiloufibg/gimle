@@ -19,6 +19,14 @@
     and restart, capacity reporting. Never runs hosted-module code itself.
   </description>
 
+  <properties>
+    <!-- Runtime-image profile (root pom): the JDK platform module list was arrived at
+         empirically: jlink + run AgentMain, add whatever module a NoClassDefFoundError
+         named, repeat; not derived from module-info.java's own requires list alone. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.agent.AgentMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http,java.management,jdk.management,java.logging,java.xml,java.naming</gimle.runtimeImage.jdkModules>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.gimle</groupId>
@@ -54,12 +62,6 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-module</artifactId>
       <type>test-jar</type>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.yaml</groupId>
-      <artifactId>snakeyaml</artifactId>
-      <version>2.3</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

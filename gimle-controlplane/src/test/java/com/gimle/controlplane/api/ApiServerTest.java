@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.store.InstanceAssignment;
@@ -139,6 +140,80 @@ class ApiServerTest {
                 .GET()
                 .build());
     assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void deployments_list_endpoint_returns_every_deployment() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 2)))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/catalog-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("catalog-service", 1)))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/deployments")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(2, body.size());
+  }
+
+  @Test
+  void deployments_list_endpoint_is_empty_with_none_submitted() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/deployments")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void nodes_list_endpoint_returns_registered_nodes_with_their_last_heartbeat() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    String heartbeatBody =
+        """
+        {"capacity":{"totalMemoryBytes":1000,"assignedMemoryBytes":0,"totalCpuMillicores":1000,\
+        "assignedCpuMillicores":0},"instances":[]}
+        """;
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/heartbeat"))
+            .POST(HttpRequest.BodyPublishers.ofString(heartbeatBody))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(1, body.size());
+    assertEquals("node-a", body.get(0).get("nodeId"));
+    assertTrue(body.get(0).containsKey("lastHeartbeatAt"));
+  }
+
+  @Test
+  void nodes_list_endpoint_omits_last_heartbeat_for_a_node_that_never_sent_one() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(1, body.size());
+    assertFalse(body.get(0).containsKey("lastHeartbeatAt"));
   }
 
   @Test

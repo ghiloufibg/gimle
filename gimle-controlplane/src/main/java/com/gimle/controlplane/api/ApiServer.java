@@ -117,7 +117,9 @@ public final class ApiServer implements AutoCloseable {
     this.peerApiAddresses = Map.copyOf(peerApiAddresses);
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/deployments/", this::handleDeployment);
+    server.createContext("/deployments", this::handleDeploymentsList);
     server.createContext("/nodes/", this::handleNode);
+    server.createContext("/nodes", this::handleNodesList);
     server.createContext("/tenants/", this::handleTenant);
     server.createContext("/tenants", this::handleTenantsList);
     server.createContext("/config/", this::handleConfig);
@@ -254,6 +256,23 @@ public final class ApiServer implements AutoCloseable {
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
     raftNode.propose(new StateMutation.RemoveDeployment(name));
     respond(exchange, 200, "ok");
+  }
+
+  /** Every deployment, in the same shape {@link #handleGetDeployment} returns for one. */
+  private void handleDeploymentsList(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange, 200, store.listDeployments().stream().map(this::deploymentStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("deployments list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -406,6 +425,36 @@ public final class ApiServer implements AutoCloseable {
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);
+  }
+
+  /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */
+  private void handleNodesList(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      List<Map<String, Object>> nodes = new ArrayList<>();
+      for (NodeRegistration registration : store.listNodeRegistrations()) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("nodeId", registration.nodeId());
+        Map<String, Object> capabilities = new LinkedHashMap<>();
+        capabilities.put(
+            "supportedTiers",
+            registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+        node.put("capabilities", capabilities);
+        store
+            .getNodeHeartbeat(registration.nodeId())
+            .ifPresent(observed -> node.put("lastHeartbeatAt", observed.receivedAt().toString()));
+        nodes.add(node);
+      }
+      respondJson(exchange, 200, nodes);
+    } catch (IOException | RuntimeException e) {
+      log.warn("nodes list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   // ---- (de)serialization ----
