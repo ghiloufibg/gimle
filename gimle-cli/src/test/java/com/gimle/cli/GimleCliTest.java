@@ -8,6 +8,9 @@ import com.gimle.controlplane.store.StateStore;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
@@ -63,6 +66,23 @@ class GimleCliTest {
 
   private String stderr() {
     return errBuffer.toString(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Registers a node directly against the real {@link ApiServer}, bypassing the CLI: {@code
+   * gimle-cli} has no {@code register node} verb of its own (that's the agent's job), so this is
+   * the same "real server, not mocked" setup {@code ApiServerTest} uses for its own node tests.
+   */
+  private void registerNode(String nodeId) throws Exception {
+    HttpClient client = HttpClient.newHttpClient();
+    client.send(
+        HttpRequest.newBuilder(
+                URI.create("http://" + serverAddress + "/nodes/" + nodeId + "/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build(),
+        java.net.http.HttpResponse.BodyHandlers.discarding());
   }
 
   private Path writeManifest(String name, int replicas) throws IOException {
@@ -158,6 +178,35 @@ class GimleCliTest {
 
     int deleteExit = run("delete", "config", "acme", "greeting");
     assertEquals(0, deleteExit);
+  }
+
+  @Test
+  void get_nodes_lists_a_registered_node() throws Exception {
+    registerNode("node-a");
+
+    int exit = run("get", "nodes");
+    assertEquals(0, exit);
+    assertTrue(stdout().contains("node-a"));
+  }
+
+  @Test
+  void get_nodes_as_json_includes_the_node_id_field() throws Exception {
+    registerNode("node-b");
+
+    int exit = run("-o", "json", "get", "nodes");
+    assertEquals(0, exit);
+    assertTrue(stdout().contains("\"nodeId\":\"node-b\""));
+  }
+
+  @Test
+  void apply_then_get_deployments_as_json_round_trips() throws Exception {
+    Path manifest = writeManifest("billing-service", 2);
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    int exit = run("-o", "json", "get", "deployments");
+    assertEquals(0, exit);
+    assertTrue(stdout().contains("\"name\":\"billing-service\""));
   }
 
   @Test
