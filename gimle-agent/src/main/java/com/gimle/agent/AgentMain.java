@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import com.gimle.core.exception.GimleIsolationException;
+import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -61,6 +62,17 @@ public final class AgentMain {
   private static final Duration TICK_INTERVAL = Duration.ofSeconds(5);
   private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
+  /**
+   * Enables the retaining-path attribution {@code OldObjectSampleCorrelator} (gimle-module) can
+   * only surface when the worker JVM itself was launched with {@code path-to-gc-roots=true} -- that
+   * setting is a recording-launch option, not something settable through the in-process {@code
+   * RecordingStream} API a worker's own leak detector uses. Always-on, not tied to any {@code
+   * ResourceSpec}: it's an observability concern every worker JVM needs regardless of its isolation
+   * tier.
+   */
+  private static final String LEAK_DETECTION_JFR_FLAG =
+      "-XX:StartFlightRecording:name=gimle-leak-detection,disk=false,settings=profile,path-to-gc-roots=true";
+
   private AgentMain() {}
 
   public static void main(String[] args) throws IOException, InterruptedException {
@@ -77,6 +89,11 @@ public final class AgentMain {
     List<InetSocketAddress> seeds = parseSeeds(args[3]);
     String javaExecutable = args[4];
     List<String> commandTail = List.of(args).subList(5, args.length);
+
+    System.setProperty("gimle.process.role", "AGENT");
+    System.setProperty("gimle.node.id", nodeId);
+    Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
+    GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
@@ -107,7 +124,8 @@ public final class AgentMain {
             resourceLimiter,
             capacityTracker,
             gossipMember,
-            catalog);
+            catalog,
+            logRoot);
         sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
       } catch (RuntimeException | IOException e) {
         log.error("agent tick failed: {}", e.getMessage(), e);
@@ -291,7 +309,8 @@ public final class AgentMain {
       ResourceLimiter resourceLimiter,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
-      ServiceCatalog catalog)
+      ServiceCatalog catalog,
+      Path logRoot)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -312,7 +331,8 @@ public final class AgentMain {
               gossipMember,
               catalog,
               httpClient,
-              baseUrl);
+              baseUrl,
+              logRoot);
         } catch (IOException | RuntimeException e) {
           log.error("failed to start instance {}: {}", key, e.getMessage(), e);
         }
@@ -337,7 +357,8 @@ public final class AgentMain {
       GossipMember gossipMember,
       ServiceCatalog catalog,
       HttpClient httpClient,
-      URI baseUrl)
+      URI baseUrl,
+      Path logRoot)
       throws IOException {
     ModuleDescriptor descriptor =
         ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
@@ -351,6 +372,7 @@ public final class AgentMain {
     ResourceLimitHandle handle = resourceLimiter.prepare(key, descriptor.resourceRequest());
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
+    baseCommand.add(LEAK_DETECTION_JFR_FLAG);
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);
@@ -362,6 +384,7 @@ public final class AgentMain {
     RestartTracker restartTracker =
         new RestartTracker(
             Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+    Path systemLogFile = logRoot.resolve("workers").resolve(key + "-system.log");
     WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             key,
@@ -375,7 +398,8 @@ public final class AgentMain {
               resourceLimiter.release(handle);
               capacityTracker.release(exhaustedKey);
               supervised.remove(exhaustedKey);
-            });
+            },
+            Optional.of(systemLogFile));
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
@@ -402,7 +426,11 @@ public final class AgentMain {
           .start(() -> readLoop(instance, key, gossipMember, catalog));
 
       connection.send(
-          new ControlMessage.InstallModule(nextCorrelationId(), instance.assigned.artifactPath()));
+          new ControlMessage.InstallModule(
+              nextCorrelationId(),
+              instance.assigned.artifactPath(),
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex()));
       connection.send(
           new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
       // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
