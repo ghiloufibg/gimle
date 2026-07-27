@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.module.artifact.ModuleArtifactReader;
@@ -22,8 +23,10 @@ import com.gimle.worker.testsupport.ControllableReadinessProbe;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +50,7 @@ class WorkerRuntimeTest {
   @BeforeEach
   void resetProbeState() {
     ControllableLivenessProbe.ALIVE.set(true);
+    ControllableLivenessProbe.LAST_MDC.set(null);
     ControllableReadinessProbe.READY.set(true);
   }
 
@@ -139,6 +143,100 @@ class WorkerRuntimeTest {
 
   private static long activeTransitionCount(List<LifecycleEvent> events) {
     return events.stream().filter(e -> e instanceof LifecycleEvent.Active).count();
+  }
+
+  private record IdentityFixture(
+      ModuleController controller,
+      ModuleId id,
+      InstanceIdentity identity,
+      AtomicInteger uninstallCount,
+      AtomicReference<InstanceIdentity> uninstalledIdentity) {}
+
+  /**
+   * Same shape as {@link #startFixture}, but wires the 10-arg identity-aware {@link WorkerRuntime}
+   * constructor with a pre-populated {@link InstanceIdentityRegistry} entry -- mirrors {@code
+   * WorkerMain}'s real ordering (register the identity, then resolve/start the module), so {@link
+   * WorkerRuntime#onActive} finds it on the module's first {@code Active} transition.
+   */
+  private IdentityFixture startFixtureWithIdentity(String name) {
+    Path jar = buildFixtureJar(name);
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    ModuleRegistry registry = new ModuleRegistry();
+    ModuleId id = registry.register(artifact);
+    ModuleResolver resolver = new ModuleResolver(registry);
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
+    ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
+
+    InstanceIdentity identity = new InstanceIdentity("orders-service", 3, Optional.of("acme"));
+    InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();
+    identityRegistry.register(id, identity);
+    AtomicInteger uninstallCount = new AtomicInteger();
+    AtomicReference<InstanceIdentity> uninstalledIdentity = new AtomicReference<>();
+
+    AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
+    Consumer<LifecycleEvent> sink =
+        event -> {
+          WorkerRuntime runtime = runtimeRef.get();
+          if (runtime != null) {
+            runtime.onLifecycleEvent(event);
+          }
+        };
+
+    ModuleController controller =
+        new ModuleController(
+            registry,
+            resolver,
+            platform,
+            ClassLoader.getSystemClassLoader(),
+            Duration.ofMillis(50),
+            sink,
+            serviceRegistry);
+
+    WorkerRuntime runtime =
+        new WorkerRuntime(
+            controller,
+            registry,
+            serviceRegistry,
+            4,
+            Duration.ofMillis(20),
+            Duration.ofSeconds(1),
+            99,
+            exhaustedId -> {},
+            identityRegistry,
+            instanceIdentity -> {
+              uninstallCount.incrementAndGet();
+              uninstalledIdentity.set(instanceIdentity);
+            });
+    runtimeRef.set(runtime);
+
+    controller.resolve(id);
+    controller.start(id);
+
+    return new IdentityFixture(controller, id, identity, uninstallCount, uninstalledIdentity);
+  }
+
+  @Test
+  void on_active_tags_the_scheduler_with_the_registered_instance_identity() {
+    IdentityFixture f = startFixtureWithIdentity("com.gimle.fixture.identity.mdc");
+
+    Await.atLeast(() -> ControllableLivenessProbe.LAST_MDC.get() != null, Duration.ofSeconds(2));
+
+    Map<String, String> tags = ControllableLivenessProbe.LAST_MDC.get();
+    assertEquals("orders-service", tags.get(InstanceMdcKeys.DEPLOYMENT_NAME));
+    assertEquals("3", tags.get(InstanceMdcKeys.INSTANCE_INDEX));
+    assertEquals(f.id().name(), tags.get(InstanceMdcKeys.MODULE_ID));
+    assertEquals(f.id().version().toString(), tags.get(InstanceMdcKeys.MODULE_VERSION));
+    assertEquals("acme", tags.get(InstanceMdcKeys.TENANT_ID));
+  }
+
+  @Test
+  void on_uninstalled_fires_the_close_callback_exactly_once_with_the_registered_identity() {
+    IdentityFixture f = startFixtureWithIdentity("com.gimle.fixture.identity.close");
+
+    f.controller().stop(f.id());
+
+    assertEquals(1, f.uninstallCount().get());
+    assertEquals(f.identity(), f.uninstalledIdentity().get());
   }
 
   @Test
