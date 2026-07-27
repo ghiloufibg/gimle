@@ -1,11 +1,14 @@
 package com.gimle.worker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -13,6 +16,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 
 class BoundedModuleSchedulerTest {
 
@@ -85,5 +89,31 @@ class BoundedModuleSchedulerTest {
     BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2);
     scheduler.close();
     assertThrows(RejectedExecutionException.class, () -> scheduler.submit(() -> "too late"));
+  }
+
+  @Test
+  void mdc_tags_are_visible_inside_a_tagged_submission() throws Exception {
+    Map<String, String> tags =
+        Map.of(
+            InstanceMdcKeys.DEPLOYMENT_NAME, "orders",
+            InstanceMdcKeys.INSTANCE_INDEX, "3");
+
+    try (BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2, tags)) {
+      Future<String> future =
+          scheduler.submit(
+              () ->
+                  MDC.get(InstanceMdcKeys.DEPLOYMENT_NAME)
+                      + "-"
+                      + MDC.get(InstanceMdcKeys.INSTANCE_INDEX));
+      assertEquals("orders-3", future.get(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void empty_mdc_tags_leave_the_submission_untagged() throws Exception {
+    try (BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2, Map.of())) {
+      Future<String> future = scheduler.submit(() -> MDC.get(InstanceMdcKeys.DEPLOYMENT_NAME));
+      assertNull(future.get(5, TimeUnit.SECONDS));
+    }
   }
 }
