@@ -52,7 +52,12 @@ public final class ControlMessageCodec {
           line("SERVICE_UNREGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.Pong m -> line("PONG", m.correlationId());
       case ControlMessage.InstallModule m ->
-          line("INSTALL", m.correlationId(), escape(m.artifactPath()));
+          line(
+              "INSTALL",
+              m.correlationId(),
+              escape(m.artifactPath()),
+              escape(m.deploymentName()),
+              Integer.toString(m.instanceIndex()));
       case ControlMessage.ResolveModule m -> line("RESOLVE", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
@@ -118,7 +123,11 @@ public final class ControlMessageCodec {
               decodeId(field(fields, 1)), decodeExport(field(fields, 2)));
       case "PONG" -> new ControlMessage.Pong(field(fields, 1));
       case "INSTALL" ->
-          new ControlMessage.InstallModule(field(fields, 1), unescape(field(fields, 2)));
+          new ControlMessage.InstallModule(
+              field(fields, 1),
+              unescape(field(fields, 2)),
+              unescape(field(fields, 3)),
+              Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->
           new ControlMessage.ResolveModule(field(fields, 1), decodeId(field(fields, 2)));
       case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));

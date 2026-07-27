@@ -17,14 +17,18 @@
   <description>Shared model/domain types and exceptions used across all Gimle modules.</description>
 
   <dependencies>
-    <!-- Runtime-only: gimle-core doesn't log itself, but hosts the one central logback.xml
-         (src/main/resources) and provides the binding transitively so every module that depends
-         on gimle-core, directly or not, gets it on its runtime classpath without redeclaring
-         it. Modules that actually log still depend on slf4j-api directly, as normal. -->
+    <!-- Compile-scope (not runtime-only anymore): gimle-core's own com.gimle.core.logging package
+         (log-explorer-design.md §4/§5) hand-rolls a JSON Encoder and two file Appenders directly
+         against the Logback API, plus MDC tagging via slf4j-api. gimle-core still hosts the one
+         central logback.xml (src/main/resources), which every module gets transitively on its
+         runtime classpath without redeclaring it. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
     <dependency>
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
-      <scope>runtime</scope>
     </dependency>
   </dependencies>
 </project>

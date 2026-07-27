@@ -5,10 +5,12 @@
   its own logback.xml.
 -->
 <configuration>
+  <!-- JSON, not the plain-text pattern this used to be (log-explorer-design.md §4): every
+       process's SYSTEM-capture fallback (WorkerProcessSupervisor.drainOutput) tells a structured
+       line apart from raw output by attempting to JSON-parse it, so console/stdout output has to
+       be JSON too, not just the file appenders GimleLogging attaches programmatically. -->
   <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder>
-      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-    </encoder>
+    <encoder class="com.gimle.core.logging.JsonLogEncoder"/>
   </appender>
 
   <root level="INFO">

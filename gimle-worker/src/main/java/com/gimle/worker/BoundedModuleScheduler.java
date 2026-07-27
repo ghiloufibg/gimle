@@ -1,7 +1,9 @@
 package com.gimle.worker;
 
+import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleId;
 import io.opentelemetry.context.Context;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,11 +29,23 @@ public final class BoundedModuleScheduler implements AutoCloseable {
 
   private final Semaphore concurrencyBound;
   private final ExecutorService executor;
+  private final Map<String, String> mdcTags;
 
   public BoundedModuleScheduler(ModuleId id, int maxConcurrency) {
+    this(id, maxConcurrency, Map.of());
+  }
+
+  /**
+   * {@code mdcTags} (log-explorer-design.md §3) tags every probe-check log line this scheduler
+   * dispatches as this instance's own -- empty for a caller that hasn't wired instance identity
+   * through yet, in which case such lines fall back to PLATFORM (see {@code
+   * InstanceMdcContext}/{@code JsonLogEncoder}).
+   */
+  public BoundedModuleScheduler(ModuleId id, int maxConcurrency, Map<String, String> mdcTags) {
     if (maxConcurrency < 1) {
       throw new IllegalArgumentException("maxConcurrency must be at least 1: " + maxConcurrency);
     }
+    this.mdcTags = mdcTags;
     this.concurrencyBound = new Semaphore(maxConcurrency);
     ThreadFactory factory =
         Thread.ofVirtual().name("gimle-" + id.name() + "-" + id.version() + "-", 0).factory();
@@ -40,11 +54,15 @@ public final class BoundedModuleScheduler implements AutoCloseable {
 
   public <T> Future<T> submit(Callable<T> task) {
     Callable<T> withCallerContext = Context.current().wrap(task);
+    Callable<T> tagged =
+        mdcTags.isEmpty()
+            ? withCallerContext
+            : () -> InstanceMdcContext.runTagged(mdcTags, withCallerContext);
     return executor.submit(
         () -> {
           concurrencyBound.acquire();
           try {
-            return withCallerContext.call();
+            return tagged.call();
           } finally {
             concurrencyBound.release();
           }

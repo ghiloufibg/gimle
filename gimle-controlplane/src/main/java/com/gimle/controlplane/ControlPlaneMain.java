@@ -13,6 +13,7 @@ import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.store.StateStore;
+import com.gimle.core.logging.GimleLogging;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
@@ -77,6 +78,11 @@ public final class ControlPlaneMain {
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
+
+    System.setProperty("gimle.process.role", "CONTROLPLANE");
+    System.setProperty("gimle.node.id", selfRaftId);
+    Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
+    GimleLogging.attachPlatformFileAppender(logRoot.resolve("controlplane-platform.log"));
 
     StateStore store = new StateStore(stateDir);
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));

@@ -1,5 +1,6 @@
 package com.gimle.worker;
 
+import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.restart.RestartTracker;
@@ -45,6 +46,8 @@ public final class WorkerRuntime {
   private final Duration probeTimeout;
   private final int livenessFailureThreshold;
   private final Consumer<ModuleId> onModuleRestartBudgetExhausted;
+  private final InstanceIdentityRegistry identityRegistry;
+  private final Consumer<InstanceIdentity> onInstanceUninstalled;
 
   private final Map<ModuleId, BoundedModuleScheduler> schedulers = new ConcurrentHashMap<>();
   private final Map<ModuleId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
@@ -62,6 +65,36 @@ public final class WorkerRuntime {
       Duration probeTimeout,
       int livenessFailureThreshold,
       Consumer<ModuleId> onModuleRestartBudgetExhausted) {
+    this(
+        controller,
+        registry,
+        serviceRegistry,
+        defaultMaxConcurrency,
+        probeInterval,
+        probeTimeout,
+        livenessFailureThreshold,
+        onModuleRestartBudgetExhausted,
+        new InstanceIdentityRegistry(),
+        identity -> {});
+  }
+
+  /**
+   * {@code identityRegistry}/{@code onInstanceUninstalled} (log-explorer-design.md §3/§5): looked
+   * up in {@link #onActive} to tag this module's probe-check scheduler with its instance identity,
+   * and consulted in {@link #onUninstalled} (before {@code serviceRegistry.remove} clears it) to
+   * let the caller close that instance's sifted log file.
+   */
+  public WorkerRuntime(
+      ModuleController controller,
+      ModuleRegistry registry,
+      ServiceRegistry serviceRegistry,
+      int defaultMaxConcurrency,
+      Duration probeInterval,
+      Duration probeTimeout,
+      int livenessFailureThreshold,
+      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      InstanceIdentityRegistry identityRegistry,
+      Consumer<InstanceIdentity> onInstanceUninstalled) {
     this.controller = controller;
     this.registry = registry;
     this.serviceRegistry = serviceRegistry;
@@ -70,6 +103,8 @@ public final class WorkerRuntime {
     this.probeTimeout = probeTimeout;
     this.livenessFailureThreshold = livenessFailureThreshold;
     this.onModuleRestartBudgetExhausted = onModuleRestartBudgetExhausted;
+    this.identityRegistry = identityRegistry;
+    this.onInstanceUninstalled = onInstanceUninstalled;
   }
 
   public void onLifecycleEvent(LifecycleEvent event) {
@@ -82,7 +117,20 @@ public final class WorkerRuntime {
   }
 
   private void onActive(ModuleId id) {
-    BoundedModuleScheduler scheduler = new BoundedModuleScheduler(id, defaultMaxConcurrency);
+    Map<String, String> mdcTags =
+        identityRegistry
+            .lookup(id)
+            .map(
+                identity ->
+                    InstanceMdcContext.tagsFor(
+                        identity.deploymentName(),
+                        identity.instanceIndex(),
+                        id.name(),
+                        id.version().toString(),
+                        identity.tenantId().orElse(null)))
+            .orElse(Map.of());
+    BoundedModuleScheduler scheduler =
+        new BoundedModuleScheduler(id, defaultMaxConcurrency, mdcTags);
     schedulers.put(id, scheduler);
     restartTrackers.computeIfAbsent(id, key -> newRestartTracker());
     consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger());
@@ -133,6 +181,9 @@ public final class WorkerRuntime {
   }
 
   private void onUninstalled(ModuleId id) {
+    // Looked up before serviceRegistry.remove(id) below, which is what actually clears
+    // identityRegistry (InstanceTaggingServiceRegistry#remove) -- read it first or it's gone.
+    identityRegistry.lookup(id).ifPresent(onInstanceUninstalled);
     BoundedModuleScheduler scheduler = schedulers.remove(id);
     if (scheduler != null) {
       scheduler.close();

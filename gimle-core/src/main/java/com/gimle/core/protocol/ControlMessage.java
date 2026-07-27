@@ -72,7 +72,23 @@ public sealed interface ControlMessage {
   record Pong(String correlationId) implements ControlMessage {}
 
   // Agent -> Worker
-  record InstallModule(String correlationId, String artifactPath) implements ControlMessage {}
+  /**
+   * {@code deploymentName}/{@code instanceIndex} (log-explorer-design.md §3) are this instance's
+   * placement identity, already known to the agent via {@code AssignedInstance} -- carried here so
+   * the worker can tag every log line it emits while handling this instance's own requests as
+   * APPLICATION rather than PLATFORM. Blank/{@code -1} (via the two-argument constructor) for a
+   * caller that hasn't wired instance identity through yet, the same "absent means today's
+   * unchanged behavior" precedent {@link Hello}'s two-argument constructor already established --
+   * the worker simply registers the module without MDC tagging in that case.
+   */
+  record InstallModule(
+      String correlationId, String artifactPath, String deploymentName, int instanceIndex)
+      implements ControlMessage {
+
+    public InstallModule(String correlationId, String artifactPath) {
+      this(correlationId, artifactPath, "", -1);
+    }
+  }
 
   record ResolveModule(String correlationId, ModuleId id) implements ControlMessage {}
 

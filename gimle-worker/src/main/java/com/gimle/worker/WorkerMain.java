@@ -1,5 +1,7 @@
 package com.gimle.worker;
 
+import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.logging.InstanceLogCloser;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.ControlMessage;
@@ -11,6 +13,7 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
+import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
@@ -62,6 +65,17 @@ public final class WorkerMain {
     // invariant stays true regardless of whether this instance has a tenant.
     Optional<String> tenantId = args[1].isBlank() ? Optional.empty() : Optional.of(args[1]);
 
+    // log-explorer-design.md §4/§5: read fresh by JsonLogEncoder on every event (process-global,
+    // not thread-local, so this is safe however early other threads start logging) and by the two
+    // file appenders attached just below, which need the actual path now rather than at
+    // logback.xml parse time (which already happened, before this line, via the CONSOLE appender).
+    System.setProperty("gimle.process.role", "WORKER");
+    System.setProperty("gimle.node.id", nodeId);
+    Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
+    GimleLogging.attachPlatformFileAppender(logRoot.resolve("worker-platform.log"));
+    InstanceLogCloser instanceLogCloser =
+        GimleLogging.attachInstanceSiftingAppender(logRoot.resolve("instances"));
+
     GimleTracing.installDefault();
 
     UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[2]));
@@ -79,14 +93,17 @@ public final class WorkerMain {
     ClassLoader interfaceLoader = ClassLoader.getSystemClassLoader();
 
     SimpleServiceRegistry localRegistry = new SimpleServiceRegistry();
+    InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();
+    ServiceRegistry taggedLocal =
+        new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
-    FabricEndpoints fabricEndpoints = bindFabricServer(localRegistry, interfaceLoader);
+    FabricEndpoints fabricEndpoints = bindFabricServer(taggedLocal, interfaceLoader);
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
     FabricServiceRegistry fabricRegistry =
         new FabricServiceRegistry(
             selfNode,
             workerId,
-            localRegistry,
+            taggedLocal,
             catalog,
             owner -> registry.artifact(owner).descriptor().exports(),
             message -> sendQuietly(channel, message),
@@ -120,7 +137,11 @@ public final class WorkerMain {
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             3,
-            id -> log.error("module {} exhausted its restart budget; awaiting worker restart", id));
+            id -> log.error("module {} exhausted its restart budget; awaiting worker restart", id),
+            identityRegistry,
+            identity ->
+                instanceLogCloser.closeInstance(
+                    identity.deploymentName(), identity.instanceIndex()));
     runtimeRef.set(runtime);
 
     channel.send(
@@ -133,14 +154,14 @@ public final class WorkerMain {
 
     Optional<ControlMessage> received;
     while ((received = channel.receive()).isPresent()) {
-      handle(received.get(), registry, controller, channel, catalog);
+      handle(received.get(), registry, controller, channel, catalog, identityRegistry, tenantId);
     }
     log.info("control channel closed by agent; shutting down");
   }
 
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */
   private static FabricEndpoints bindFabricServer(
-      SimpleServiceRegistry localRegistry, ClassLoader interfaceLoader) throws IOException {
+      ServiceRegistry localRegistry, ClassLoader interfaceLoader) throws IOException {
     FabricServer server = new FabricServer(localRegistry, interfaceLoader);
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
@@ -165,13 +186,19 @@ public final class WorkerMain {
       ModuleRegistry registry,
       ModuleController controller,
       ControlChannelClient channel,
-      ServiceCatalog catalog)
+      ServiceCatalog catalog,
+      InstanceIdentityRegistry identityRegistry,
+      Optional<String> tenantId)
       throws IOException {
     switch (message) {
       case ControlMessage.InstallModule m -> {
         try {
           ModuleArtifact artifact = ModuleArtifactReader.read(Path.of(m.artifactPath()));
           ModuleId id = registry.register(artifact);
+          if (!m.deploymentName().isBlank()) {
+            identityRegistry.register(
+                id, new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
+          }
           channel.send(new ControlMessage.ModuleStateChanged(id, "INSTALLED"));
           channel.send(new ControlMessage.Ack(m.correlationId()));
         } catch (RuntimeException e) {
