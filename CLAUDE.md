@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phases 1–3 are implemented and committed: `gimle-core`, `gimle-module`, `gimle-os`, `gimle-worker`, `gimle-agent`, `gimle-controlplane`, and `gimle-observability` all exist as working Maven modules with tests. `gimle-api`, `gimle-fabric`, and `gimle-cli` don't exist yet — later-phase work. Build/test with `mvn verify` from the repo root (requires JDK 25 on `PATH`/`JAVA_HOME`).
+Phases 1–5 are implemented and committed: `gimle-core`, `gimle-module`, `gimle-os`, `gimle-worker`, `gimle-agent`, `gimle-controlplane`, `gimle-observability`, `gimle-fabric`, and `gimle-cli` all exist as working Maven modules with tests. `gimle-api` doesn't exist as its own module — a deliberate deviation, not a gap; probe/service-registry types live in `gimle-module` instead. Phase 6 (module web console) is stretch-goal, not-yet-started work. Build/test with `mvn verify` from the repo root (requires JDK 25 on `PATH`/`JAVA_HOME`).
 
-Read `gimle-PROJECT-v2.md` in full before doing any non-trivial work — it is the authoritative spec. This CLAUDE.md summarizes it for quick orientation only. `claudedocs/phase{1,2,3}-*-design.md` (gitignored, local to this checkout) hold the as-built design detail — including revisions made mid-implementation — for each phase already done; check them before assuming the top-level spec alone reflects the latest decisions on a given area.
+Read `gimle-PROJECT-v2.md` in full before doing any non-trivial work — it is the authoritative spec. This CLAUDE.md summarizes it for quick orientation only. `claudedocs/phase{1,2,3,4,5}-*-design.md` (gitignored, local to this checkout) hold the as-built design detail — including revisions made mid-implementation — for each phase already done; check them before assuming the top-level spec alone reflects the latest decisions on a given area.
 
 ## What Gimlé is
 
@@ -94,17 +94,17 @@ Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped v
 - `gimle-os` — resource limiting (`ResourceLimiter`); portable JVM-flags implementation only today, kernel-level cgroup v2 deferred (see "Core architecture" above)
 - `gimle-worker` — worker JVM runtime: module hosting, schedulers, probing, local registry
 - `gimle-agent` — node agent: worker supervision, resource assignment, capacity reporting
-- `gimle-controlplane` — API server, state store, scheduler, reconcilers (Raft still single-node)
-- `gimle-fabric` — *(not created yet)* service registry, three-path invocation, load balancing, circuit breaking, gossip membership
+- `gimle-controlplane` — API server, state store, scheduler, reconcilers, Raft-replicated (multi-node)
+- `gimle-fabric` — service registry, three-path invocation, load balancing, circuit breaking, gossip membership
 - `gimle-observability` — metrics, tracing, JFR accounting, event log
-- `gimle-cli` — *(not created yet)* control-plane client, agent launcher, worker launcher
+- `gimle-cli` — control-plane client, agent launcher, worker launcher
 
 ## Conventions (binding, not optional)
 
 - **Build**: Maven.
 - **Formatting**: Google Java Format, enforced via `fmt-maven-plugin` in CI and pre-commit.
 - **Method naming**: standard Java `camelCase` everywhere — production code, JUnit lifecycle hooks (`@BeforeEach`/`@AfterEach`/`@BeforeAll`/`@AfterAll`), and private/helper methods in test classes. The one exception: methods directly annotated `@Test` are `snake_case`, so a test's name reads as a sentence describing the behavior it verifies. Enforced by two Checkstyle `MethodName` instances (one scoped to `@Test` methods, one to everything else) via XPath-based suppressions in `checkstyle-suppressions.xml`, not inline `@SuppressWarnings`.
-- **No checked exceptions anywhere.** Gimlé failures use dedicated unchecked types in `gimle-core` (`GimleResolutionException`, `GimleLifecycleException`, `GimleSchedulingException`, `GimleManifestException`, `GimleClusterException`, `GimleIsolationException`), all extending `RuntimeException`. Control-plane errors map to structured API responses, not propagated stack traces.
+- **No checked exceptions anywhere.** Gimlé failures use dedicated unchecked types in `gimle-core` (`GimleResolutionException`, `GimleLifecycleException`, `GimleSchedulingException`, `GimleManifestException`, `GimleClusterException`, `GimleIsolationException`, `GimleCodecException`, `GimleSecretsException`), all extending `RuntimeException`. Control-plane errors map to structured API responses, not propagated stack traces.
 - **Immutability**: records / `List.of`/unmodifiable collections preferred everywhere feasible. Desired state, observed state, and reconciliation events are strictly immutable snapshots — a reconciler reads a snapshot and returns actions, never mutates in place.
 - **`final`** on variables, fields, and parameters wherever possible.
 - **No Lombok.** Plain Java (records, standard getters/constructors).
