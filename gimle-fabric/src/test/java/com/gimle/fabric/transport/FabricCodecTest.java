@@ -74,6 +74,32 @@ class FabricCodecTest {
   }
 
   @Test
+  void rejects_a_forged_huge_param_count_before_allocating() throws IOException {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    DataOutputStream bodyOut = new DataOutputStream(body);
+    bodyOut.writeByte(0); // TAG_INVOKE_REQUEST
+    bodyOut.writeLong(1L); // correlationId
+    bodyOut.writeLong(1L); // trace.traceIdHigh
+    bodyOut.writeLong(2L); // trace.traceIdLow
+    bodyOut.writeLong(3L); // trace.spanId
+    bodyOut.writeByte(1); // trace.flags
+    bodyOut.writeUTF("com.gimle.example.Greeter"); // interfaceName
+    bodyOut.writeUTF("greet"); // methodName
+    bodyOut.writeInt(Integer.MAX_VALUE - 8); // forged param count
+    // No parameter names or serializedArgs follow -- an eagerly-sized String[] would have
+    // allocated an ~8GB backing array before ever discovering that.
+    byte[] bodyBytes = body.toByteArray();
+
+    ByteArrayOutputStream frame = new ByteArrayOutputStream();
+    new DataOutputStream(frame).writeInt(bodyBytes.length);
+    frame.write(bodyBytes);
+    byte[] frameBytes = frame.toByteArray();
+
+    assertThrows(
+        GimleCodecException.class, () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
+  }
+
+  @Test
   void two_frames_written_back_to_back_are_read_independently() throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     FabricCodec.write(buffer, new FabricFrame.InvokeResponse(1L, new byte[] {9}));

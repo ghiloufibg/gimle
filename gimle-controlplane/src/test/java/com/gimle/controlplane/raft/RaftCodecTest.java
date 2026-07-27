@@ -22,6 +22,7 @@ import com.gimle.core.tenant.Tenant;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -153,6 +154,29 @@ class RaftCodecTest {
     assertThrows(
         GimleCodecException.class,
         () -> RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
+  }
+
+  @Test
+  void rejects_a_forged_huge_entry_count_without_preallocating() throws IOException {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    java.io.DataOutputStream bodyOut = new java.io.DataOutputStream(body);
+    bodyOut.writeByte(2); // TAG_APPEND_ENTRIES
+    bodyOut.writeLong(1L); // term
+    bodyOut.writeUTF("node-1"); // leaderId
+    bodyOut.writeLong(0L); // prevLogIndex
+    bodyOut.writeLong(0L); // prevLogTerm
+    bodyOut.writeInt(Integer.MAX_VALUE - 8); // forged entry count
+    // No entries or trailing fields follow -- a pre-sized ArrayList would have allocated an
+    // ~8GB backing array before ever discovering that.
+    byte[] bodyBytes = body.toByteArray();
+
+    ByteArrayOutputStream frame = new ByteArrayOutputStream();
+    new java.io.DataOutputStream(frame).writeInt(bodyBytes.length);
+    frame.write(bodyBytes);
+    byte[] frameBytes = frame.toByteArray();
+
+    assertThrows(
+        UncheckedIOException.class, () -> RaftCodec.read(new ByteArrayInputStream(frameBytes)));
   }
 
   @Test

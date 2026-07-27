@@ -1,5 +1,6 @@
 package com.gimle.fabric.cluster;
 
+import com.gimle.core.exception.GimleCodecException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -22,6 +23,13 @@ final class SwimCodec {
   private static final byte TAG_PING_REQ = 1;
   private static final byte TAG_ACK = 2;
   private static final byte TAG_INDIRECT_ACK = 3;
+
+  /**
+   * Max UDP payload size -- {@link GossipMember}'s receive buffer is itself capped at 65535 bytes,
+   * so this is a provably tight bound (not just a generous guess) for any length/count prefix
+   * decoded from a single datagram.
+   */
+  private static final int MAX_DATAGRAM_LENGTH = 65535;
 
   private SwimCodec() {}
 
@@ -121,7 +129,7 @@ final class SwimCodec {
 
   private static List<MemberState> readPiggyback(DataInputStream in) throws IOException {
     int count = in.readInt();
-    List<MemberState> piggyback = new ArrayList<>(count);
+    List<MemberState> piggyback = new ArrayList<>();
     for (int i = 0; i < count; i++) {
       MemberId id = readMemberId(in);
       MemberStatus status = MemberStatus.values()[in.readByte()];
@@ -138,6 +146,7 @@ final class SwimCodec {
 
   private static byte[] readCatalogPayload(DataInputStream in) throws IOException {
     int length = in.readInt();
+    GimleCodecException.checkFrameLength(length, MAX_DATAGRAM_LENGTH);
     byte[] payload = new byte[length];
     in.readFully(payload);
     return payload;

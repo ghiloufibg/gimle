@@ -33,15 +33,16 @@ public final class FabricCodec {
    */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
 
+  /**
+   * Upper bound for {@code paramTypeNames.length} -- a real method call has nowhere near this many
+   * parameters; this exists solely to reject a forged count before it sizes a {@code String[]}.
+   */
+  private static final int MAX_PARAM_COUNT = 1024;
+
   private FabricCodec() {}
 
   private static void checkFrameLength(int length) {
-    if (length < 0) {
-      throw GimleCodecException.invalidFrameLength(length);
-    }
-    if (length > MAX_FRAME_LENGTH) {
-      throw GimleCodecException.frameTooLarge(length, MAX_FRAME_LENGTH);
-    }
+    GimleCodecException.checkFrameLength(length, MAX_FRAME_LENGTH);
   }
 
   public static void write(OutputStream out, FabricFrame frame) throws IOException {
@@ -117,6 +118,7 @@ public final class FabricCodec {
           String interfaceName = in.readUTF();
           String methodName = in.readUTF();
           int paramCount = in.readInt();
+          GimleCodecException.checkFrameLength(paramCount, MAX_PARAM_COUNT);
           String[] paramTypeNames = new String[paramCount];
           for (int i = 0; i < paramCount; i++) {
             paramTypeNames[i] = in.readUTF();

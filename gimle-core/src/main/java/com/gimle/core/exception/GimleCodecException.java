@@ -26,4 +26,19 @@ public class GimleCodecException extends RuntimeException {
             + maxLength
             + " bytes; rejecting before allocation");
   }
+
+  /**
+   * Rejects a network-supplied length or element count before it is used to size an allocation --
+   * negative outright, or above {@code maxLength} for this field. Shared by every codec that reads
+   * a length/count prefix ahead of a {@code byte[]}/collection allocation (Raft, fabric, SWIM
+   * gossip, service catalog), so the bound-check logic exists in exactly one place.
+   */
+  public static void checkFrameLength(int declaredLength, int maxLength) {
+    if (declaredLength < 0) {
+      throw invalidFrameLength(declaredLength);
+    }
+    if (declaredLength > maxLength) {
+      throw frameTooLarge(declaredLength, maxLength);
+    }
+  }
 }

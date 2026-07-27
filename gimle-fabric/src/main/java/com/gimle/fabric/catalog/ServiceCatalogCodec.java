@@ -90,7 +90,7 @@ final class ServiceCatalogCodec {
     try {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
       int count = in.readInt();
-      List<CatalogDelta> deltas = new ArrayList<>(count);
+      List<CatalogDelta> deltas = new ArrayList<>();
       for (int i = 0; i < count; i++) {
         String interfaceName = in.readUTF();
         Version version = Version.parse(in.readUTF());

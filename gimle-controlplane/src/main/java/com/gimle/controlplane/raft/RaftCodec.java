@@ -76,12 +76,7 @@ public final class RaftCodec {
   private RaftCodec() {}
 
   private static void checkFrameLength(int length) {
-    if (length < 0) {
-      throw GimleCodecException.invalidFrameLength(length);
-    }
-    if (length > MAX_FRAME_LENGTH) {
-      throw GimleCodecException.frameTooLarge(length, MAX_FRAME_LENGTH);
-    }
+    GimleCodecException.checkFrameLength(length, MAX_FRAME_LENGTH);
   }
 
   // ---- top-level RaftRpc framing (length-prefixed, matching FabricCodec) ----
@@ -181,7 +176,7 @@ public final class RaftCodec {
           long prevLogIndex = in.readLong();
           long prevLogTerm = in.readLong();
           int entryCount = in.readInt();
-          List<LogEntry> entries = new ArrayList<>(entryCount);
+          List<LogEntry> entries = new ArrayList<>();
           for (int i = 0; i < entryCount; i++) {
             entries.add(readLogEntry(in));
           }
