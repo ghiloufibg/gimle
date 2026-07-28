@@ -24,8 +24,7 @@ public final class ConfigCommand {
   }
 
   public void list(String tenantId) {
-    String body = client.expectSuccess(client.get("/config/" + tenantId));
-    OutputFormat.printList(output, Json.asObjectList(Json.parse(body)), out);
+    OutputFormat.printList(output, client.getList("/config/" + tenantId), out);
   }
 
   public void set(List<String> args) {

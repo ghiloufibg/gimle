@@ -25,13 +25,11 @@ public final class TenantsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      String body = client.expectSuccess(client.get("/tenants"));
-      OutputFormat.printList(output, Json.asObjectList(Json.parse(body)), out);
+      OutputFormat.printList(output, client.getList("/tenants"), out);
       return;
     }
     String id = args.get(0);
-    String body = client.expectSuccess(client.get("/tenants/" + id));
-    OutputFormat.printObject(output, Json.asObject(Json.parse(body)), out);
+    OutputFormat.printObject(output, client.getObject("/tenants/" + id), out);
   }
 
   public void set(List<String> args) {

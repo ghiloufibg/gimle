@@ -1,6 +1,5 @@
 package com.gimle.cli;
 
-import com.gimle.core.protocol.Json;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -33,13 +32,11 @@ public final class DeploymentsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      String body = client.expectSuccess(client.get("/deployments"));
-      OutputFormat.printList(output, Json.asObjectList(Json.parse(body)), out);
+      OutputFormat.printList(output, client.getList("/deployments"), out);
       return;
     }
     String name = args.get(0);
-    String body = client.expectSuccess(client.get("/deployments/" + name));
-    OutputFormat.printObject(output, Json.asObject(Json.parse(body)), out);
+    OutputFormat.printObject(output, client.getObject("/deployments/" + name), out);
   }
 
   public void apply(List<String> args) {

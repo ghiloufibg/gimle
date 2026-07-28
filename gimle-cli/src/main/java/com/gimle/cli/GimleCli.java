@@ -46,12 +46,6 @@ public final class GimleCli {
     } catch (CliException e) {
       err.println("error: " + e.getMessage());
       return 1;
-    } catch (RuntimeException e) {
-      // Not a CliException: something further downstream (most likely Json.parse on a malformed
-      // response body -- the *Command classes don't wrap that call) threw. Report it the same clean
-      // way rather than letting it escape as a raw stack trace.
-      err.println("error: unexpected response from control plane: " + e.getMessage());
-      return 1;
     }
   }
 

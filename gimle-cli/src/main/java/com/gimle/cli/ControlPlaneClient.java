@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -61,6 +62,16 @@ public final class ControlPlaneClient {
     return send(HttpRequest.newBuilder(resolve(path)).timeout(REQUEST_TIMEOUT).DELETE().build());
   }
 
+  /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object list. */
+  public List<Map<String, Object>> getList(String path) {
+    return parseObjectList(expectSuccess(get(path)));
+  }
+
+  /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object. */
+  public Map<String, Object> getObject(String path) {
+    return parseObject(expectSuccess(get(path)));
+  }
+
   /**
    * Returns the response body on a 2xx status, else throws {@link CliException} with a message
    * tailored to the status code.
@@ -70,6 +81,28 @@ public final class ControlPlaneClient {
       return response.body();
     }
     throw new CliException(describeError(response));
+  }
+
+  /**
+   * The single place a malformed or unexpectedly-shaped response body is translated into a {@link
+   * CliException}, so callers never see a raw {@code Json} parsing/casting failure -- keeps {@code
+   * GimleCli.run}'s top-level catch scoped to {@link CliException} alone rather than a bare {@code
+   * RuntimeException} that could mask a genuine CLI-side bug as a server-response problem.
+   */
+  private static List<Map<String, Object>> parseObjectList(String body) {
+    try {
+      return Json.asObjectList(Json.parse(body));
+    } catch (IllegalArgumentException | ClassCastException e) {
+      throw new CliException("unexpected response from control plane: " + e.getMessage(), e);
+    }
+  }
+
+  private static Map<String, Object> parseObject(String body) {
+    try {
+      return Json.asObject(Json.parse(body));
+    } catch (IllegalArgumentException | ClassCastException e) {
+      throw new CliException("unexpected response from control plane: " + e.getMessage(), e);
+    }
   }
 
   private static String describeError(ApiResponse response) {
