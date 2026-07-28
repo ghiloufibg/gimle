@@ -1,0 +1,38 @@
+import { defineConfig } from "vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import viteReact from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import tsConfigPaths from "vite-tsconfig-paths";
+
+// Plain client-side-rendered SPA config (no TanStack Start / Nitro / SSR) -- matches the pattern
+// already proven working in the sibling flow-trace-ui project's frontend module. The Lovable-
+// generated version of this project used TanStack Start (the workspace's account-level default
+// stack) with SPA mode + prerendering to get a static shell; that prerender step turned out to be
+// broken outside Lovable's own build sandbox (a hardcoded server.js filename mismatch against
+// nitro's actual entry naming, see git history for the workaround that was tried and abandoned).
+// Switching to TanStack Router directly, with no Start/Nitro layer at all, sidesteps that entire
+// class of bug and produces a conventional dist/index.html + dist/assets/* SPA bundle -- exactly
+// what ConsoleStaticHandler already expects to serve (its "_shell.html" detection falls back to
+// "index.html" precisely for this case).
+//
+// `base` is only set for the production build, not `vite dev`: the built dist/ is served by
+// gimle-controlplane's ApiServer at /console (see ConsoleStaticHandler) -- without a matching
+// `base`, every asset URL in the built index.html would be absolute from site root and 404 under
+// that path. Left unset for dev so the local dev server keeps serving from root. Matches the
+// basepath condition in src/router.tsx -- keep both in sync.
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? "/console/" : "/",
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    viteReact(),
+    tailwindcss(),
+    tsConfigPaths({ projects: ["./tsconfig.json"] }),
+  ],
+  resolve: {
+    alias: { "@": `${process.cwd()}/src` },
+  },
+  server: {
+    host: "::",
+    port: 8080,
+  },
+}));

@@ -2,3 +2,9 @@ target/
 *.class
 *.log
 claudedocs/
+
+# gimle-console (npm/Vite-family project, outside the Maven reactor) build artifacts
+gimle-console/node_modules/
+gimle-console/dist/
+gimle-console/.output/
+console-dist/
