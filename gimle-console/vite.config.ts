@@ -34,5 +34,17 @@ export default defineConfig(({ command }) => ({
   server: {
     host: "::",
     port: 8080,
+    // Dev-only proxy so src/repositories/http/apiClient.ts can use same-origin relative paths
+    // (/deployments, /nodes, /tenants, /config) in both dev and prod, with no runtime env var for
+    // an API base URL (see web-console-design.md §9 -- that constraint is about the shipped app's
+    // own code, not this build-time-only Vite config, so reading process.env here is fine).
+    // Override the target port with GIMLE_CONTROLPLANE_PORT if your local control plane isn't on
+    // 8081 (chosen to avoid colliding with this dev server's own port 8080 above).
+    proxy: {
+      "/deployments": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/nodes": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/tenants": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/config": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+    },
   },
 }));
