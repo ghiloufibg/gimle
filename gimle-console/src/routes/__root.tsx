@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from "react";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { DisplayPanel } from "@/components/display-panel";
 import { useThemeStore } from "@/stores/useThemeStore";
 
 function NotFoundComponent() {
@@ -97,8 +98,20 @@ function AppShell({ children }: { children: ReactNode }) {
           <header className="h-11 flex items-center gap-2 border-b border-border bg-card px-3 sticky top-0 z-10">
             <SidebarTrigger className="h-7 w-7" />
             <div className="h-4 w-px bg-border" />
-            <span className="text-xs text-muted-foreground font-mono">gimle://cluster</span>
+            <span className="hud-label">gimle // cluster</span>
+            <span className="ml-auto flex items-center gap-3 text-[11px] text-primary font-mono uppercase tracking-widest">
+              <span className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                </span>
+                Operational
+              </span>
+              <span className="h-4 w-px bg-border" />
+              <DisplayPanel />
+            </span>
           </header>
+
           <main className="flex-1 min-w-0">{children}</main>
         </div>
       </div>

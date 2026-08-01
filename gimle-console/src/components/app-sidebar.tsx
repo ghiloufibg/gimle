@@ -5,7 +5,9 @@ import {
   Cpu,
   Server,
   Users,
+  Network,
   Settings,
+  BarChart3,
 } from "lucide-react";
 
 import {
@@ -24,6 +26,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 const items = [
   { title: "Overview", url: "/", icon: LayoutDashboard, exact: true },
+  { title: "Metrics", url: "/metrics", icon: BarChart3 },
+  { title: "Topology", url: "/topology", icon: Network },
   { title: "Deployments", url: "/deployments", icon: Boxes },
   { title: "Instances", url: "/instances", icon: Cpu },
   { title: "Nodes", url: "/nodes", icon: Server },

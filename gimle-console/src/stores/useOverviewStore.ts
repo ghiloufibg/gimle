@@ -14,7 +14,16 @@ interface State {
   quotaViolating: number;
   recentDeployments: Deployment[];
   recentNodes: Node[];
+  // Full-cluster arrays for screens that plot/group every deployment or node (Topology, Metrics),
+  // as opposed to recentDeployments/recentNodes above, which are fetchSummary()'s capped 8-item
+  // preview meant for the Overview dashboard's compact panels. Populated separately via loadAll()
+  // since fetchSummary() intentionally never returns more than 8 rows.
+  allDeployments: Deployment[];
+  allNodes: Node[];
+  allLoaded: boolean;
+  allLoading: boolean;
   load(): Promise<void>;
+  loadAll(): Promise<void>;
 }
 
 export const useOverviewStore = create<State>((set, get) => ({
@@ -29,6 +38,10 @@ export const useOverviewStore = create<State>((set, get) => ({
   quotaViolating: 0,
   recentDeployments: [],
   recentNodes: [],
+  allDeployments: [],
+  allNodes: [],
+  allLoaded: false,
+  allLoading: false,
   async load() {
     if (get().loading) return;
     set({ loading: true, error: null });
@@ -52,6 +65,24 @@ export const useOverviewStore = create<State>((set, get) => ({
       });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
+    }
+  },
+  async loadAll() {
+    if (get().allLoading) return;
+    set({ allLoading: true, error: null });
+    try {
+      const [d, n] = await Promise.all([
+        deploymentsRepo.fetchPage({ cursor: null, pageSize: 10_000 }),
+        nodesRepo.fetchPage({ cursor: null, pageSize: 10_000 }),
+      ]);
+      set({
+        allLoading: false,
+        allLoaded: true,
+        allDeployments: d.items,
+        allNodes: n.items,
+      });
+    } catch (e) {
+      set({ allLoading: false, error: (e as Error).message });
     }
   },
 }));

@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TopologyRouteImport } from './routes/topology'
+import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigRouteImport } from './routes/config'
@@ -23,6 +25,16 @@ import { Route as DeploymentsNewRouteImport } from './routes/deployments.new'
 import { Route as DeploymentsNameRouteImport } from './routes/deployments.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
 
+const TopologyRoute = TopologyRouteImport.update({
+  id: '/topology',
+  path: '/topology',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MetricsRoute = MetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LogsRoute = LogsRouteImport.update({
   id: '/logs',
   path: '/logs',
@@ -94,6 +106,8 @@ export interface FileRoutesByFullPath {
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/logs': typeof LogsRoute
+  '/metrics': typeof MetricsRoute
+  '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -109,6 +123,8 @@ export interface FileRoutesByTo {
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/logs': typeof LogsRoute
+  '/metrics': typeof MetricsRoute
+  '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -125,6 +141,8 @@ export interface FileRoutesById {
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/logs': typeof LogsRoute
+  '/metrics': typeof MetricsRoute
+  '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -142,6 +160,8 @@ export interface FileRouteTypes {
     | '/config'
     | '/controlplane'
     | '/logs'
+    | '/metrics'
+    | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -157,6 +177,8 @@ export interface FileRouteTypes {
     | '/config'
     | '/controlplane'
     | '/logs'
+    | '/metrics'
+    | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -172,6 +194,8 @@ export interface FileRouteTypes {
     | '/config'
     | '/controlplane'
     | '/logs'
+    | '/metrics'
+    | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -188,6 +212,8 @@ export interface RootRouteChildren {
   ConfigRoute: typeof ConfigRoute
   ControlplaneRoute: typeof ControlplaneRoute
   LogsRoute: typeof LogsRoute
+  MetricsRoute: typeof MetricsRoute
+  TopologyRoute: typeof TopologyRoute
   DeploymentsNameRoute: typeof DeploymentsNameRoute
   DeploymentsNewRoute: typeof DeploymentsNewRoute
   NodesNodeIdRoute: typeof NodesNodeIdRoute
@@ -201,6 +227,20 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/topology': {
+      id: '/topology'
+      path: '/topology'
+      fullPath: '/topology'
+      preLoaderRoute: typeof TopologyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/metrics': {
+      id: '/metrics'
+      path: '/metrics'
+      fullPath: '/metrics'
+      preLoaderRoute: typeof MetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/logs': {
       id: '/logs'
       path: '/logs'
@@ -300,6 +340,8 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigRoute: ConfigRoute,
   ControlplaneRoute: ControlplaneRoute,
   LogsRoute: LogsRoute,
+  MetricsRoute: MetricsRoute,
+  TopologyRoute: TopologyRoute,
   DeploymentsNameRoute: DeploymentsNameRoute,
   DeploymentsNewRoute: DeploymentsNewRoute,
   NodesNodeIdRoute: NodesNodeIdRoute,
