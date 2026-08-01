@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -70,6 +71,35 @@ public final class ControlPlaneClient {
   /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object. */
   public Map<String, Object> getObject(String path) {
     return parseObject(expectSuccess(get(path)));
+  }
+
+  /**
+   * Opens {@code path} as a long-lived streaming GET (a {@code follow=true} log tail) and returns
+   * its response body unbuffered, for the caller to read line-by-line as bytes arrive -- unlike
+   * every other method here, which fully buffers the response via {@code BodyHandlers.ofString}. No
+   * request timeout: a live tail has no natural end, unlike every other call this client makes.
+   */
+  public InputStream openStream(String path) {
+    try {
+      HttpRequest request = HttpRequest.newBuilder(resolve(path)).GET().build();
+      HttpResponse<InputStream> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+      if (response.statusCode() != 200) {
+        throw new CliException(
+            describeError(new ApiResponse(response.statusCode(), readAll(response.body()))));
+      }
+      return response.body();
+    } catch (IOException e) {
+      throw new CliException(
+          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new CliException("interrupted while contacting control plane at " + baseUri, e);
+    }
+  }
+
+  private static String readAll(InputStream in) throws IOException {
+    return new String(in.readAllBytes(), StandardCharsets.UTF_8);
   }
 
   /**

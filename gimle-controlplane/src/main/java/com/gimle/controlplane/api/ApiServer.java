@@ -14,6 +14,7 @@ import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -33,10 +34,16 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -44,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import javax.crypto.SecretKey;
 import org.slf4j.Logger;
@@ -67,6 +75,10 @@ public final class ApiServer implements AutoCloseable {
   private final SecretKey secretKey;
   private final RaftNode raftNode;
   private final Map<String, String> peerApiAddresses;
+  // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
+  // avoids HttpClient spending a round trip on an upgrade negotiation that could never succeed.
+  private final HttpClient agentHttpClient =
+      HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
 
   /**
    * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
@@ -123,6 +135,7 @@ public final class ApiServer implements AutoCloseable {
     server.createContext("/tenants/", this::handleTenant);
     server.createContext("/tenants", this::handleTenantsList);
     server.createContext("/config/", this::handleConfig);
+    server.createContext("/logs/", this::handleLogs);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
@@ -370,8 +383,13 @@ public final class ApiServer implements AutoCloseable {
     }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
+    Object apiAddress = body.get("apiAddress");
     raftNode.propose(
-        new StateMutation.PutNodeRegistration(new NodeRegistration(nodeId, capabilities)));
+        new StateMutation.PutNodeRegistration(
+            new NodeRegistration(
+                nodeId,
+                capabilities,
+                apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress))));
     respond(exchange, 200, "ok");
   }
 
@@ -718,6 +736,230 @@ public final class ApiServer implements AutoCloseable {
       list.add(m);
     }
     respondJson(exchange, 200, list);
+  }
+
+  // ---- /logs/controlplane, /logs/nodes/{nodeId}, /logs/instances/{name}/{idx} ----
+
+  /**
+   * Log reads are GETs against whichever control-plane replica receives them, which then makes its
+   * own direct call to the target agent -- no write/consensus involved, so §5's leader-redirect
+   * handling doesn't apply here (matches {@code log-explorer-design.md} §6).
+   */
+  private void handleLogs(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String tail = pathSegmentAfter(exchange, "/logs/");
+      if (tail.equals("controlplane")) {
+        handleControlPlaneLogs(exchange);
+      } else if (tail.startsWith("nodes/")) {
+        handleNodeLogsProxy(exchange, tail.substring("nodes/".length()));
+      } else if (tail.startsWith("instances/")) {
+        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()));
+      } else {
+        respond(exchange, 404, "unknown logs endpoint: " + tail);
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("logs request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /** Served directly from this process's own platform log -- it's the process answering. */
+  private void handleControlPlaneLogs(HttpExchange exchange) throws IOException {
+    Map<String, String> query = parseQuery(exchange);
+    String category = query.getOrDefault("category", "PLATFORM");
+    if (!"PLATFORM".equals(category)) {
+      respond(exchange, 400, "controlplane logs only support category=PLATFORM");
+      return;
+    }
+    Path file =
+        Path.of(System.getProperty("gimle.log.root", "gimle-logs"))
+            .resolve("controlplane-platform.log");
+    respondLogFile(exchange, file, query);
+  }
+
+  private void handleNodeLogsProxy(HttpExchange exchange, String nodeId) throws IOException {
+    if (nodeId.isBlank()) {
+      respond(exchange, 400, "missing nodeId");
+      return;
+    }
+    proxyToAgent(exchange, nodeId, "/logs/nodes/" + nodeId);
+  }
+
+  private void handleInstanceLogsProxy(HttpExchange exchange, String tail) throws IOException {
+    int slash = tail.indexOf('/');
+    if (slash < 0) {
+      respond(exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}");
+      return;
+    }
+    String deploymentName = tail.substring(0, slash);
+    int instanceIndex;
+    try {
+      instanceIndex = Integer.parseInt(tail.substring(slash + 1));
+    } catch (NumberFormatException e) {
+      respond(exchange, 400, "invalid instanceIndex");
+      return;
+    }
+    String nodeId =
+        store.listAssignmentsFor(deploymentName).stream()
+            .filter(a -> a.instanceIndex() == instanceIndex)
+            .map(InstanceAssignment::nodeId)
+            .findFirst()
+            .orElse(null);
+    if (nodeId == null) {
+      respond(exchange, 404, "no placement found for " + deploymentName + "#" + instanceIndex);
+      return;
+    }
+    proxyToAgent(exchange, nodeId, "/logs/instances/" + deploymentName + "/" + instanceIndex);
+  }
+
+  /** Looks up the owning node's self-reported log-server address and forwards the request as-is. */
+  private void proxyToAgent(HttpExchange exchange, String nodeId, String path) throws IOException {
+    Optional<NodeRegistration> registration = store.getNodeRegistration(nodeId);
+    Optional<String> apiAddress = registration.flatMap(NodeRegistration::apiAddress);
+    if (apiAddress.isEmpty()) {
+      respond(exchange, 502, "node " + nodeId + " has no known log-server address");
+      return;
+    }
+    String query = exchange.getRequestURI().getRawQuery();
+    URI target =
+        URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
+    HttpRequest request = HttpRequest.newBuilder(target).GET().build();
+
+    if (query != null && query.contains("follow=true")) {
+      proxyFollowToAgent(exchange, apiAddress.get(), request);
+      return;
+    }
+
+    HttpResponse<InputStream> response;
+    try {
+      response = agentHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      respond(exchange, 502, "interrupted while proxying to agent " + apiAddress.get());
+      return;
+    } catch (IOException e) {
+      respond(
+          exchange, 502, "failed to reach agent at " + apiAddress.get() + ": " + e.getMessage());
+      return;
+    }
+    String contentType =
+        response.headers().firstValue("Content-Type").orElse("application/octet-stream");
+    exchange.getResponseHeaders().add("Content-Type", contentType);
+    exchange.sendResponseHeaders(response.statusCode(), 0);
+    try (InputStream body = response.body();
+        OutputStream out = exchange.getResponseBody()) {
+      body.transferTo(out);
+    }
+  }
+
+  /**
+   * {@code follow=true} means an indefinite chunked response with no end in sight, and {@code
+   * HttpClient.send()} + {@code BodyHandlers.ofInputStream()} -- which works fine for the bounded,
+   * non-follow proxy path above -- never delivers a single byte for this shape of response
+   * (confirmed empirically: a direct request straight to the agent's own log server streams
+   * immediately, the identical request through this proxy using {@code send()}/{@code
+   * ofInputStream()} sat silent for the whole test window). {@code ofByteArrayConsumer} sidesteps
+   * that: it's driven by the reactive {@code Flow} subscription underneath, invoked as chunks
+   * genuinely arrive rather than via a blocking synchronous read, so bytes reach the exchange's
+   * output stream as they're produced instead of never at all.
+   */
+  private void proxyFollowToAgent(HttpExchange exchange, String apiAddress, HttpRequest request)
+      throws IOException {
+    exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson; charset=utf-8");
+    exchange.sendResponseHeaders(200, 0);
+    try (OutputStream out = exchange.getResponseBody()) {
+      agentHttpClient
+          .sendAsync(
+              request,
+              HttpResponse.BodyHandlers.ofByteArrayConsumer(
+                  chunk -> {
+                    if (chunk.isPresent()) {
+                      try {
+                        out.write(chunk.get());
+                        out.flush();
+                      } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                      }
+                    }
+                  }))
+          .join();
+    } catch (CompletionException | UncheckedIOException e) {
+      log.debug(
+          "follow proxy session to agent {} ended: {}", apiAddress, String.valueOf(e.getMessage()));
+    }
+  }
+
+  private static void respondLogFile(HttpExchange exchange, Path file, Map<String, String> query)
+      throws IOException {
+    boolean follow = "true".equals(query.get("follow"));
+    String cursor = query.get("cursor");
+    int limit = parseLimit(query.get("limit"));
+    int maxFiles = LogFileReader.configuredMaxFiles();
+    if (follow) {
+      exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson; charset=utf-8");
+      exchange.sendResponseHeaders(200, 0);
+      try (OutputStream out = exchange.getResponseBody()) {
+        LogFileReader.streamFollow(file, maxFiles, cursor, Duration.ofMillis(500), out);
+      } catch (IOException e) {
+        log.debug("controlplane log follow session ended: {}", e.getMessage());
+      }
+      return;
+    }
+    // "since" (readAfter, forward polling: "what's new since my last poll") is a genuinely
+    // different operation from "cursor" (readOlder, backward paging: "Load older") -- see
+    // AgentLogServer.readPage's javadoc for the real duplication bug this distinction fixes.
+    String since = query.get("since");
+    LogFileReader.LogPage page;
+    if (since != null) {
+      List<Map<String, Object>> lines = LogFileReader.readAfter(file, maxFiles, since);
+      String newerCursor =
+          lines.isEmpty() ? since : String.valueOf(lines.get(lines.size() - 1).get("timestamp"));
+      page = new LogFileReader.LogPage(lines, null, newerCursor);
+    } else {
+      page = LogFileReader.readOlder(file, maxFiles, cursor, limit);
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("lines", page.lines());
+    body.put("olderCursor", page.olderCursor());
+    body.put("newerCursor", page.newerCursor());
+    respondJson(exchange, 200, body);
+  }
+
+  private static int parseLimit(String raw) {
+    if (raw == null) {
+      return 200;
+    }
+    try {
+      return Math.max(1, Integer.parseInt(raw));
+    } catch (NumberFormatException e) {
+      return 200;
+    }
+  }
+
+  private static Map<String, String> parseQuery(HttpExchange exchange) {
+    Map<String, String> result = new LinkedHashMap<>();
+    String query = exchange.getRequestURI().getRawQuery();
+    if (query == null || query.isBlank()) {
+      return result;
+    }
+    for (String pair : query.split("&")) {
+      int eq = pair.indexOf('=');
+      if (eq < 0) {
+        continue;
+      }
+      String key = java.net.URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
+      String value = java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+      result.put(key, value);
+    }
+    return result;
   }
 
   // ---- HTTP plumbing ----

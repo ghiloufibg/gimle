@@ -2,25 +2,22 @@ package com.gimle.core.logging;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.UnsynchronizedAppenderBase;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
 /**
  * Writes every PLATFORM-category line (this process's own component code -- API server, scheduler,
- * reconcilers, agent supervisor, worker runtime/scheduler) to one rolling-free append file.
- * Deliberately skips APPLICATION lines (both {@link InstanceMdcKeys#DEPLOYMENT_NAME} and {@link
- * InstanceMdcKeys#INSTANCE_INDEX} present in MDC) -- those are {@link
- * InstanceSiftingFileAppender}'s job, attached alongside this one in a worker process.
+ * reconcilers, agent supervisor, worker runtime/scheduler) to one size/count-rotated file (see
+ * {@link RollingFileAppenders}, same pattern as Kubernetes' kubelet: rotate by size, keep a fixed
+ * number of old copies, no time-based retention). Deliberately skips APPLICATION lines (both {@link
+ * InstanceMdcKeys#DEPLOYMENT_NAME} and {@link InstanceMdcKeys#INSTANCE_INDEX} present in MDC) --
+ * those are {@link InstanceSiftingFileAppender}'s job, attached alongside this one in a worker
+ * process.
  */
 public final class PlatformFileAppender extends UnsynchronizedAppenderBase<ILoggingEvent> {
 
   private final Path file;
-  private final JsonLogEncoder encoder = new JsonLogEncoder();
-  private OutputStream out;
+  private RollingFileAppenders.Handle rolling;
 
   public PlatformFileAppender(Path file) {
     this.file = file;
@@ -28,15 +25,7 @@ public final class PlatformFileAppender extends UnsynchronizedAppenderBase<ILogg
 
   @Override
   public void start() {
-    try {
-      if (file.getParent() != null) {
-        Files.createDirectories(file.getParent());
-      }
-      out = Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-    } catch (IOException e) {
-      addError("failed to open platform log file " + file, e);
-      return;
-    }
+    rolling = RollingFileAppenders.open(getContext(), file);
     super.start();
   }
 
@@ -45,15 +34,7 @@ public final class PlatformFileAppender extends UnsynchronizedAppenderBase<ILogg
     if (isInstanceScoped(event)) {
       return;
     }
-    byte[] bytes = encoder.encode(event);
-    synchronized (this) {
-      try {
-        out.write(bytes);
-        out.flush();
-      } catch (IOException e) {
-        addError("failed to write platform log line to " + file, e);
-      }
-    }
+    rolling.appender().doAppend(event);
   }
 
   private static boolean isInstanceScoped(ILoggingEvent event) {
@@ -65,12 +46,8 @@ public final class PlatformFileAppender extends UnsynchronizedAppenderBase<ILogg
   @Override
   public void stop() {
     super.stop();
-    if (out != null) {
-      try {
-        out.close();
-      } catch (IOException ignored) {
-        // best-effort close on shutdown
-      }
+    if (rolling != null) {
+      rolling.close();
     }
   }
 }

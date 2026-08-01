@@ -444,6 +444,7 @@ public final class RaftCodec {
     for (IsolationTier tier : tiers) {
       out.writeUTF(tier.name());
     }
+    out.writeUTF(registration.apiAddress().orElse(""));
   }
 
   private static NodeRegistration readNodeRegistration(DataInputStream in) throws IOException {
@@ -453,7 +454,11 @@ public final class RaftCodec {
     for (int i = 0; i < count; i++) {
       tiers.add(IsolationTier.valueOf(in.readUTF()));
     }
-    return new NodeRegistration(nodeId, new NodeCapabilities(tiers));
+    String apiAddress = in.readUTF();
+    return new NodeRegistration(
+        nodeId,
+        new NodeCapabilities(tiers),
+        apiAddress.isEmpty() ? Optional.empty() : Optional.of(apiAddress));
   }
 
   private static void writeTenant(DataOutputStream out, Tenant tenant) throws IOException {

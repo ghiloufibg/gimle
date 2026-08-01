@@ -593,6 +593,7 @@ public final class StateStore {
         "supportedTiers",
         registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
     root.put("capabilities", capabilities);
+    registration.apiAddress().ifPresent(address -> root.put("apiAddress", address));
     return new Yaml().dump(root);
   }
 
@@ -604,7 +605,11 @@ public final class StateStore {
         tiers.stream()
             .map(t -> IsolationTier.valueOf((String) t))
             .collect(Collectors.toCollection(LinkedHashSet::new));
-    return new NodeRegistration(nodeId, new NodeCapabilities(supportedTiers));
+    Object apiAddress = root.get("apiAddress");
+    return new NodeRegistration(
+        nodeId,
+        new NodeCapabilities(supportedTiers),
+        apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress));
   }
 
   private static String heartbeatToYaml(NodeHeartbeat heartbeat, Instant receivedAt) {

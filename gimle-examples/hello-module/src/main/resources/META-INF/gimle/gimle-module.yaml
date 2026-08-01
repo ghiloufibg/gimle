@@ -1,0 +1,11 @@
+name: com.gimle.examples.hello
+version: 1.0.0
+isolation:
+  tier: TIER_1
+resources:
+  request:
+    memory: 16Mi
+    cpu: 10m
+  limit:
+    memory: 32Mi
+    cpu: 50m

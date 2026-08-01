@@ -3,13 +3,15 @@ import type { NodesRepository, NodesSummary } from "@/repositories/nodes";
 import { isStale } from "@/lib/format";
 import { requestJson } from "./apiClient";
 
-// `capacity` is only present once a node's first heartbeat has landed (ApiServer.java's
-// handleNodesList) -- normalized to a zeroed default below so the frontend's non-optional
-// `Node.capacity` type always has something to render.
+// `capacity` and `lastHeartbeatAt` are only present once a node's first heartbeat has landed
+// (ApiServer.java's handleNodesList puts both inside the same `ifPresent`, or neither) -- both
+// normalized below so the frontend's non-optional `Node` type always has something to render.
+// `lastHeartbeatAt` in particular must become a real `null`, not stay `undefined`: routes/metrics.tsx
+// does a strict `=== null` check to mean "never heartbeated," which `undefined` would silently fail.
 interface RawNode {
   nodeId: string;
   capabilities: { supportedTiers: Node["capabilities"]["supportedTiers"] };
-  lastHeartbeatAt: string | null;
+  lastHeartbeatAt?: string | null;
   capacity?: Node["capacity"];
 }
 
@@ -21,7 +23,7 @@ const NO_CAPACITY: Node["capacity"] = {
 };
 
 function mapNode(raw: RawNode): Node {
-  return { ...raw, capacity: raw.capacity ?? NO_CAPACITY };
+  return { ...raw, lastHeartbeatAt: raw.lastHeartbeatAt ?? null, capacity: raw.capacity ?? NO_CAPACITY };
 }
 
 export class HttpNodesRepository implements NodesRepository {

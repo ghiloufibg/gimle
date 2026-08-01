@@ -25,6 +25,7 @@
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
     <module>gimle-cli</module>
+    <module>gimle-examples/hello-module</module>
   </modules>
 
   <properties>

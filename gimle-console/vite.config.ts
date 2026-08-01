@@ -45,6 +45,7 @@ export default defineConfig(({ command }) => ({
       "/nodes": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/tenants": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/config": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/logs": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
     },
   },
 }));

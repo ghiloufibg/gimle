@@ -26,13 +26,23 @@ class InstanceSiftingFileAppenderTest {
   private final Logger logger =
       ((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger("test.sifting");
 
+  private InstanceSiftingFileAppender appender;
+
   @AfterEach
-  void clearMdc() {
+  void tearDown() {
     MDC.clear();
+    // Now backed by Logback's own RollingFileAppender (java.io.FileOutputStream internally, unlike
+    // the plain OutputStream this class used to open via Files.newOutputStream), which doesn't
+    // request FILE_SHARE_DELETE on Windows -- an unstopped appender leaves its file handle open and
+    // @TempDir's cleanup fails to delete it. Every real caller already stops this on
+    // uninstall/shutdown; tests need to do the same now that the underlying I/O mechanism changed.
+    if (appender != null) {
+      appender.stop();
+    }
   }
 
   private InstanceSiftingFileAppender startedAppender() {
-    InstanceSiftingFileAppender appender = new InstanceSiftingFileAppender(instancesDir);
+    appender = new InstanceSiftingFileAppender(instancesDir);
     appender.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
     appender.start();
     return appender;

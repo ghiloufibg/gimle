@@ -81,6 +81,7 @@ public final class GimleCli {
       case "get" -> handleGet(rest, client, output, out);
       case "set" -> handleSet(rest, client, output, out);
       case "delete" -> handleDelete(rest, client, output, out);
+      case "logs" -> new LogsCommand(client, out).run(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -172,6 +173,7 @@ public final class GimleCli {
           delete tenant <id>
           get config <tenantId>
           set config <tenantId> <key> <value> [--encrypted]
-          delete config <tenantId> <key>""";
+          delete config <tenantId> <key>
+          logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]""";
   }
 }

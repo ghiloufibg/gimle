@@ -19,8 +19,10 @@ import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -94,6 +96,11 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
+    AgentLogServer logServer = new AgentLogServer(logRoot, 0);
+    logServer.start();
+    String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
+    log.info("agent {} serving logs at {}", nodeId, apiAddress);
+
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = HttpClient.newHttpClient();
@@ -108,7 +115,7 @@ public final class AgentMain {
     gossipMember.join(seeds);
     log.info("agent {} gossip member listening at {}", nodeId, gossipMember.self().gossipAddress());
 
-    register(httpClient, baseUrl, nodeId, resourceLimiter);
+    register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
     while (!Thread.currentThread().isInterrupted()) {
@@ -174,7 +181,11 @@ public final class AgentMain {
   // ---- control-plane registration/heartbeat/assignment fetch ----
 
   private static void register(
-      HttpClient httpClient, URI baseUrl, String nodeId, ResourceLimiter resourceLimiter)
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      ResourceLimiter resourceLimiter,
+      String apiAddress)
       throws IOException, InterruptedException {
     Set<IsolationTier> supportedTiers = new LinkedHashSet<>();
     for (IsolationTier tier : IsolationTier.values()) {
@@ -186,12 +197,27 @@ public final class AgentMain {
     capabilities.put("supportedTiers", supportedTiers.stream().map(Enum::name).toList());
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("capabilities", capabilities);
+    body.put("apiAddress", apiAddress);
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/register"))
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  /**
+   * Same pattern as {@code WorkerMain.resolveAdvertisedHost()}: self-reported, not captured from
+   * the registration request's raw socket (wrong behind NAT/a proxy). A deployment concern
+   * independent of this protocol -- real multi-homed/NAT'd hosts need real address configuration;
+   * loopback keeps single-machine setups working.
+   */
+  private static String resolveAdvertisedHost() {
+    try {
+      return InetAddress.getLocalHost().getHostAddress();
+    } catch (UnknownHostException e) {
+      return "127.0.0.1";
+    }
   }
 
   private static void sendHeartbeat(
@@ -369,9 +395,17 @@ public final class AgentMain {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
     ResourceLimitHandle handle = resourceLimiter.prepare(key, descriptor.resourceRequest());
+    // Each worker JVM is its own process with its own default gimle.log.root ("gimle-logs",
+    // relative to wherever it inherits its CWD) -- without this override, WorkerMain's
+    // worker-platform.log would land somewhere AgentLogServer never looks, and every worker this
+    // agent supervises would additionally collide on that one shared filename. Scoping by `key`
+    // (already the same identifier `workers/<key>-system.log` uses, below) gives each worker its
+    // own directory, which AgentLogServer's instance PLATFORM route reads from.
+    Path workerLogRoot = logRoot.resolve("workers").resolve(key);
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
     baseCommand.add(LEAK_DETECTION_JFR_FLAG);
+    baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);

@@ -6,6 +6,7 @@ module com.gimle.agent {
   requires java.management;
   requires jdk.management;
   requires java.net.http;
+  requires jdk.httpserver;
   requires org.slf4j;
 
   exports com.gimle.agent;

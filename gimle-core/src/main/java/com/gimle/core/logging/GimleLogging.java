@@ -18,12 +18,19 @@ public final class GimleLogging {
 
   private GimleLogging() {}
 
-  public static void attachPlatformFileAppender(Path file) {
+  /**
+   * Returns the started appender (rather than {@code void}) so a caller that needs to release its
+   * file handle before process exit -- tests, mainly, via {@code @TempDir} cleanup on Windows --
+   * can call {@code stop()} on it; every real {@code Main} class already ignores the return value,
+   * since a process's own platform log is meant to live for its whole lifetime.
+   */
+  public static PlatformFileAppender attachPlatformFileAppender(Path file) {
     LoggerContext context = context();
     PlatformFileAppender appender = new PlatformFileAppender(file);
     appender.setContext(context);
     appender.start();
     root(context).addAppender(appender);
+    return appender;
   }
 
   public static InstanceLogCloser attachInstanceSiftingAppender(Path instancesDir) {
