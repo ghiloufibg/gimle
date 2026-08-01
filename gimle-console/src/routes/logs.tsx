@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import type { LogCategory, LogLine, LogTarget } from "@/types";
+import type { CrashDump, LogCategory, LogLine, LogTarget } from "@/types";
 import { useLogStore } from "@/stores/useLogStore";
+import { logsRepo } from "@/repositories";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Play, Pause, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtBytes, fmtRelativeTime } from "@/lib/format";
 
 const searchSchema = z.union([
   z.object({
@@ -110,6 +112,22 @@ function LogsPage() {
   }
 
   const cats = useMemo(() => validCategories(target.kind), [target.kind]);
+
+  const [crashDumps, setCrashDumps] = useState<CrashDump[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (target.kind === "instance") {
+      logsRepo.listCrashDumps(target).then((dumps) => {
+        if (!cancelled) setCrashDumps(dumps);
+      });
+    } else {
+      setCrashDumps([]);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.kind, (target as any).deploymentName, (target as any).instanceIndex]);
 
   return (
     <PageContainer>
@@ -236,6 +254,35 @@ function LogsPage() {
           </button>
         )}
       </div>
+
+      {target.kind === "instance" && crashDumps.length > 0 && (
+        <div className="mt-4 rounded border border-status-bad/40 bg-status-bad/5">
+          <div className="border-b border-status-bad/30 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-status-bad">
+            Crash dumps
+          </div>
+          <ul className="divide-y divide-border/40">
+            {crashDumps.map((dump) => (
+              <li
+                key={dump.name}
+                className="flex items-center justify-between px-3 py-1.5 text-[11px]"
+              >
+                <span className="font-mono">{dump.name}</span>
+                <span className="flex items-center gap-3 text-muted-foreground">
+                  <span>{fmtBytes(dump.sizeBytes)}</span>
+                  <span>{fmtRelativeTime(dump.lastModified)}</span>
+                  <a
+                    href={`/logs/instances/${target.deploymentName}/${target.instanceIndex}/crashdumps/${dump.name}`}
+                    download={dump.name}
+                    className="text-primary hover:underline"
+                  >
+                    Download
+                  </a>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </PageContainer>
   );
 }

@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -153,17 +154,32 @@ final class AgentLogServer implements AutoCloseable {
         return;
       }
       String tail = exchange.getRequestURI().getPath().substring("/logs/instances/".length());
-      int slash = tail.indexOf('/');
-      if (slash < 0) {
-        respond(exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}");
+      // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. "crashdumps" or
+      // "crashdumps/<name>") -- a plain 2-way split on the first slash used to swallow anything
+      // past the instanceIndex into a failed Integer.parseInt, breaking any sub-path entirely.
+      String[] parts = tail.split("/", 3);
+      if (parts.length < 2) {
+        respond(exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}[/...]");
         return;
       }
-      String deploymentName = tail.substring(0, slash);
+      String deploymentName = parts[0];
       int instanceIndex;
       try {
-        instanceIndex = Integer.parseInt(tail.substring(slash + 1));
+        instanceIndex = Integer.parseInt(parts[1]);
       } catch (NumberFormatException e) {
         respond(exchange, 400, "invalid instanceIndex");
+        return;
+      }
+      String subPath = parts.length == 3 ? parts[2] : null;
+
+      // AgentMain's per-worker key (workers/<key>/), vs. InstanceSiftingFileAppender's own
+      // dash-joined key for the sifted file itself (see gimle-core's InstanceSiftingFileAppender)
+      // -- both derived from the same deploymentName/instanceIndex, but not the same separator.
+      String workerKey = deploymentName + "#" + instanceIndex;
+      Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
+
+      if (subPath != null && subPath.startsWith("crashdumps")) {
+        handleCrashDumps(exchange, workerLogRoot, subPath);
         return;
       }
 
@@ -173,11 +189,6 @@ final class AgentLogServer implements AutoCloseable {
       String cursor = query.get("cursor");
       int limit = parseLimit(query.get("limit"));
 
-      // AgentMain's per-worker key (workers/<key>/), vs. InstanceSiftingFileAppender's own
-      // dash-joined key for the sifted file itself (see gimle-core's InstanceSiftingFileAppender)
-      // -- both derived from the same deploymentName/instanceIndex, but not the same separator.
-      String workerKey = deploymentName + "#" + instanceIndex;
-      Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
       Path file =
           "PLATFORM".equals(category)
               // Matches AgentMain's -Dgimle.log.root=<logRoot>/workers/<workerKey> override for
@@ -204,6 +215,74 @@ final class AgentLogServer implements AutoCloseable {
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
+    }
+  }
+
+  // ---- /logs/instances/{deploymentName}/{instanceIndex}/crashdumps[/{name}] ----
+
+  /**
+   * {@code hs_err_pid*.log} crash dumps are inherently a directory listing, not an appendable
+   * stream like every other log category here -- a JVM writes one on a native crash (see {@code
+   * AgentMain}'s {@code -XX:ErrorFile=} flag pointing these at this same {@code workerLogRoot}),
+   * independent of anything going through Logback. Whole-file fetch, not tail/cursor, matching that
+   * shape rather than forcing it through {@link LogFileReader}.
+   */
+  private static final Pattern CRASH_DUMP_FILENAME = Pattern.compile("hs_err_pid\\d+\\.log");
+
+  private void handleCrashDumps(HttpExchange exchange, Path workerLogRoot, String subPath)
+      throws IOException {
+    if (subPath.equals("crashdumps")) {
+      listCrashDumps(exchange, workerLogRoot);
+      return;
+    }
+    if (subPath.startsWith("crashdumps/")) {
+      fetchCrashDump(exchange, workerLogRoot, subPath.substring("crashdumps/".length()));
+      return;
+    }
+    respond(exchange, 400, "unknown instance logs sub-path: " + subPath);
+  }
+
+  private static void listCrashDumps(HttpExchange exchange, Path workerLogRoot) throws IOException {
+    List<Map<String, Object>> dumps = new ArrayList<>();
+    if (Files.isDirectory(workerLogRoot)) {
+      try (var files = Files.list(workerLogRoot)) {
+        for (Path file :
+            files
+                .filter(p -> CRASH_DUMP_FILENAME.matcher(p.getFileName().toString()).matches())
+                .sorted()
+                .toList()) {
+          Map<String, Object> entry = new LinkedHashMap<>();
+          entry.put("name", file.getFileName().toString());
+          entry.put("sizeBytes", Files.size(file));
+          entry.put("lastModified", Files.getLastModifiedTime(file).toInstant().toString());
+          dumps.add(entry);
+        }
+      }
+    }
+    respondJson(exchange, 200, dumps);
+  }
+
+  /**
+   * {@code name} is validated against the exact expected pattern before touching the filesystem --
+   * the same path-traversal discipline {@code ConsoleStaticHandler} applies for static files, here
+   * as a strict allow-list regex rather than a real-path containment check.
+   */
+  private static void fetchCrashDump(HttpExchange exchange, Path workerLogRoot, String name)
+      throws IOException {
+    if (!CRASH_DUMP_FILENAME.matcher(name).matches()) {
+      respond(exchange, 400, "invalid crash dump filename: " + name);
+      return;
+    }
+    Path file = workerLogRoot.resolve(name);
+    if (!Files.isRegularFile(file)) {
+      respond(exchange, 404, "no such crash dump: " + name);
+      return;
+    }
+    byte[] content = Files.readAllBytes(file);
+    exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
+    exchange.sendResponseHeaders(200, content.length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(content);
     }
   }
 

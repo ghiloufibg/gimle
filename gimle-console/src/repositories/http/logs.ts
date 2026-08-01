@@ -1,4 +1,4 @@
-import type { LogLine, LogTarget, Page } from "@/types";
+import type { CrashDump, LogLine, LogTarget, Page } from "@/types";
 import type { LogsRepository } from "../logs";
 import { ApiError } from "./apiClient";
 
@@ -94,5 +94,14 @@ export class HttpLogsRepository implements LogsRepository {
       stopped = true;
       if (timer !== null) clearTimeout(timer);
     };
+  }
+
+  async listCrashDumps(target: LogTarget): Promise<CrashDump[]> {
+    // Only an instance target has a worker JVM to crash -- no backend route exists for node or
+    // controlplane targets.
+    if (target.kind !== "instance") return [];
+    const res = await fetch(`${pathFor(target)}/crashdumps`);
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return (await res.json()) as CrashDump[];
   }
 }

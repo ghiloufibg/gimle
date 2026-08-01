@@ -134,6 +134,14 @@ export type LogTarget =
   | { kind: "node"; nodeId: string; category: "PLATFORM" | "SYSTEM" }
   | { kind: "controlplane"; category: "PLATFORM" | "SYSTEM" };
 
+/** hs_err_pid*.log crash dumps -- a directory listing, not a log stream, so this is its own
+ * shape rather than forced into LogLine/Page (see AgentLogServer's crashdumps route). */
+export interface CrashDump {
+  name: string;
+  sizeBytes: number;
+  lastModified: string;
+}
+
 export interface Page<T> {
   items: T[];
   nextCursor: string | null;

@@ -794,15 +794,19 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleInstanceLogsProxy(HttpExchange exchange, String tail) throws IOException {
-    int slash = tail.indexOf('/');
-    if (slash < 0) {
-      respond(exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}");
+    // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. AgentLogServer's
+    // "crashdumps" or "crashdumps/<name>") -- a plain 2-way split on the first slash used to
+    // swallow anything past the instanceIndex into a failed Integer.parseInt, breaking any
+    // sub-path entirely.
+    String[] parts = tail.split("/", 3);
+    if (parts.length < 2) {
+      respond(exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}[/...]");
       return;
     }
-    String deploymentName = tail.substring(0, slash);
+    String deploymentName = parts[0];
     int instanceIndex;
     try {
-      instanceIndex = Integer.parseInt(tail.substring(slash + 1));
+      instanceIndex = Integer.parseInt(parts[1]);
     } catch (NumberFormatException e) {
       respond(exchange, 400, "invalid instanceIndex");
       return;
@@ -817,7 +821,9 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 404, "no placement found for " + deploymentName + "#" + instanceIndex);
       return;
     }
-    proxyToAgent(exchange, nodeId, "/logs/instances/" + deploymentName + "/" + instanceIndex);
+    // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
+    // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
+    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail);
   }
 
   /** Looks up the owning node's self-reported log-server address and forwards the request as-is. */

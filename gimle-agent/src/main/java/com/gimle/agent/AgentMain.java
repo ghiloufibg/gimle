@@ -406,6 +406,12 @@ public final class AgentMain {
     baseCommand.add(javaExecutable);
     baseCommand.add(LEAK_DETECTION_JFR_FLAG);
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
+    // Without this, a native crash's hs_err_pid<pid>.log lands wherever this worker inherited its
+    // CWD (the agent's own), same problem the log-root override above already fixed for regular
+    // logs. Same per-worker directory, so AgentLogServer's crash-dump listing knows where to look;
+    // %p is HotSpot's own PID-substitution token, so a respawn after a crash (RestartTracker)
+    // doesn't overwrite the previous dump.
+    baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);

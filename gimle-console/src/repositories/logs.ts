@@ -1,4 +1,5 @@
 import type {
+  CrashDump,
   LogCategory,
   LogLevel,
   LogLine,
@@ -136,6 +137,9 @@ export interface LogsRepository {
     pageSize: number;
   }): Promise<Page<LogLine>>;
   openFollow(target: LogTarget, onLine: (line: LogLine) => void): () => void;
+  /** Only instance targets have a worker JVM to crash; node/controlplane targets always resolve
+   * to an empty list (no backend route exists for those). */
+  listCrashDumps(target: LogTarget): Promise<CrashDump[]>;
 }
 
 export class MockLogsRepository implements LogsRepository {
@@ -173,5 +177,10 @@ export class MockLogsRepository implements LogsRepository {
       stopped = true;
       clearTimeout(initial);
     };
+  }
+
+  // Crash dumps are a rare event -- not worth faking; the mock always reports none.
+  async listCrashDumps(): Promise<CrashDump[]> {
+    return delay([]);
   }
 }

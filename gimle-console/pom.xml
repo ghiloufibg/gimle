@@ -67,7 +67,13 @@
             <configuration>
               <executable>bun</executable>
               <workingDirectory>${project.basedir}</workingDirectory>
+              <!-- `bun test` (no "run") invokes Bun's own native test runner, which silently
+                   ignores package.json's "test" script entirely: ties tests to a completely
+                   different (Jest-like) mocking API than real Vitest, missing vi.stubGlobal/vi.mock
+                   support real Vitest has. `bun run test` runs the actual "test": "vitest run"
+                   script this project is built around (see vitest.config.ts). -->
               <arguments>
+                <argument>run</argument>
                 <argument>test</argument>
               </arguments>
             </configuration>

@@ -19,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -104,15 +105,25 @@ class AgentLogServerTest {
   }
 
   private Map<String, Object> get(String path) throws Exception {
+    HttpResponse<String> response = getRaw(path);
+    assertEquals(
+        200, response.statusCode(), "unexpected status for " + path + ": " + response.body());
+    return Json.asObject(Json.parse(response.body()));
+  }
+
+  private List<Object> getJsonArray(String path) throws Exception {
+    HttpResponse<String> response = getRaw(path);
+    assertEquals(
+        200, response.statusCode(), "unexpected status for " + path + ": " + response.body());
+    return Json.asArray(Json.parse(response.body()));
+  }
+
+  private HttpResponse<String> getRaw(String path) throws Exception {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))
             .GET()
             .build();
-    HttpResponse<String> response =
-        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    assertEquals(
-        200, response.statusCode(), "unexpected status for " + path + ": " + response.body());
-    return Json.asObject(Json.parse(response.body()));
+    return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
   @Test
@@ -146,5 +157,67 @@ class AgentLogServerTest {
     assertTrue(lines.stream().anyMatch(l -> "instance 0 line".equals(l.get("message"))));
     assertFalse(lines.stream().anyMatch(l -> "instance 1 line".equals(l.get("message"))));
     assertEquals("APPLICATION", lines.get(0).get("category"));
+  }
+
+  @Test
+  void crash_dumps_are_listed_from_the_right_worker_directory_only() throws Exception {
+    startServer();
+    Path workerDir = logRoot.resolve("workers").resolve("orders-service#0");
+    Files.createDirectories(workerDir);
+    Files.writeString(workerDir.resolve("hs_err_pid111.log"), "crash one");
+    Files.writeString(workerDir.resolve("hs_err_pid222.log"), "crash two, a bit longer");
+    Files.writeString(workerDir.resolve("worker-platform.log"), "not a crash dump");
+
+    List<Object> dumps = getJsonArray("/logs/instances/orders-service/0/crashdumps");
+    List<Map<String, Object>> entries = dumps.stream().map(Json::asObject).toList();
+
+    assertEquals(
+        2, entries.size(), "expected exactly the two hs_err_pid*.log files, not the platform log");
+    assertTrue(entries.stream().anyMatch(e -> "hs_err_pid111.log".equals(e.get("name"))));
+    assertTrue(entries.stream().anyMatch(e -> "hs_err_pid222.log".equals(e.get("name"))));
+    Map<String, Object> first =
+        entries.stream().filter(e -> "hs_err_pid111.log".equals(e.get("name"))).findFirst().get();
+    assertEquals(((Number) first.get("sizeBytes")).longValue(), "crash one".getBytes().length);
+    assertTrue(first.containsKey("lastModified"));
+  }
+
+  @Test
+  void crash_dumps_list_is_empty_when_the_worker_never_crashed() throws Exception {
+    startServer();
+    List<Object> dumps = getJsonArray("/logs/instances/never-crashed/0/crashdumps");
+    assertTrue(dumps.isEmpty());
+  }
+
+  @Test
+  void a_crash_dump_is_fetched_with_its_exact_content_and_a_plain_text_content_type()
+      throws Exception {
+    startServer();
+    Path workerDir = logRoot.resolve("workers").resolve("orders-service#0");
+    Files.createDirectories(workerDir);
+    String content = "# A fatal error has been detected...\nmore crash detail\n";
+    Files.writeString(workerDir.resolve("hs_err_pid333.log"), content);
+
+    HttpResponse<String> response =
+        getRaw("/logs/instances/orders-service/0/crashdumps/hs_err_pid333.log");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(content, response.body());
+    assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/plain"));
+  }
+
+  @Test
+  void crash_dump_fetch_rejects_a_filename_that_does_not_match_the_expected_pattern()
+      throws Exception {
+    startServer();
+    Path workerDir = logRoot.resolve("workers").resolve("orders-service#0");
+    Files.createDirectories(workerDir);
+    // A real file sitting right next to a real crash dump, in the exact same directory -- proves
+    // the guard is a strict filename allow-list, not just "does the file happen to exist."
+    Files.writeString(workerDir.resolve("worker-platform.log"), "not a crash dump");
+
+    HttpResponse<String> response =
+        getRaw("/logs/instances/orders-service/0/crashdumps/worker-platform.log");
+
+    assertEquals(400, response.statusCode());
   }
 }
