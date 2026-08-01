@@ -16,13 +16,13 @@ import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.logging.GimleLogging;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -61,8 +61,7 @@ public final class ControlPlaneMain {
     if (args.length < 3) {
       System.err.println(
           "usage: ControlPlaneMain <port> <stateDir> <raftPort> [--host <hostname>] "
-              + "[--peers host1:raftPort1:apiPort1,host2:raftPort2:apiPort2,...] "
-              + "[--console-dir <path>]");
+              + "[--peers host1:raftPort1:apiPort1,host2:raftPort2:apiPort2,...]");
       System.exit(2);
       return;
     }
@@ -71,14 +70,11 @@ public final class ControlPlaneMain {
     int raftPort = Integer.parseInt(args[2]);
     String selfHost = "127.0.0.1";
     List<PeerSpec> peerSpecs = List.of();
-    Path consoleDir = Path.of("console-dist");
     for (int i = 3; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
       } else if ("--peers".equals(args[i]) && i + 1 < args.length) {
         peerSpecs = parsePeers(args[++i]);
-      } else if ("--console-dir".equals(args[i]) && i + 1 < args.length) {
-        consoleDir = Path.of(args[++i]);
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
@@ -149,11 +145,12 @@ public final class ControlPlaneMain {
         selfRaftId,
         stateDir);
 
-    if (Files.isDirectory(consoleDir)) {
-      apiServer.serveConsole(consoleDir);
-      log.info("serving web console from {} at /console", consoleDir.toAbsolutePath());
+    Optional<Path> consoleRoot = BundledConsole.resolve(ControlPlaneMain.class.getClassLoader());
+    if (consoleRoot.isPresent()) {
+      apiServer.serveConsole(consoleRoot.get());
+      log.info("serving bundled web console at /console");
     } else {
-      log.info("console directory {} not found; /console disabled", consoleDir.toAbsolutePath());
+      log.info("no bundled web console found on the classpath; /console disabled");
     }
 
     Runtime.getRuntime()

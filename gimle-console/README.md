@@ -6,13 +6,15 @@ config, and logs. Built with TanStack Start, React, Zustand, and Tailwind (shadc
 Pulled from a Lovable-generated project (commit `a8b1adff21e60177df602d40f3b0a1a8a5d32e54`); see
 `claudedocs/web-console-design.md` in the repo root for the design rationale and integration plan.
 
-**Status**: mock-only. All data is generated in-memory (`src/repositories/fixture.ts`); no repository
-yet talks to the real `gimle-controlplane` API (`gimle-controlplane`'s `ApiServer`) — that's a
-separate follow-up (repository/store layering is already in place specifically so that wiring is a
-one-file change to `src/repositories/index.ts`).
+**Status**: wired to the real `gimle-controlplane` API for every screen, including live log tailing
+(`src/repositories/http/*.ts`) — the mock repository set (`src/repositories/fixture.ts`) still exists
+for reference/tests but is no longer the default.
 
-This directory is **not** a Maven module — it's an independent npm/Vite-family project, built with
-[Bun](https://bun.sh).
+This is an independent Bun/Vite/React project — no Node, npm, or Bun code is written by hand in
+Java — but it *is* a Maven module (see `pom.xml`): `exec-maven-plugin` shells out to Bun to install,
+build, and test it as part of the normal `mvn verify` reactor build, and its built output is packaged
+into this module's own jar for `gimle-controlplane` to depend on and serve. See `LOCAL_DEV.md` for the
+full local-dev flow.
 
 ## Development
 
@@ -25,6 +27,6 @@ bun run lint
 
 ## Serving
 
-`gimle-controlplane`'s `ApiServer` can serve this app's build output at `/console` — see
-`ControlPlaneMain --console-dir <path>` (defaults to `console-dist` relative to the process's working
-directory).
+`gimle-controlplane` depends on this module and serves its bundled build output at `/console`
+automatically (`ControlPlaneMain` reads it straight off the classpath — see `BundledConsole.java`) —
+no separate build/copy/flag step. Just `mvn install` from the repo root.

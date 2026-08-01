@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-console</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Console</name>
+  <description>
+    The web console SPA (Vite/React/TanStack Router/Zustand/Tailwind), built and tested by Bun
+    but wrapped as a plain Maven module so `mvn verify` covers it too: no Java sources here, just
+    exec-maven-plugin executions that shell out to Bun (the same pattern the root pom's
+    runtime-image profile already uses for jlink) and a resources-copy step that lands the built
+    SPA at console/** inside this module's own jar, for gimle-controlplane to depend on and serve.
+  </description>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>bun-install</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>bun</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>install</argument>
+                <argument>--frozen-lockfile</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>bun-build</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>bun</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>run</argument>
+                <argument>build</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>bun-test</id>
+            <phase>test</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>bun</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>test</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <!-- Copies Vite's own conventional dist/ output (produced by the bun-build execution
+               above) into this module's own jar under console/**, for gimle-controlplane to read
+               off its classpath at runtime (see ControlPlaneMain). vite.config.ts is untouched:
+               Vite has no idea Maven exists. -->
+          <execution>
+            <id>copy-console-dist</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/console</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/dist</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

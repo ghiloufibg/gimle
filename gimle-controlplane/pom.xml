@@ -34,6 +34,15 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-module</artifactId>
     </dependency>
+    <!-- Pure resources (console/**), no .class files: deliberately not `requires`d from
+         module-info.java, so Maven's compiler plugin keeps it on the plain classpath instead of
+         the module path (the same hybrid classpath/module-path behavior this project already
+         relies on for OpenTelemetry, which ships no real module-info either). See
+         ControlPlaneMain's console-resolution logic for how this gets read at runtime. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-console</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
