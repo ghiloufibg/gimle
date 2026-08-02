@@ -44,6 +44,32 @@ One or more JVMs, Raft-replicated for HA (`gimle-controlplane`). Owns the API se
 store, the scheduler, and the reconcilers — see [Control plane](./control-plane.md) for how those
 pieces fit together.
 
+## Multi-machine deployment
+
+Nothing here is loopback-only — the `127.0.0.1` addresses in the local-dev walkthrough are
+convenience defaults, not an architectural limit:
+
+- **`ApiServer` listens on every network interface**, not just loopback (`new
+  InetSocketAddress(port)` — Java's wildcard-bind constructor), so it's reachable from another
+  machine on the network with no code change.
+- **A node agent's control-plane and gossip addresses are real, configurable network locations.**
+  `AgentMain` takes `<controlPlaneBaseUrl>` and `<gossipBindHost:port>` as genuine arguments; the
+  `mvn gimle:agent` convenience goal's `gimle.agent.controlPlaneUrl`/`gimle.agent.gossipAddress`
+  properties (see [`gimle-maven-plugin` goal reference](../reference/maven-plugin-goals.md)) are
+  just where those defaults happen to point for a single-machine local cluster.
+- **Membership gossip joins via `seeds`** — a list of other agents' real `host:port` addresses,
+  the whole mechanism by which an agent on one machine finds agents on others (see
+  [Service fabric](./service-fabric.md)).
+
+:::danger[No authentication anywhere in this path]
+
+A control plane bound to every interface with no auth means anyone who can reach that port can
+register as a node or submit manifests. This is the same deliberate-but-unaddressed gap already
+called out for the [web console](./web-console.md) — revisit before ever pointing any of this at
+a real, untrusted network rather than a single trusted machine or private lab network.
+
+:::
+
 ## Three failure domains, three recovery costs
 
 Node failure, worker failure, and module failure are distinct events, reconciled at distinct
