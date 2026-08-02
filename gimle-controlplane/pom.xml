@@ -58,5 +58,13 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
+    <!-- Test-only for now: generates real test certificates for ApiServer's TLS support (task
+         #26). gimle-controlplane will pick this up as a real, main-scope dependency once it signs
+         incoming CSRs at /bootstrap/csr (design doc §4): promoted then, not duplicated. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

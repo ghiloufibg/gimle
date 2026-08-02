@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-pki</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle PKI</name>
+  <description>
+    Certificate authority and CSR generation/signing for gimle.transport.protocol=tls (see
+    claudedocs/tls-transport-security-design.md), via Bouncy Castle -- confirmed to use only
+    public JDK APIs underneath (java.security.Signature, KeyPairGenerator, BigInteger) plus its own
+    ASN.1/DER encoder, unlike the sun.security.x509 internals route this design explicitly ruled
+    out. Deliberately its own module, not gimle-core: only gimle-controlplane (signs CSRs at
+    /bootstrap/csr) and gimle-agent (generates its own CSR at first bootstrap) ever call into it --
+    putting Bouncy Castle in gimle-core would have handed every other module a dependency on a
+    substantial third-party crypto library none of them ever use.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk18on</artifactId>
+    </dependency>
+  </dependencies>
+</project>

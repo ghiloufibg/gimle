@@ -28,9 +28,15 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -54,6 +60,8 @@ import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import javax.crypto.SecretKey;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -127,7 +135,7 @@ public final class ApiServer implements AutoCloseable {
     this.secretKey = secretKey;
     this.raftNode = raftNode;
     this.peerApiAddresses = Map.copyOf(peerApiAddresses);
-    this.server = HttpServer.create(new InetSocketAddress(port), 0);
+    this.server = createHttpServer(port);
     server.createContext("/deployments/", this::handleDeployment);
     server.createContext("/deployments", this::handleDeploymentsList);
     server.createContext("/nodes/", this::handleNode);
@@ -168,6 +176,38 @@ public final class ApiServer implements AutoCloseable {
   private static Path ephemeralKeyPath() throws IOException {
     Path dir = Files.createTempDirectory("gimle-apiserver-ephemeral-key-");
     return dir.resolve("secret.key");
+  }
+
+  /**
+   * {@link TransportProtocol#PLAINTEXT} (the default) is untouched: a plain {@link HttpServer},
+   * exactly what every existing caller/test already gets. {@link TransportProtocol#TLS} swaps in
+   * {@link HttpsServer} instead -- the JDK-bundled, direct drop-in the design doc calls out as the
+   * smallest, lowest-risk change in the whole TLS rollout (see {@code
+   * claudedocs/tls-transport-security-design.md} §2) -- configured for mTLS via {@link
+   * HttpsParameters#setNeedClientAuth}. One known, deliberate gap: this makes every context on this
+   * server require a client certificate, including a future {@code /bootstrap/csr} endpoint that by
+   * design must be reachable without one (§4) -- that endpoint isn't wired up yet, so nothing
+   * depends on the exception it will need carved out for it.
+   */
+  private static HttpServer createHttpServer(int port) throws IOException {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return HttpServer.create(new InetSocketAddress(port), 0);
+    }
+    SSLContext sslContext = SslContexts.forMutualTls(TlsSettings.fromConfig());
+    HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
+    httpsServer.setHttpsConfigurator(
+        new HttpsConfigurator(sslContext) {
+          @Override
+          public void configure(HttpsParameters params) {
+            // Order matters: setSSLParameters(...) copies its argument's own needClientAuth
+            // value onto params, so setting it here -- not via params.setNeedClientAuth(...)
+            // separately, and not before this call -- is the only ordering that actually sticks.
+            SSLParameters sslParameters = getSSLContext().getDefaultSSLParameters();
+            sslParameters.setNeedClientAuth(true);
+            params.setSSLParameters(sslParameters);
+          }
+        });
+    return httpsServer;
   }
 
   public void start() {

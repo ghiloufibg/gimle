@@ -19,6 +19,7 @@
     <module>gimle-core</module>
     <module>gimle-module</module>
     <module>gimle-os</module>
+    <module>gimle-pki</module>
     <module>gimle-observability</module>
     <module>gimle-worker</module>
     <module>gimle-agent</module>
@@ -42,6 +43,7 @@
     <slf4j.version>2.0.17</slf4j.version>
     <logback.version>1.5.18</logback.version>
     <opentelemetry.version>1.64.0</opentelemetry.version>
+    <bouncycastle.version>1.85</bouncycastle.version>
   </properties>
 
   <dependencyManagement>
@@ -100,6 +102,11 @@
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
+        <artifactId>gimle-pki</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
         <artifactId>gimle-observability</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -137,6 +144,11 @@
         <groupId>org.yaml</groupId>
         <artifactId>snakeyaml</artifactId>
         <version>${snakeyaml.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcpkix-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
