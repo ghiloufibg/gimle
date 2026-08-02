@@ -54,6 +54,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final Map<String, RaftPeerClient> peers;
   private final RaftLog raftLog;
   private final StateStore store;
+  private final Duration proposeTimeout;
 
   private final ReentrantLock lock = new ReentrantLock();
   private final Condition commitAdvanced = lock.newCondition();
@@ -74,10 +75,25 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   public RaftNode(
       String selfId, Map<String, RaftPeerClient> peers, RaftLog raftLog, StateStore store) {
+    this(selfId, peers, raftLog, store, PROPOSE_TIMEOUT);
+  }
+
+  /**
+   * Test-only: injects a short {@code proposeTimeout} so a test exercising the timeout path (F-14,
+   * the ghost-write fix) doesn't have to wait out the real 5-second production value. Package-
+   * private, exercised only by {@code RaftNodeSafetyMechanicsTest} in this same package.
+   */
+  RaftNode(
+      String selfId,
+      Map<String, RaftPeerClient> peers,
+      RaftLog raftLog,
+      StateStore store,
+      Duration proposeTimeout) {
     this.selfId = selfId;
     this.peers = Map.copyOf(peers);
     this.raftLog = raftLog;
     this.store = store;
+    this.proposeTimeout = proposeTimeout;
     this.scheduler =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-controlplane-raft-tick-" + selfId).unstarted(r));
@@ -165,25 +181,42 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private void awaitAppliedThrowing(long index) {
     lock.lock();
     try {
-      long deadlineNanos = System.nanoTime() + PROPOSE_TIMEOUT.toNanos();
+      long deadlineNanos = System.nanoTime() + proposeTimeout.toNanos();
       while (lastApplied < index) {
         if (role != Role.LEADER) {
-          throw GimleRaftException.proposalTimedOut(selfId, PROPOSE_TIMEOUT);
+          throw giveUpAndTruncateLocked(index);
         }
         long remaining = deadlineNanos - System.nanoTime();
         if (remaining <= 0) {
-          throw GimleRaftException.proposalTimedOut(selfId, PROPOSE_TIMEOUT);
+          throw giveUpAndTruncateLocked(index);
         }
         try {
           commitAdvanced.awaitNanos(remaining);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
-          throw GimleRaftException.proposalTimedOut(selfId, PROPOSE_TIMEOUT);
+          throw giveUpAndTruncateLocked(index);
         }
       }
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * Called only while still holding {@link #lock}, with the loop condition {@code lastApplied <
+   * index} already known true at that exact moment -- {@link #lock} is held for this method's
+   * entire body (including across {@code commitAdvanced.awaitNanos}, which atomically re-acquires
+   * it before returning), so there is no gap between that check and this call for a commit to sneak
+   * into. Without this, a proposal reported as failed to its caller could still commit later once
+   * quorum returns -- the ghost-write this method exists to close. {@link RaftLog#truncateFrom}
+   * also removes any later, still-uncommitted entries appended after this one (a Raft log has no
+   * gaps, so a suffix can't be partially removed); those proposals will separately time out and be
+   * truncated in turn once their own deadlines elapse, each reporting its own honest failure rather
+   * than silently inheriting this one's fate.
+   */
+  private GimleRaftException giveUpAndTruncateLocked(long index) {
+    raftLog.truncateFrom(index);
+    return GimleRaftException.proposalTimedOut(selfId, proposeTimeout);
   }
 
   // ---- election ----

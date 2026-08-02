@@ -529,4 +529,27 @@ class ApiServerTest {
     assertEquals(200, deepLink.statusCode());
     assertEquals("<html>shell</html>", deepLink.body());
   }
+
+  @Test
+  void a_log_request_for_a_never_registered_node_returns_404_not_502() throws Exception {
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/logs/nodes/ghost")).GET().build());
+
+    assertEquals(404, response.statusCode());
+    assertTrue(response.body().contains("unknown node: ghost"));
+  }
+
+  @Test
+  void a_log_request_for_a_registered_node_with_no_advertised_address_yet_still_returns_502()
+      throws Exception {
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a", new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2))));
+
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/logs/nodes/node-a")).GET().build());
+
+    assertEquals(502, response.statusCode());
+    assertTrue(response.body().contains("no known log-server address"));
+  }
 }

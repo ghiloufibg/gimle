@@ -235,8 +235,7 @@ function Overview() {
       {/* Footer context bar */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-primary/10 text-[10px] uppercase tracking-[0.2em] font-mono text-muted-foreground">
         <div className="flex gap-6">
-          <span>Ver: 4.2.0-stable</span>
-          <span>Plane: gimle-control</span>
+          <span>Ver: {__APP_VERSION__}</span>
         </div>
         <div className="flex gap-4">
           <span>Nodes stale: {s.nodesStale}</span>

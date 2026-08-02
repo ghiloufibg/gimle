@@ -41,7 +41,8 @@ public final class ConfigCommand {
     body.put("value", value);
     body.put("encrypted", encrypted);
     client.expectSuccess(client.put("/config/" + tenantId + "/" + key, Json.write(body)));
-    out.println("config/" + tenantId + "/" + key + " set");
+    OutputFormat.printResult(
+        output, resultBody("set", tenantId, key), "config/" + tenantId + "/" + key + " set", out);
   }
 
   public void delete(List<String> args) {
@@ -51,6 +52,19 @@ public final class ConfigCommand {
     String tenantId = args.get(0);
     String key = args.get(1);
     client.expectSuccess(client.delete("/config/" + tenantId + "/" + key));
-    out.println("config/" + tenantId + "/" + key + " deleted");
+    OutputFormat.printResult(
+        output,
+        resultBody("deleted", tenantId, key),
+        "config/" + tenantId + "/" + key + " deleted",
+        out);
+  }
+
+  private static Map<String, Object> resultBody(String result, String tenantId, String key) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("result", result);
+    body.put("kind", "config");
+    body.put("tenantId", tenantId);
+    body.put("key", key);
+    return body;
   }
 }

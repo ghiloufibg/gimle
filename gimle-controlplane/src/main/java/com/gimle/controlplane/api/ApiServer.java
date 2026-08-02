@@ -829,8 +829,15 @@ public final class ApiServer implements AutoCloseable {
   /** Looks up the owning node's self-reported log-server address and forwards the request as-is. */
   private void proxyToAgent(HttpExchange exchange, String nodeId, String path) throws IOException {
     Optional<NodeRegistration> registration = store.getNodeRegistration(nodeId);
+    if (registration.isEmpty()) {
+      respond(exchange, 404, "unknown node: " + nodeId);
+      return;
+    }
     Optional<String> apiAddress = registration.flatMap(NodeRegistration::apiAddress);
     if (apiAddress.isEmpty()) {
+      // A known node whose agent hasn't self-advertised a log-server address yet -- still a
+      // legitimate "upstream not ready" gateway condition, unlike the truly-unknown-node case
+      // above, which isn't a gateway problem at all.
       respond(exchange, 502, "node " + nodeId + " has no known log-server address");
       return;
     }

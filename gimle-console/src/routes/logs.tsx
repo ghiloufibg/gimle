@@ -6,11 +6,14 @@ import { useLogStore } from "@/stores/useLogStore";
 import { logsRepo } from "@/repositories";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Play, Pause, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtBytes, fmtRelativeTime } from "@/lib/format";
 
-const searchSchema = z.union([
+// Exported for logs.test.ts -- pure Zod/branching logic, no rendering involved, so it's testable
+// under this project's node-environment vitest config without needing component-rendering infra.
+export const searchSchema = z.union([
   z.object({
     kind: z.literal("instance"),
     deploymentName: z.string(),
@@ -28,8 +31,15 @@ const searchSchema = z.union([
   }),
 ]);
 
+// A bare /logs navigation (typed, bookmarked, or shared with no query string) has no target to
+// resolve -- fall back to the control plane's own PLATFORM log rather than throwing out of
+// validateSearch/beforeLoad, which would otherwise crash the whole app into the root error
+// boundary. "controlplane" is the only target needing no further parameters.
+export const FALLBACK_SEARCH = { kind: "controlplane" as const, category: "PLATFORM" as const };
+export const searchSchemaWithFallback = searchSchema.catch(FALLBACK_SEARCH);
+
 export const Route = createFileRoute("/logs")({
-  validateSearch: searchSchema,
+  validateSearch: (search) => searchSchemaWithFallback.parse(search),
   head: () => ({
     meta: [
       { title: "Logs — Gimlé Console" },
@@ -53,8 +63,12 @@ function targetTitle(t: LogTarget): string {
   if (t.kind === "node") return t.nodeId;
   return "control plane";
 }
-function validCategories(kind: LogTarget["kind"]): LogCategory[] {
+export function validCategories(kind: LogTarget["kind"]): LogCategory[] {
   if (kind === "instance") return ["APPLICATION", "PLATFORM"];
+  // The control plane has no supervised child process whose stdout SYSTEM capture would exist --
+  // ApiServer.handleControlPlaneLogs hard-rejects anything but PLATFORM for this kind. Node-level
+  // SYSTEM logs are real (merged per-instance raw-capture files), so "node" keeps both.
+  if (kind === "controlplane") return ["PLATFORM"];
   return ["PLATFORM", "SYSTEM"];
 }
 
@@ -63,7 +77,7 @@ function LogsPage() {
   const target = search as LogTarget;
   const store = useLogStore(target);
   const state = store();
-  const { lines, loading, following } = state;
+  const { lines, loading, following, error } = state;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
@@ -237,10 +251,17 @@ function LogsPage() {
           onScroll={onScroll}
           className="h-[62vh] overflow-y-auto font-mono text-[11px] leading-relaxed"
         >
+          {error && (
+            <div className="p-3">
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            </div>
+          )}
           {lines.map((line, i) => (
             <LogRow key={i} line={line} />
           ))}
-          {lines.length === 0 && !loading && (
+          {lines.length === 0 && !loading && !error && (
             <div className="p-6 text-center text-muted-foreground">No log lines yet.</div>
           )}
         </div>

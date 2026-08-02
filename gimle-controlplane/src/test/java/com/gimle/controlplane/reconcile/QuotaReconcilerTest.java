@@ -1,10 +1,12 @@
 package com.gimle.controlplane.reconcile;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.manifest.PlacementConstraints;
+import com.gimle.controlplane.raft.MutationSink;
 import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -13,6 +15,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -113,5 +116,58 @@ class QuotaReconcilerTest {
     new QuotaReconciler(store).reconcileOnce();
 
     assertFalse(store.isQuotaViolating("orders"));
+  }
+
+  @Test
+  void proposes_nothing_for_an_untenanted_deployment_across_repeated_ticks() {
+    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes"));
+    Path jar = buildFixtureJar();
+    // The exact live-measured scenario: an untenanted deployment, which is structurally always
+    // non-violating -- the unguarded reconciler used to re-propose the same false value on every
+    // tick, forever, on a fully idle cluster (100/100 of the newest Raft log entries in the live
+    // repro). isQuotaViolating already defaults to false for an absent entry, so a non-violating
+    // deployment needs no store write at all, not even once.
+    store.putDeployment(
+        new DeploymentSpec(
+            "orders",
+            new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+            jar.toAbsolutePath().toString(),
+            2,
+            PlacementConstraints.NONE));
+    AtomicInteger proposals = new AtomicInteger();
+    MutationSink countingSink =
+        mutation -> {
+          proposals.incrementAndGet();
+          mutation.applyTo(store);
+        };
+    QuotaReconciler reconciler = new QuotaReconciler(store, countingSink);
+
+    reconciler.reconcileOnce();
+    reconciler.reconcileOnce();
+    reconciler.reconcileOnce();
+
+    assertEquals(0, proposals.get(), "a never-violating deployment must never be proposed");
+  }
+
+  @Test
+  void proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists() {
+    StateStore store = new StateStore(tempDir.resolve("store-single-transition"));
+    store.putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", 2, jar, "acme")); // 2 > maxInstances 1
+    AtomicInteger proposals = new AtomicInteger();
+    MutationSink countingSink =
+        mutation -> {
+          proposals.incrementAndGet();
+          mutation.applyTo(store);
+        };
+    QuotaReconciler reconciler = new QuotaReconciler(store, countingSink);
+
+    reconciler.reconcileOnce(); // false -> true: the one real transition
+    reconciler.reconcileOnce();
+    reconciler.reconcileOnce(); // still violating, must not re-propose
+
+    assertTrue(store.isQuotaViolating("orders"));
+    assertEquals(1, proposals.get(), "only the false->true transition should propose");
   }
 }

@@ -38,6 +38,21 @@ public final class OutputFormat {
     printTable(items, out);
   }
 
+  /**
+   * For a write verb's one-line acknowledgement (set/delete/apply), which has no resource body to
+   * render as a table -- {@code jsonBody} under {@code -o json}, the existing human sentence
+   * unchanged under the default table format. Read verbs go through {@link #printObject}/{@link
+   * #printList} instead, which already honor {@code Kind} correctly.
+   */
+  public static void printResult(
+      Kind kind, Map<String, Object> jsonBody, String tableMessage, PrintStream out) {
+    if (kind == Kind.JSON) {
+      out.println(Json.write(jsonBody));
+      return;
+    }
+    out.println(tableMessage);
+  }
+
   private static void printTable(List<Map<String, Object>> items, PrintStream out) {
     if (items.isEmpty()) {
       out.println("No resources found.");

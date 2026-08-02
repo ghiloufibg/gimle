@@ -22,6 +22,7 @@ import java.util.List;
  *   gimle get config &lt;tenantId&gt;
  *   gimle set config &lt;tenantId&gt; &lt;key&gt; &lt;value&gt; [--encrypted]
  *   gimle delete config &lt;tenantId&gt; &lt;key&gt;
+ *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  * </pre>
  *
  * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
@@ -64,12 +65,12 @@ public final class GimleCli {
       }
     }
 
+    if (positional.isEmpty()) {
+      throw new CliException(usage());
+    }
     if (server == null || server.isBlank()) {
       throw new CliException(
           "no control-plane server configured (pass --server host:port or set GIMLE_SERVER)");
-    }
-    if (positional.isEmpty()) {
-      throw new CliException(usage());
     }
 
     ControlPlaneClient client = new ControlPlaneClient(server);

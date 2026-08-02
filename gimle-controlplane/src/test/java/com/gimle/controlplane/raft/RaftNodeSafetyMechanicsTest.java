@@ -6,13 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.store.StateStore;
+import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -165,5 +168,79 @@ class RaftNodeSafetyMechanicsTest {
     assertThrows(
         RuntimeException.class,
         () -> inconsistentLeader.forceLeaderForTest(Map.of("B", 99L, "C", 99L)));
+  }
+
+  // ---- F-14: a client-visible-failed proposal must not silently commit once quorum returns ----
+
+  @Test
+  @Timeout(5)
+  void a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns() {
+    Path dir = tempDir.resolve("timeout-truncate");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog raftLog = new RaftLog(dir.resolve("raft"));
+    raftLog.setTermAndVote(1, Optional.empty());
+    // A short injected timeout, not the real 5s production value -- forceLeaderForTest leaves
+    // matchIndex at its default (0) for both peers, so nothing ever reaches majority and the
+    // proposal below can never commit, mirroring an isolated leader that still believes it's
+    // leader but cannot reach a quorum.
+    RaftNode leader =
+        new RaftNode(
+            "leader",
+            Map.of("B", unusedPeer(), "C", unusedPeer()),
+            raftLog,
+            store,
+            Duration.ofMillis(200));
+    leader.forceLeaderForTest(Map.of());
+
+    GimleRaftException thrown =
+        assertThrows(
+            GimleRaftException.class,
+            () -> leader.propose(new StateMutation.RemoveTenant("ghost")));
+
+    assertTrue(
+        thrown.getMessage().contains("did not commit"), "expected the timeout message: " + thrown);
+    assertEquals(
+        0L, raftLog.lastIndex(), "the never-committed entry must be truncated, not left behind");
+    assertTrue(raftLog.get(1).isEmpty());
+  }
+
+  @Test
+  @Timeout(5)
+  void a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated() throws Exception {
+    Path dir = tempDir.resolve("timeout-race-committed-first");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog raftLog = new RaftLog(dir.resolve("raft"));
+    raftLog.setTermAndVote(1, Optional.empty());
+    RaftNode leader =
+        new RaftNode(
+            "leader",
+            Map.of("B", unusedPeer(), "C", unusedPeer()),
+            raftLog,
+            store,
+            Duration.ofSeconds(5));
+    leader.forceLeaderForTest(Map.of());
+
+    // Simulates a delayed peer catching up and acking the entry shortly after propose() appends
+    // it: a real production quorum-return would arrive via sendOnce's own response handling, but
+    // forceLeaderForTest is this test file's existing seam for driving the same commit-index
+    // advancement logic deterministically, without a real network round trip.
+    Thread.ofVirtual()
+        .start(
+            () -> {
+              try {
+                Thread.sleep(100);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              leader.forceLeaderForTest(Map.of("B", 1L, "C", 1L));
+            });
+
+    leader.propose(
+        new StateMutation.PutTenant(new Tenant("late-but-real", new ResourceQuota(1, 1, 1))));
+
+    assertEquals(1L, leader.lastAppliedForTest());
+    assertTrue(raftLog.get(1).isPresent(), "a proposal that legitimately committed must survive");
+    assertTrue(store.getTenant("late-but-real").isPresent());
   }
 }

@@ -3,6 +3,12 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
+import { readFileSync } from "node:fs";
+
+// Single source of truth for the version the Overview footer and sidebar both display (F-08) --
+// previously two independent hardcoded strings, one of them wrong.
+const pkgVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"))
+  .version as string;
 
 // Plain client-side-rendered SPA config (no TanStack Start / Nitro / SSR) -- matches the pattern
 // already proven working in the sibling flow-trace-ui project's frontend module. The Lovable-
@@ -22,6 +28,9 @@ import tsConfigPaths from "vite-tsconfig-paths";
 // basepath condition in src/router.tsx -- keep both in sync.
 export default defineConfig(({ command }) => ({
   base: command === "build" ? "/console/" : "/",
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+  },
   plugins: [
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     viteReact(),

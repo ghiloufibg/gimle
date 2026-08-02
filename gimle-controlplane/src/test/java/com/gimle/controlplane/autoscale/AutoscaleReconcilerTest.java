@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.manifest.PlacementConstraints;
+import com.gimle.controlplane.raft.MutationSink;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleId;
@@ -15,6 +16,7 @@ import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -195,5 +197,66 @@ class AutoscaleReconcilerTest {
     new AutoscaleReconciler(store).reconcileOnce();
 
     assertEquals(Optional.empty(), store.getEffectiveReplicas("orders-service"));
+  }
+
+  @Test
+  void does_not_repropose_an_unchanged_effective_replica_count_from_the_no_signal_branch() {
+    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes-no-signal"));
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+    DeploymentSpec spec = deployment("orders-service", 3, jar, policy);
+    store.putDeployment(spec);
+    // No assignments/heartbeats: the "no ready observations, hold the current count" early-return
+    // branch -- one of the three that used to re-propose an unchanged value every single tick.
+    AtomicInteger proposals = new AtomicInteger();
+    MutationSink countingSink =
+        mutation -> {
+          proposals.incrementAndGet();
+          mutation.applyTo(store);
+        };
+    AutoscaleReconciler reconciler = new AutoscaleReconciler(store, countingSink);
+
+    reconciler.reconcileOnce();
+    int afterFirstTick = proposals.get();
+    reconciler.reconcileOnce();
+    reconciler.reconcileOnce();
+
+    assertEquals(1, afterFirstTick, "expected exactly one proposal to seed the store on tick one");
+    assertEquals(
+        afterFirstTick,
+        proposals.get(),
+        "repeated ticks against an unchanged store must not re-propose");
+  }
+
+  @Test
+  void does_not_repropose_once_scaling_has_converged_and_clamped_at_the_ceiling() {
+    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes-converged"));
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+    AtomicInteger proposals = new AtomicInteger();
+    MutationSink countingSink =
+        mutation -> {
+          proposals.incrementAndGet();
+          mutation.applyTo(store);
+        };
+    AutoscaleReconciler reconciler = new AutoscaleReconciler(store, countingSink);
+
+    for (int i = 0; i < 5; i++) {
+      reconciler.reconcileOnce(); // 2 -> 3 -> 4 -> 5, then clamped at 5 for the remaining ticks
+    }
+    int proposalsToReachCeiling = proposals.get();
+    for (int i = 0; i < 5; i++) {
+      reconciler.reconcileOnce(); // steady state: already at the 5-replica ceiling
+    }
+
+    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, proposalsToReachCeiling, "expected exactly the 3 real transitions 2->3->4->5");
+    assertEquals(
+        proposalsToReachCeiling,
+        proposals.get(),
+        "ticks after convergence must not re-propose the already-correct ceiling value");
   }
 }

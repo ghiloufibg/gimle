@@ -103,6 +103,7 @@ Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped v
 - `gimle-observability` — metrics, tracing, JFR accounting, event log
 - `gimle-cli` — control-plane client, agent launcher, worker launcher
 - `gimle-console` — the web console SPA (no Java sources; Bun/Vite build wrapped as a thin Maven module so `mvn verify` covers it), bundled into `gimle-controlplane`'s classpath
+- `gimle-examples/hello-module` — a minimal, deliberately inert real module artifact (its manifest declares distinct `resources.request`/`resources.limit` values), used as a live deployable fixture for manual verification and QA passes, not exercised by any module's own automated test suite
 
 ## Conventions (binding, not optional)
 

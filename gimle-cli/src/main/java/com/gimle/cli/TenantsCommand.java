@@ -50,11 +50,20 @@ public final class TenantsCommand {
     body.put("quota", quota);
 
     client.expectSuccess(client.put("/tenants/" + id, Json.write(body)));
-    out.println("tenant/" + id + " configured");
+    OutputFormat.printResult(
+        output, resultBody("configured", id), "tenant/" + id + " configured", out);
   }
 
   public void delete(String id) {
     client.expectSuccess(client.delete("/tenants/" + id));
-    out.println("tenant/" + id + " deleted");
+    OutputFormat.printResult(output, resultBody("deleted", id), "tenant/" + id + " deleted", out);
+  }
+
+  private static Map<String, Object> resultBody(String result, String id) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("result", result);
+    body.put("kind", "tenant");
+    body.put("id", id);
+    return body;
   }
 }

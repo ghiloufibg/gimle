@@ -8,6 +8,8 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Serves a built single-page-app's static output under whatever context path it's registered on: a
@@ -18,6 +20,37 @@ import java.nio.file.Path;
  * fallback.
  */
 final class ConsoleStaticHandler implements HttpHandler {
+
+  /**
+   * Vite's build-output directory: files under it are content-hashed assets with no client-side
+   * route of their own, so a missing one is a genuine 404, never the SPA shell -- unlike every
+   * other path, which might legitimately be a client-side route the router will handle once the
+   * shell loads.
+   */
+  private static final String ASSETS_PREFIX = "assets/";
+
+  /**
+   * {@link Files#probeContentType} delegates to the platform's installed {@code FileTypeDetector}
+   * chain, which returns {@code null} with no working detector -- the case on slim/{@code
+   * jlink}-produced Linux runtime images, which lack the {@code /etc/mime.types} a distro package
+   * would normally supply. A {@code null} content type falls back to {@code
+   * application/octet-stream}, and browsers refuse to execute a {@code <script type="module">}
+   * served with that MIME type -- a blank console on exactly the deployment shape this project
+   * promotes. An explicit map for the handful of types Vite actually emits is deterministic on
+   * every platform and image, and removes a filesystem probe from the hot path.
+   */
+  private static final Map<String, String> CONTENT_TYPES =
+      Map.ofEntries(
+          Map.entry("html", "text/html; charset=utf-8"),
+          Map.entry("js", "text/javascript; charset=utf-8"),
+          Map.entry("mjs", "text/javascript; charset=utf-8"),
+          Map.entry("css", "text/css; charset=utf-8"),
+          Map.entry("json", "application/json; charset=utf-8"),
+          Map.entry("svg", "image/svg+xml"),
+          Map.entry("ico", "image/x-icon"),
+          Map.entry("woff2", "font/woff2"),
+          Map.entry("png", "image/png"),
+          Map.entry("map", "application/json; charset=utf-8"));
 
   private final Path staticRoot;
   private final Path shellFile;
@@ -46,15 +79,10 @@ final class ConsoleStaticHandler implements HttpHandler {
         return;
       }
       if (Files.isRegularFile(resolved) && isWithinRoot(resolved)) {
-        String contentType = Files.probeContentType(resolved);
-        respond(
-            exchange,
-            200,
-            contentType != null ? contentType : "application/octet-stream",
-            Files.readAllBytes(resolved));
+        respond(exchange, 200, contentTypeFor(resolved), Files.readAllBytes(resolved));
         return;
       }
-      if (Files.isRegularFile(shellFile)) {
+      if (!relative.startsWith(ASSETS_PREFIX) && Files.isRegularFile(shellFile)) {
         respond(exchange, 200, "text/html; charset=utf-8", Files.readAllBytes(shellFile));
         return;
       }
@@ -63,6 +91,13 @@ final class ConsoleStaticHandler implements HttpHandler {
     } finally {
       exchange.close();
     }
+  }
+
+  private static String contentTypeFor(Path file) {
+    String name = file.getFileName().toString();
+    int dot = name.lastIndexOf('.');
+    String extension = dot >= 0 ? name.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+    return CONTENT_TYPES.getOrDefault(extension, "application/octet-stream");
   }
 
   /**

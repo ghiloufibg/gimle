@@ -37,6 +37,14 @@ final class AgentLogServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(AgentLogServer.class);
   private static final Duration FOLLOW_POLL_INTERVAL = Duration.ofMillis(500);
 
+  /**
+   * Allow-list for the {@code deploymentName} path segment: must not contain {@code /} or {@code
+   * \}, so it can never compose with the fixed {@code workers/<name>#<index>/...} shape below into
+   * a path that escapes {@code logRoot} -- deployment names elsewhere in the system have no charset
+   * restriction today, so this is enforced here rather than assumed.
+   */
+  private static final Pattern DEPLOYMENT_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
+
   private final Path logRoot;
   private final HttpServer server;
 
@@ -163,6 +171,10 @@ final class AgentLogServer implements AutoCloseable {
         return;
       }
       String deploymentName = parts[0];
+      if (!DEPLOYMENT_NAME.matcher(deploymentName).matches()) {
+        respond(exchange, 400, "invalid deploymentName: " + deploymentName);
+        return;
+      }
       int instanceIndex;
       try {
         instanceIndex = Integer.parseInt(parts[1]);
@@ -202,6 +214,10 @@ final class AgentLogServer implements AutoCloseable {
         respond(exchange, 400, "unknown category: " + category);
         return;
       }
+      if (!isWithinRoot(file, workerLogRoot)) {
+        respond(exchange, 400, "invalid log path");
+        return;
+      }
 
       if (follow) {
         streamFollow(exchange, file, LogFileReader.configuredMaxFiles(), cursor);
@@ -215,6 +231,28 @@ final class AgentLogServer implements AutoCloseable {
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
+    }
+  }
+
+  /**
+   * Defense-in-depth alongside the {@code DEPLOYMENT_NAME} allow-list above: guards against a
+   * symlink inside {@code root} pointing outside it, the same real-path discipline {@code
+   * ConsoleStaticHandler.isWithinRoot} applies for static console files. {@code candidate} may not
+   * exist yet (a brand-new instance with no log lines written), in which case only the lexical
+   * check applies -- there is nothing on disk yet for a real-path check to see through.
+   */
+  private static boolean isWithinRoot(Path candidate, Path root) {
+    Path normalized = candidate.normalize();
+    if (!normalized.startsWith(root.normalize())) {
+      return false;
+    }
+    if (!Files.isRegularFile(normalized)) {
+      return true;
+    }
+    try {
+      return normalized.toRealPath().startsWith(root.toRealPath());
+    } catch (IOException e) {
+      return false;
     }
   }
 

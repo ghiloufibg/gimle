@@ -1,10 +1,12 @@
 package com.gimle.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.store.StateStore;
+import com.gimle.core.protocol.Json;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -221,6 +224,14 @@ class GimleCliTest {
   }
 
   @Test
+  void a_bare_invocation_with_no_verb_prints_usage_rather_than_a_server_configuration_error() {
+    int exit = GimleCli.run(new String[0], out, err);
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("usage:"));
+    assertFalse(stderr().contains("no control-plane server configured"));
+  }
+
+  @Test
   void missing_server_configuration_is_a_clear_error() {
     int exit = GimleCli.run(new String[] {"get", "tenants"}, out, err);
     assertEquals(1, exit);
@@ -288,7 +299,7 @@ class GimleCliTest {
   }
 
   @Test
-  void set_and_delete_tenant_succeed_with_json_output_format() throws Exception {
+  void set_and_delete_tenant_produce_real_json_under_json_output_format() throws Exception {
     int setExit =
         run(
             "-o",
@@ -303,16 +314,22 @@ class GimleCliTest {
             "--max-instances",
             "1");
     assertEquals(0, setExit);
-    assertTrue(stdout().contains("tenant/acme configured"));
+    Map<String, Object> setResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("configured", setResult.get("result"));
+    assertEquals("tenant", setResult.get("kind"));
+    assertEquals("acme", setResult.get("id"));
 
     outBuffer.reset();
     int deleteExit = run("-o", "json", "delete", "tenant", "acme");
     assertEquals(0, deleteExit);
-    assertTrue(stdout().contains("tenant/acme deleted"));
+    Map<String, Object> deleteResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("deleted", deleteResult.get("result"));
+    assertEquals("tenant", deleteResult.get("kind"));
+    assertEquals("acme", deleteResult.get("id"));
   }
 
   @Test
-  void set_and_delete_config_succeed_with_json_output_format() throws Exception {
+  void set_and_delete_config_produce_real_json_under_json_output_format() throws Exception {
     run(
         "set",
         "tenant",
@@ -324,22 +341,65 @@ class GimleCliTest {
         "--max-instances",
         "1");
 
+    outBuffer.reset();
     int setExit = run("-o", "json", "set", "config", "acme", "greeting", "hello");
     assertEquals(0, setExit);
+    Map<String, Object> setResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("set", setResult.get("result"));
+    assertEquals("config", setResult.get("kind"));
+    assertEquals("acme", setResult.get("tenantId"));
+    assertEquals("greeting", setResult.get("key"));
 
     outBuffer.reset();
     int deleteExit = run("-o", "json", "delete", "config", "acme", "greeting");
     assertEquals(0, deleteExit);
-    assertTrue(stdout().contains("config/acme/greeting deleted"));
+    Map<String, Object> deleteResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("deleted", deleteResult.get("result"));
+    assertEquals("config", deleteResult.get("kind"));
+    assertEquals("acme", deleteResult.get("tenantId"));
+    assertEquals("greeting", deleteResult.get("key"));
   }
 
   @Test
-  void delete_deployment_succeeds_with_json_output_format() throws Exception {
+  void apply_and_delete_deployment_produce_real_json_under_json_output_format() throws Exception {
     Path manifest = writeManifest("json-delete-service", 1);
-    run("apply", "-f", manifest.toString());
 
+    int applyExit = run("-o", "json", "apply", "-f", manifest.toString());
+    assertEquals(0, applyExit);
+    Map<String, Object> applyResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("applied", applyResult.get("result"));
+    assertEquals("deployment", applyResult.get("kind"));
+    assertEquals("json-delete-service", applyResult.get("id"));
+
+    outBuffer.reset();
     int deleteExit = run("-o", "json", "delete", "deployment", "json-delete-service");
     assertEquals(0, deleteExit);
-    assertTrue(stdout().contains("deployment/json-delete-service deleted"));
+    Map<String, Object> deleteResult = Json.asObject(Json.parse(stdout()));
+    assertEquals("deleted", deleteResult.get("result"));
+    assertEquals("deployment", deleteResult.get("kind"));
+    assertEquals("json-delete-service", deleteResult.get("id"));
+  }
+
+  @Test
+  void write_verbs_still_print_the_plain_sentence_under_the_default_table_format()
+      throws Exception {
+    int setExit =
+        run(
+            "set",
+            "tenant",
+            "acme",
+            "--max-memory-bytes",
+            "1",
+            "--max-cpu-millicores",
+            "1",
+            "--max-instances",
+            "1");
+    assertEquals(0, setExit);
+    assertTrue(stdout().contains("tenant/acme configured"));
+
+    outBuffer.reset();
+    int deleteExit = run("delete", "tenant", "acme");
+    assertEquals(0, deleteExit);
+    assertTrue(stdout().contains("tenant/acme deleted"));
   }
 }

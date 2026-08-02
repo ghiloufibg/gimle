@@ -96,6 +96,52 @@ class ConsoleStaticHandlerTest {
   }
 
   @Test
+  void serves_known_extensions_with_the_correct_content_type_without_a_filesystem_probe()
+      throws Exception {
+    Files.writeString(staticRoot.resolve("app.js"), "export {};");
+    Files.writeString(staticRoot.resolve("app.css"), "body{}");
+    Files.writeString(staticRoot.resolve("app.svg"), "<svg></svg>");
+    Files.write(staticRoot.resolve("app.woff2"), new byte[] {1, 2, 3});
+    startWithShell("index.html");
+
+    assertTrue(
+        get("/console/app.js")
+            .headers()
+            .firstValue("Content-Type")
+            .orElse("")
+            .startsWith("text/javascript"));
+    assertTrue(
+        get("/console/app.css")
+            .headers()
+            .firstValue("Content-Type")
+            .orElse("")
+            .startsWith("text/css"));
+    assertTrue(
+        get("/console/app.svg")
+            .headers()
+            .firstValue("Content-Type")
+            .orElse("")
+            .startsWith("image/svg+xml"));
+    assertTrue(
+        get("/console/app.woff2")
+            .headers()
+            .firstValue("Content-Type")
+            .orElse("")
+            .startsWith("font/woff2"));
+  }
+
+  @Test
+  void a_missing_asset_returns_404_rather_than_the_spa_shell() throws Exception {
+    Files.writeString(staticRoot.resolve("index.html"), "<html>shell</html>");
+    startWithShell("index.html");
+
+    HttpResponse<String> response = get("/console/assets/nope-12345.js");
+
+    assertEquals(404, response.statusCode());
+    assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/plain"));
+  }
+
+  @Test
   void rejects_a_path_traversal_attempt() throws Exception {
     Files.writeString(staticRoot.resolve("index.html"), "<html>shell</html>");
     startWithShell("index.html");

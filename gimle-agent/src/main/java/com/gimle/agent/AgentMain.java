@@ -394,31 +394,11 @@ public final class AgentMain {
 
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
-    ResourceLimitHandle handle = resourceLimiter.prepare(key, descriptor.resourceRequest());
-    // Each worker JVM is its own process with its own default gimle.log.root ("gimle-logs",
-    // relative to wherever it inherits its CWD) -- without this override, WorkerMain's
-    // worker-platform.log would land somewhere AgentLogServer never looks, and every worker this
-    // agent supervises would additionally collide on that one shared filename. Scoping by `key`
-    // (already the same identifier `workers/<key>-system.log` uses, below) gives each worker its
-    // own directory, which AgentLogServer's instance PLATFORM route reads from.
+    ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
-    List<String> baseCommand = new ArrayList<>();
-    baseCommand.add(javaExecutable);
-    baseCommand.add(LEAK_DETECTION_JFR_FLAG);
-    baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
-    // Without this, a native crash's hs_err_pid<pid>.log lands wherever this worker inherited its
-    // CWD (the agent's own), same problem the log-root override above already fixed for regular
-    // logs. Same per-worker directory, so AgentLogServer's crash-dump listing knows where to look;
-    // %p is HotSpot's own PID-substitution token, so a respawn after a crash (RestartTracker)
-    // doesn't overwrite the previous dump.
-    baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
-    baseCommand.addAll(resourceLimiter.jvmFlags(handle));
-    baseCommand.addAll(commandTail);
-    baseCommand.add(nodeId);
-    // WorkerMain expects <nodeId> <tenantId-or-empty> <control-socket-path>, in that order;
-    // WorkerProcessSupervisor always appends the control-socket path last, so tenantId must be
-    // appended here, right after nodeId, not after the fact.
-    baseCommand.add(assigned.tenantId().orElse(""));
+    List<String> baseCommand =
+        buildWorkerCommand(
+            javaExecutable, commandTail, resourceLimiter, handle, workerLogRoot, nodeId, assigned);
 
     RestartTracker restartTracker =
         new RestartTracker(
@@ -448,6 +428,57 @@ public final class AgentMain {
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
         .start(() -> driveInstanceUp(instance, key, gossipMember, catalog, httpClient, baseUrl));
+  }
+
+  /**
+   * The manifest's *limit* is the hard ceiling a worker JVM must be spawned under (-Xmx, {@code
+   * ActiveProcessorCount}) -- {@code resourceRequest} is the deliberately different
+   * scheduling/capacity-accounting figure {@code capacityTracker.tryAssign} uses. A single-line
+   * choke point, extracted so a test can assert directly on which of the descriptor's two {@code
+   * ResourceSpec} fields reaches the limiter, rather than only being able to observe the limiter's
+   * own output (which is correct either way {@code PortableJvmFlagsResourceLimiterTest} already
+   * proves).
+   */
+  static ResourceLimitHandle prepareResourceLimit(
+      ResourceLimiter resourceLimiter, String key, ModuleDescriptor descriptor) {
+    return resourceLimiter.prepare(key, descriptor.resourceLimit());
+  }
+
+  /**
+   * Builds a spawned worker JVM's full command line. Pure and side-effect-free (no process
+   * spawning, no {@link ResourceLimitHandle} lifecycle concerns) so it can be unit-tested directly,
+   * separately from {@link #startInstance} which owns those concerns.
+   *
+   * <p>{@code -Dgimle.log.root=<workerLogRoot>} scopes this worker's own default {@code
+   * gimle.log.root} ("gimle-logs", relative to wherever it would otherwise inherit its CWD) to a
+   * directory unique to this worker -- without it, {@code WorkerMain}'s {@code worker-platform.log}
+   * would land somewhere {@link AgentLogServer} never looks, and every worker this agent supervises
+   * would additionally collide on one shared filename. {@code -XX:ErrorFile=...} scopes a native
+   * crash's {@code hs_err_pid<pid>.log} the same way -- {@code %p} is HotSpot's own
+   * PID-substitution token, so a respawn after a crash ({@code RestartTracker}) doesn't overwrite
+   * the previous dump. {@code nodeId} and {@code tenantId} are appended last: {@code WorkerMain}
+   * expects {@code <nodeId> <tenantId-or-empty> <control-socket-path>}, in that order, and {@code
+   * WorkerProcessSupervisor} always appends the control-socket path last, so tenantId must be
+   * appended here, right after {@code nodeId}.
+   */
+  static List<String> buildWorkerCommand(
+      String javaExecutable,
+      List<String> commandTail,
+      ResourceLimiter resourceLimiter,
+      ResourceLimitHandle handle,
+      Path workerLogRoot,
+      String nodeId,
+      AssignedInstance assigned) {
+    List<String> baseCommand = new ArrayList<>();
+    baseCommand.add(javaExecutable);
+    baseCommand.add(LEAK_DETECTION_JFR_FLAG);
+    baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
+    baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
+    baseCommand.addAll(resourceLimiter.jvmFlags(handle));
+    baseCommand.addAll(commandTail);
+    baseCommand.add(nodeId);
+    baseCommand.add(assigned.tenantId().orElse(""));
+    return baseCommand;
   }
 
   private static void driveInstanceUp(

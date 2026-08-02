@@ -114,7 +114,23 @@ public final class AutoscaleReconciler {
     putEffectiveReplicas(spec.name(), nextEffective);
   }
 
+  /**
+   * Single choke point for every {@code reconcileDeployment} exit path (the main path and all three
+   * early-return branches above), so every one of them gets the same guard: a replica count that
+   * already matches what's stored costs nothing, even though this method is still called
+   * unconditionally on every tick -- the level-triggered recompute-from-scratch behavior is
+   * unchanged, only the redundant re-proposal of an already-correct value is skipped. An absent
+   * stored value (a deployment's very first tick) always proposes, seeding it exactly once.
+   */
   private void putEffectiveReplicas(String deploymentName, int replicas) {
+    boolean alreadyCorrect =
+        store
+            .getEffectiveReplicas(deploymentName)
+            .map(current -> current == replicas)
+            .orElse(false);
+    if (alreadyCorrect) {
+      return;
+    }
     mutations.propose(new StateMutation.PutEffectiveReplicas(deploymentName, replicas));
   }
 

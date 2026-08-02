@@ -86,7 +86,14 @@ public final class QuotaReconciler {
                       spec.name());
                 }
               });
-      mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating[0]));
+      // Level-triggered means recomputing from scratch every tick, not re-proposing every tick:
+      // this reconciler still corrects a wrong stored value on its very next run regardless of
+      // what happened on prior ticks, but a value that's already correct shouldn't cost a fresh
+      // replicated write -- see StateMutation's own javadoc on why heartbeats were kept out of
+      // the log entirely for the same reason.
+      if (store.isQuotaViolating(spec.name()) != violating[0]) {
+        mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating[0]));
+      }
     }
   }
 }

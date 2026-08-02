@@ -6,11 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.Appender;
 import com.gimle.core.logging.GimleLogging;
-import com.gimle.core.logging.InstanceLogCloser;
 import com.gimle.core.logging.InstanceMdcKeys;
+import com.gimle.core.logging.InstanceSiftingFileAppender;
 import com.gimle.core.logging.PlatformFileAppender;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
@@ -93,15 +91,20 @@ class AgentLogServerTest {
     String workerKey = deploymentName + "#" + instanceIndex;
     Logger root =
         ((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger(Logger.ROOT_LOGGER_NAME);
-    InstanceLogCloser closer =
-        GimleLogging.attachInstanceSiftingAppender(
-            logRoot.resolve("workers").resolve(workerKey).resolve("instances"));
+    // GimleLogging.attachInstanceSiftingAppender declares InstanceLogCloser (its lifecycle
+    // contract), but its concrete return value is always an InstanceSiftingFileAppender -- a
+    // non-generic Appender<ILoggingEvent> subclass by construction, so naming that concrete type
+    // here lets detachAppender take it directly, with no unchecked cast to the generic interface.
+    InstanceSiftingFileAppender appender =
+        (InstanceSiftingFileAppender)
+            GimleLogging.attachInstanceSiftingAppender(
+                logRoot.resolve("workers").resolve(workerKey).resolve("instances"));
     MDC.put(InstanceMdcKeys.DEPLOYMENT_NAME, deploymentName);
     MDC.put(InstanceMdcKeys.INSTANCE_INDEX, Integer.toString(instanceIndex));
     root.info(message);
     MDC.clear();
-    closer.closeInstance(deploymentName, instanceIndex);
-    root.detachAppender((Appender<ILoggingEvent>) closer);
+    appender.closeInstance(deploymentName, instanceIndex);
+    root.detachAppender(appender);
   }
 
   private Map<String, Object> get(String path) throws Exception {
@@ -157,6 +160,23 @@ class AgentLogServerTest {
     assertTrue(lines.stream().anyMatch(l -> "instance 0 line".equals(l.get("message"))));
     assertFalse(lines.stream().anyMatch(l -> "instance 1 line".equals(l.get("message"))));
     assertEquals("APPLICATION", lines.get(0).get("category"));
+  }
+
+  @Test
+  void instance_logs_reject_a_deployment_name_containing_a_path_separator() throws Exception {
+    startServer();
+    HttpResponse<String> response = getRaw("/logs/instances/pwn%5C..%5Cetc/0");
+    assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  void instance_logs_reject_a_deployment_name_that_would_escape_the_log_root() throws Exception {
+    startServer();
+    // Mirrors a live-proven path-traversal probe: a backslash-encoded ".." pair composes, on
+    // Windows, into a path that escapes logRoot entirely once resolved -- rejected by the
+    // DEPLOYMENT_NAME allow-list before any Path.resolve happens.
+    HttpResponse<String> response = getRaw("/logs/instances/..%5C..%5Cpwn/0");
+    assertEquals(400, response.statusCode());
   }
 
   @Test

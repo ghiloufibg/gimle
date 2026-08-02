@@ -92,7 +92,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <div className="flex items-center justify-between px-1 group-data-[collapsible=icon]:justify-center">
           <span className="text-[10px] text-muted-foreground font-mono group-data-[collapsible=icon]:hidden">
-            v0.1.0
+            v{__APP_VERSION__}
           </span>
           <ThemeToggle />
         </div>

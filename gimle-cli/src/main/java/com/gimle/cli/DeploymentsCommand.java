@@ -6,6 +6,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -50,12 +51,22 @@ public final class DeploymentsCommand {
     String name = extractName(file, manifestBytes);
     client.expectSuccess(
         client.put("/deployments/" + name, new String(manifestBytes, StandardCharsets.UTF_8)));
-    out.println("deployment/" + name + " applied");
+    OutputFormat.printResult(
+        output, resultBody("applied", name), "deployment/" + name + " applied", out);
   }
 
   public void delete(String name) {
     client.expectSuccess(client.delete("/deployments/" + name));
-    out.println("deployment/" + name + " deleted");
+    OutputFormat.printResult(
+        output, resultBody("deleted", name), "deployment/" + name + " deleted", out);
+  }
+
+  private static Map<String, Object> resultBody(String result, String name) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("result", result);
+    body.put("kind", "deployment");
+    body.put("id", name);
+    return body;
   }
 
   private static Path requireFileFlag(List<String> args) {
