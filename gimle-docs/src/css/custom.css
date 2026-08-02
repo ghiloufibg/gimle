@@ -4,6 +4,19 @@
  * work well for content-centric websites.
  */
 
+/* Same font pairing gimle-console uses (@fontsource/work-sans + @fontsource/jetbrains-mono, see
+   gimle-console/src/main.tsx and styles.css's --font-sans/--font-mono) -- body text and code
+   blocks both read consistently with the rest of the platform's UI. */
+@import '@fontsource/work-sans/300.css';
+@import '@fontsource/work-sans/400.css';
+@import '@fontsource/work-sans/500.css';
+@import '@fontsource/work-sans/600.css';
+@import '@fontsource/work-sans/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
 /* You can override the default Infima variables here. */
 /* Gimlé brand accent: a deep slate blue, not Docusaurus's default green -- swapped here only,
    full re-theming is a later, optional pass (see claudedocs/docs-site-design.md §1.6). */
@@ -15,6 +28,9 @@
   --ifm-color-primary-light: #2e6399;
   --ifm-color-primary-lighter: #3068a1;
   --ifm-color-primary-lightest: #3a78b8;
+  --ifm-font-family-base:
+    'Work Sans', ui-sans-serif, system-ui, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }

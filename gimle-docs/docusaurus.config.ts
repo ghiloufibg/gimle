@@ -31,7 +31,11 @@ const config: Config = {
       'classic',
       {
         docs: {
-          routeBasePath: '/', // the docs tree IS the site root, no separate landing page
+          // Default routeBasePath ('/docs'): '/' itself is a real homepage (src/pages/index.tsx,
+          // full-width hero + feature cards outside the docs sidebar/TOC layout) -- an earlier
+          // attempt at routeBasePath: '/' with the hero embedded in the intro doc page instead
+          // squeezed the 3-column feature grid into the narrow doc content column (~144px wide,
+          // confirmed visually), since every doc page always reserves sidebar + TOC space.
           sidebarPath: './sidebars.ts',
         },
         blog: false,
@@ -42,7 +46,21 @@ const config: Config = {
     ],
   ],
 
-  themes: ['@docusaurus/theme-mermaid'],
+  themes: [
+    '@docusaurus/theme-mermaid',
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        // Offline/self-hosted full-text search: no external service or API key, consistent with
+        // this being a self-contained static site (see claudedocs/docs-site-design.md). Indexes
+        // build client-side into the site's own static output.
+        hashed: true,
+        language: ['en'],
+        indexBlog: false, // blog is disabled (see presets.classic.blog below)
+        indexPages: true, // so the homepage (src/pages/index.tsx) is searchable too
+      },
+    ],
+  ],
   markdown: {
     mermaid: true,
     hooks: {

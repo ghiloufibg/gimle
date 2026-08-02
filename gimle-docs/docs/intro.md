@@ -2,7 +2,6 @@
 id: intro
 title: What is Gimlé?
 sidebar_position: 1
-slug: /
 ---
 
 Gimlé is a fully-Java application platform that combines Karaf/OSGi-style dynamic module
@@ -42,4 +41,3 @@ Three Java process roles run on a machine: the **Node Agent** (one per machine, 
 process lifecycle), the **Worker JVM** (hosts module instances), and the **Control Plane**
 (Raft-replicated API server, state store, scheduler, reconcilers). See
 [Node topology](./architecture/node-topology.md) for how they relate.
-
