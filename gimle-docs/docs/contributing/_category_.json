@@ -1,4 +1,8 @@
 {
   "label": "Contributing",
-  "position": 5
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "description": "Conventions to follow when working in this codebase."
+  }
 }

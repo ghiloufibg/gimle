@@ -1,10 +1,12 @@
 import type {ReactNode} from 'react';
 import clsx from 'clsx';
+import Link from '@docusaurus/Link';
 import styles from './styles.module.css';
 
 type Feature = {
   title: string;
   tag: string;
+  to: string;
   description: ReactNode;
 };
 
@@ -12,6 +14,7 @@ const FEATURES: Feature[] = [
   {
     title: 'Tiered Isolation',
     tag: 'Tier 1 / 2 / 3',
+    to: '/docs/architecture/tiered-isolation',
     description: (
       <>
         Container-grade isolation and classloader-grade density in one system, chosen per
@@ -23,6 +26,7 @@ const FEATURES: Feature[] = [
   {
     title: 'Kubernetes-style Orchestration',
     tag: 'Self-healing · Scaling · Discovery',
+    to: '/docs/architecture/control-plane',
     description: (
       <>
         Declarative desired state, level-triggered reconcilers, tiered self-healing, and a
@@ -34,6 +38,7 @@ const FEATURES: Feature[] = [
   {
     title: 'Zero Runtime Dependencies',
     tag: 'Pure JVM',
+    to: '/docs/intro#what-gimlé-is-not',
     description: (
       <>
         No containers, no external orchestrator, no non-Java runtime anywhere in the stack. The
@@ -44,14 +49,14 @@ const FEATURES: Feature[] = [
   },
 ];
 
-function FeatureCard({title, tag, description}: Feature): ReactNode {
+function FeatureCard({title, tag, to, description}: Feature): ReactNode {
   return (
     <div className={clsx('col col--4')}>
-      <div className={styles.card}>
+      <Link to={to} className={styles.card}>
         <p className={styles.cardTag}>{tag}</p>
         <h3>{title}</h3>
         <p>{description}</p>
-      </div>
+      </Link>
     </div>
   );
 }

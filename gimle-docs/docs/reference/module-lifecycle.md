@@ -44,6 +44,10 @@ disposed. This is what makes classloader leak detection first-class rather than 
 redeploy-in-a-loop with flat metaspace is a mandatory acceptance property of the module system, not
 just a nice-to-have.
 
+:::tip[Escape hatch for a stubborn leak]
+
 A module that leaks anyway can be moved to
 [Tier 2](../architecture/tiered-isolation.md), where undeploy just kills a JVM instead of relying
 on classloader disposal at all.
+
+:::

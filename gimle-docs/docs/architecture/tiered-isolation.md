@@ -28,7 +28,7 @@ choice, not a gap. Tier 1/2 limits are enforced entirely through the portable `R
 interface (`gimle-os`) and its only current implementation, `PortableJvmFlagsResourceLimiter`:
 `-Xmx` / `ActiveProcessorCount`, identical on Linux/macOS/Windows, zero OS-specific code.
 
-Two things are explicitly **deferred**, not oversights:
+:::note[Two things are explicitly deferred, not oversights]
 
 - **Kernel-level resource enforcement** (cgroup v2 on Linux, via plain `java.nio.file` I/O against
   `/sys/fs/cgroup` — no containerd/runc equivalent needed) is a second `ResourceLimiter`
@@ -36,6 +36,8 @@ Two things are explicitly **deferred**, not oversights:
 - **Tier 3 isolation** (FFM downcalls to `unshare`/`setns`) is unimplemented on every platform
   today. Requesting it fails outright with `GimleIsolationException` rather than silently
   downgrading to a weaker tier — "not built yet," not "your platform doesn't support it."
+
+:::
 
 ## Why this matters when reading the code
 
