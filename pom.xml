@@ -28,6 +28,9 @@
     <module>gimle-console</module>
     <module>gimle-maven-plugin</module>
     <module>gimle-examples/hello-module</module>
+    <module>gimle-examples/greeter-provider</module>
+    <module>gimle-examples/greeter-consumer</module>
+    <module>gimle-smoke-tests</module>
   </modules>
 
   <properties>

@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // Deliberately separate from vite.config.ts: these are pure store/repository logic tests (§12 of
 // web-console-design.md), not component/route rendering tests, so none of the SPA build's plugins
@@ -10,5 +10,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // e2e/ is Playwright's own suite (a real browser against a real backend, see
+    // playwright.config.ts) -- Vitest's default *.spec.ts glob would otherwise also pick it up,
+    // and importing @playwright/test's `test` inside a Vitest run collides with Vitest's own.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });

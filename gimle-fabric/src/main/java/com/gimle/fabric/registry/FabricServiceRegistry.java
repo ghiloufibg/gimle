@@ -185,6 +185,16 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return Optional.of((T) createProxy(iface, chosen));
   }
 
+  /**
+   * Same-worker only, by design: this is what {@code FabricServer}'s inbound dispatch consults to
+   * find a provider actually hosted in this worker, never a reason to recurse back out over the
+   * fabric itself.
+   */
+  @Override
+  public Optional<Object> lookupByInterfaceName(String interfaceName) {
+    return localRegistry.lookupByInterfaceName(interfaceName);
+  }
+
   @Override
   public void markUnready(ModuleId owner) {
     localRegistry.markUnready(owner);
@@ -234,7 +244,12 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private <T> T createProxy(Class<T> iface, ServiceEndpoint endpoint) {
     InvocationHandler handler =
         (proxy, method, args) -> invokeRemote(iface, endpoint, method, args);
-    Object proxy = Proxy.newProxyInstance(interfaceLoader, new Class<?>[] {iface}, handler);
+    // iface's own classloader, not the fixed worker-wide interfaceLoader: iface may be a type
+    // private to one hosted module's own layer (the common case for a module-defined service
+    // contract, since gimle-api doesn't exist yet to host such contracts on a shared platform
+    // layer) -- Proxy.newProxyInstance's defining loader must be able to see every interface it's
+    // handed, and only the interface's own loader is guaranteed to.
+    Object proxy = Proxy.newProxyInstance(iface.getClassLoader(), new Class<?>[] {iface}, handler);
     return iface.cast(proxy);
   }
 

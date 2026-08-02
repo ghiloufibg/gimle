@@ -26,6 +26,18 @@ public interface ServiceRegistry {
   <T> Optional<T> lookup(Class<T> iface);
 
   /**
+   * Same selection as {@link #lookup}, keyed by interface name instead of a resolved {@code
+   * Class<T>} -- needed by {@code FabricServer}'s inbound dispatch, which only has an interface
+   * name off the wire and, without a shared platform-layer service-contract module ({@code
+   * gimle-api} doesn't exist yet), has no single classloader that's guaranteed to be able to
+   * resolve every hosted module's own service interfaces. The registry, however, already holds the
+   * real registered instance keyed by the exact {@code Class} its owning module registered it
+   * under, so it can answer a name-based query without needing to resolve the interface itself at
+   * all.
+   */
+  Optional<Object> lookupByInterfaceName(String interfaceName);
+
+  /**
    * Stops handing out new references to {@code owner}'s services; existing callers are unaffected.
    */
   void markUnready(ModuleId owner);

@@ -121,18 +121,40 @@ public final class FabricServer implements AutoCloseable {
 
   private Object invokeLocally(FabricFrame.InvokeRequest request)
       throws ReflectiveOperationException {
-    Class<?> iface = Class.forName(request.interfaceName(), true, interfaceLoader);
-    Optional<?> instance = localRegistry.lookup(iface);
+    // Looked up by name, not Class.forName(name, true, interfaceLoader): the interface is
+    // typically private to one hosted module's own layer (gimle-api doesn't exist yet to host a
+    // service contract on a shared platform layer every worker-wide interfaceLoader can resolve),
+    // so a single fixed loader can't be relied on to see it. The registry already holds the
+    // provider's instance keyed by the exact Class its own module registered it under -- no
+    // separate resolution needed.
+    Optional<?> instance = localRegistry.lookupByInterfaceName(request.interfaceName());
     if (instance.isEmpty()) {
-      throw new NoSuchElementException("no local service registered for " + iface.getName());
+      throw new NoSuchElementException(
+          "no local service registered for " + request.interfaceName());
     }
     Class<?>[] paramTypes = new Class<?>[request.paramTypeNames().length];
     for (int i = 0; i < paramTypes.length; i++) {
       paramTypes[i] = resolveClass(request.paramTypeNames()[i]);
     }
+    // The Method must come from the public interface Class, not instance.get().getClass()
+    // directly: a lambda or InstanceMdcContext MDC-tagging proxy implementing the interface is
+    // itself package-private/synthetic, and Method#invoke checks the *declaring class*'s
+    // accessibility, not just the method's own public modifier -- reflecting through the
+    // interface (which the registering module's own Class.getInterfaces() always exposes as the
+    // real public interface object) avoids IllegalAccessException.
+    Class<?> iface = findInterface(instance.get().getClass(), request.interfaceName());
     Method method = iface.getMethod(request.methodName(), paramTypes);
     Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs());
     return method.invoke(instance.get(), args);
+  }
+
+  private static Class<?> findInterface(Class<?> instanceClass, String interfaceName) {
+    for (Class<?> candidate : instanceClass.getInterfaces()) {
+      if (candidate.getName().equals(interfaceName)) {
+        return candidate;
+      }
+    }
+    throw new NoSuchElementException(interfaceName + " is not implemented by " + instanceClass);
   }
 
   private Class<?> resolveClass(String name) throws ClassNotFoundException {

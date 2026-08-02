@@ -31,6 +31,20 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   @SuppressWarnings("unchecked")
   @Override
   public <T> Optional<T> lookup(Class<T> iface) {
+    return (Optional<T>) select(iface);
+  }
+
+  @Override
+  public Optional<Object> lookupByInterfaceName(String interfaceName) {
+    for (Class<?> iface : entriesByInterface.keySet()) {
+      if (iface.getName().equals(interfaceName)) {
+        return select(iface);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private Optional<Object> select(Class<?> iface) {
     List<Entry> entries = entriesByInterface.get(iface);
     if (entries == null || entries.isEmpty()) {
       return Optional.empty();
@@ -41,7 +55,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
     }
     AtomicInteger cursor = cursors.computeIfAbsent(iface, key -> new AtomicInteger());
     int index = Math.floorMod(cursor.getAndIncrement(), ready.size());
-    return Optional.of((T) ready.get(index).instance());
+    return Optional.of(ready.get(index).instance());
   }
 
   @Override

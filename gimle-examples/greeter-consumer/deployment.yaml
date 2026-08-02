@@ -1,0 +1,6 @@
+name: greeter-consumer-deployment
+module:
+  name: com.gimle.examples.greeter.consumer
+  version: 1.0.0
+artifactPath: gimle-examples/greeter-consumer/target/greeter-consumer-0.1.0-SNAPSHOT.jar
+replicas: 1

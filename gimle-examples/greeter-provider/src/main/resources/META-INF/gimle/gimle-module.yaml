@@ -1,0 +1,19 @@
+name: com.gimle.examples.greeter.provider
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 64Mi
+    cpu: 100m
+exports:
+  - service: com.gimle.examples.greeter.Greeter
+    version: 1.0.0
+lifecycle:
+  hooks: com.gimle.examples.greeter.provider.GreeterProviderHooks
+health:
+  liveness: com.gimle.examples.greeter.provider.GreeterLivenessProbe
+  readiness: com.gimle.examples.greeter.provider.GreeterReadinessProbe

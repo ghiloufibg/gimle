@@ -2,6 +2,7 @@ package com.gimle.worker;
 
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceLogCloser;
+import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.ControlMessage;
@@ -26,6 +27,7 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -205,13 +207,29 @@ public final class WorkerMain {
         }
       }
       case ControlMessage.ResolveModule m ->
-          runCommand(m.correlationId(), channel, () -> controller.resolve(m.id()));
+          runCommand(
+              m.correlationId(),
+              channel,
+              mdcTagsFor(m.id(), identityRegistry),
+              () -> controller.resolve(m.id()));
       case ControlMessage.StartModule m ->
-          runCommand(m.correlationId(), channel, () -> controller.start(m.id()));
+          runCommand(
+              m.correlationId(),
+              channel,
+              mdcTagsFor(m.id(), identityRegistry),
+              () -> controller.start(m.id()));
       case ControlMessage.StopModule m ->
-          runCommand(m.correlationId(), channel, () -> controller.stop(m.id()));
+          runCommand(
+              m.correlationId(),
+              channel,
+              mdcTagsFor(m.id(), identityRegistry),
+              () -> controller.stop(m.id()));
       case ControlMessage.UninstallModule m ->
-          runCommand(m.correlationId(), channel, () -> controller.uninstall(m.id()));
+          runCommand(
+              m.correlationId(),
+              channel,
+              mdcTagsFor(m.id(), identityRegistry),
+              () -> controller.uninstall(m.id()));
       case ControlMessage.Ping m -> channel.send(new ControlMessage.Pong(m.correlationId()));
       case ControlMessage.CatalogUpdate m ->
           catalog.applyExternalUpdate(
@@ -228,13 +246,50 @@ public final class WorkerMain {
     }
   }
 
+  /**
+   * The MDC tags a hosted module's own instance would carry if it logged synchronously right now --
+   * computed once per command dispatch (not cached) since identity registration can happen after a
+   * module is first installed. Empty for a module with no registered {@link InstanceIdentity}
+   * (matches {@link InstanceTaggingServiceRegistry}'s own "degrade, don't fail" posture for the
+   * same case).
+   */
+  private static Map<String, String> mdcTagsFor(
+      ModuleId id, InstanceIdentityRegistry identityRegistry) {
+    return identityRegistry
+        .lookup(id)
+        .map(
+            identity ->
+                InstanceMdcContext.tagsFor(
+                    identity.deploymentName(),
+                    identity.instanceIndex(),
+                    id.name(),
+                    id.version().toString(),
+                    identity.tenantId().orElse(null)))
+        .orElse(Map.of());
+  }
+
   private static void runCommand(
-      String correlationId, ControlChannelClient channel, Runnable action) throws IOException {
+      String correlationId,
+      ControlChannelClient channel,
+      Map<String, String> mdcTags,
+      Runnable action)
+      throws IOException {
     try {
-      action.run();
+      // ModuleController invokes the module's own lifecycle hooks (onInstall/onStart/onStop/
+      // onUninstall) synchronously from this call -- tagging around it here is what lets a hook's
+      // own logging land in this instance's own log (APPLICATION category, per-instance file)
+      // instead of the worker's shared platform log; see InstanceMdcKeys.
+      InstanceMdcContext.runTagged(
+          mdcTags,
+          () -> {
+            action.run();
+            return null;
+          });
       channel.send(new ControlMessage.Ack(correlationId));
     } catch (RuntimeException e) {
       channel.send(new ControlMessage.Nack(correlationId, String.valueOf(e.getMessage())));
+    } catch (Exception e) {
+      throw new IllegalStateException("unexpected checked exception from a Runnable", e);
     }
   }
 

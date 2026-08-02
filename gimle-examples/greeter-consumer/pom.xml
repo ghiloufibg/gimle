@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>greeter-consumer</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Example: greeter-consumer</name>
+  <description>
+    Companion to greeter-provider: a real, deployable Gimle module that looks up the provider's
+    Greeter service over the fabric and calls it -- exercising ModuleContext#lookupService's actual
+    cross-worker/cross-machine proxy + wire-codec path (both modules are TIER_2, a dedicated worker
+    JVM each, guaranteeing they never share a worker and the lookup can never take the same-worker
+    Class-identity shortcut). The lookup happens on a background virtual thread spawned from
+    onStart, not inline: onStart runs synchronously on the worker's single control-channel receive
+    loop, the same loop that delivers the CatalogUpdate messages service discovery depends on, so a
+    hook blocking there while waiting for that same catalog to populate would deadlock against
+    itself. Same requires-static/addReads story as greeter-provider -- see its own description.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

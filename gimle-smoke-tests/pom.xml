@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-smoke-tests</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Smoke Tests</name>
+  <description>
+    A real end-to-end smoke suite: spawns a genuine ControlPlaneMain + AgentMain (+ its own
+    WorkerMain child) subprocess cluster -- unlike every other integration test in this repo,
+    which constructs ApiServer directly in-JVM, this needs the real bundled web console
+    (BundledConsole/ApiServer.serveConsole) that only a real ControlPlaneMain process serves, since
+    the Playwright suite this drives (gimle-console's own e2e/) needs a real browser hitting a real
+    server. Deploys the greeter-provider/greeter-consumer sample modules (gimle-examples/), asserts
+    real API-level behavior (both reach ACTIVE, the consumer's real fabric call to the provider
+    shows up in its own logs), then runs the Playwright suite against that same live cluster.
+    Test-only: no main sources. Deliberately not part of the default `mvn verify` -- opt in with
+    `-Psmoke`, matching the existing runtime-image profile's precedent, since this is slow
+    (spins up real JVMs and a real browser) and needs `mvn install` to have already produced every
+    jar it launches.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-controlplane</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-agent</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-worker</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>smoke</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

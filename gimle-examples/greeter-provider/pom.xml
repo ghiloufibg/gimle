@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>greeter-provider</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Example: greeter-provider</name>
+  <description>
+    A real, deployable Gimle module exercising the platform's actual capabilities: a lifecycle hook
+    that registers a fabric service on startup, and liveness/readiness probes the worker's probe
+    loop calls directly -- unlike hello-module (deliberately minimal, no hooks/probes at all), this
+    bundles genuine ModuleLifecycleHooks/probe implementations inside its own jar, the real deploy
+    shape (as opposed to every dynamically-loaded test fixture elsewhere in this codebase, which
+    leaves its hooks class outside the fixture jar on the test's own classpath). com.gimle.module and
+    org.slf4j are declared `requires static`, not `requires`, because the worker JVM's platform
+    layer is boot-only today (gimle-api doesn't exist yet to be a real platform module -- see
+    PlatformLayer/ModuleLayerFactory in gimle-module): a plain `requires` would fail Configuration
+    resolution outright. ModuleLayerFactory grants this module's layer readability to the parent
+    (unnamed) module at construction time, which is what actually makes the bundled classes resolve
+    against the platform's real types at runtime.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>
