@@ -1,5 +1,8 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -9,9 +12,14 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.TraceFlags;
 import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Context;
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
@@ -22,16 +30,22 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import javax.net.ssl.SSLServerSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * The receiving side of a cross-hop service call: accepts already-connected byte channels -- one
- * {@code ServerSocketChannel} bound to a {@link UnixDomainSocketAddress} for the same-machine tier,
- * another bound to a TCP {@link java.net.InetSocketAddress} for the cross-machine tier -- and
- * serves both through the identical request-handling loop, since the two paths differ only in which
- * socket accepted the connection, never in how frames are decoded or dispatched. One virtual thread
- * per accepted connection.
+ * {@code ServerSocketChannel} bound to a {@link UnixDomainSocketAddress} for the same-machine tier
+ * (always plaintext -- kernel-mediated, never leaves the machine, per {@code
+ * claudedocs/tls-transport-security-design.md} §1's own table), another bound to a TCP {@link
+ * java.net.InetSocketAddress} for the cross-machine tier, gated on {@link
+ * TransportProtocol#fromConfig()} between a plain {@code ServerSocketChannel} and a TLS {@link
+ * SSLServerSocket} (the same reasoning and code shape as {@code RaftTransport}'s own swap, since
+ * JSSE's classic API has no NIO-channel equivalent) -- and serves all three through the identical
+ * request-handling loop once reduced to an {@link InputStream}/{@link OutputStream} pair, since
+ * they differ only in which socket accepted the connection, never in how frames are decoded or
+ * dispatched. One virtual thread per accepted connection.
  */
 public final class FabricServer implements AutoCloseable {
 
@@ -39,7 +53,7 @@ public final class FabricServer implements AutoCloseable {
 
   private final ServiceRegistry localRegistry;
   private final ClassLoader interfaceLoader;
-  private final List<ServerSocketChannel> listeners = new CopyOnWriteArrayList<>();
+  private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   private volatile boolean closed;
 
   public FabricServer(ServiceRegistry localRegistry, ClassLoader interfaceLoader) {
@@ -48,24 +62,48 @@ public final class FabricServer implements AutoCloseable {
   }
 
   /**
-   * Binds a listener at {@code bindAddress}, choosing UDS vs. TCP by the address type, and returns
-   * the actual bound address (useful when {@code bindAddress} requested an ephemeral port/path).
+   * Binds a listener at {@code bindAddress}, choosing UDS vs. TCP by the address type (TCP further
+   * gated on {@link TransportProtocol#fromConfig()}), and returns the actual bound address (useful
+   * when {@code bindAddress} requested an ephemeral port/path).
    */
   public SocketAddress listen(SocketAddress bindAddress) throws IOException {
-    ServerSocketChannel serverChannel =
-        bindAddress instanceof UnixDomainSocketAddress
-            ? ServerSocketChannel.open(StandardProtocolFamily.UNIX)
-            : ServerSocketChannel.open();
+    if (bindAddress instanceof UnixDomainSocketAddress) {
+      return listenChannel(ServerSocketChannel.open(StandardProtocolFamily.UNIX), bindAddress);
+    }
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return listenChannel(ServerSocketChannel.open(), bindAddress);
+    }
+    return listenTls(bindAddress);
+  }
+
+  private SocketAddress listenChannel(ServerSocketChannel serverChannel, SocketAddress bindAddress)
+      throws IOException {
     serverChannel.bind(bindAddress);
     listeners.add(serverChannel);
     SocketAddress boundAddress = serverChannel.getLocalAddress();
     Thread.ofVirtual()
         .name("gimle-fabric-listener-" + boundAddress)
-        .start(() -> acceptLoop(serverChannel));
+        .start(() -> acceptChannelLoop(serverChannel));
     return boundAddress;
   }
 
-  private void acceptLoop(ServerSocketChannel serverChannel) {
+  private SocketAddress listenTls(SocketAddress bindAddress) throws IOException {
+    SSLServerSocket serverSocket =
+        (SSLServerSocket)
+            SslContexts.forMutualTls(TlsSettings.fromConfig())
+                .getServerSocketFactory()
+                .createServerSocket();
+    serverSocket.setNeedClientAuth(true);
+    serverSocket.bind(bindAddress);
+    listeners.add(serverSocket);
+    SocketAddress boundAddress = serverSocket.getLocalSocketAddress();
+    Thread.ofVirtual()
+        .name("gimle-fabric-listener-" + boundAddress)
+        .start(() -> acceptSocketLoop(serverSocket));
+    return boundAddress;
+  }
+
+  private void acceptChannelLoop(ServerSocketChannel serverChannel) {
     while (!closed && serverChannel.isOpen()) {
       SocketChannel connection;
       try {
@@ -80,20 +118,45 @@ public final class FabricServer implements AutoCloseable {
     }
   }
 
+  private void acceptSocketLoop(ServerSocket serverSocket) {
+    while (!closed && !serverSocket.isClosed()) {
+      Socket connection;
+      try {
+        connection = serverSocket.accept();
+      } catch (IOException e) {
+        if (!closed) {
+          log.warn("fabric server accept loop failed: {}", e.getMessage());
+        }
+        return;
+      }
+      Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serve(connection));
+    }
+  }
+
   private void serve(SocketChannel connection) {
     try (connection) {
-      var in = Channels.newInputStream(connection);
-      var out = Channels.newOutputStream(connection);
-      FabricFrame frame;
-      while ((frame = FabricCodec.read(in)) != null) {
-        if (frame instanceof FabricFrame.InvokeRequest request) {
-          FabricCodec.write(out, dispatch(request));
-        } else {
-          log.warn("fabric server received an unexpected frame type: {}", frame);
-        }
-      }
+      serveStreams(Channels.newInputStream(connection), Channels.newOutputStream(connection));
     } catch (IOException e) {
       log.debug("fabric connection closed: {}", e.getMessage());
+    }
+  }
+
+  private void serve(Socket connection) {
+    try (connection) {
+      serveStreams(connection.getInputStream(), connection.getOutputStream());
+    } catch (IOException e) {
+      log.debug("fabric connection closed: {}", e.getMessage());
+    }
+  }
+
+  private void serveStreams(InputStream in, OutputStream out) throws IOException {
+    FabricFrame frame;
+    while ((frame = FabricCodec.read(in)) != null) {
+      if (frame instanceof FabricFrame.InvokeRequest request) {
+        FabricCodec.write(out, dispatch(request));
+      } else {
+        log.warn("fabric server received an unexpected frame type: {}", frame);
+      }
     }
   }
 
@@ -198,9 +261,9 @@ public final class FabricServer implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
-    for (ServerSocketChannel channel : listeners) {
+    for (Closeable listener : listeners) {
       try {
-        channel.close();
+        listener.close();
       } catch (IOException e) {
         log.warn("failed to close fabric listener: {}", e.getMessage());
       }
