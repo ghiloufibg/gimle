@@ -25,4 +25,11 @@
     TestModuleBuilder.minimalDescriptor() already uses for the same reason -- kept minimal on
     purpose, not because a real module can't have them.
   </description>
+
+  <properties>
+    <!-- Sample/demo code, not part of Gimle's platform API surface: excluded from the aggregate
+         Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
+         entry and claudedocs/docs-site-design.md). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
 </project>

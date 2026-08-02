@@ -228,6 +228,49 @@
           <artifactId>maven-antrun-plugin</artifactId>
           <version>3.1.0</version>
         </plugin>
+        <!--
+          Deliberately declared here only, never bound to a lifecycle phase or added under
+          <build><plugins>: `aggregate` needs the full reactor project list, which a direct goal
+          invocation against this root aggregator POM (`mvn javadoc:aggregate`, or `mvn gimle:docs`
+          via gimle-maven-plugin's DocsMojo) gets for free, the same "direct goal, no bound phase"
+          shape gimle-maven-plugin's own goals already use, and for the same reason (see
+          gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/AbstractGimleMojo.java's javadoc).
+
+          Include/exclude enforcement (only the actual platform API surface, not
+          gimle-maven-plugin/gimle-examples/gimle-smoke-tests) is done via a per-module
+          `maven.javadoc.skip=true` property on each excluded module's own pom, not via
+          <sourcepath> here: an earlier attempt at overriding <sourcepath>/<subpackages> to hand-list
+          only the included modules' src/main/java directories was tried and reverted: it silently
+          throws away the reactor-derived classpath aggregate normally builds automatically from
+          every included project's own resolved dependencies, which real `module-info.java` `requires`
+          directives (org.slf4j, ch.qos.logback.classic, etc.) need to actually resolve; confirmed by
+          hitting exactly that failure directly ("module not found: org.slf4j") before switching to
+          the per-module skip-property approach, which keeps automatic reactor-based classpath
+          resolution intact for every module that isn't explicitly skipped. gimle-console/gimle-docs
+          need no skip property: neither has any src/main/java for javadoc to find in the first
+          place.
+
+          <doclint>none</doclint> and <failOnError>false</failOnError> are required, not optional
+          tuning: this codebase deliberately favors clear names over Javadoc prose (see CLAUDE.md's
+          own comment convention), so most public members carry little or no @param/@return, which
+          is exactly the sparse commenting default doclint treats as a hard error.
+
+          No <reportOutputDirectory>/<destDir> override: confirmed empirically that a bare direct
+          `mvn javadoc:aggregate` invocation ignores those two params when only declared here in
+          pluginManagement (unlike doclint/failOnError/release, which are honored) and always
+          writes to the plugin's own real default, target/reports/apidocs. gimle-docs/pom.xml's own
+          javadoc-copy step points at that path for exactly this reason, not a customized one.
+        -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>3.11.2</version>
+          <configuration>
+            <doclint>none</doclint>
+            <failOnError>false</failOnError>
+            <release>25</release>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
     <plugins>
@@ -360,6 +403,24 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+
+    <!--
+      Opt-in reactor membership for gimle-docs (the developer documentation site, Docusaurus/Bun;
+      see claudedocs/docs-site-design.md). Generating an aggregate Javadoc across nine modules plus
+      a full Docusaurus build is real wall-clock cost with no payoff on every routine `mvn verify`,
+      so, unlike gimle-console, which is always in the default `<modules>` list, gimle-docs
+      only joins the reactor when this profile is active: `mvn verify` never touches it; `mvn
+      verify -P docs` (or `-P docs -pl gimle-docs -am`) builds everything and the site. Unlike the
+      runtime-image profile above (which only adds plugin executions to modules already in the
+      reactor), this profile changes reactor *membership* itself, via Maven's per-profile
+      <modules> support.
+    -->
+    <profile>
+      <id>docs</id>
+      <modules>
+        <module>gimle-docs</module>
+      </modules>
     </profile>
   </profiles>
 </project>

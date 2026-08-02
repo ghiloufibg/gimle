@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-docs</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Gimle Docs</name>
+  <description>
+    The developer documentation site (Docusaurus/Bun), built and tested by Bun but wrapped as a
+    plain Maven module so `mvn verify -P docs` covers it too: no Java sources here, just
+    exec-maven-plugin executions that shell out to Bun (the same pattern gimle-console already
+    uses) plus a resources-copy step that pulls the aggregate Javadoc into static/javadoc/**
+    before the Docusaurus build runs, so its passthrough-copy picks it up. Deliberately
+    `packaging=pom`, not `jar` like gimle-console: nothing consumes this module's output as a
+    dependency, its real output is the static gimle-docs/build/** directory Docusaurus produces.
+    Reactor-gated behind the `docs` profile (see the root pom), not part of default `mvn verify`.
+
+    Note: a bare `mvn verify -P docs -pl gimle-docs -am` only produces a Javadoc-*complete* site
+    if `mvn javadoc:aggregate` has already been run against the root reactor first -- the two
+    aren't chained by the reactor build alone (javadoc:aggregate is a direct, non-phase-bound
+    goal, deliberately never bound to a lifecycle phase here or at the root -- see the root pom's
+    maven-javadoc-plugin pluginManagement entry). `mvn gimle:docs` (gimle-maven-plugin's DocsMojo)
+    runs both steps in the right order in one command.
+  </description>
+
+  <properties>
+    <!-- The plugin's own real default output location for a direct `mvn javadoc:aggregate`
+         invocation (target/reports/apidocs), not a customized path: see the root pom's
+         maven-javadoc-plugin pluginManagement entry for why a <reportOutputDirectory> override
+         doesn't take effect here. -->
+    <gimle.docs.javadocDir>${maven.multiModuleProjectDirectory}/target/reports/apidocs</gimle.docs.javadocDir>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>bun-install</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>bun</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>install</argument>
+                <argument>--frozen-lockfile</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>bun-build</id>
+            <!-- Must run after copy-javadoc-static (process-resources, below): Docusaurus's own
+                 build passthrough-copies static/** verbatim into build/**, so static/javadoc/
+                 has to be populated first or the site ships with no API Reference content. -->
+            <phase>package</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>bun</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>run</argument>
+                <argument>build</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <!-- Pulls in whatever the root's `mvn javadoc:aggregate` (or gimle:docs, which runs it
+               first) already produced at ${gimle.docs.javadocDir}. If that directory doesn't
+               exist yet (aggregate javadoc was never generated), maven-resources-plugin logs a
+               warning and skips rather than failing the build; the site still builds, just
+               without a populated /javadoc/ tree, matching this module's own description above. -->
+          <execution>
+            <id>copy-javadoc-static</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.basedir}/static/javadoc</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${gimle.docs.javadocDir}</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

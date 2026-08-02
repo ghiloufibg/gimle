@@ -25,6 +25,10 @@
   </description>
 
   <properties>
+    <!-- Internal dev tooling, not part of Gimle's platform API surface: excluded from the
+         aggregate Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin
+         pluginManagement entry and claudedocs/docs-site-design.md). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
     <maven.version>3.8.9</maven.version>
     <!-- Must stay >= 3.15.2: earlier maven-plugin-plugin/maven-plugin-annotations releases bundle
          an ASM version that can't parse Java 25 class files ("Unsupported class file major version

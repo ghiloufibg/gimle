@@ -29,6 +29,13 @@
     jar it launches.
   </description>
 
+  <properties>
+    <!-- Test-only, not part of Gimle's platform API surface: excluded from the aggregate
+         Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
+         entry and claudedocs/docs-site-design.md). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.gimle</groupId>
