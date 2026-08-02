@@ -25,15 +25,15 @@
   </description>
 
   <properties>
-    <!-- Overrides the root pom's release=25: maven-plugin-plugin's descriptor goal reads compiled
-         Mojo class files with a bundled ASM version that doesn't yet recognize Java 25 class files
-         (major version 69): "Unsupported class file major version 69", confirmed by hitting it
-         directly. Mojo classes also run IN-PROCESS inside the invoking `mvn` launcher's own JVM
-         (whichever JDK the developer has active, not necessarily this repo's JDK 25 requirement for
-         the application modules), so a broadly-compatible LTS target is correct here regardless. -->
-    <maven.compiler.release>21</maven.compiler.release>
     <maven.version>3.8.9</maven.version>
-    <maven-plugin-annotations.version>3.13.1</maven-plugin-annotations.version>
+    <!-- Must stay >= 3.15.2: earlier maven-plugin-plugin/maven-plugin-annotations releases bundle
+         an ASM version that can't parse Java 25 class files ("Unsupported class file major version
+         69", confirmed by hitting it directly with 3.13.1): fixed upstream in
+         https://github.com/apache/maven-plugin-tools/issues/955, released in maven-plugin-tools
+         3.15.2 (asmVersion bumped to 9.9). Do not downgrade below this without re-checking that
+         issue; this is why this module can target release 25 like every other module instead of
+         needing its own older bytecode-version override. -->
+    <maven-plugin-tools.version>3.15.2</maven-plugin-tools.version>
     <!-- Must match the maven-resolver-api jar Maven 3.8.9 itself ships in its own lib/ directory
          exactly (verified against this environment's actual install): Mojo code sharing
          RepositorySystem/RepositorySystemSession instances with the live Maven process needs
@@ -57,7 +57,7 @@
     <dependency>
       <groupId>org.apache.maven.plugin-tools</groupId>
       <artifactId>maven-plugin-annotations</artifactId>
-      <version>${maven-plugin-annotations.version}</version>
+      <version>${maven-plugin-tools.version}</version>
       <scope>provided</scope>
     </dependency>
     <!-- AgentMojo's cross-module worker-classpath resolution only. maven-resolver-impl/
@@ -83,7 +83,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-plugin-plugin</artifactId>
-        <version>3.13.1</version>
+        <version>${maven-plugin-tools.version}</version>
       </plugin>
     </plugins>
   </build>
