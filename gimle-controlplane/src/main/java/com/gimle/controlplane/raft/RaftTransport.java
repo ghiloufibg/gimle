@@ -1,28 +1,39 @@
 package com.gimle.controlplane.raft;
 
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.SocketAddress;
-import java.nio.channels.Channels;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import javax.net.ServerSocketFactory;
+import javax.net.ssl.SSLServerSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The receiving side of the Raft RPC surface: a {@code ServerSocketChannel} bound to a TCP address,
- * one virtual thread per accepted connection, modeled directly on {@code gimle-fabric}'s {@code
+ * The receiving side of the Raft RPC surface: a {@code ServerSocket} bound to a TCP address, one
+ * virtual thread per accepted connection, modeled directly on {@code gimle-fabric}'s {@code
  * FabricServer} -- the same shape (long-lived connections served in a loop, not open-per-call),
  * since Raft peers hold connections open across many RPCs, exactly like fabric's own cross-hop
- * calls hold theirs.
+ * calls hold theirs. Plain blocking {@code Socket}/{@code ServerSocket} rather than NIO channels:
+ * virtual threads make blocking I/O just as cheap here, and {@link javax.net.ssl.SSLServerSocket}
+ * -- the only JSSE type with this classic streams-based shape -- has no channel-based equivalent;
+ * unifying on {@code Socket} lets {@link #listen} pick a plain or TLS {@link ServerSocketFactory}
+ * with the accept loop and codec layer (both stream-based already) completely unchanged either way,
+ * per {@code claudedocs/tls-transport-security-design.md} §2.
  */
 public final class RaftTransport implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(RaftTransport.class);
 
   private final RaftRpcHandler handler;
-  private final List<ServerSocketChannel> listeners = new CopyOnWriteArrayList<>();
+  private final List<ServerSocket> listeners = new CopyOnWriteArrayList<>();
   private volatile boolean closed;
 
   public RaftTransport(RaftRpcHandler handler) {
@@ -31,21 +42,31 @@ public final class RaftTransport implements AutoCloseable {
 
   /** Binds a listener at {@code bindAddress} and returns the actual bound address. */
   public SocketAddress listen(SocketAddress bindAddress) throws IOException {
-    ServerSocketChannel serverChannel = ServerSocketChannel.open();
-    serverChannel.bind(bindAddress);
-    listeners.add(serverChannel);
-    SocketAddress boundAddress = serverChannel.getLocalAddress();
+    ServerSocket serverSocket = serverSocketFactory().createServerSocket();
+    if (serverSocket instanceof SSLServerSocket sslServerSocket) {
+      sslServerSocket.setNeedClientAuth(true);
+    }
+    serverSocket.bind(bindAddress);
+    listeners.add(serverSocket);
+    SocketAddress boundAddress = serverSocket.getLocalSocketAddress();
     Thread.ofVirtual()
         .name("gimle-raft-listener-" + boundAddress)
-        .start(() -> acceptLoop(serverChannel));
+        .start(() -> acceptLoop(serverSocket));
     return boundAddress;
   }
 
-  private void acceptLoop(ServerSocketChannel serverChannel) {
-    while (!closed && serverChannel.isOpen()) {
-      SocketChannel connection;
+  private static ServerSocketFactory serverSocketFactory() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return ServerSocketFactory.getDefault();
+    }
+    return SslContexts.forMutualTls(TlsSettings.fromConfig()).getServerSocketFactory();
+  }
+
+  private void acceptLoop(ServerSocket serverSocket) {
+    while (!closed && !serverSocket.isClosed()) {
+      Socket connection;
       try {
-        connection = serverChannel.accept();
+        connection = serverSocket.accept();
       } catch (IOException e) {
         if (!closed) {
           log.warn("raft transport accept loop failed: {}", e.getMessage());
@@ -56,10 +77,10 @@ public final class RaftTransport implements AutoCloseable {
     }
   }
 
-  private void serve(SocketChannel connection) {
+  private void serve(Socket connection) {
     try (connection) {
-      var in = Channels.newInputStream(connection);
-      var out = Channels.newOutputStream(connection);
+      InputStream in = connection.getInputStream();
+      OutputStream out = connection.getOutputStream();
       RaftRpc rpc;
       while ((rpc = RaftCodec.read(in)) != null) {
         RaftCodec.write(out, dispatch(rpc));
@@ -82,9 +103,9 @@ public final class RaftTransport implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
-    for (ServerSocketChannel channel : listeners) {
+    for (ServerSocket socket : listeners) {
       try {
-        channel.close();
+        socket.close();
       } catch (IOException e) {
         log.warn("failed to close raft listener: {}", e.getMessage());
       }
