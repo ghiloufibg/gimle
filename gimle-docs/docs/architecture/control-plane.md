@@ -11,10 +11,12 @@ touches the service fabric's data plane — it decides *what should be running w
 ```mermaid
 graph TD
     Api["ApiServer<br/>accepts manifests"]
-    Store["StateStore<br/>Raft-replicated (RaftNode/RaftLog/RaftRpc)"]
+    Store["StateStore<br/>in-memory index"]
+    Disk[("Disk<br/>raft/ log+snapshot, deployments/, assignments/,<br/>nodes/, tenants/, config/ -- YAML, atomic writes")]
     Sched["Scheduler<br/>bin-packing: resources × isolation tier"]
     Recon["Reconcilers<br/>one control loop per resource kind"]
     Api --> Store
+    Store <-->|every write; full reload on startup| Disk
     Store --> Sched
     Sched --> Store
     Store --> Recon
@@ -27,8 +29,37 @@ graph TD
 `ApiServer` accepts manifests describing desired state (`DeploymentManifestParser` /
 `DeploymentSpec`) and persists them to `StateStore`, which is Raft-replicated for control-plane HA
 (`RaftNode`, `RaftLog`, `RaftRpc`, `RaftTransport`, `AppendEntries`/`RequestVote`/`InstallSnapshot`
-— a real Raft implementation, not a simplified stand-in). Single control-plane node today; the Raft
-machinery is what makes multi-node a configuration change rather than a rewrite later.
+— a real Raft implementation, not a simplified stand-in). This plays the same architectural role
+etcd plays for Kubernetes, but it isn't etcd or any other external database: it's a custom,
+embedded, pure-Java implementation, consistent with Gimlé having no non-Java runtime dependencies
+anywhere — nothing to stand up or operate separately from the control-plane process itself.
+
+## Persistence and restart recovery
+
+`StateStore` is, in its own javadoc's words, "an embedded, single-node, file-backed state store: a
+directory of small YAML files, one per resource" — deployments, instance assignments, node
+registrations/heartbeats, tenants, quotas, and tenant-scoped config each get their own file. Every
+write goes through `AtomicFiles.writeAtomically` (write to a temp file, then atomic rename), so a
+crash mid-write never leaves a torn file a reader could observe. `RaftLog` persists the actual
+consensus log the same way — one immutable file per log entry, plus a compaction snapshot and the
+current term/vote, in a `raft/` directory alongside `StateStore`'s own resource directories.
+
+Both reload from disk on construction: `StateStore.loadAll()` rebuilds its entire in-memory index
+from the YAML files present, and `RaftLog` replays its persisted term/vote, snapshot metadata, and
+every log entry. **A restarted control-plane process picks up exactly where it left off** — this
+is exercised directly (`StateStoreTest`'s `removed_deployment_is_gone_after_reload`, among others)
+and matches the documented local-dev behavior: state survives across restarts under
+`gimle-controlplane/target/gimle-state` until that directory is explicitly deleted or `mvn clean`
+is run.
+
+Multi-node clustering itself is real and tested, not just scaffolded — `RaftClusterTest` covers
+leader election converging to exactly one leader, a write becoming visible on every replica,
+**killing the leader triggers re-election and the new leader keeps serving writes**, a
+network-partitioned minority being unable to elect a leader or commit writes (split-brain safety),
+a write to a follower being redirected to the real leader, and a far-behind follower catching up
+via `InstallSnapshot` rather than replaying the entire log. The local-dev walkthrough
+(`gimle-console/LOCAL_DEV.md`) only ever runs a single control-plane node in practice, but the
+clustering mechanics underneath it are exercised by tests, not just present in the source tree.
 
 ## Scheduler
 
