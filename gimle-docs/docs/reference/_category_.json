@@ -3,6 +3,6 @@
   "position": 4,
   "link": {
     "type": "generated-index",
-    "description": "Lookup material: the module lifecycle state machine, the CLI, and the manifest schema."
+    "description": "Lookup material: the module lifecycle state machine, the CLI, the manifest schema, and the gimle-maven-plugin goals."
   }
 }

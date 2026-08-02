@@ -3,6 +3,6 @@
   "position": 3,
   "link": {
     "type": "generated-index",
-    "description": "How Gimlé is built: tiered isolation, node topology, the module system, the control plane, the service fabric, and observability."
+    "description": "How Gimlé is built: tiered isolation, node topology, the module system, the control plane, the service fabric, observability, the web console, and multi-tenancy."
   }
 }
