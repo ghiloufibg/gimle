@@ -20,6 +20,7 @@ Launches a real `ControlPlaneMain` process.
 | `gimle.controlplane.port` | `8080` | API server port. |
 | `gimle.controlplane.stateDir` | `${project.build.directory}/gimle-state` | Where `StateStore`/`RaftLog` persist to disk — see [Control plane](../architecture/control-plane.md). |
 | `gimle.controlplane.raftPort` | `9080` | Raft transport port. |
+| `gimle.controlplane.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 
 ```bash
 mvn gimle:controlplane -Dgimle.controlplane.port=8081
@@ -38,6 +39,7 @@ itself](../architecture/node-topology.md)). Requires `mvn install` to have alrea
 | `gimle.agent.nodeId` | `node-1` | This node's identifier. |
 | `gimle.agent.controlPlaneUrl` | `http://127.0.0.1:8080` | Control plane to register with. |
 | `gimle.agent.gossipAddress` | `127.0.0.1:9090` | This node's own gossip listen address — see [Service fabric](../architecture/service-fabric.md). |
+| `gimle.agent.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 
 ```bash
 # A second agent alongside the first, on the same machine
@@ -56,6 +58,25 @@ A thin wrapper around a real `GimleCli apply` invocation — see
 
 ```bash
 mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/greeter-provider/deployment.yaml
+```
+
+## `mvn gimle:tls-init`
+
+Generates the cluster CA, the control plane's own leaf certificate, and the first human operator's
+leaf certificate via a real `com.gimle.pki.PkiBootstrapMain` subprocess — everything a brand-new
+cluster needs to start in `gimle.transport.protocol=tls` mode. See
+[Transport security](../architecture/transport-security.md). Unlike `gimle:agent`, this needs no
+cross-module classpath resolution: `PkiBootstrapMain` lives in `gimle-pki` itself, the module this
+goal targets.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.tlsInit.outputDir` | `./gimle-tls` | Where the generated `.crt`/`.key` files are written. |
+| `gimle.tlsInit.caCommonName` | `gimle-cluster-ca` | The cluster CA's own Subject CN. |
+| `gimle.tlsInit.hostname` | `localhost` | SAN on the control plane's leaf certificate — clients must reach the control plane by this hostname, not a bare IP literal (no `iPAddress` SAN support yet). |
+
+```bash
+mvn gimle:tls-init -Dgimle.tlsInit.outputDir=./gimle-tls -Dgimle.tlsInit.hostname=localhost
 ```
 
 ## `mvn gimle:docs`

@@ -1,6 +1,10 @@
 package com.gimle.cli;
 
+import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -8,9 +12,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import javax.net.ssl.SSLContext;
 
 /**
  * The CLI's HTTP calling logic, shared by every command class. Wraps {@code HttpClient} with an
@@ -26,17 +33,58 @@ import java.util.Map;
 public final class ControlPlaneClient {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+  private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
 
   private final URI baseUri;
   private final HttpClient httpClient;
 
+  /**
+   * The default construction path, used by every command that assumes a fully-provisioned identity
+   * ({@code apply}, {@code get}, {@code set}, {@code delete}, {@code logs}, {@code cert approve},
+   * {@code cert renew}): {@code https://} with full mTLS via {@code gimle.tls.*} when {@code
+   * gimle.transport.protocol=tls}, plain {@code http://} otherwise.
+   */
   public ControlPlaneClient(String serverAddress) {
-    this.baseUri = URI.create("http://" + serverAddress);
-    this.httpClient =
+    this(serverAddress, defaultSslContext());
+  }
+
+  /**
+   * For the two pre-certificate flows in {@code claudedocs/tls-transport-security-design.md} §4:
+   * {@code cert request}/{@code cert status}, which by definition run before the caller has a
+   * client certificate of its own to present. Trusts the server (verifies against {@code
+   * gimle.tls.caFile}) without presenting one.
+   */
+  public static ControlPlaneClient trustOnly(String serverAddress) {
+    return new ControlPlaneClient(serverAddress, trustOnlySslContext());
+  }
+
+  private ControlPlaneClient(String serverAddress, Optional<SSLContext> sslContext) {
+    String scheme = sslContext.isPresent() ? "https" : "http";
+    this.baseUri = URI.create(scheme + "://" + serverAddress);
+    HttpClient.Builder builder =
         HttpClient.newBuilder()
             .connectTimeout(REQUEST_TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+            .followRedirects(HttpClient.Redirect.NORMAL);
+    sslContext.ifPresent(builder::sslContext);
+    this.httpClient = builder.build();
+  }
+
+  private static Optional<SSLContext> defaultSslContext() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return Optional.empty();
+    }
+    return Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
+  }
+
+  private static Optional<SSLContext> trustOnlySslContext() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return Optional.empty();
+    }
+    String caFileProperty = System.getProperty(CA_FILE_PROPERTY);
+    if (caFileProperty == null || caFileProperty.isBlank()) {
+      throw GimleTlsException.missingProperty(CA_FILE_PROPERTY);
+    }
+    return Optional.of(SslContexts.forServerTrustOnly(Path.of(caFileProperty)));
   }
 
   public ApiResponse get(String path) {

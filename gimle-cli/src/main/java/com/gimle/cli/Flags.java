@@ -54,4 +54,16 @@ final class Flags {
   boolean isSet(String flag) {
     return setBooleanFlags.contains(flag);
   }
+
+  String get(String flag) {
+    String value = values.get(flag);
+    if (value == null) {
+      throw new CliException("missing required flag: " + flag);
+    }
+    return value;
+  }
+
+  String getOrDefault(String flag, String defaultValue) {
+    return values.getOrDefault(flag, defaultValue);
+  }
 }

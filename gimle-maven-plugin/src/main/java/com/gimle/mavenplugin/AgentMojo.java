@@ -41,6 +41,14 @@ public final class AgentMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.agent.gossipAddress", defaultValue = "127.0.0.1:9090")
   private String gossipAddress;
 
+  /**
+   * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
+   * claudedocs/tls-transport-security-design.md} §1 -- same shape as {@code
+   * ControlPlaneMojo#transportProtocol}, unset by default.
+   */
+  @Parameter(property = "gimle.agent.transportProtocol")
+  private String transportProtocol;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -69,6 +77,9 @@ public final class AgentMojo extends AbstractGimleMojo {
 
     List<String> command = new ArrayList<>();
     command.add(javaExecutable());
+    if (transportProtocol != null && !transportProtocol.isBlank()) {
+      command.add("-Dgimle.transport.protocol=" + transportProtocol);
+    }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));
     command.add("com.gimle.agent.AgentMain");

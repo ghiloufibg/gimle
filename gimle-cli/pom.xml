@@ -28,6 +28,12 @@
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
     </dependency>
+    <!-- CertCommand generates its own CSRs locally (design doc §4/§4a/§4b's operator-facing
+         verbs); never signs anything itself, that's gimle-controlplane's job. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>

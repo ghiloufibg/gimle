@@ -2,6 +2,9 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.controlplane.pki.BootstrapTokenRegistry;
+import com.gimle.controlplane.pki.CaKeyMaterial;
+import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.raft.RaftLog;
 import com.gimle.controlplane.raft.RaftNode;
 import com.gimle.controlplane.raft.StateMutation;
@@ -20,6 +23,10 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
+import com.gimle.core.protocol.CsrPurpose;
+import com.gimle.core.protocol.CsrRequestStatus;
+import com.gimle.core.protocol.CsrResult;
+import com.gimle.core.protocol.CsrSubmission;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -32,9 +39,14 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.pki.CertificateAuthority;
+import com.gimle.pki.CertificateSigningRequests;
+import com.gimle.pki.Pem;
+import com.gimle.pki.RenewalSchedule;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
@@ -49,7 +61,13 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -62,6 +80,9 @@ import java.util.concurrent.Executors;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +100,6 @@ public final class ApiServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(ApiServer.class);
 
   private final StateStore store;
-  private final HttpServer server;
   private final SecretKey secretKey;
   private final RaftNode raftNode;
   private final Map<String, String> peerApiAddresses;
@@ -87,6 +107,26 @@ public final class ApiServer implements AutoCloseable {
   // avoids HttpClient spending a round trip on an upgrade negotiation that could never succeed.
   private final HttpClient agentHttpClient =
       HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+  private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
+  private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
+  // Absent in plaintext mode, or in TLS mode when gimle.pki.caKeyFile isn't configured on this
+  // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
+  // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
+  // sslContextHolder-adjacent state this is loaded once and never reloaded.
+  private final Optional<CertificateAuthority> certificateAuthority =
+      loadCertificateAuthorityIfConfigured();
+
+  // Not final: §4b rotation of this node's own leaf certificate needs to stop and rebuild the
+  // whole HttpsServer (see #reloadTlsMaterial) -- confirmed against the real JDK implementation
+  // that HttpsConfigurator#getSSLContext() is read exactly once, when setHttpsConfigurator() is
+  // called, and cached from then on by ServerImpl; there is no supported way to swap key/trust
+  // material into an already-running HttpsServer.
+  private volatile HttpServer server;
+  // The actually-bound port, resolved once from whatever the constructor was given (which may be
+  // 0, an ephemeral port, in tests) -- every rebuild must rebind to this same real port, never to
+  // the original constructor argument again.
+  private final int boundPort;
+  private volatile Optional<Path> consoleStaticRoot = Optional.empty();
 
   /**
    * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
@@ -136,15 +176,28 @@ public final class ApiServer implements AutoCloseable {
     this.raftNode = raftNode;
     this.peerApiAddresses = Map.copyOf(peerApiAddresses);
     this.server = createHttpServer(port);
-    server.createContext("/deployments/", this::handleDeployment);
-    server.createContext("/deployments", this::handleDeploymentsList);
-    server.createContext("/nodes/", this::handleNode);
-    server.createContext("/nodes", this::handleNodesList);
-    server.createContext("/tenants/", this::handleTenant);
-    server.createContext("/tenants", this::handleTenantsList);
-    server.createContext("/config/", this::handleConfig);
-    server.createContext("/logs/", this::handleLogs);
+    this.boundPort = server.getAddress().getPort();
+    registerContexts(server);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+  }
+
+  private void registerContexts(HttpServer target) throws IOException {
+    target.createContext("/deployments/", this::handleDeployment);
+    target.createContext("/deployments", this::handleDeploymentsList);
+    target.createContext("/nodes/", this::handleNode);
+    target.createContext("/nodes", this::handleNodesList);
+    target.createContext("/tenants/", this::handleTenant);
+    target.createContext("/tenants", this::handleTenantsList);
+    target.createContext("/config/", this::handleConfig);
+    target.createContext("/logs/", this::handleLogs);
+    if (certificateAuthority.isPresent()) {
+      target.createContext("/bootstrap/csr", this::handleBootstrapCsrSubmit);
+      target.createContext("/bootstrap/csr/", this::handleBootstrapCsrSubResource);
+      target.createContext("/bootstrap/tokens", this::handleBootstrapTokens);
+    }
+    if (consoleStaticRoot.isPresent()) {
+      registerConsole(target, consoleStaticRoot.get());
+    }
   }
 
   /**
@@ -152,12 +205,18 @@ public final class ApiServer implements AutoCloseable {
    * staticRoot}, with client-side-route fallback to whichever shell file the SPA's tooling produced
    * -- {@code _shell.html} if present (TanStack Start's SPA mode), else the conventional {@code
    * index.html}. Opt-in: no constructor calls this, so every existing caller/test is unaffected
-   * until something explicitly wires a console directory in.
+   * until something explicitly wires a console directory in. Remembered on {@link
+   * #consoleStaticRoot} so a later {@link #reloadTlsMaterial} rebuild re-registers it too.
    */
   public void serveConsole(Path staticRoot) throws IOException {
+    consoleStaticRoot = Optional.of(staticRoot);
+    registerConsole(server, staticRoot);
+  }
+
+  private static void registerConsole(HttpServer target, Path staticRoot) throws IOException {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
-    server.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
+    target.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
   }
 
   /**
@@ -178,16 +237,24 @@ public final class ApiServer implements AutoCloseable {
     return dir.resolve("secret.key");
   }
 
+  private static Optional<CertificateAuthority> loadCertificateAuthorityIfConfigured() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return Optional.empty();
+    }
+    return CaKeyMaterial.loadIfConfigured(TlsSettings.fromConfig().caFile());
+  }
+
   /**
    * {@link TransportProtocol#PLAINTEXT} (the default) is untouched: a plain {@link HttpServer},
    * exactly what every existing caller/test already gets. {@link TransportProtocol#TLS} swaps in
    * {@link HttpsServer} instead -- the JDK-bundled, direct drop-in the design doc calls out as the
    * smallest, lowest-risk change in the whole TLS rollout (see {@code
-   * claudedocs/tls-transport-security-design.md} §2) -- configured for mTLS via {@link
-   * HttpsParameters#setNeedClientAuth}. One known, deliberate gap: this makes every context on this
-   * server require a client certificate, including a future {@code /bootstrap/csr} endpoint that by
-   * design must be reachable without one (§4) -- that endpoint isn't wired up yet, so nothing
-   * depends on the exception it will need carved out for it.
+   * claudedocs/tls-transport-security-design.md} §2). {@code wantClientAuth}, not {@code
+   * needClientAuth}: {@link HttpsConfigurator}/{@link HttpsParameters} negotiate once per
+   * *connection*, before the HTTP request path is ever read, so there's no way to make client-auth
+   * conditional on path at this layer -- every handler enforces it itself instead, via {@link
+   * #requireClientCertificate}, except the deliberately bootstrap-token-authenticated {@code
+   * /bootstrap/csr} endpoints.
    */
   private static HttpServer createHttpServer(int port) throws IOException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
@@ -199,11 +266,11 @@ public final class ApiServer implements AutoCloseable {
         new HttpsConfigurator(sslContext) {
           @Override
           public void configure(HttpsParameters params) {
-            // Order matters: setSSLParameters(...) copies its argument's own needClientAuth
-            // value onto params, so setting it here -- not via params.setNeedClientAuth(...)
-            // separately, and not before this call -- is the only ordering that actually sticks.
+            // Order matters: setSSLParameters(...) copies its argument's own wantClientAuth value
+            // onto params, so setting it here -- not via params.setWantClientAuth(...) separately,
+            // and not before this call -- is the only ordering that actually sticks.
             SSLParameters sslParameters = getSSLContext().getDefaultSSLParameters();
-            sslParameters.setNeedClientAuth(true);
+            sslParameters.setWantClientAuth(true);
             params.setSSLParameters(sslParameters);
           }
         });
@@ -215,7 +282,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   public int port() {
-    return server.getAddress().getPort();
+    return boundPort;
   }
 
   @Override
@@ -223,10 +290,115 @@ public final class ApiServer implements AutoCloseable {
     server.stop(0);
   }
 
+  /**
+   * §4b rotation's hot-swap point for this node's own leaf certificate: there is no supported way
+   * to swap key material into an already-running {@link HttpsServer} (see the field javadoc on
+   * {@link #server}), so this stops the current one and rebuilds a fresh {@link HttpsServer} bound
+   * to the same {@link #boundPort} from whatever certificate material now sits at {@code
+   * gimle.tls.certFile}/{@code keyFile} (already overwritten by the caller before this runs), with
+   * every context -- including {@code /console} if {@link #serveConsole} was ever called --
+   * re-registered. New connection attempts during the brief stop-to-restart window fail and should
+   * be retried by the caller; already-established connections are unaffected (normal TLS behavior,
+   * not specific to this rebuild).
+   */
+  public synchronized void reloadTlsMaterial() throws IOException {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    HttpServer previous = server;
+    previous.stop(0);
+    HttpServer rebuilt = createHttpServer(boundPort);
+    registerContexts(rebuilt);
+    rebuilt.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    rebuilt.start();
+    server = rebuilt;
+    log.info("reloaded TLS material and rebuilt HttpsServer on port {}", boundPort);
+  }
+
+  /**
+   * Checked periodically by {@code ControlPlaneMain}'s reconcile ticker (unconditionally, not
+   * leader-gated -- a follower needs its own cert fresh too), per §4b. When this node's own leaf
+   * certificate is due for renewal, submits a same-subject/fresh-key-pair rotation CSR to its own
+   * {@code /bootstrap/csr} over loopback, authenticated by its current (still-valid) mTLS material,
+   * writes the returned cert to {@code gimle.tls.certFile}, and calls {@link #reloadTlsMaterial}.
+   * No-op in plaintext mode.
+   */
+  public void checkAndRotateOwnCertificateIfDue() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    TlsSettings settings = TlsSettings.fromConfig();
+    try {
+      X509Certificate current = loadOwnLeafCertificate(settings.certFile());
+      if (!RenewalSchedule.of(current).isDue(Instant.now())) {
+        return;
+      }
+      log.info("own leaf certificate due for renewal, requesting rotation");
+      rotateOwnCertificate(settings, current);
+    } catch (RuntimeException | IOException e) {
+      log.warn("certificate rotation check failed: {}", e.getMessage(), e);
+    }
+  }
+
+  private void rotateOwnCertificate(TlsSettings settings, X509Certificate current)
+      throws IOException {
+    KeyPair keyPair = generateRsaKeyPair();
+    X500Name subject = new X500Name(current.getSubjectX500Principal().getName());
+    PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
+    HttpClient loopbackClient =
+        HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("https://127.0.0.1:" + boundPort + "/bootstrap/csr"))
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(
+                        csrSubmissionToJson(
+                            new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr))))))
+            .build();
+    HttpResponse<String> response;
+    try {
+      response = loopbackClient.send(request, HttpResponse.BodyHandlers.ofString());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("interrupted while requesting own certificate rotation", e);
+    }
+    if (response.statusCode() != 200) {
+      throw new IOException(
+          "own rotation request rejected with status "
+              + response.statusCode()
+              + ": "
+              + response.body());
+    }
+    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
+    Files.writeString(
+        settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+    Files.writeString(
+        settings.keyFile(), Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
+    reloadTlsMaterial();
+  }
+
+  private static X509Certificate loadOwnLeafCertificate(Path certFile) throws IOException {
+    return Pem.decodeCertificate(Files.readString(certFile, StandardCharsets.US_ASCII));
+  }
+
+  private static KeyPair generateRsaKeyPair() {
+    try {
+      KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+      generator.initialize(2048);
+      return generator.generateKeyPair();
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("RSA key pair generation unavailable", e);
+    }
+  }
+
   // ---- /deployments/{name} ----
 
   private void handleDeployment(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       String name = pathSegmentAfter(exchange, "/deployments/");
       if (name.isBlank()) {
         respond(exchange, 400, "missing deployment name");
@@ -327,6 +499,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every deployment, in the same shape {@link #handleGetDeployment} returns for one. */
   private void handleDeploymentsList(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
@@ -385,6 +560,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleNode(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
       int slash = tail.indexOf('/');
@@ -501,6 +679,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */
   private void handleNodesList(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
@@ -617,6 +798,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleTenantsList(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
@@ -633,6 +817,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleTenant(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       String id = pathSegmentAfter(exchange, "/tenants/");
       if (id.isBlank()) {
         respond(exchange, 400, "missing tenant id");
@@ -697,6 +884,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleConfig(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       String tail = pathSegmentAfter(exchange, "/config/");
       if (tail.isBlank()) {
         respond(exchange, 400, "expected /config/{tenantId} or /config/{tenantId}/{key}");
@@ -787,6 +977,9 @@ public final class ApiServer implements AutoCloseable {
    */
   private void handleLogs(HttpExchange exchange) {
     try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
@@ -1015,7 +1208,268 @@ public final class ApiServer implements AutoCloseable {
     return result;
   }
 
+  // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
+
+  private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
+
+  /**
+   * No {@link #requireClientCertificate} call here, deliberately: this is the one endpoint that by
+   * design must be reachable without a client certificate (§4) -- it exists specifically to issue
+   * the cert that makes mTLS possible everywhere else. Three distinct auth contexts, distinguished
+   * entirely by what the request carries: a verified peer certificate present at all means rotation
+   * (§4b, subject must match); none present and {@code purpose == NODE_CLIENT} means a node join,
+   * authenticated by a one-time bootstrap token (§4); none present and {@code purpose ==
+   * OPERATOR_CLIENT} means a human operator request, never auto-approved (§4a).
+   */
+  private void handleBootstrapCsrSubmit(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      CsrSubmission submission =
+          csrSubmissionFromJson(Json.asObject(Json.parse(readBody(exchange))));
+      PKCS10CertificationRequest csr = Pem.decodeCsr(submission.csrPem());
+
+      Optional<X509Certificate> presented = peerCertificate(exchange);
+      if (presented.isPresent()) {
+        handleRotationRequest(exchange, csr, presented.get());
+        return;
+      }
+      switch (submission.purpose()) {
+        case NODE_CLIENT -> handleNodeJoinRequest(exchange, csr, submission.bootstrapToken());
+        case OPERATOR_CLIENT -> handleOperatorJoinRequest(exchange, csr);
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("bootstrap CSR submission failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Safe to auto-approve unconditionally once the Subject matches: this grants no new trust, it
+   * only extends trust already established by the caller's own still-valid certificate. A mismatch
+   * would let an already-trusted identity mint a certificate for a *different* Subject, which is
+   * exactly the case this check exists to block.
+   */
+  private void handleRotationRequest(
+      HttpExchange exchange, PKCS10CertificationRequest csr, X509Certificate presented)
+      throws IOException {
+    String requestedSubject = csr.getSubject().toString();
+    String presentedSubject =
+        new X500Name(presented.getSubjectX500Principal().getName()).toString();
+    if (!requestedSubject.equals(presentedSubject)) {
+      respond(
+          exchange,
+          403,
+          "rotation CSR subject does not match the authenticating certificate's own subject");
+      return;
+    }
+    respondSigned(exchange, 200, csr);
+  }
+
+  private void handleNodeJoinRequest(
+      HttpExchange exchange, PKCS10CertificationRequest csr, Optional<String> bootstrapToken)
+      throws IOException {
+    if (bootstrapToken.isEmpty() || !bootstrapTokenRegistry.tryConsume(bootstrapToken.get())) {
+      respond(exchange, 401, "missing or invalid bootstrap token");
+      return;
+    }
+    respondSigned(exchange, 200, csr);
+  }
+
+  private void handleOperatorJoinRequest(HttpExchange exchange, PKCS10CertificationRequest csr)
+      throws IOException {
+    String requestId = pendingCsrStore.submit(Pem.encodeCsr(csr));
+    respondJson(exchange, 202, csrResultToJson(CsrResult.pending(requestId)));
+  }
+
+  private void respondSigned(HttpExchange exchange, int status, PKCS10CertificationRequest csr)
+      throws IOException {
+    CertificateAuthority ca = certificateAuthority.orElseThrow();
+    X509Certificate signed = ca.signCertificateRequest(csr, LEAF_VALIDITY);
+    respondJson(
+        exchange,
+        status,
+        csrResultToJson(
+            CsrResult.approved(
+                Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate()))));
+  }
+
+  /** {@code GET /bootstrap/csr/{id}} (status poll) or {@code POST /bootstrap/csr/{id}/approve}. */
+  private void handleBootstrapCsrSubResource(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/bootstrap/csr/");
+      if (tail.endsWith("/approve")) {
+        if (!requireClientCertificate(exchange)) {
+          return;
+        }
+        if (!"POST".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        handleApprove(exchange, tail.substring(0, tail.length() - "/approve".length()));
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      handleStatus(exchange, tail);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("bootstrap CSR status/approve request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleStatus(HttpExchange exchange, String requestId) throws IOException {
+    Optional<PendingCsrStore.Entry> entry = pendingCsrStore.get(requestId);
+    if (entry.isEmpty()) {
+      respond(exchange, 404, "no such pending request: " + requestId);
+      return;
+    }
+    CertificateAuthority ca = certificateAuthority.orElseThrow();
+    CsrResult result =
+        entry
+            .get()
+            .signedCertificate()
+            .map(
+                signed ->
+                    CsrResult.approved(
+                        Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate())))
+            .orElseGet(() -> CsrResult.pending(requestId));
+    respondJson(exchange, 200, csrResultToJson(result));
+  }
+
+  /**
+   * §4a: an existing operator's own valid certificate is what authorizes this call -- {@link
+   * #requireClientCertificate} already rejected anything without one before this runs. No further
+   * identity check on *which* operator: any currently-trusted certificate holder may approve any
+   * pending request, matching this project's stated no-RBAC-yet posture rather than building a
+   * parallel authorization model just for this one action.
+   */
+  private void handleApprove(HttpExchange exchange, String requestId) throws IOException {
+    Optional<PendingCsrStore.Entry> entry = pendingCsrStore.get(requestId);
+    if (entry.isEmpty()) {
+      respond(exchange, 404, "no such pending request: " + requestId);
+      return;
+    }
+    PKCS10CertificationRequest csr = Pem.decodeCsr(entry.get().csrPem());
+    CertificateAuthority ca = certificateAuthority.orElseThrow();
+    X509Certificate signed = ca.signCertificateRequest(csr, LEAF_VALIDITY);
+    pendingCsrStore.approve(requestId, signed);
+    respondJson(
+        exchange,
+        200,
+        csrResultToJson(
+            CsrResult.approved(
+                Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate()))));
+  }
+
+  private void handleBootstrapTokens(HttpExchange exchange) {
+    try {
+      if (!requireClientCertificate(exchange)) {
+        return;
+      }
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+      long ttlSeconds = ((Number) body.getOrDefault("ttlSeconds", 3600L)).longValue();
+      String token = bootstrapTokenRegistry.issue(Duration.ofSeconds(ttlSeconds));
+      Map<String, Object> response = new LinkedHashMap<>();
+      response.put("token", token);
+      respondJson(exchange, 200, response);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("bootstrap token request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static Optional<X509Certificate> peerCertificate(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange httpsExchange)) {
+      return Optional.empty();
+    }
+    try {
+      Certificate[] certificates = httpsExchange.getSSLSession().getPeerCertificates();
+      return certificates.length > 0 && certificates[0] instanceof X509Certificate x509
+          ? Optional.of(x509)
+          : Optional.empty();
+    } catch (SSLPeerUnverifiedException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("purpose", submission.purpose().name());
+    map.put("csrPem", submission.csrPem());
+    submission.bootstrapToken().ifPresent(token -> map.put("bootstrapToken", token));
+    return map;
+  }
+
+  private static CsrSubmission csrSubmissionFromJson(Map<String, Object> json) {
+    CsrPurpose purpose = CsrPurpose.valueOf((String) json.get("purpose"));
+    String csrPem = (String) json.get("csrPem");
+    Optional<String> bootstrapToken = Optional.ofNullable((String) json.get("bootstrapToken"));
+    return new CsrSubmission(purpose, csrPem, bootstrapToken);
+  }
+
+  private static Map<String, Object> csrResultToJson(CsrResult result) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("status", result.status().name());
+    result.requestId().ifPresent(id -> map.put("requestId", id));
+    result.certificatePem().ifPresent(cert -> map.put("certificatePem", cert));
+    result.caCertificatePem().ifPresent(ca -> map.put("caCertificatePem", ca));
+    return map;
+  }
+
+  private static CsrResult csrResultFromJson(Map<String, Object> json) {
+    CsrRequestStatus status = CsrRequestStatus.valueOf((String) json.get("status"));
+    Optional<String> requestId = Optional.ofNullable((String) json.get("requestId"));
+    Optional<String> certificatePem = Optional.ofNullable((String) json.get("certificatePem"));
+    Optional<String> caCertificatePem = Optional.ofNullable((String) json.get("caCertificatePem"));
+    return new CsrResult(status, requestId, certificatePem, caCertificatePem);
+  }
+
   // ---- HTTP plumbing ----
+
+  /**
+   * {@code createHttpServer} sets {@code wantClientAuth} rather than {@code needClientAuth} (a
+   * client certificate is optional at the TLS handshake, not enforced there) because {@code
+   * HttpsConfigurator}/{@code HttpsParameters} negotiate per *connection*, before the HTTP request
+   * (and therefore the path) is ever read -- there is no JDK API to make client-auth conditional on
+   * which path is about to be requested. So every handler that needs an authenticated identity
+   * enforces it itself, here, instead: {@code true} immediately in plaintext mode (unchanged
+   * behavior, no enforcement, matching today's baseline), else {@code true} only if the exchange
+   * carries a verified peer certificate. Writes the 401 itself on failure so every call site can
+   * just {@code return} without duplicating the response.
+   */
+  private static boolean requireClientCertificate(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange httpsExchange)) {
+      return true;
+    }
+    try {
+      httpsExchange.getSSLSession().getPeerCertificates();
+      return true;
+    } catch (SSLPeerUnverifiedException e) {
+      respondQuietly(exchange, 401, "client certificate required");
+      return false;
+    }
+  }
 
   private static String pathSegmentAfter(HttpExchange exchange, String prefix) {
     String path = exchange.getRequestURI().getPath();

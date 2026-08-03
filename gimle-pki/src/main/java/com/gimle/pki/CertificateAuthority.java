@@ -71,6 +71,15 @@ public final class CertificateAuthority {
   }
 
   /**
+   * The CA's own private key -- needed only by {@code PkiBootstrapMain} to persist it to {@code
+   * ca.key} at cluster bootstrap, and by whatever later reloads it via {@link #of}. Every other
+   * caller only ever needs {@link #certificate()} or {@link #signCertificateRequest}.
+   */
+  public PrivateKey privateKey() {
+    return privateKey;
+  }
+
+  /**
    * Generates a fresh, self-signed cluster CA: {@code subject} is both issuer and subject, with
    * {@code BasicConstraints: CA=true} and {@code KeyUsage: keyCertSign, cRLSign} (both critical) --
    * the extensions that make a real, spec-compliant validator recognize this as an issuing

@@ -21,6 +21,7 @@ graph LR
     observability[gimle-observability] --> core
     fabric[gimle-fabric] --> core
     fabric --> module
+    pki[gimle-pki] --> core
     worker[gimle-worker] --> core
     worker --> module
     worker --> observability
@@ -29,10 +30,13 @@ graph LR
     agent --> os
     agent --> module
     agent --> fabric
+    agent --> pki
     controlplane[gimle-controlplane] --> core
     controlplane --> module
     controlplane --> console[gimle-console]
+    controlplane --> pki
     cli[gimle-cli] --> core
+    cli --> pki
     mavenplugin[gimle-maven-plugin]
 ```
 
@@ -47,6 +51,10 @@ Two things worth noticing in that graph, not just the boxes:
   needs the Maven Plugin API; the latter is an independent Bun/React project with no Java
   dependencies at all — `gimle-controlplane` depends on it (to embed and serve its built output),
   not the other way around.
+- **`gimle-worker` doesn't depend on `gimle-pki`, even though it participates in TLS.** Certificate
+  *generation*/*signing* is `gimle-pki`'s job (needed only by `gimle-controlplane`, `gimle-agent`,
+  `gimle-cli`); a worker JVM only ever *loads* already-issued material inherited from the agent that
+  spawned it, pure public JDK API — see [Transport security](../architecture/transport-security.md).
 
 ## Module roles
 
@@ -60,7 +68,8 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-agent` | One per machine: supervises worker JVM processes (`WorkerProcessSupervisor`), assigns resource limits, reports capacity, executes placement directives. Never runs user code. |
 | `gimle-controlplane` | API server, Raft-replicated state store, scheduler, reconcilers. Serves the bundled web console. See [Control plane](../architecture/control-plane.md). |
 | `gimle-fabric` | Service registry, same-worker/same-machine/cross-machine invocation, load balancing, circuit breaking, and the SWIM-style gossip membership protocol between node agents. See [Service fabric](../architecture/service-fabric.md). |
-| `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`). |
+| `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |
+| `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`/`cert`). |
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
-| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:deploy`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
+| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:deploy`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |

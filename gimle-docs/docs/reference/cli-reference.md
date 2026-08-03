@@ -30,7 +30,19 @@ gimle get config <tenantId>
 gimle set config <tenantId> <key> <value> [--encrypted]
 gimle delete config <tenantId> <key>
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+gimle cert token create [--ttl <duration>]
+gimle cert request --purpose operator|node --out-cert <path> --out-key <path>
+gimle cert status <request-id> --out-cert <path>
+gimle cert approve <request-id>
+gimle cert renew [--force]
 ```
+
+The `cert` verbs are the operator-facing half of the node-bootstrap-CSR and certificate-rotation
+flows — see [Transport security](../architecture/transport-security.md) §4/§4a/§4b for the full
+picture. `token create` and `approve` need this invocation's own configured mTLS identity (`--server`
+plus `gimle.tls.certFile`/`keyFile`/`caFile`); `request`/`status` deliberately don't, since they run
+before that identity exists. `renew` only acts if the credential is actually due for renewal, unless
+`--force`.
 
 ## Examples
 

@@ -73,10 +73,22 @@ public final class GimleCli {
           "no control-plane server configured (pass --server host:port or set GIMLE_SERVER)");
     }
 
-    ControlPlaneClient client = new ControlPlaneClient(server);
     String verb = positional.get(0);
     List<String> rest = positional.subList(1, positional.size());
 
+    // Handled before the shared client below: `cert request`/`cert status` deliberately run
+    // before any client certificate exists yet, so CertCommand builds exactly the client each of
+    // its own subcommands needs (trust-only for those two, fully-authenticated for the rest)
+    // rather than sharing one constructed up front -- the default ControlPlaneClient constructor
+    // requires gimle.tls.certFile/keyFile to already exist, which is precisely what those two
+    // subcommands run before.
+    if (verb.equals("cert")) {
+      new CertCommand(server, output, out).run(rest);
+      return;
+    }
+
+    CertCommand.warnIfRenewalDue(out);
+    ControlPlaneClient client = new ControlPlaneClient(server);
     switch (verb) {
       case "apply" -> new DeploymentsCommand(client, output, out).apply(rest);
       case "get" -> handleGet(rest, client, output, out);
@@ -175,6 +187,11 @@ public final class GimleCli {
           get config <tenantId>
           set config <tenantId> <key> <value> [--encrypted]
           delete config <tenantId> <key>
-          logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]""";
+          logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+          cert token create [--ttl <duration>]
+          cert request --purpose operator|node --out-cert <path> --out-key <path>
+          cert status <request-id> --out-cert <path>
+          cert approve <request-id>
+          cert renew [--force]""";
   }
 }

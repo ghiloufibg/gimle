@@ -1,7 +1,6 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.tls.SslContexts;
@@ -35,8 +34,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Proves {@code gimle.transport.protocol=tls} actually swaps {@link ApiServer} onto {@code
  * HttpsServer} with real mTLS -- a real HTTPS request over loopback with a real, CA-signed client
  * certificate, not just "the code compiles." Real certificate material comes from {@code
- * gimle-pki}, a test-only dependency of this module for now (see this module's {@code pom.xml}
- * comment) until it becomes a real one once the control plane signs CSRs itself (design doc §4).
+ * gimle-pki}, a real (main-scope) dependency of this module since the control plane now signs CSRs
+ * itself (design doc §4).
  */
 class ApiServerTlsTest {
 
@@ -91,8 +90,12 @@ class ApiServerTlsTest {
     try (ApiServer server = new ApiServer(store, 0)) {
       server.start();
       // A client that trusts the CA (so it accepts the server's own cert) but presents no client
-      // certificate of its own -- exactly the "needClientAuth" case setNeedClientAuth(true) exists
-      // to reject.
+      // certificate of its own. The server sets wantClientAuth, not needClientAuth (see
+      // ApiServer#createHttpServer's javadoc -- HttpsConfigurator negotiates per connection,
+      // before the request path is known, so there's no way to make client-auth conditional on
+      // path at that layer), so the TLS handshake itself succeeds;
+      // ApiServer#requireClientCertificate
+      // is what rejects the request, with a 401 at the HTTP layer instead of a handshake failure.
       SSLContext trustOnlyContext = SSLContext.getInstance("TLSv1.3");
       trustOnlyContext.init(null, trustManagersFor(ca), null);
       HttpClient client = HttpClient.newBuilder().sslContext(trustOnlyContext).build();
@@ -101,9 +104,9 @@ class ApiServerTlsTest {
               .GET()
               .build();
 
-      assertThrows(
-          IOException.class,
-          () -> client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)));
+      HttpResponse<String> response =
+          client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, response.statusCode());
     }
   }
 

@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import com.gimle.core.exception.GimleIsolationException;
+import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
@@ -8,8 +9,15 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
+import com.gimle.core.protocol.CsrPurpose;
+import com.gimle.core.protocol.CsrRequestStatus;
+import com.gimle.core.protocol.CsrResult;
+import com.gimle.core.protocol.CsrSubmission;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
@@ -18,6 +26,9 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
+import com.gimle.pki.CertificateSigningRequests;
+import com.gimle.pki.Pem;
+import com.gimle.pki.RenewalSchedule;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -29,7 +40,12 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -39,6 +55,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLContext;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -103,7 +122,8 @@ public final class AgentMain {
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
-    HttpClient httpClient = HttpClient.newHttpClient();
+    bootstrapCertificateIfNeeded(nodeId, baseUrl);
+    HttpClient httpClient = buildHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
 
     MemberId self = new MemberId(nodeId, gossipBindAddress);
@@ -133,6 +153,7 @@ public final class AgentMain {
             catalog,
             logRoot);
         sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
+        httpClient = rotateCertificateIfDue(httpClient, baseUrl);
       } catch (RuntimeException | IOException e) {
         log.error("agent tick failed: {}", e.getMessage(), e);
       }
@@ -204,6 +225,174 @@ public final class AgentMain {
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  // ---- TLS bootstrap (§4) and rotation (§4b) ----
+
+  private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
+  private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
+  private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
+  private static final String BOOTSTRAP_TOKEN_PROPERTY = "gimle.tls.bootstrapToken";
+
+  private static HttpClient buildHttpClient() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return HttpClient.newHttpClient();
+    }
+    return HttpClient.newBuilder()
+        .sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()))
+        .build();
+  }
+
+  /**
+   * On first startup with {@code gimle.transport.protocol=tls} and no local cert/key files present
+   * yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap token
+   * an operator provisioned this agent with) to {@code POST /bootstrap/csr}, per {@code
+   * claudedocs/tls-transport-security-design.md} §4. Reachable over server-authenticated-only TLS
+   * (the agent already has {@code gimle.tls.caFile}, handed to it out of band -- same as every
+   * other {@code gimle.tls.*} property -- so it can verify the control plane's identity before it
+   * has one of its own). No-op if the cert/key files already exist (a redeploy of an
+   * already-bootstrapped node) or if TLS isn't enabled at all.
+   */
+  private static void bootstrapCertificateIfNeeded(String nodeId, URI baseUrl)
+      throws IOException, InterruptedException {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    Path certFile = requiredPathProperty(CERT_FILE_PROPERTY);
+    Path keyFile = requiredPathProperty(KEY_FILE_PROPERTY);
+    if (Files.isRegularFile(certFile) && Files.isRegularFile(keyFile)) {
+      return;
+    }
+    Path caFile = requiredPathProperty(CA_FILE_PROPERTY);
+    String bootstrapToken = System.getProperty(BOOTSTRAP_TOKEN_PROPERTY);
+    if (bootstrapToken == null || bootstrapToken.isBlank()) {
+      throw GimleTlsException.missingProperty(BOOTSTRAP_TOKEN_PROPERTY);
+    }
+    log.info("agent {} has no certificate yet; requesting one via bootstrap CSR", nodeId);
+
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("CN=" + nodeId), List.of(resolveAdvertisedHost()));
+
+    SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
+    HttpClient bootstrapClient = HttpClient.newBuilder().sslContext(trustOnly).build();
+    Map<String, Object> body =
+        csrSubmissionToJson(
+            new CsrSubmission(
+                CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), Optional.of(bootstrapToken)));
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .build();
+    HttpResponse<String> response =
+        bootstrapClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      throw new IllegalStateException(
+          "bootstrap CSR submission rejected with status "
+              + response.statusCode()
+              + ": "
+              + response.body());
+    }
+    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
+    Files.writeString(certFile, result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+    Files.writeString(
+        keyFile, Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
+    log.info("agent {} obtained a signed certificate via bootstrap CSR", nodeId);
+  }
+
+  /**
+   * Checked once per tick (§4b): if the agent's currently-loaded leaf certificate is due for
+   * renewal, submits a same-subject/fresh-key-pair rotation CSR over its *current* (still-valid)
+   * mTLS connection, writes the new cert/key, and returns a freshly-built {@link HttpClient} for
+   * the caller to use from then on -- unlike {@code ApiServer}, the agent isn't a TLS *server*
+   * anywhere, so "hot-swap" here is just handing back a new outbound client, not the JDK
+   * listening-socket rebuild {@code ApiServer#reloadTlsMaterial} needs. Returns {@code current}
+   * unchanged (no-op) in plaintext mode, when not yet due, or if the rotation request fails --
+   * failures are logged and retried on a later tick, not fatal to this one.
+   */
+  private static HttpClient rotateCertificateIfDue(HttpClient current, URI baseUrl) {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return current;
+    }
+    try {
+      TlsSettings settings = TlsSettings.fromConfig();
+      X509Certificate certificate =
+          Pem.decodeCertificate(Files.readString(settings.certFile(), StandardCharsets.US_ASCII));
+      if (!RenewalSchedule.of(certificate).isDue(Instant.now())) {
+        return current;
+      }
+      log.info("agent certificate due for renewal, requesting rotation");
+      KeyPair keyPair = generateRsaKeyPair();
+      X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());
+      PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
+      Map<String, Object> body =
+          csrSubmissionToJson(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr)));
+      HttpRequest request =
+          HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+              .build();
+      HttpResponse<String> response =
+          current.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        log.warn(
+            "certificate rotation request rejected with status {}: {}",
+            response.statusCode(),
+            response.body());
+        return current;
+      }
+      CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
+      Files.writeString(
+          settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+      Files.writeString(
+          settings.keyFile(),
+          Pem.encodePrivateKey(keyPair.getPrivate()),
+          StandardCharsets.US_ASCII);
+      log.info("agent certificate rotated");
+      return buildHttpClient();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return current;
+    } catch (IOException | RuntimeException e) {
+      log.warn("certificate rotation check failed: {}", e.getMessage());
+      return current;
+    }
+  }
+
+  private static Path requiredPathProperty(String property) {
+    String value = System.getProperty(property);
+    if (value == null || value.isBlank()) {
+      throw GimleTlsException.missingProperty(property);
+    }
+    return Path.of(value);
+  }
+
+  private static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("purpose", submission.purpose().name());
+    map.put("csrPem", submission.csrPem());
+    submission.bootstrapToken().ifPresent(token -> map.put("bootstrapToken", token));
+    return map;
+  }
+
+  private static CsrResult csrResultFromJson(Map<String, Object> json) {
+    CsrRequestStatus status = CsrRequestStatus.valueOf((String) json.get("status"));
+    Optional<String> requestId = Optional.ofNullable((String) json.get("requestId"));
+    Optional<String> certificatePem = Optional.ofNullable((String) json.get("certificatePem"));
+    Optional<String> caCertificatePem = Optional.ofNullable((String) json.get("caCertificatePem"));
+    return new CsrResult(status, requestId, certificatePem, caCertificatePem);
+  }
+
+  private static KeyPair generateRsaKeyPair() {
+    try {
+      KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+      generator.initialize(2048);
+      return generator.generateKeyPair();
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("RSA key pair generation unavailable", e);
+    }
   }
 
   /**

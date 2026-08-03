@@ -139,6 +139,15 @@ public final class ControlPlaneMain {
     ApiServer apiServer =
         new ApiServer(store, port, stateDir.resolve("secret.key"), raftNode, peerApiAddresses);
     apiServer.start();
+
+    // Unconditional -- not leader-gated like reconcileTick above: a follower's own certificate
+    // needs to stay fresh too, per claudedocs/tls-transport-security-design.md §4b. No-op in
+    // plaintext mode (checkAndRotateOwnCertificateIfDue returns immediately).
+    ticker.scheduleAtFixedRate(
+        apiServer::checkAndRotateOwnCertificateIfDue,
+        RECONCILE_INTERVAL.toMillis(),
+        RECONCILE_INTERVAL.toMillis(),
+        TimeUnit.MILLISECONDS);
     log.info(
         "control plane listening on port {} (raft: {}, state: {})",
         apiServer.port(),

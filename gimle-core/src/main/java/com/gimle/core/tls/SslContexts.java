@@ -54,6 +54,34 @@ public final class SslContexts {
     return build(DTLS_PROTOCOL, settings);
   }
 
+  /**
+   * Trust-the-server-only, present-nothing-as-a-client -- for the two call sites in {@code
+   * claudedocs/tls-transport-security-design.md} §4/§4a that genuinely have no certificate yet: an
+   * agent's very first CSR submission, and {@code gimle cert request} for a brand-new human
+   * operator. Both still need to verify *the control plane's* identity (it already has a leaf cert
+   * signed by the cluster CA by the time either of these ever runs), just not present one of their
+   * own.
+   */
+  public static SSLContext forServerTrustOnly(Path caFile) {
+    try {
+      X509Certificate caCertificate = loadCertificate(caFile);
+
+      KeyStore trustStore = KeyStore.getInstance(KEY_STORE_TYPE);
+      trustStore.load(null, null);
+      trustStore.setCertificateEntry("cluster-ca", caCertificate);
+
+      TrustManagerFactory trustManagerFactory =
+          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+      trustManagerFactory.init(trustStore);
+
+      SSLContext context = SSLContext.getInstance(TLS_PROTOCOL);
+      context.init(null, trustManagerFactory.getTrustManagers(), null);
+      return context;
+    } catch (GeneralSecurityException | IOException e) {
+      throw GimleTlsException.invalidMaterial(null, null, caFile, e);
+    }
+  }
+
   private static SSLContext build(String protocol, TlsSettings settings) {
     try {
       X509Certificate ownCertificate = loadCertificate(settings.certFile());

@@ -44,6 +44,12 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-fabric</artifactId>
     </dependency>
+    <!-- Generates this agent's own CSR at first bootstrap and its rotation CSRs later (design doc
+         §4/§4b); never signs anything itself, that's gimle-controlplane's job. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
