@@ -6,7 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class TransportProtocolTest {
 
   private static final String PROPERTY = "gimle.transport.protocol";

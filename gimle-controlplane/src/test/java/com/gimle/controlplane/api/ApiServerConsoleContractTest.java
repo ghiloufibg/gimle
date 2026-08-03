@@ -19,6 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Design doc §12: scoped field-presence assertions against the exact JSON shapes {@code
@@ -27,6 +29,12 @@ import org.junit.jupiter.api.io.TempDir;
  * to these routes' JSON shapes is caught here rather than silently breaking the console once it's
  * wired in.
  */
+// See ApiServerTest for why: real ApiServer + real HttpClient on a loopback ephemeral port,
+// excluded from running concurrently with any other class doing the same.
+@ResourceLock("gimle-controlplane-api-server-http")
+// See ApiServerTest for why: ApiServer#start reads gimle.transport.protocol at construction
+// time, so this class is exposed to it even though it never writes it itself.
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class ApiServerConsoleContractTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)

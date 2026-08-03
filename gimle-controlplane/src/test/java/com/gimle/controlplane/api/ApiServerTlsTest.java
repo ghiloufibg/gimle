@@ -29,6 +29,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Proves {@code gimle.transport.protocol=tls} actually swaps {@link ApiServer} onto {@code
@@ -37,6 +39,12 @@ import org.junit.jupiter.api.io.TempDir;
  * gimle-pki}, a real (main-scope) dependency of this module since the control plane now signs CSRs
  * itself (design doc §4).
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// Real ApiServer + real HttpClient on a loopback ephemeral port (see ApiServerTest for why):
+// excluded from running concurrently with any other class doing the same.
+@ResourceLock("gimle-controlplane-api-server-http")
 class ApiServerTlsTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

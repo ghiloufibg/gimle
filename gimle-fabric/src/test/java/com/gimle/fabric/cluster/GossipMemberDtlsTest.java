@@ -24,6 +24,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Proves {@code gimle.transport.protocol=tls} actually swaps gossip's UDP transport onto real DTLS
@@ -33,6 +35,9 @@ import org.junit.jupiter.api.io.TempDir;
  * handshake of the retries {@link GossipMember}'s own suspicion-timeout-driven session cleanup
  * allows for.
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class GossipMemberDtlsTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

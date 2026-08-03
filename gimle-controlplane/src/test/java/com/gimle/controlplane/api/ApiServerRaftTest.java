@@ -30,6 +30,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * A real 3-node cluster of {@link ApiServer}s over real HTTP, each backed by a real Raft loopback
@@ -37,6 +40,16 @@ import org.junit.jupiter.api.io.TempDir;
  * back as a {@code 307} naming the correct leader; a heartbeat against a non-leader is rejected the
  * same way even though it never touches the Raft log at all (design §2.1).
  */
+// See ApiServerTest for why: real ApiServer + real HttpClient on a loopback ephemeral port,
+// excluded from running concurrently with any other class doing the same.
+@ResourceLock("gimle-controlplane-api-server-http")
+// See ApiServerTest for why: ApiServer#start reads gimle.transport.protocol at construction
+// time, so this class is exposed to it even though it never writes it itself.
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// Real multi-node Raft cluster with real leader-election timing (awaitLeader/awaitTrue against
+// wall-clock @Timeout budgets), the same CPU-contention flakiness RaftClusterTest had -- see its
+// own comment. @Isolated makes the other two locks on this class redundant but harmless.
+@Isolated
 class ApiServerRaftTest {
 
   @TempDir Path tempDir;

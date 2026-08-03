@@ -35,6 +35,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Mirrors {@link RaftClusterTest}'s own scenarios (leader election, write replication, leader-crash
@@ -57,6 +59,9 @@ import org.junit.jupiter.api.io.TempDir;
  * deterministic cross-CA handshake -- not a workaround, an actual exploit of how the config is
  * read.
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class RaftClusterTlsTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";
