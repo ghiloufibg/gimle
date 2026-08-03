@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Test-scope-only Logback config (Logback prefers logback-test.xml over the production
+  logback.xml, src/main/resources, whenever both are on the classpath, which is exactly the
+  case under Surefire). Lives once here, in gimle-core's own test resources, and reaches every
+  other module transitively via the gimle-core test-jar dependency each module with tests adds,
+  not duplicated per module.
+
+  SiftingAppender keyed on TestMdcKeys.TEST_CLASS (set by TestMdcExtension) routes each test
+  class's log lines to their own file under target/test-logs/, so a class's true execution order
+  is always intact in its own file regardless of what else is running concurrently in the same
+  fork. Reuses JsonLogEncoder as the per-sift encoder, matching production log format exactly, so
+  existing tooling (LogFileReader) can read test logs unmodified.
+-->
+<configuration>
+  <appender name="SIFT" class="ch.qos.logback.classic.sift.SiftingAppender">
+    <discriminator>
+      <key>testClass</key>
+      <defaultValue>no-test-class</defaultValue>
+    </discriminator>
+    <sift>
+      <appender name="FILE-${testClass}" class="ch.qos.logback.core.FileAppender">
+        <file>target/test-logs/${testClass}.log</file>
+        <append>false</append>
+        <encoder class="com.gimle.core.logging.JsonLogEncoder"/>
+      </appender>
+    </sift>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="SIFT"/>
+  </root>
+</configuration>

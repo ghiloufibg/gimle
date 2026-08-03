@@ -25,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Real loopback TCP, modeled on {@code gimle-fabric}'s {@code FabricServiceRegistryTest} pattern
@@ -32,6 +33,13 @@ import org.junit.jupiter.api.io.TempDir;
  * peer-to-peer edge is wrapped in a {@link ToggleablePeerClient} so a test can simulate a network
  * partition without tearing down and rebuilding the whole cluster.
  */
+// Real multi-node in-process Raft cluster with real heartbeat/election-timeout-driven timing
+// (awaitLeader/awaitTrue polling against wall-clock @Timeout budgets). Unlike a ResourceLock
+// (which only prevents collision with specific other named-resource holders), @Isolated forces
+// the whole suite to pause around this class -- CPU contention from unrelated concurrent classes,
+// not a shared-resource collision, is what made this flaky once class-level concurrency (root
+// pom.xml) started running many classes on this machine's cores at once.
+@Isolated
 class RaftClusterTest {
 
   @TempDir Path tempDir;

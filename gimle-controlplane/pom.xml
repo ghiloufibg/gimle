@@ -32,6 +32,12 @@
     </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
       <artifactId>gimle-module</artifactId>
     </dependency>
     <!-- Pure resources (console/**), no .class files: deliberately not `requires`d from

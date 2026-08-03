@@ -19,6 +19,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -27,6 +29,9 @@ import org.slf4j.LoggerFactory;
  * happened -- the property a byte-offset/file-index cursor would have silently broken (see {@link
  * RollingFileAppenders}'s javadoc).
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class LogRotationTest {
 
   @TempDir Path dir;

@@ -34,6 +34,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * §4b's rotation flow: a component holding a still-valid certificate requests rotation over mTLS
@@ -43,6 +45,12 @@ import org.junit.jupiter.api.io.TempDir;
  * match the authenticating certificate's own Subject must be rejected -- auto-approval here is only
  * safe because it can't be used to request a *different* identity than the one already proven.
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// Real ApiServer + real HttpClient on a loopback ephemeral port (see ApiServerTest for why):
+// excluded from running concurrently with any other class doing the same.
+@ResourceLock("gimle-controlplane-api-server-http")
 class CertificateRotationTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

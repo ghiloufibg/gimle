@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Proves {@code gimle.transport.protocol=tls} actually swaps {@link FabricServer}/{@link
@@ -35,6 +37,9 @@ import org.junit.jupiter.api.io.TempDir;
  * directly rather than going through {@code FabricServiceRegistry} -- lower-level, and this is a
  * transport-layer property, not a load-balancing or catalog one.
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class FabricTransportTlsTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

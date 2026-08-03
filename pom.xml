@@ -86,6 +86,12 @@
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
+        <artifactId>gimle-core</artifactId>
+        <version>${project.version}</version>
+        <type>test-jar</type>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
         <artifactId>gimle-module</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -159,6 +165,13 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Needed to implement LauncherSessionListener (gimle-core's EagerSlf4jBindingInitializer):
+         forces SLF4J's one-time binding to finish before any parallel test class touches it. -->
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-launcher</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -185,6 +198,22 @@
                  dynamically-loaded hook against gimle-module's own ModuleLifecycleHooks
                  interface only works if gimle-module runs unnamed here, not module-path. -->
             <useModulePath>false</useModulePath>
+            <!-- Required before enabling class-level concurrency below: without this, concurrent
+                 classes interleave raw stdout/stderr nondeterministically, which is exactly the
+                 debuggability regression parallel execution would otherwise cause. Each class's
+                 captured output lands in its own file under target/surefire-reports/ regardless
+                 of what else was running at the same time. -->
+            <redirectTestOutputToFile>true</redirectTestOutputToFile>
+            <properties>
+              <configurationParameters>
+                junit.jupiter.execution.parallel.enabled=true
+                junit.jupiter.execution.parallel.mode.default=same_thread
+                junit.jupiter.execution.parallel.mode.classes.default=concurrent
+                junit.jupiter.execution.parallel.config.strategy=dynamic
+                junit.jupiter.execution.parallel.config.dynamic.factor=1.0
+                junit.jupiter.extensions.autodetection.enabled=true
+              </configurationParameters>
+            </properties>
           </configuration>
         </plugin>
         <plugin>

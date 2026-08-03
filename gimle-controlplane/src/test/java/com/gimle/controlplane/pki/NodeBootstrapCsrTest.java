@@ -33,6 +33,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * §4's node-join flow end to end: a brand-new agent with no pre-provisioned certificate, given only
@@ -41,6 +43,12 @@ import org.junit.jupiter.api.io.TempDir;
  * for: an invalid token is rejected, and a token already consumed once cannot be replayed into
  * minting a second certificate.
  */
+// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
+// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// Real ApiServer + real HttpClient on a loopback ephemeral port (see ApiServerTest for why):
+// excluded from running concurrently with any other class doing the same.
+@ResourceLock("gimle-controlplane-api-server-http")
 class NodeBootstrapCsrTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

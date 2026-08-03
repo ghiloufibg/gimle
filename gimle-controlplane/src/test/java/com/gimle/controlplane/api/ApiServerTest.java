@@ -27,8 +27,23 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /** Exercises {@link ApiServer} over a real loopback HTTP connection, not a mocked handler. */
+// Real ApiServer + real java.net.http.HttpClient on a loopback ephemeral port: under heavy
+// concurrent socket churn from other classes doing the same thing at once, this JDK HttpClient
+// occasionally read a corrupted/cross-talked response (observed: "parsing HTTP/1.1 status line"
+// on a fresh connection). Excludes this class from running concurrently with any other class
+// that also spins up a real ApiServer and issues real HTTP requests against it.
+@ResourceLock("gimle-controlplane-api-server-http")
+// This class never calls System.setProperty itself, but ApiServer#start reads
+// gimle.transport.protocol at construction time (ApiServer.java's TransportProtocol.fromConfig()
+// calls): without this lock, a concurrently-running TLS test (e.g. ApiServerTlsTest) flipping that
+// property mid-race could make @BeforeEach build this class's "plaintext" server as TLS instead,
+// which is exactly what produced the "parsing HTTP/1.1 status line" corruption -- a plain
+// HttpClient reading raw TLS handshake bytes off the wire.
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class ApiServerTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)
