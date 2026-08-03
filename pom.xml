@@ -204,6 +204,13 @@
                  captured output lands in its own file under target/surefire-reports/ regardless
                  of what else was running at the same time. -->
             <redirectTestOutputToFile>true</redirectTestOutputToFile>
+            <!-- A test that fails once and then passes on retry is reported as flaky (a distinct
+                 flakyFailure/flakyError element per attempt, plus a separate "Flakes:" count in
+                 the summary), not silently treated as passing outright: the build still fails
+                 if a test fails every attempt. Kept at 1, not higher: this is meant to absorb
+                 genuine transient flakiness (timing, network, port-reuse-style races), not mask
+                 a real bug by retrying it into passing. -->
+            <rerunFailingTestsCount>1</rerunFailingTestsCount>
             <properties>
               <configurationParameters>
                 junit.jupiter.execution.parallel.enabled=true
