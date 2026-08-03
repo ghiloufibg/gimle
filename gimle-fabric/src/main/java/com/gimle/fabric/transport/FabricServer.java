@@ -103,6 +103,43 @@ public final class FabricServer implements AutoCloseable {
     return boundAddress;
   }
 
+  /**
+   * §6 rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
+   * picking up whatever certificate material now sits at {@code gimle.tls.certFile}/ {@code
+   * keyFile} via {@link #listenTls}, which already reads {@link TlsSettings#fromConfig()} fresh.
+   * Never touches the always-plaintext Unix-domain-socket listener -- distinguishable in {@link
+   * #listeners} by {@code instanceof SSLServerSocket}, since a UDS {@link ServerSocketChannel}
+   * never is one. New connection attempts during the brief close-to-rebind window fail and should
+   * be retried by the caller; already-established connections are unaffected, per {@code
+   * claudedocs/tls-transport-security-design.md} §6.2. No-op in plaintext mode.
+   */
+  public synchronized void reloadTlsMaterial() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    for (Closeable listener : List.copyOf(listeners)) {
+      if (!(listener instanceof SSLServerSocket sslServerSocket)) {
+        continue;
+      }
+      SocketAddress address = sslServerSocket.getLocalSocketAddress();
+      listeners.remove(listener);
+      try {
+        sslServerSocket.close();
+      } catch (IOException e) {
+        log.warn("failed to close fabric TLS listener during reload: {}", e.getMessage());
+      }
+      try {
+        listen(address);
+      } catch (IOException e) {
+        log.error(
+            "failed to rebind fabric TLS listener at {} after TLS reload: {}",
+            address,
+            e.getMessage());
+      }
+    }
+    log.info("reloaded TLS material for fabric server");
+  }
+
   private void acceptChannelLoop(ServerSocketChannel serverChannel) {
     while (!closed && serverChannel.isOpen()) {
       SocketChannel connection;

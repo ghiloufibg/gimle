@@ -98,7 +98,10 @@ public final class WorkerMain {
     ServiceRegistry taggedLocal =
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
-    FabricEndpoints fabricEndpoints = bindFabricServer(taggedLocal, interfaceLoader);
+    FabricBinding fabricBinding = bindFabricServer(taggedLocal, interfaceLoader);
+    FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
+    FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
+    tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
     FabricServiceRegistry fabricRegistry =
         new FabricServiceRegistry(
@@ -161,7 +164,7 @@ public final class WorkerMain {
   }
 
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */
-  private static FabricEndpoints bindFabricServer(
+  private static FabricBinding bindFabricServer(
       ServiceRegistry localRegistry, ClassLoader interfaceLoader) throws IOException {
     FabricServer server = new FabricServer(localRegistry, interfaceLoader);
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
@@ -169,7 +172,7 @@ public final class WorkerMain {
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));
     String advertisedHost = resolveAdvertisedHost();
     InetSocketAddress advertised = new InetSocketAddress(advertisedHost, bound.getPort());
-    return new FabricEndpoints(udsPath.toString(), advertised);
+    return new FabricBinding(server, new FabricEndpoints(udsPath.toString(), advertised));
   }
 
   private static String resolveAdvertisedHost() {
@@ -314,4 +317,12 @@ public final class WorkerMain {
   }
 
   private record FabricEndpoints(String udsPath, InetSocketAddress tcpAddress) {}
+
+  /**
+   * Threads the {@link FabricServer} instance itself out of {@link #bindFabricServer} alongside the
+   * endpoints it already returned -- needed so {@link #main} can hand it to a {@link
+   * FabricServerTlsWatcher}; before §6, nothing past {@code bindFabricServer} ever needed to hold a
+   * reference to the server itself.
+   */
+  private record FabricBinding(FabricServer server, FabricEndpoints endpoints) {}
 }
