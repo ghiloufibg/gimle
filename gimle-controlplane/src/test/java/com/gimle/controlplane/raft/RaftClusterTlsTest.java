@@ -263,6 +263,72 @@ class RaftClusterTlsTest {
 
   @Test
   @Timeout(10)
+  void reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_transport()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureTls(ca);
+    Path certFile = Path.of(System.getProperty(CERT_FILE_PROPERTY));
+    Path keyFile = Path.of(System.getProperty(KEY_FILE_PROPERTY));
+
+    HandlerRef ref = new HandlerRef();
+    RaftTransport serverTransport = new RaftTransport(ref);
+    transports.add(serverTransport);
+    RaftNode serverNode =
+        new RaftNode(
+            "server",
+            Map.of(),
+            new RaftLog(tempDir.resolve("server-raft")),
+            new StateStore(tempDir.resolve("server-store")));
+    ref.delegate = serverNode;
+    nodes.add(serverNode);
+    InetSocketAddress serverAddress = (InetSocketAddress) serverTransport.listen(reserveAddress());
+
+    // Baseline: the original cert/key material works before any rotation.
+    PeerConnection before = new PeerConnection(serverAddress);
+    before.requestVote(new RequestVote(1, "server", 0, 0));
+    before.close();
+
+    // Rotate: a fresh CA-signed leaf, written over the *same* cert/key file paths -- exactly what
+    // §4b's own rotation does to gimle.tls.certFile/keyFile in place.
+    KeyPair rotatedKeyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest rotatedCsr =
+        CertificateSigningRequests.generate(rotatedKeyPair, new X500Name("CN=raft-node"));
+    X509Certificate rotatedLeaf = ca.signCertificateRequest(rotatedCsr, Duration.ofDays(1));
+    overwritePem(certFile, "CERTIFICATE", rotatedLeaf.getEncoded());
+    overwritePem(keyFile, "PRIVATE KEY", rotatedKeyPair.getPrivate().getEncoded());
+
+    serverTransport.reloadTlsMaterial();
+
+    // A brand-new connection (not the already-established one from before rotation) must succeed
+    // against the reloaded listener, at the *same* address, without restarting the process --
+    // if reload hadn't rebound there, this connection attempt would simply fail.
+    PeerConnection after = new PeerConnection(serverAddress);
+    RequestVoteResponse response = after.requestVote(new RequestVote(2, "server", 0, 0));
+    assertNotEquals(null, response);
+    after.close();
+  }
+
+  private void overwritePem(Path path, String label, byte[] derBytes) throws IOException {
+    String base64 =
+        Base64.getMimeEncoder(64, System.lineSeparator().getBytes(StandardCharsets.US_ASCII))
+            .encodeToString(derBytes);
+    String pem =
+        "-----BEGIN "
+            + label
+            + "-----"
+            + System.lineSeparator()
+            + base64
+            + System.lineSeparator()
+            + "-----END "
+            + label
+            + "-----"
+            + System.lineSeparator();
+    Files.writeString(path, pem);
+  }
+
+  @Test
+  @Timeout(10)
   void a_peer_cert_not_signed_by_the_configured_ca_is_rejected_at_handshake() throws Exception {
     CertificateAuthority realCa =
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=real-ca"), Duration.ofDays(1));

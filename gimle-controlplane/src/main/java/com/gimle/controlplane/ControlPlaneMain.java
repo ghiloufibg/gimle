@@ -142,9 +142,15 @@ public final class ControlPlaneMain {
 
     // Unconditional -- not leader-gated like reconcileTick above: a follower's own certificate
     // needs to stay fresh too, per claudedocs/tls-transport-security-design.md §4b. No-op in
-    // plaintext mode (checkAndRotateOwnCertificateIfDue returns immediately).
+    // plaintext mode (checkAndRotateOwnCertificateIfDue returns false immediately). Reloading
+    // raftTransport is chained on the same rotation event, per §6 -- one rotation should refresh
+    // every listening surface this process owns, not just ApiServer's own.
     ticker.scheduleAtFixedRate(
-        apiServer::checkAndRotateOwnCertificateIfDue,
+        () -> {
+          if (apiServer.checkAndRotateOwnCertificateIfDue()) {
+            raftTransport.reloadTlsMaterial();
+          }
+        },
         RECONCILE_INTERVAL.toMillis(),
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);

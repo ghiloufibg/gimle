@@ -321,22 +321,27 @@ public final class ApiServer implements AutoCloseable {
    * certificate is due for renewal, submits a same-subject/fresh-key-pair rotation CSR to its own
    * {@code /bootstrap/csr} over loopback, authenticated by its current (still-valid) mTLS material,
    * writes the returned cert to {@code gimle.tls.certFile}, and calls {@link #reloadTlsMaterial}.
-   * No-op in plaintext mode.
+   * No-op in plaintext mode. Returns {@code true} iff a rotation actually happened this call --
+   * §6's own listener-owning components ({@code RaftTransport}, {@code GossipMember}) key their own
+   * reload off this same on-disk material, so the caller needs to know whether to refresh them too,
+   * not just whether the check ran.
    */
-  public void checkAndRotateOwnCertificateIfDue() {
+  public boolean checkAndRotateOwnCertificateIfDue() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return;
+      return false;
     }
     TlsSettings settings = TlsSettings.fromConfig();
     try {
       X509Certificate current = loadOwnLeafCertificate(settings.certFile());
       if (!RenewalSchedule.of(current).isDue(Instant.now())) {
-        return;
+        return false;
       }
       log.info("own leaf certificate due for renewal, requesting rotation");
       rotateOwnCertificate(settings, current);
+      return true;
     } catch (RuntimeException | IOException e) {
       log.warn("certificate rotation check failed: {}", e.getMessage(), e);
+      return false;
     }
   }
 

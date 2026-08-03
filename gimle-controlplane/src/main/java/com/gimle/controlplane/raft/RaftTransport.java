@@ -62,6 +62,40 @@ public final class RaftTransport implements AutoCloseable {
     return SslContexts.forMutualTls(TlsSettings.fromConfig()).getServerSocketFactory();
   }
 
+  /**
+   * §6 rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
+   * picking up whatever certificate material now sits at {@code gimle.tls.certFile}/ {@code
+   * keyFile} (already overwritten by the caller before this runs) via {@link
+   * #serverSocketFactory()}, which already reads {@link TlsSettings#fromConfig()} fresh. New
+   * connection attempts during the brief close-to-rebind window fail and should be retried by the
+   * caller; already-established connections are unaffected, per {@code
+   * claudedocs/tls-transport-security-design.md} §6.2. No-op in plaintext mode.
+   */
+  public synchronized void reloadTlsMaterial() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    for (ServerSocket serverSocket : List.copyOf(listeners)) {
+      if (!(serverSocket instanceof SSLServerSocket)) {
+        continue;
+      }
+      SocketAddress address = serverSocket.getLocalSocketAddress();
+      listeners.remove(serverSocket);
+      try {
+        serverSocket.close();
+      } catch (IOException e) {
+        log.warn("failed to close raft listener during reload: {}", e.getMessage());
+      }
+      try {
+        listen(address);
+      } catch (IOException e) {
+        log.error(
+            "failed to rebind raft listener at {} after TLS reload: {}", address, e.getMessage());
+      }
+    }
+    log.info("reloaded TLS material for raft transport");
+  }
+
   private void acceptLoop(ServerSocket serverSocket) {
     while (!closed && !serverSocket.isClosed()) {
       Socket connection;
