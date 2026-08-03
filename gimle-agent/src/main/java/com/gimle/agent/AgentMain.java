@@ -153,7 +153,11 @@ public final class AgentMain {
             catalog,
             logRoot);
         sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
-        httpClient = rotateCertificateIfDue(httpClient, baseUrl);
+        RotationOutcome rotationOutcome = rotateCertificateIfDue(httpClient, baseUrl);
+        httpClient = rotationOutcome.httpClient();
+        if (rotationOutcome.rotated()) {
+          gossipMember.reloadDtlsMaterial();
+        }
       } catch (RuntimeException | IOException e) {
         log.error("agent tick failed: {}", e.getMessage(), e);
       }
@@ -303,6 +307,14 @@ public final class AgentMain {
   }
 
   /**
+   * §6's "did rotation actually happen this tick" signal: {@code rotateCertificateIfDue} has three
+   * distinct not-rotated exits (plaintext, not due, request failed) plus one success exit, and the
+   * caller needs to tell them apart to know whether to also refresh {@code gossipMember}'s own DTLS
+   * material -- a raw {@link HttpClient} return gives no such signal.
+   */
+  private record RotationOutcome(HttpClient httpClient, boolean rotated) {}
+
+  /**
    * Checked once per tick (§4b): if the agent's currently-loaded leaf certificate is due for
    * renewal, submits a same-subject/fresh-key-pair rotation CSR over its *current* (still-valid)
    * mTLS connection, writes the new cert/key, and returns a freshly-built {@link HttpClient} for
@@ -312,16 +324,16 @@ public final class AgentMain {
    * unchanged (no-op) in plaintext mode, when not yet due, or if the rotation request fails --
    * failures are logged and retried on a later tick, not fatal to this one.
    */
-  private static HttpClient rotateCertificateIfDue(HttpClient current, URI baseUrl) {
+  private static RotationOutcome rotateCertificateIfDue(HttpClient current, URI baseUrl) {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return current;
+      return new RotationOutcome(current, false);
     }
     try {
       TlsSettings settings = TlsSettings.fromConfig();
       X509Certificate certificate =
           Pem.decodeCertificate(Files.readString(settings.certFile(), StandardCharsets.US_ASCII));
       if (!RenewalSchedule.of(certificate).isDue(Instant.now())) {
-        return current;
+        return new RotationOutcome(current, false);
       }
       log.info("agent certificate due for renewal, requesting rotation");
       KeyPair keyPair = generateRsaKeyPair();
@@ -341,23 +353,28 @@ public final class AgentMain {
             "certificate rotation request rejected with status {}: {}",
             response.statusCode(),
             response.body());
-        return current;
+        return new RotationOutcome(current, false);
       }
       CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-      Files.writeString(
-          settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+      // Key written *before* cert, deliberately: gimle-worker's FabricServerTlsWatcher (§6.2)
+      // polls only certFile's mtime to detect a rotation happened, from a separate process with no
+      // synchronization with this one. Writing the key first guarantees that by the time the
+      // watcher ever observes certFile's mtime move, the matching key is already fully on disk --
+      // otherwise a poll landing between the two writes could pair a fresh cert with the stale key.
       Files.writeString(
           settings.keyFile(),
           Pem.encodePrivateKey(keyPair.getPrivate()),
           StandardCharsets.US_ASCII);
+      Files.writeString(
+          settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
       log.info("agent certificate rotated");
-      return buildHttpClient();
+      return new RotationOutcome(buildHttpClient(), true);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return current;
+      return new RotationOutcome(current, false);
     } catch (IOException | RuntimeException e) {
       log.warn("certificate rotation check failed: {}", e.getMessage());
-      return current;
+      return new RotationOutcome(current, false);
     }
   }
 

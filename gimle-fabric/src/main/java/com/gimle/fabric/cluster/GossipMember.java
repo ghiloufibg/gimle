@@ -28,6 +28,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
 import org.slf4j.Logger;
@@ -71,7 +72,7 @@ public final class GossipMember implements AutoCloseable {
   private final DatagramChannel channel;
   private final ScheduledExecutorService ticker;
   private final TransportProtocol transportProtocol;
-  private final SSLContext dtlsContext;
+  private final AtomicReference<SSLContext> dtlsContext;
 
   private final Map<String, MemberState> members = new ConcurrentHashMap<>();
   private final Map<String, Instant> suspectedSince = new ConcurrentHashMap<>();
@@ -90,9 +91,10 @@ public final class GossipMember implements AutoCloseable {
     this.config = config;
     this.transportProtocol = TransportProtocol.fromConfig();
     this.dtlsContext =
-        transportProtocol == TransportProtocol.TLS
-            ? SslContexts.forMutualDtls(TlsSettings.fromConfig())
-            : null;
+        new AtomicReference<>(
+            transportProtocol == TransportProtocol.TLS
+                ? SslContexts.forMutualDtls(TlsSettings.fromConfig())
+                : null);
     this.channel = DatagramChannel.open();
     channel.bind(self.gossipAddress());
     // Rebind self's advertised address to whatever the OS actually assigned -- most relevant
@@ -379,7 +381,7 @@ public final class GossipMember implements AutoCloseable {
    */
   private void handleSecureDatagram(InetSocketAddress source, byte[] datagram) {
     DtlsPeerSession session =
-        dtlsSessions.computeIfAbsent(source, ignored -> DtlsPeerSession.server(dtlsContext));
+        dtlsSessions.computeIfAbsent(source, ignored -> DtlsPeerSession.server(dtlsContext.get()));
     DtlsPeerSession.Result result;
     try {
       result = session.unwrap(datagram);
@@ -701,7 +703,7 @@ public final class GossipMember implements AutoCloseable {
    * cleaned up by {@link #checkDtlsHandshakeTimeouts}, the same as any other stalled handshake.
    */
   private DtlsPeerSession createClientSession(InetSocketAddress address) {
-    DtlsPeerSession session = DtlsPeerSession.client(dtlsContext, address);
+    DtlsPeerSession session = DtlsPeerSession.client(dtlsContext.get(), address);
     try {
       for (byte[] packet : session.beginHandshake()) {
         sendRaw(address, packet);
@@ -718,6 +720,24 @@ public final class GossipMember implements AutoCloseable {
 
   private void sendRaw(InetSocketAddress address, byte[] bytes) throws IOException {
     channel.send(ByteBuffer.wrap(bytes), address);
+  }
+
+  /**
+   * §6 rotation hot-swap: rebuilds the DTLS {@link SSLContext} from whatever certificate material
+   * now sits at {@code gimle.tls.certFile}/{@code keyFile} and swaps it in for every DTLS session
+   * created from this point on -- both directions, unlike {@link RaftTransport}/{@code
+   * FabricServer}, since {@link #dtlsContext} is read by both {@link #createClientSession} and
+   * {@link #handleSecureDatagram}. No socket rebind: {@link #channel} is protocol-agnostic and
+   * untouched by this. Already-established {@link DtlsPeerSession}s keep using the {@link
+   * javax.net.ssl.SSLEngine} they were built with, the same "existing connections unaffected"
+   * contract every other §6 reload has. No-op in plaintext mode.
+   */
+  public void reloadDtlsMaterial() {
+    if (transportProtocol == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    dtlsContext.set(SslContexts.forMutualDtls(TlsSettings.fromConfig()));
+    log.info("{}: reloaded DTLS material", self.nodeId());
   }
 
   @Override
