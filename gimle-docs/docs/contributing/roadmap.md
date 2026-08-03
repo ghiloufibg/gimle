@@ -13,14 +13,17 @@ actually teaches, not by a feature-parity checklist.
 
 Nothing else matters until this exists.
 
-1. **Transport encryption (TLS/mTLS).** Every hop is plaintext today: the control-plane API server
-   (`ApiServer` is explicitly `com.sun.net.httpserver.HttpServer`, plain HTTP, confirmed by its own
-   javadoc), agent-to-control-plane traffic, gossip membership, and cross-machine fabric calls — no
-   `SSLContext` appears anywhere in `gimle-fabric` or `gimle-agent`. Highest priority not because
-   it's hard, but because every other security feature below is moot without a secure channel
-   first. **Why it's worth building**: cert issuance, rotation, and trust bootstrapping are among
-   the most genuinely transferable, hard-won lessons in real distributed systems — it's the reason
-   Kubernetes ships an entire built-in CA.
+1. **Transport encryption (TLS/mTLS).** Substantially done, gated behind
+   `gimle.transport.protocol=tls` (default remains `plaintext`): the control-plane API server
+   (`HttpsServer`/`HttpsConfigurator`), Raft peer RPC and cross-machine fabric calls (both over
+   `SSLSocket`/`SSLServerSocket`), and gossip membership (DTLS via per-peer `SSLEngine`, since gossip
+   is UDP) are all real mutual TLS, backed by a new `gimle-pki` module (Bouncy Castle-based CA/leaf
+   certificate issuance — the JDK has no public API for that). What remains: the node-bootstrap CSR
+   flow (`POST /bootstrap/csr`, bootstrap tokens, a brand-new agent minting its own identity to join
+   a running cluster), the equivalent human-operator credential flow, and certificate rotation — see
+   `claudedocs/tls-transport-security-design.md` §4/§4a/§4b. **Why it's worth building**: cert
+   issuance, rotation, and trust bootstrapping are among the most genuinely transferable, hard-won
+   lessons in real distributed systems — it's the reason Kubernetes ships an entire built-in CA.
 2. **Authentication and authorization.** Already flagged as a deliberate gap for
    [the web console](../architecture/web-console.md) and
    [multi-machine node registration](../architecture/node-topology.md) — this closes both: anyone

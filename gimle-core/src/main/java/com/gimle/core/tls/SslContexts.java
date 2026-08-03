@@ -34,7 +34,10 @@ import javax.net.ssl.TrustManagerFactory;
  */
 public final class SslContexts {
 
-  private static final String PROTOCOL = "TLSv1.3";
+  private static final String TLS_PROTOCOL = "TLSv1.3";
+  // DTLSv1.3 is not yet available in this JDK's default provider (confirmed empirically, not
+  // assumed) -- DTLSv1.2 is the highest version actually supported, for gossip's DTLS transport.
+  private static final String DTLS_PROTOCOL = "DTLSv1.2";
   private static final String KEY_STORE_TYPE = "PKCS12";
   private static final char[] IN_MEMORY_KEY_STORE_PASSWORD = "gimle-in-memory".toCharArray();
   private static final String PEM_KEY_BEGIN_MARKER = "-----BEGIN";
@@ -43,6 +46,15 @@ public final class SslContexts {
   private SslContexts() {}
 
   public static SSLContext forMutualTls(TlsSettings settings) {
+    return build(TLS_PROTOCOL, settings);
+  }
+
+  /** Same certificate material and mTLS posture as {@link #forMutualTls}, for gossip's DTLS. */
+  public static SSLContext forMutualDtls(TlsSettings settings) {
+    return build(DTLS_PROTOCOL, settings);
+  }
+
+  private static SSLContext build(String protocol, TlsSettings settings) {
     try {
       X509Certificate ownCertificate = loadCertificate(settings.certFile());
       X509Certificate caCertificate = loadCertificate(settings.caFile());
@@ -68,7 +80,7 @@ public final class SslContexts {
           TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
       trustManagerFactory.init(trustStore);
 
-      SSLContext context = SSLContext.getInstance(PROTOCOL);
+      SSLContext context = SSLContext.getInstance(protocol);
       context.init(
           keyManagerFactory.getKeyManagers(), trustManagerFactory.getTrustManagers(), null);
       return context;

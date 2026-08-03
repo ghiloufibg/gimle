@@ -1,6 +1,9 @@
 package com.gimle.fabric.cluster;
 
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -25,6 +28,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +46,21 @@ import org.slf4j.LoggerFactory;
  * than {@code ALIVE}. Every message this node sends piggybacks its own current {@link MemberState}
  * plus a bounded number of the most-recently-changed other members' states -- the same slot the
  * service catalog rides on.
+ *
+ * <p><b>{@code gimle.transport.protocol=tls}</b>: gossip is UDP, so mTLS here means DTLS (see
+ * {@code claudedocs/tls-transport-security-design.md} §2), driven per-peer through {@link
+ * DtlsPeerSession} rather than a single connection-oriented socket. Because any member can ping any
+ * other at any time, a full mesh needs a rule for who originates each pair's handshake, or two
+ * nodes pinging each other in the same tick would send simultaneous, colliding ClientHellos. Rather
+ * than resolve that after the fact by inspecting handshake bytes, this class prevents it by
+ * construction: {@link #isDesignatedInitiator} deterministically picks the lexicographically lower
+ * gossip address as the sole initiator for a given pair, computed identically by both sides, so the
+ * higher-addressed side never creates a competing client session. The trade-off -- the
+ * non-initiating side's own probe attempts toward that peer silently no-op until the peer dials in,
+ * or a later tick's random target selection happens to favor the correctly-ordered direction -- is
+ * a transport-establishment latency detail, not a correctness gap; {@link #join} is the one
+ * exception, since a joining node must always be free to dial a configured seed regardless of
+ * address ordering (a seed has no way to know about, and therefore dial, a not-yet-joined peer).
  */
 public final class GossipMember implements AutoCloseable {
 
@@ -50,12 +70,16 @@ public final class GossipMember implements AutoCloseable {
   private final GossipConfig config;
   private final DatagramChannel channel;
   private final ScheduledExecutorService ticker;
+  private final TransportProtocol transportProtocol;
+  private final SSLContext dtlsContext;
 
   private final Map<String, MemberState> members = new ConcurrentHashMap<>();
   private final Map<String, Instant> suspectedSince = new ConcurrentHashMap<>();
   private final Deque<String> recentChangeOrder = new ArrayDeque<>();
   private final Map<Long, PendingProbe> pendingProbes = new ConcurrentHashMap<>();
   private final Map<Long, CompletableFuture<MemberId>> joinWaiters = new ConcurrentHashMap<>();
+  private final Map<InetSocketAddress, DtlsPeerSession> dtlsSessions = new ConcurrentHashMap<>();
+  private final Map<InetSocketAddress, byte[]> pendingSecureOutbound = new ConcurrentHashMap<>();
   private final AtomicLong incarnation = new AtomicLong();
   private final AtomicLong seqCounter = new AtomicLong();
 
@@ -64,6 +88,11 @@ public final class GossipMember implements AutoCloseable {
 
   public GossipMember(MemberId self, GossipConfig config) throws IOException {
     this.config = config;
+    this.transportProtocol = TransportProtocol.fromConfig();
+    this.dtlsContext =
+        transportProtocol == TransportProtocol.TLS
+            ? SslContexts.forMutualDtls(TlsSettings.fromConfig())
+            : null;
     this.channel = DatagramChannel.open();
     channel.bind(self.gossipAddress());
     // Rebind self's advertised address to whatever the OS actually assigned -- most relevant
@@ -127,7 +156,7 @@ public final class GossipMember implements AutoCloseable {
       seqs.add(seq);
       futures.add(future);
       try {
-        send(seed, new SwimMessage.Ping(seq, currentPiggyback(), catalogPayload()));
+        send(seed, new SwimMessage.Ping(seq, currentPiggyback(), catalogPayload()), true);
       } catch (IOException e) {
         log.warn("{}: failed to contact seed {}: {}", self.nodeId(), seed, e.getMessage());
       }
@@ -179,9 +208,40 @@ public final class GossipMember implements AutoCloseable {
     try {
       checkSuspectExpiry();
       checkProbeTimeouts();
+      checkDtlsHandshakeTimeouts();
       pingRandomMember();
     } catch (RuntimeException e) {
       log.warn("{}: gossip protocol tick failed: {}", self.nodeId(), e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Drops (rather than precisely retransmits) any DTLS session that's been handshaking longer than
+   * {@code suspicionTimeout} -- the next attempt to reach that peer starts a fresh handshake.
+   * Simpler than reproducing RFC 6347's exact-flight retransmission, and sufficient here: SWIM
+   * already retries periodically on its own, so a dropped, not-yet-established session costs at
+   * most one more protocol period before the next attempt, well within the tolerance the suspicion
+   * timeout itself already represents.
+   */
+  private void checkDtlsHandshakeTimeouts() {
+    if (transportProtocol != TransportProtocol.TLS) {
+      return;
+    }
+    Instant now = Instant.now();
+    for (Map.Entry<InetSocketAddress, DtlsPeerSession> entry :
+        List.copyOf(dtlsSessions.entrySet())) {
+      DtlsPeerSession session = entry.getValue();
+      Instant startedAt = session.handshakeStartedAt();
+      if (!session.isEstablished()
+          && startedAt != null
+          && now.isAfter(startedAt.plus(config.suspicionTimeout()))) {
+        dtlsSessions.remove(entry.getKey(), session);
+        pendingSecureOutbound.remove(entry.getKey());
+        log.debug(
+            "{}: dropping a stalled DTLS handshake toward {}; a future send retries fresh",
+            self.nodeId(),
+            entry.getKey());
+      }
     }
   }
 
@@ -284,18 +344,86 @@ public final class GossipMember implements AutoCloseable {
       buffer.flip();
       byte[] datagram = new byte[buffer.remaining()];
       buffer.get(datagram);
-      SwimMessage message;
-      try {
-        message = SwimCodec.decode(datagram, datagram.length);
-      } catch (RuntimeException e) {
-        log.warn(
-            "{}: dropping malformed gossip datagram from {}: {}",
-            self.nodeId(),
-            source,
-            e.getMessage());
-        continue;
+      if (transportProtocol == TransportProtocol.TLS) {
+        handleSecureDatagram(source, datagram);
+      } else {
+        decodeAndHandle(datagram, source);
       }
-      handle(message, source);
+    }
+  }
+
+  private void decodeAndHandle(byte[] datagram, InetSocketAddress source) {
+    SwimMessage message;
+    try {
+      message = SwimCodec.decode(datagram, datagram.length);
+    } catch (RuntimeException e) {
+      log.warn(
+          "{}: dropping malformed gossip datagram from {}: {}",
+          self.nodeId(),
+          source,
+          e.getMessage());
+      return;
+    }
+    handle(message, source);
+  }
+
+  /**
+   * Routes one inbound DTLS datagram to its peer session (creating a server-mode one reactively if
+   * this is the first datagram ever seen from {@code source} -- see the class doc for why this side
+   * never needs to guess whether it's a fresh ClientHello or not: by construction, only the
+   * lexicographically lower-addressed side ever creates a client session, so any session this
+   * method finds or creates for an inbound datagram is never in conflict with one this node itself
+   * initiated). Any decrypted application payloads are decoded and dispatched exactly as the
+   * plaintext path does; any handshake response bytes the engine produced are sent back
+   * immediately.
+   */
+  private void handleSecureDatagram(InetSocketAddress source, byte[] datagram) {
+    DtlsPeerSession session =
+        dtlsSessions.computeIfAbsent(source, ignored -> DtlsPeerSession.server(dtlsContext));
+    DtlsPeerSession.Result result;
+    try {
+      result = session.unwrap(datagram);
+    } catch (SSLException e) {
+      log.warn(
+          "{}: DTLS handshake/decrypt failure from {}: {}", self.nodeId(), source, e.getMessage());
+      dtlsSessions.remove(source, session);
+      pendingSecureOutbound.remove(source);
+      return;
+    }
+    try {
+      for (byte[] packet : result.outboundPackets()) {
+        sendRaw(source, packet);
+      }
+    } catch (IOException e) {
+      log.warn(
+          "{}: failed to send a DTLS handshake response to {}: {}",
+          self.nodeId(),
+          source,
+          e.getMessage());
+    }
+    if (session.isEstablished()) {
+      flushPendingSecureOutbound(source, session);
+    }
+    for (byte[] plaintext : result.messages()) {
+      decodeAndHandle(plaintext, source);
+    }
+  }
+
+  private void flushPendingSecureOutbound(InetSocketAddress address, DtlsPeerSession session) {
+    byte[] queued = pendingSecureOutbound.remove(address);
+    if (queued == null) {
+      return;
+    }
+    try {
+      for (byte[] packet : session.wrap(queued)) {
+        sendRaw(address, packet);
+      }
+    } catch (IOException e) {
+      log.warn(
+          "{}: failed to encrypt queued gossip message to {}: {}",
+          self.nodeId(),
+          address,
+          e.getMessage());
     }
   }
 
@@ -506,7 +634,89 @@ public final class GossipMember implements AutoCloseable {
   }
 
   private void send(InetSocketAddress address, SwimMessage message) throws IOException {
-    byte[] bytes = SwimCodec.encode(message);
+    send(address, message, false);
+  }
+
+  /**
+   * {@code alwaysInitiate} is set only by {@link #join}: a joining node must always be free to dial
+   * a configured seed regardless of address ordering (see the class doc). Every other call site
+   * gates through {@link #isDesignatedInitiator}.
+   */
+  private void send(InetSocketAddress address, SwimMessage message, boolean alwaysInitiate)
+      throws IOException {
+    byte[] payload = SwimCodec.encode(message);
+    if (transportProtocol == TransportProtocol.PLAINTEXT) {
+      sendRaw(address, payload);
+      return;
+    }
+    sendSecure(address, payload, alwaysInitiate);
+  }
+
+  private void sendSecure(InetSocketAddress address, byte[] payload, boolean alwaysInitiate)
+      throws IOException {
+    DtlsPeerSession existing = dtlsSessions.get(address);
+    if (existing == null && !alwaysInitiate && !isDesignatedInitiator(address)) {
+      return;
+    }
+    DtlsPeerSession session =
+        dtlsSessions.computeIfAbsent(address, ignored -> createClientSession(address));
+    if (session.isEstablished()) {
+      try {
+        for (byte[] packet : session.wrap(payload)) {
+          sendRaw(address, packet);
+        }
+      } catch (SSLException e) {
+        // SSLException is itself an IOException, so this still surfaces to the exact same
+        // catch (IOException) every existing call site already has -- a failed secure send is
+        // just another kind of failed send, from the caller's perspective.
+        dtlsSessions.remove(address, session);
+        throw e;
+      }
+    } else {
+      // Handshake still in flight -- keep only the latest message per peer (SWIM's own periodic
+      // retries make stale queued pings/acks pointless to preserve) and flush it once the receive
+      // loop observes the handshake complete.
+      pendingSecureOutbound.put(address, payload);
+    }
+  }
+
+  /**
+   * Only the lexicographically lower gossip address (by {@code host:port}) ever originates a DTLS
+   * handshake toward the other -- both sides compute this identically, so it's never possible for
+   * both to decide they're the initiator for the same pair. See the class doc for the full
+   * rationale and its trade-off.
+   */
+  private boolean isDesignatedInitiator(InetSocketAddress peer) {
+    return addressKey(self.gossipAddress()).compareTo(addressKey(peer)) < 0;
+  }
+
+  private static String addressKey(InetSocketAddress address) {
+    return address.getHostString() + ":" + address.getPort();
+  }
+
+  /**
+   * Invoked only from inside a {@code Map.computeIfAbsent} lambda (its mapping function can't
+   * declare checked exceptions), so failures here are necessarily best-effort: log and return the
+   * session anyway. A handshake whose very first flight failed to send will simply stall and get
+   * cleaned up by {@link #checkDtlsHandshakeTimeouts}, the same as any other stalled handshake.
+   */
+  private DtlsPeerSession createClientSession(InetSocketAddress address) {
+    DtlsPeerSession session = DtlsPeerSession.client(dtlsContext, address);
+    try {
+      for (byte[] packet : session.beginHandshake()) {
+        sendRaw(address, packet);
+      }
+    } catch (IOException e) {
+      log.warn(
+          "{}: failed to start DTLS handshake toward {}: {}",
+          self.nodeId(),
+          address,
+          e.getMessage());
+    }
+    return session;
+  }
+
+  private void sendRaw(InetSocketAddress address, byte[] bytes) throws IOException {
     channel.send(ByteBuffer.wrap(bytes), address);
   }
 
