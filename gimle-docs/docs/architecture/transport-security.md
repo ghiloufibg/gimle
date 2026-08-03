@@ -70,11 +70,21 @@ instead of a token — safe to auto-approve because the requested CSR Subject mu
 authenticating certificate's Subject, so it can only extend trust already established, never mint a
 different identity.
 
-Picking up a rotated certificate on `ApiServer`'s own listening socket means stopping and rebuilding
-the `HttpsServer` in-process (`ApiServer#reloadTlsMaterial`) — the JDK caches an `HttpsConfigurator`'s
-`SSLContext` once, with no supported way to swap it into an already-running server. Raft peer RPC's
-and Fabric cross-machine's own listening sockets don't get this treatment yet; a cert expiring while
-either is running is a known, accepted gap until a process restart.
+Every network-exposed transport picks up a rotated certificate without a process restart.
+`ApiServer` stops and rebuilds its `HttpsServer` in-process (`ApiServer#reloadTlsMaterial`) — the
+JDK caches an `HttpsConfigurator`'s `SSLContext` once, with no supported way to swap it into an
+already-running server. Raft peer RPC and fabric's cross-machine listener follow the same
+close-and-rebind shape (`RaftTransport#reloadTlsMaterial`, `FabricServer#reloadTlsMaterial`), each
+triggered off the same rotation event that refreshes `ApiServer`. Gossip's DTLS needs no socket
+rebind at all — `GossipMember` holds its `SSLContext` in an `AtomicReference`, swapped in for every
+DTLS session created afterward, both inbound and outbound.
+
+A worker JVM is the one case that can't trigger its own reload: it carries no `gimle-pki` dependency
+and never initiates a rotation itself, so `WorkerMain` runs a small `FabricServerTlsWatcher` that
+polls its certificate file's modification time and reloads `FabricServer` once it notices the
+agent-managed file changed underneath it. In every case, a connection attempted in the brief
+close-to-rebind window fails and should be retried by the caller; already-established connections
+are unaffected.
 
 ## CLI surface
 
