@@ -10,6 +10,7 @@ import {
   BarChart3,
 } from "lucide-react";
 
+import gimleMark from "@/assets/gimle-alt-badge.png";
 import {
   Sidebar,
   SidebarContent,
@@ -44,9 +45,13 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-primary text-primary-foreground font-bold text-sm font-mono">
-            G
-          </div>
+          <img
+            src={gimleMark}
+            alt="Gimlé"
+            className="h-7 w-7 rounded object-contain"
+            width={28}
+            height={28}
+          />
           <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span className="text-sm font-semibold tracking-tight">Gimlé Console</span>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">

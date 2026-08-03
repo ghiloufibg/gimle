@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Gimlé',
   tagline: 'Karaf/OSGi-style module lifecycle meets Kubernetes-style orchestration, all on the JVM',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -76,7 +76,7 @@ const config: Config = {
       title: 'Gimlé',
       logo: {
         alt: 'Gimlé logo',
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         {
