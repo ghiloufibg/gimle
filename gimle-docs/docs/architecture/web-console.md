@@ -39,7 +39,15 @@ implementations that happen to agree.
 For a crashed instance, the Logs screen also lists any `hs_err_pid*.log` JVM crash dumps it left
 behind — the kind of file you'd otherwise have to know to go find on disk by hand.
 
-## No authentication
+## Login
 
-Deliberate, not an oversight: the console has no auth today. Revisit before ever pointing it at
-anything beyond a single local/trusted process.
+See [Authentication and authorization](./authn-authz.md) for the full picture. The console
+authenticates over a session cookie rather than mTLS (interactive browser client-cert selection is
+poor UX) — a `/login` route, a root-level redirect guard, and a "log out" control in the sidebar
+footer. A 401 from any endpoint clears local session state and redirects to `/login`; a 403 surfaces
+in place as "you don't have permission" instead, since the user is legitimately logged in and just
+lacks that specific permission.
+
+Managing `Role`/`RoleBinding`/`Account` objects themselves is CLI-only for now (see the
+[CLI reference](../reference/cli-reference.md)) — no dedicated "Access Control" screen yet. A
+natural, explicitly scoped follow-up, not a gap in this design.

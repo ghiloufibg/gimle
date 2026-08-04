@@ -30,6 +30,15 @@ gimle get config <tenantId>
 gimle set config <tenantId> <key> <value> [--encrypted]
 gimle delete config <tenantId> <key>
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+gimle get roles [name]
+gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+gimle delete role <name>
+gimle get rolebindings [id]
+gimle set rolebinding <id> --subject user:<name>|group:<name> --role <name>
+gimle delete rolebinding <id>
+gimle get accounts [username]
+gimle set account <username> --password <value>
+gimle delete account <username>
 gimle cert token create [--ttl <duration>]
 gimle cert request --purpose operator|node --out-cert <path> --out-key <path>
 gimle cert status <request-id> --out-cert <path>
@@ -43,6 +52,14 @@ picture. `token create` and `approve` need this invocation's own configured mTLS
 plus `gimle.tls.certFile`/`keyFile`/`caFile`); `request`/`status` deliberately don't, since they run
 before that identity exists. `renew` only acts if the credential is actually due for renewal, unless
 `--force`.
+
+The `role`/`rolebinding`/`account` verbs manage RBAC — see
+[Authentication and authorization](../architecture/authn-authz.md). `--permission` may repeat (a
+role is a set of permissions); the optional third segment of `resource:verb:tenant` scopes a grant
+to one tenant instead of cluster-wide. `set account` doubles as create-or-reset-password, matching
+`set tenant`/`set config`'s existing create-or-update convention — the password is sent once over
+the same authenticated mTLS connection every other write already uses and is hashed server-side,
+never stored or echoed back in plaintext.
 
 ## Examples
 

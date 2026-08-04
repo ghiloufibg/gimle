@@ -13,16 +13,13 @@ actually teaches, not by a feature-parity checklist.
 
 Nothing else matters until this exists.
 
-1. **Authentication and authorization.** Already flagged as a deliberate gap for
-   [the web console](../architecture/web-console.md) and
-   [multi-machine node registration](../architecture/node-topology.md) — this closes both: anyone
-   who can reach the API port today can register a node or submit a manifest. Transport encryption
-   ([Transport security](../architecture/transport-security.md) — real mutual TLS everywhere, a
-   `gimle-pki` CA, node-bootstrap/human-operator CSR flows, and certificate rotation) is done; this
-   is the layer above it that TLS alone doesn't provide — knowing *who* is on the other end of an
-   already-encrypted connection isn't the same as deciding *what* they're allowed to do. **Why it's
-   worth building**: teaches the authn/authz split, and forces the scheduler and reconcilers to
-   respect a decision made somewhere else, not just execute whatever request arrives.
+1. ~~**Authentication and authorization.**~~ **Done** — see
+   [Authentication and authorization](../architecture/authn-authz.md). Real identity (mTLS
+   certificate or console session) and real `Role`/`RoleBinding` authorization now sit in front of
+   every `ApiServer` route; a node certificate is restricted to its own self-service endpoints, an
+   operator certificate defaults to full access via a built-in `cluster-admin` binding. Explicitly
+   left for a follow-up: an "Access Control" console screen (CLI-only for now) and audit logging,
+   item 2 below.
 2. **Audit logging.** Who submitted a given manifest, who deleted a tenant, when — distinct from
    the application logging this codebase already has. **Why it's worth building**: production
    systems need to be forensically inspectable after an incident, not just observable during normal

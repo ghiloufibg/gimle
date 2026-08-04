@@ -61,12 +61,14 @@ convenience defaults, not an architectural limit:
   the whole mechanism by which an agent on one machine finds agents on others (see
   [Service fabric](./service-fabric.md)).
 
-:::danger[No authentication anywhere in this path]
+:::info[Authentication and authorization]
 
-A control plane bound to every interface with no auth means anyone who can reach that port can
-register as a node or submit manifests. This is the same deliberate-but-unaddressed gap already
-called out for the [web console](./web-console.md) — revisit before ever pointing any of this at
-a real, untrusted network rather than a single trusted machine or private lab network.
+A control plane bound to every interface now requires a real identity and a real permission for
+every route — see [Authentication and authorization](./authn-authz.md). A node certificate can only
+reach its own self-service endpoints (`register`/`heartbeat`/`assignments`, its own logs); nothing
+else, including registering as a *different* node, is possible without an explicit `RoleBinding`.
+This only applies in TLS mode (`gimle.transport.protocol=tls`) — plaintext mode remains fully open,
+the same "local, trusted process" posture it always had.
 
 :::
 
