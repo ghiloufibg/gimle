@@ -2,6 +2,17 @@
 // redirect (a 307 with {"error":"not-leader","leaderRaftId":?,"leaderApiAddress":?} instead of a
 // Location header round-trip fetch would follow correctly on its own).
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** Registered once by useAuthStore.ts, not imported here directly -- importing the store from
+ * this file would create a circular module graph (apiClient -> useAuthStore -> repositories'
+ * composition root -> every Http*Repository, including this file, before its own exports finish
+ * evaluating), which breaks at runtime with "X is not a constructor". A plain callback avoids the
+ * cycle: this file has no dependency on the store at all, only an injection point. */
+export function setUnauthorizedHandler(handler: () => void): void {
+  unauthorizedHandler = handler;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -19,6 +30,15 @@ interface NotLeaderBody {
 
 async function send(init: RequestInit & { method: string }, path: string): Promise<Response> {
   const res = await fetch(path, init);
+  if (res.status === 401) {
+    // Centralized here so every existing repository call site gets this for free with zero
+    // changes of its own: a session expiring mid-use (or never having existed) clears local auth
+    // state, and the root route guard reacts to that status change by redirecting to /login. 403
+    // needs no equivalent hook -- it already surfaces correctly through each store's existing
+    // catch-and-set-error pattern, since the caller is legitimately logged in, just lacks that
+    // permission.
+    unauthorizedHandler?.();
+  }
   if (res.status !== 307) return res;
 
   let redirectBody: NotLeaderBody | null = null;
@@ -52,6 +72,21 @@ export async function requestOk(method: string, path: string, body?: unknown): P
   }
   const res = await send(init, path);
   if (!res.ok) throw new ApiError(res.status, await res.text());
+}
+
+/** For JSON-bodied endpoints that themselves return a JSON body, not the literal "ok" every write
+ * endpoint above returns -- currently only /auth/login, which returns the logged-in Principal. */
+export async function requestJsonWithBody<T>(
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const res = await send(
+    { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    path,
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.json() as Promise<T>;
 }
 
 /** PUT with a raw YAML body -- only used for deployment manifests (http/deployments.ts), which the

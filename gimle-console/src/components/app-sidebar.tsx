@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Boxes,
@@ -8,6 +8,7 @@ import {
   Network,
   Settings,
   BarChart3,
+  LogOut,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -24,6 +25,8 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 const items = [
   { title: "Overview", url: "/", icon: LayoutDashboard, exact: true },
@@ -38,8 +41,16 @@ const items = [
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const navigate = useNavigate();
+  const principal = useAuthStore((s) => s.principal);
+  const logout = useAuthStore((s) => s.logout);
   const isActive = (url: string, exact?: boolean) =>
     exact ? pathname === url : pathname === url || pathname.startsWith(url + "/");
+
+  async function handleLogout() {
+    await logout();
+    navigate({ to: "/login", replace: true });
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -67,7 +78,11 @@ export function AppSidebar() {
             <SidebarMenu>
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url, item.exact)} tooltip={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url, item.exact)}
+                    tooltip={item.title}
+                  >
                     <Link to={item.url} className="flex items-center gap-2">
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
@@ -83,7 +98,11 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/controlplane"} tooltip="Control plane">
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/controlplane"}
+                  tooltip="Control plane"
+                >
                   <Link to="/controlplane" className="flex items-center gap-2">
                     <LayoutDashboard className="h-4 w-4" />
                     <span>Control plane</span>
@@ -97,9 +116,21 @@ export function AppSidebar() {
       <SidebarFooter>
         <div className="flex items-center justify-between px-1 group-data-[collapsible=icon]:justify-center">
           <span className="text-[10px] text-muted-foreground font-mono group-data-[collapsible=icon]:hidden">
-            v{__APP_VERSION__}
+            {principal ? principal.username : `v${__APP_VERSION__}`}
           </span>
-          <ThemeToggle />
+          <div className="flex items-center gap-1 group-data-[collapsible=icon]:hidden">
+            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              aria-label="Log out"
+              className="gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="text-xs">Log out</span>
+            </Button>
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>

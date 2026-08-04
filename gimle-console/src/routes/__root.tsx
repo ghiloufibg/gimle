@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Outlet, Link, createRootRouteWithContext, useRouter } from "@tanstack/react-router";
+import {
+  Outlet,
+  Link,
+  createRootRouteWithContext,
+  useRouter,
+  useRouterState,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -7,6 +14,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DisplayPanel } from "@/components/display-panel";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 function NotFoundComponent() {
   return (
@@ -76,6 +84,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const navigate = useNavigate();
+  const initTheme = useThemeStore((s) => s.init);
+  const initAuth = useAuthStore((s) => s.init);
+  const authStatus = useAuthStore((s) => s.status);
+
+  useEffect(() => {
+    initTheme();
+    void initAuth();
+  }, [initTheme, initAuth]);
+
+  useEffect(() => {
+    if (authStatus === "unauthenticated" && pathname !== "/login") {
+      navigate({ to: "/login", replace: true });
+    }
+  }, [authStatus, pathname, navigate]);
+
+  // /login is the one screen shown before any identity exists -- no sidebar, no nav, none of
+  // AppShell's chrome, the same reason the login prompt asked for a full-bleed layout there.
+  if (pathname === "/login") {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <Outlet />
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <AppShell>
@@ -86,10 +121,6 @@ function RootComponent() {
 }
 
 function AppShell({ children }: { children: ReactNode }) {
-  const init = useThemeStore((s) => s.init);
-  useEffect(() => {
-    init();
-  }, [init]);
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background text-foreground">

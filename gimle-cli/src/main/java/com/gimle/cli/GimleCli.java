@@ -23,6 +23,15 @@ import java.util.List;
  *   gimle set config &lt;tenantId&gt; &lt;key&gt; &lt;value&gt; [--encrypted]
  *   gimle delete config &lt;tenantId&gt; &lt;key&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
+ *   gimle get roles [name]
+ *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;] [--permission ...]
+ *   gimle delete role &lt;name&gt;
+ *   gimle get rolebindings [id]
+ *   gimle set rolebinding &lt;id&gt; --subject user:&lt;name&gt;|group:&lt;name&gt; --role &lt;name&gt;
+ *   gimle delete rolebinding &lt;id&gt;
+ *   gimle get accounts [username]
+ *   gimle set account &lt;username&gt; --password &lt;value&gt;
+ *   gimle delete account &lt;username&gt;
  * </pre>
  *
  * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
@@ -113,6 +122,9 @@ public final class GimleCli {
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
       case "tenant", "tenants" -> new TenantsCommand(client, output, out).get(rest);
       case "config" -> new ConfigCommand(client, output, out).list(requireOne(rest, "config"));
+      case "role", "roles" -> new RolesCommand(client, output, out).get(rest);
+      case "rolebinding", "rolebindings" -> new RoleBindingsCommand(client, output, out).get(rest);
+      case "account", "accounts" -> new AccountsCommand(client, output, out).get(rest);
       default -> throw new CliException("unknown resource: " + noun);
     }
   }
@@ -127,6 +139,9 @@ public final class GimleCli {
     switch (noun) {
       case "tenant" -> new TenantsCommand(client, output, out).set(rest);
       case "config" -> new ConfigCommand(client, output, out).set(rest);
+      case "role" -> new RolesCommand(client, output, out).set(rest);
+      case "rolebinding" -> new RoleBindingsCommand(client, output, out).set(rest);
+      case "account" -> new AccountsCommand(client, output, out).set(rest);
       default -> throw new CliException("unknown resource for 'set': " + noun);
     }
   }
@@ -144,6 +159,12 @@ public final class GimleCli {
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
+      case "role", "roles" ->
+          new RolesCommand(client, output, out).delete(requireOne(rest, "role"));
+      case "rolebinding", "rolebindings" ->
+          new RoleBindingsCommand(client, output, out).delete(requireOne(rest, "rolebinding"));
+      case "account", "accounts" ->
+          new AccountsCommand(client, output, out).delete(requireOne(rest, "account"));
       default -> throw new CliException("unknown resource for 'delete': " + noun);
     }
   }
@@ -188,6 +209,15 @@ public final class GimleCli {
           set config <tenantId> <key> <value> [--encrypted]
           delete config <tenantId> <key>
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+          get roles [name]
+          set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+          delete role <name>
+          get rolebindings [id]
+          set rolebinding <id> --subject user:<name>|group:<name> --role <name>
+          delete rolebinding <id>
+          get accounts [username]
+          set account <username> --password <value>
+          delete account <username>
           cert token create [--ttl <duration>]
           cert request --purpose operator|node --out-cert <path> --out-key <path>
           cert status <request-id> --out-cert <path>

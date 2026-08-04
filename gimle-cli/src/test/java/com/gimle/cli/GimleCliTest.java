@@ -239,6 +239,76 @@ class GimleCliTest {
   }
 
   @Test
+  void set_role_then_get_roles_round_trips_then_delete() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "role",
+            "deployment-reader",
+            "--permission",
+            "deployment:read",
+            "--permission",
+            "config:write:acme");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int getExit = run("get", "roles");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("deployment-reader"));
+
+    outBuffer.reset();
+    int getSingleExit = run("-o", "json", "get", "role", "deployment-reader");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"resource\":\"DEPLOYMENT\""));
+    assertTrue(stdout().contains("\"verb\":\"READ\""));
+    assertTrue(stdout().contains("\"tenantScope\":\"acme\""));
+
+    int deleteExit = run("delete", "role", "deployment-reader");
+    assertEquals(0, deleteExit);
+    outBuffer.reset();
+    int getAfterDeleteExit = run("get", "role", "deployment-reader");
+    assertEquals(1, getAfterDeleteExit);
+  }
+
+  @Test
+  void set_rolebinding_then_get_rolebindings_round_trips_then_delete() throws Exception {
+    int setExit =
+        run("set", "rolebinding", "b1", "--subject", "user:alice", "--role", "cluster-admin");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int getExit = run("get", "rolebindings");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("user:alice"));
+
+    outBuffer.reset();
+    int getSingleExit = run("-o", "json", "get", "rolebinding", "b1");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"subject\":\"user:alice\""));
+    assertTrue(stdout().contains("\"roleName\":\"cluster-admin\""));
+
+    int deleteExit = run("delete", "rolebinding", "b1");
+    assertEquals(0, deleteExit);
+  }
+
+  @Test
+  void set_account_then_get_accounts_round_trips_and_never_leaks_the_password_hash()
+      throws Exception {
+    int setExit = run("set", "account", "admin", "--password", "s3cret-password");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "accounts");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"username\":\"admin\""));
+    assertFalse(stdout().contains("passwordHash"));
+    assertFalse(stdout().contains("s3cret-password"));
+
+    int deleteExit = run("delete", "account", "admin");
+    assertEquals(0, deleteExit);
+  }
+
+  @Test
   void unknown_verb_prints_usage_and_nonzero_exit() {
     int exit = run("frobnicate");
     assertEquals(1, exit);
