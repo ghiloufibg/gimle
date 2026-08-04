@@ -1,6 +1,9 @@
 package com.gimle.controlplane.store;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -22,7 +25,10 @@ public record StateSnapshot(
     Map<String, Integer> effectiveReplicas,
     List<Tenant> tenants,
     Set<String> quotaViolatingDeployments,
-    List<ConfigEntry> configEntries) {
+    List<ConfigEntry> configEntries,
+    List<Role> roles,
+    List<RoleBinding> roleBindings,
+    List<Account> accounts) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -33,5 +39,8 @@ public record StateSnapshot(
     tenants = List.copyOf(tenants);
     quotaViolatingDeployments = Set.copyOf(quotaViolatingDeployments);
     configEntries = List.copyOf(configEntries);
+    roles = List.copyOf(roles);
+    roleBindings = List.copyOf(roleBindings);
+    accounts = List.copyOf(accounts);
   }
 }

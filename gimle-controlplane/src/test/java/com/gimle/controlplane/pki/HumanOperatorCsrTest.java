@@ -174,8 +174,13 @@ class HumanOperatorCsrTest {
 
   private HttpClient mutualTlsClient(CertificateAuthority ca, String commonName) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
+    // O=gimle:operators: this is the "existing operator" whose certificate authorizes the
+    // /approve call (CERTIFICATE_REQUEST:APPROVE, granted by the built-in cluster-admin binding)
+    // -- a bare CN=, as a real /bootstrap/csr flow would never produce post-RBAC, would resolve
+    // to a Principal with no group and be denied.
     PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("O=gimle:operators,CN=" + commonName));
     Path certFile =
         writePem(
             commonName + "-cert.pem",

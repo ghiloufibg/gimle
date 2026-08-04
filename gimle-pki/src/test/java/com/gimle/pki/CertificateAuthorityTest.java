@@ -243,6 +243,48 @@ class CertificateAuthorityTest {
     assertTrue(output.contains("TLS Web Client Authentication"));
   }
 
+  @Test
+  void subject_override_wins_over_whatever_the_csr_itself_requested()
+      throws GeneralSecurityException {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=ca"), Duration.ofDays(1));
+    KeyPair leafKeyPair = generateRsaKeyPair();
+    // The CSR's own Subject self-declares a privileged-looking O= -- the override must win.
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            leafKeyPair, new X500Name("O=gimle:operators,CN=node-1"));
+
+    X509Certificate leaf =
+        ca.signCertificateRequest(csr, new X500Name("O=gimle:nodes,CN=node-1"), Duration.ofDays(1));
+
+    // X500Principal#getName() renders in RFC 2253 canonical order (most-specific RDN, CN, first) --
+    // not the ASN.1 encoding order Subjects.withOrganization builds in (see SubjectsTest, which
+    // asserts the X500Name's own toString() instead). Either way, the override -- not the CSR's own
+    // self-declared O= -- is what landed in the signed certificate.
+    assertEquals("CN=node-1,O=gimle:nodes", leaf.getSubjectX500Principal().getName());
+    // Still chains to the CA and still required a validly-signed CSR -- only the Subject changed.
+    leaf.verify(ca.certificate().getPublicKey());
+  }
+
+  @Test
+  void subject_override_still_rejects_a_csr_with_a_bad_self_signature()
+      throws NoSuchAlgorithmException {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=ca"), Duration.ofDays(1));
+    KeyPair signerKeyPair = generateRsaKeyPair();
+    KeyPair impersonatedKeyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest tamperedCsr =
+        CertificateSigningRequests.generate(
+            new KeyPair(impersonatedKeyPair.getPublic(), signerKeyPair.getPrivate()),
+            new X500Name("CN=attacker"));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            ca.signCertificateRequest(
+                tamperedCsr, new X500Name("O=gimle:nodes,CN=attacker"), Duration.ofDays(1)));
+  }
+
   private static String toPem(X509Certificate certificate) throws CertificateEncodingException {
     String base64 =
         java.util.Base64.getMimeEncoder(64, System.lineSeparator().getBytes())

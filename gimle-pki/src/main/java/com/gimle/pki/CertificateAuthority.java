@@ -124,6 +124,21 @@ public final class CertificateAuthority {
    */
   public X509Certificate signCertificateRequest(
       PKCS10CertificationRequest request, Duration validity) {
+    return signCertificateRequest(request, request.getSubject(), validity);
+  }
+
+  /**
+   * Signs {@code request} exactly as the two-argument overload does, except the issued
+   * certificate's Subject is {@code subjectOverride} rather than whatever {@code request} itself
+   * asked for. The CSR's self-signature is still validated against its own original subject/public
+   * key pair (proof the requester holds the matching private key) -- only the *Subject written into
+   * the resulting certificate* is substituted, never the signature check. This is what lets a
+   * caller (see {@code ApiServer#handleBootstrapCsrSubmit}) stamp an {@code O=} organization/group
+   * server-side without trusting whatever {@code O=} the CSR itself may have requested -- a client
+   * CSR could otherwise self-declare a privileged group and have it signed verbatim.
+   */
+  public X509Certificate signCertificateRequest(
+      PKCS10CertificationRequest request, X500Name subjectOverride, Duration validity) {
     try {
       JcaPKCS10CertificationRequest jcaRequest = new JcaPKCS10CertificationRequest(request);
       PublicKey requestedPublicKey = jcaRequest.getPublicKey();
@@ -142,7 +157,7 @@ public final class CertificateAuthority {
               randomSerial(),
               Date.from(now),
               Date.from(now.plus(validity)),
-              request.getSubject(),
+              subjectOverride,
               requestedPublicKey);
       builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
       builder.addExtension(

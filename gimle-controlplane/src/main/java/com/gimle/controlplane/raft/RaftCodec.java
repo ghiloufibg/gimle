@@ -5,6 +5,11 @@ import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.manifest.PlacementConstraints;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.StateSnapshot;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
@@ -65,6 +70,12 @@ public final class RaftCodec {
   private static final byte MUT_PUT_QUOTA_VIOLATION = 10;
   private static final byte MUT_PUT_CONFIG_ENTRY = 11;
   private static final byte MUT_REMOVE_CONFIG_ENTRY = 12;
+  private static final byte MUT_PUT_ROLE = 13;
+  private static final byte MUT_REMOVE_ROLE = 14;
+  private static final byte MUT_PUT_ROLE_BINDING = 15;
+  private static final byte MUT_REMOVE_ROLE_BINDING = 16;
+  private static final byte MUT_PUT_ACCOUNT = 17;
+  private static final byte MUT_REMOVE_ACCOUNT = 18;
 
   /**
    * Generous upper bound for any single length-prefixed frame or byte-array field this codec ever
@@ -297,6 +308,30 @@ public final class RaftCodec {
         out.writeUTF(m.tenantId());
         out.writeUTF(m.key());
       }
+      case StateMutation.PutRole m -> {
+        out.writeByte(MUT_PUT_ROLE);
+        writeRole(out, m.role());
+      }
+      case StateMutation.RemoveRole m -> {
+        out.writeByte(MUT_REMOVE_ROLE);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutRoleBinding m -> {
+        out.writeByte(MUT_PUT_ROLE_BINDING);
+        writeRoleBinding(out, m.binding());
+      }
+      case StateMutation.RemoveRoleBinding m -> {
+        out.writeByte(MUT_REMOVE_ROLE_BINDING);
+        out.writeUTF(m.id());
+      }
+      case StateMutation.PutAccount m -> {
+        out.writeByte(MUT_PUT_ACCOUNT);
+        writeAccount(out, m.account());
+      }
+      case StateMutation.RemoveAccount m -> {
+        out.writeByte(MUT_REMOVE_ACCOUNT);
+        out.writeUTF(m.username());
+      }
     }
   }
 
@@ -320,6 +355,12 @@ public final class RaftCodec {
       case MUT_PUT_CONFIG_ENTRY -> new StateMutation.PutConfigEntry(readConfigEntry(in));
       case MUT_REMOVE_CONFIG_ENTRY ->
           new StateMutation.RemoveConfigEntry(in.readUTF(), in.readUTF());
+      case MUT_PUT_ROLE -> new StateMutation.PutRole(readRole(in));
+      case MUT_REMOVE_ROLE -> new StateMutation.RemoveRole(in.readUTF());
+      case MUT_PUT_ROLE_BINDING -> new StateMutation.PutRoleBinding(readRoleBinding(in));
+      case MUT_REMOVE_ROLE_BINDING -> new StateMutation.RemoveRoleBinding(in.readUTF());
+      case MUT_PUT_ACCOUNT -> new StateMutation.PutAccount(readAccount(in));
+      case MUT_REMOVE_ACCOUNT -> new StateMutation.RemoveAccount(in.readUTF());
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -491,6 +532,64 @@ public final class RaftCodec {
     return new ConfigEntry(tenantId, key, value, encrypted);
   }
 
+  // com.gimle.core.authz.Role fully qualified throughout this file -- this package already
+  // declares its own Role (a Raft node's FOLLOWER/CANDIDATE/LEADER state), which silently shadows
+  // an unqualified single-type-import of the RBAC Role of the same simple name.
+  private static void writeRole(DataOutputStream out, com.gimle.core.authz.Role role)
+      throws IOException {
+    out.writeUTF(role.name());
+    out.writeInt(role.permissions().size());
+    for (Permission p : role.permissions()) {
+      writePermission(out, p);
+    }
+  }
+
+  private static com.gimle.core.authz.Role readRole(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    int count = in.readInt();
+    Set<Permission> permissions = new LinkedHashSet<>();
+    for (int i = 0; i < count; i++) {
+      permissions.add(readPermission(in));
+    }
+    return new com.gimle.core.authz.Role(name, permissions);
+  }
+
+  private static void writePermission(DataOutputStream out, Permission permission)
+      throws IOException {
+    out.writeUTF(permission.resource().name());
+    out.writeUTF(permission.verb().name());
+    writeOptionalString(out, permission.tenantScope());
+  }
+
+  private static Permission readPermission(DataInputStream in) throws IOException {
+    ResourceKind resource = ResourceKind.valueOf(in.readUTF());
+    Verb verb = Verb.valueOf(in.readUTF());
+    Optional<String> tenantScope = readOptionalString(in);
+    return new Permission(resource, verb, tenantScope);
+  }
+
+  private static void writeRoleBinding(DataOutputStream out, RoleBinding binding)
+      throws IOException {
+    out.writeUTF(binding.id());
+    out.writeUTF(binding.subject());
+    out.writeUTF(binding.roleName());
+  }
+
+  private static RoleBinding readRoleBinding(DataInputStream in) throws IOException {
+    return new RoleBinding(in.readUTF(), in.readUTF(), in.readUTF());
+  }
+
+  private static void writeAccount(DataOutputStream out, Account account) throws IOException {
+    out.writeUTF(account.username());
+    writeBytes(out, account.passwordHash());
+  }
+
+  private static Account readAccount(DataInputStream in) throws IOException {
+    String username = in.readUTF();
+    byte[] passwordHash = readBytes(in);
+    return new Account(username, passwordHash);
+  }
+
   private static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {
     out.writeInt(bytes.length);
     out.write(bytes);
@@ -544,6 +643,18 @@ public final class RaftCodec {
       for (ConfigEntry entry : snapshot.configEntries()) {
         writeConfigEntry(out, entry);
       }
+      out.writeInt(snapshot.roles().size());
+      for (com.gimle.core.authz.Role role : snapshot.roles()) {
+        writeRole(out, role);
+      }
+      out.writeInt(snapshot.roleBindings().size());
+      for (RoleBinding binding : snapshot.roleBindings()) {
+        writeRoleBinding(out, binding);
+      }
+      out.writeInt(snapshot.accounts().size());
+      for (Account account : snapshot.accounts()) {
+        writeAccount(out, account);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -593,6 +704,21 @@ public final class RaftCodec {
       for (int i = 0; i < configCount; i++) {
         configEntries.add(readConfigEntry(in));
       }
+      List<com.gimle.core.authz.Role> roles = new ArrayList<>();
+      int roleCount = in.readInt();
+      for (int i = 0; i < roleCount; i++) {
+        roles.add(readRole(in));
+      }
+      List<RoleBinding> roleBindings = new ArrayList<>();
+      int roleBindingCount = in.readInt();
+      for (int i = 0; i < roleBindingCount; i++) {
+        roleBindings.add(readRoleBinding(in));
+      }
+      List<Account> accounts = new ArrayList<>();
+      int accountCount = in.readInt();
+      for (int i = 0; i < accountCount; i++) {
+        accounts.add(readAccount(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -601,7 +727,10 @@ public final class RaftCodec {
           effectiveReplicas,
           tenants,
           quotaViolating,
-          configEntries);
+          configEntries,
+          roles,
+          roleBindings,
+          accounts);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

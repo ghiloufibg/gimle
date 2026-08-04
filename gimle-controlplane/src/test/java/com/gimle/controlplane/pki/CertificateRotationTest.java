@@ -84,9 +84,15 @@ class CertificateRotationTest {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
+      // O=gimle:operators on both the original and the rotation CSR: the rotation subject-match
+      // check requires them identical, and this is what proves rotation carries group membership
+      // forward unchanged (a bare CN=, as a real /bootstrap/csr flow would never produce
+      // post-RBAC, would resolve to a Principal with no group and be denied at the final /nodes
+      // check below).
       KeyPair oldKeyPair = generateRsaKeyPair();
       PKCS10CertificationRequest oldCsr =
-          CertificateSigningRequests.generate(oldKeyPair, new X500Name("CN=operator-1"));
+          CertificateSigningRequests.generate(
+              oldKeyPair, new X500Name("O=gimle:operators,CN=operator-1"));
       X509Certificate oldCert = ca.signCertificateRequest(oldCsr, Duration.ofDays(1));
       Path oldCertFile = writePem("old-cert.pem", Pem.encodeCertificate(oldCert));
       Path oldKeyFile = writePem("old-key.pem", Pem.encodePrivateKey(oldKeyPair.getPrivate()));
@@ -96,7 +102,8 @@ class CertificateRotationTest {
 
       KeyPair newKeyPair = generateRsaKeyPair();
       PKCS10CertificationRequest rotationCsr =
-          CertificateSigningRequests.generate(newKeyPair, new X500Name("CN=operator-1"));
+          CertificateSigningRequests.generate(
+              newKeyPair, new X500Name("O=gimle:operators,CN=operator-1"));
       Map<String, Object> result = submitCsr(oldClient, baseUrl, rotationCsr, 200);
       assertEquals("APPROVED", result.get("status"));
       String newCertPem = (String) result.get("certificatePem");

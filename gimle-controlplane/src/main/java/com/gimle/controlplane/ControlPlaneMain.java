@@ -154,6 +154,19 @@ public final class ControlPlaneMain {
         RECONCILE_INTERVAL.toMillis(),
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
+    // Leader-gated like reconcileTick above (seedBootstrapAccountIfNeeded needs raftNode.propose,
+    // which throws immediately when not leader) -- a no-op the instant an Account already exists,
+    // so safe to keep checking every tick forever after, the same level-triggered posture every
+    // reconciler here already has.
+    ticker.scheduleAtFixedRate(
+        () -> {
+          if (raftNode.isLeader()) {
+            apiServer.seedBootstrapAccountIfNeeded();
+          }
+        },
+        0,
+        RECONCILE_INTERVAL.toMillis(),
+        TimeUnit.MILLISECONDS);
     log.info(
         "control plane listening on port {} (raft: {}, state: {})",
         apiServer.port(),

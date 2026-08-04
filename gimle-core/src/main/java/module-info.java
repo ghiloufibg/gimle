@@ -9,6 +9,7 @@ module com.gimle.core {
   exports com.gimle.core.restart;
   exports com.gimle.core.tenant;
   exports com.gimle.core.config;
+  exports com.gimle.core.authz;
   exports com.gimle.core.logging;
   exports com.gimle.core.tls;
 }

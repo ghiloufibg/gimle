@@ -10,6 +10,11 @@ import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.manifest.PlacementConstraints;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.StateSnapshot;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
@@ -218,7 +223,15 @@ class RaftCodecTest {
             Map.of("greeter", 3),
             List.of(new Tenant("tenant-1", new ResourceQuota(2048, 1000, 20))),
             Set.of("greeter"),
-            List.of(new ConfigEntry("tenant-1", "api.key", new byte[] {5, 6, 7}, false)));
+            List.of(new ConfigEntry("tenant-1", "api.key", new byte[] {5, 6, 7}, false)),
+            List.of(
+                new com.gimle.core.authz.Role(
+                    "viewer",
+                    Set.of(
+                        Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ),
+                        Permission.scoped(ResourceKind.CONFIG, Verb.READ, "tenant-1")))),
+            List.of(new RoleBinding("b1", RoleBinding.groupSubject("gimle:operators"), "viewer")),
+            List.of(new Account("admin", new byte[] {9, 8, 7, 6})));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -236,5 +249,45 @@ class RaftCodecTest {
     assertEquals(snapshot.configEntries().get(0).key(), decoded.configEntries().get(0).key());
     assertArrayEquals(
         snapshot.configEntries().get(0).value(), decoded.configEntries().get(0).value());
+    assertEquals(snapshot.roles(), decoded.roles());
+    assertEquals(snapshot.roleBindings(), decoded.roleBindings());
+    assertEquals(1, decoded.accounts().size());
+    assertEquals(snapshot.accounts().get(0).username(), decoded.accounts().get(0).username());
+    assertArrayEquals(
+        snapshot.accounts().get(0).passwordHash(), decoded.accounts().get(0).passwordHash());
+  }
+
+  @Test
+  void round_trips_role_rolebinding_and_account_mutations_through_a_log_entry() {
+    com.gimle.core.authz.Role role =
+        new com.gimle.core.authz.Role(
+            "cluster-admin", Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.WRITE)));
+    LogEntry putRole = logEntry(1L, new StateMutation.PutRole(role));
+    assertEquals(putRole, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(putRole)));
+
+    LogEntry removeRole = logEntry(2L, new StateMutation.RemoveRole("cluster-admin"));
+    assertEquals(removeRole, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(removeRole)));
+
+    RoleBinding binding = new RoleBinding("b1", RoleBinding.userSubject("alice"), "cluster-admin");
+    LogEntry putBinding = logEntry(3L, new StateMutation.PutRoleBinding(binding));
+    assertEquals(putBinding, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(putBinding)));
+
+    LogEntry removeBinding = logEntry(4L, new StateMutation.RemoveRoleBinding("b1"));
+    assertEquals(removeBinding, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(removeBinding)));
+
+    LogEntry removeAccount = logEntry(5L, new StateMutation.RemoveAccount("admin"));
+    assertEquals(removeAccount, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(removeAccount)));
+  }
+
+  @Test
+  void round_trips_a_put_account_mutation_carrying_arbitrary_password_hash_bytes() {
+    Account account = new Account("admin", new byte[] {1, 2, 3, 0, -1});
+    LogEntry original = logEntry(1L, new StateMutation.PutAccount(account));
+
+    LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
+
+    StateMutation.PutAccount decodedMutation = (StateMutation.PutAccount) decoded.mutation();
+    assertEquals(account.username(), decodedMutation.account().username());
+    assertArrayEquals(account.passwordHash(), decodedMutation.account().passwordHash());
   }
 }

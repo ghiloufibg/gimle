@@ -1,5 +1,7 @@
 package com.gimle.controlplane.api;
 
+import com.gimle.controlplane.authz.Authorizer;
+import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
@@ -10,10 +12,20 @@ import com.gimle.controlplane.raft.RaftNode;
 import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.secret.KeyFileManager;
 import com.gimle.controlplane.secret.SecretCipher;
+import com.gimle.controlplane.secret.SessionTokens;
 import com.gimle.controlplane.store.InstanceAssignment;
 import com.gimle.controlplane.store.ObservedHeartbeat;
 import com.gimle.controlplane.store.StateStore;
 import com.gimle.controlplane.tenant.TenantUsage;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.PasswordHashes;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.Principal;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
@@ -43,6 +55,7 @@ import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
 import com.gimle.pki.RenewalSchedule;
+import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
@@ -81,7 +94,9 @@ import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
+import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,8 +114,16 @@ public final class ApiServer implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(ApiServer.class);
 
+  private static final String SESSION_COOKIE_NAME = "gimle_session";
+  private static final Duration SESSION_TTL = Duration.ofHours(12);
+
   private final StateStore store;
   private final SecretKey secretKey;
+  // Signs/verifies console session cookies -- deliberately a second key, not a reuse of
+  // secretKey's AES material, for key separation between two unrelated crypto purposes (see
+  // SessionTokens' own javadoc).
+  private final SecretKey sessionSigningKey;
+  private final Authorizer authorizer;
   private final RaftNode raftNode;
   private final Map<String, String> peerApiAddresses;
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
@@ -161,18 +184,27 @@ public final class ApiServer implements AutoCloseable {
       RaftNode raftNode,
       Map<String, String> peerApiAddresses)
       throws IOException {
-    this(store, port, KeyFileManager.loadOrCreate(secretKeyFilePath), raftNode, peerApiAddresses);
+    this(
+        store,
+        port,
+        KeyFileManager.loadOrCreate(secretKeyFilePath),
+        KeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")),
+        raftNode,
+        peerApiAddresses);
   }
 
   private ApiServer(
       StateStore store,
       int port,
       SecretKey secretKey,
+      SecretKey sessionSigningKey,
       RaftNode raftNode,
       Map<String, String> peerApiAddresses)
       throws IOException {
     this.store = store;
     this.secretKey = secretKey;
+    this.sessionSigningKey = sessionSigningKey;
+    this.authorizer = new Authorizer(store);
     this.raftNode = raftNode;
     this.peerApiAddresses = Map.copyOf(peerApiAddresses);
     this.server = createHttpServer(port);
@@ -190,6 +222,15 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/tenants", this::handleTenantsList);
     target.createContext("/config/", this::handleConfig);
     target.createContext("/logs/", this::handleLogs);
+    target.createContext("/roles/", this::handleRole);
+    target.createContext("/roles", this::handleRolesList);
+    target.createContext("/rolebindings/", this::handleRoleBinding);
+    target.createContext("/rolebindings", this::handleRoleBindingsList);
+    target.createContext("/accounts/", this::handleAccount);
+    target.createContext("/accounts", this::handleAccountsList);
+    target.createContext("/auth/login", this::handleAuthLogin);
+    target.createContext("/auth/logout", this::handleAuthLogout);
+    target.createContext("/auth/session", this::handleAuthSession);
     if (certificateAuthority.isPresent()) {
       target.createContext("/bootstrap/csr", this::handleBootstrapCsrSubmit);
       target.createContext("/bootstrap/csr/", this::handleBootstrapCsrSubResource);
@@ -253,7 +294,7 @@ public final class ApiServer implements AutoCloseable {
    * needClientAuth}: {@link HttpsConfigurator}/{@link HttpsParameters} negotiate once per
    * *connection*, before the HTTP request path is ever read, so there's no way to make client-auth
    * conditional on path at this layer -- every handler enforces it itself instead, via {@link
-   * #requireClientCertificate}, except the deliberately bootstrap-token-authenticated {@code
+   * #requireAuthorized}, except the deliberately bootstrap-token-authenticated {@code
    * /bootstrap/csr} endpoints.
    */
   private static HttpServer createHttpServer(int port) throws IOException {
@@ -345,6 +386,24 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Checked every reconcile tick by {@code ControlPlaneMain}, leader-gated like every other
+   * reconciler there -- seeds the one bootstrap {@link Account} {@code gimle-pki}'s {@code
+   * PkiBootstrapMain} wrote to disk, exactly once: a no-op the instant {@code store.listAccounts()}
+   * is non-empty, so this stays safe to call on every future tick forever after. Deliberately never
+   * called eagerly from the constructor: a freshly started {@link RaftNode} is not leader yet
+   * (leader election is scheduled asynchronously, even for a single-node "trivially always leader"
+   * cluster -- see {@code RaftNode#start}), so {@code raftNode.propose} would just throw {@link
+   * GimleRaftException} before any election has had a chance to run.
+   */
+  public void seedBootstrapAccountIfNeeded() {
+    if (!raftNode.isLeader() || !store.listAccounts().isEmpty()) {
+      return;
+    }
+    BootstrapAccountFile.loadIfConfigured()
+        .ifPresent(account -> raftNode.propose(new StateMutation.PutAccount(account)));
+  }
+
   private void rotateOwnCertificate(TlsSettings settings, X509Certificate current)
       throws IOException {
     KeyPair keyPair = generateRsaKeyPair();
@@ -401,18 +460,32 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleDeployment(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
-        return;
-      }
       String name = pathSegmentAfter(exchange, "/deployments/");
       if (name.isBlank()) {
         respond(exchange, 400, "missing deployment name");
         return;
       }
+      // Unscoped (Optional.empty() tenant) for every verb here -- tenant-scoped deployment
+      // permissions would need this handler to resolve an existing deployment's own tenantId (or
+      // a PUT's requested one) before authorizing, real additional plumbing not built this round;
+      // a known, deliberate gap, not a silent omission (claudedocs/authn-authz-design.md
+      // refinement #3).
       switch (exchange.getRequestMethod()) {
-        case "PUT" -> handlePutDeployment(exchange, name);
-        case "GET" -> handleGetDeployment(exchange, name);
-        case "DELETE" -> handleDeleteDeployment(exchange, name);
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.empty())) {
+            handlePutDeployment(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
+            handleGetDeployment(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.DELETE, Optional.empty())) {
+            handleDeleteDeployment(exchange, name);
+          }
+        }
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
@@ -504,7 +577,7 @@ public final class ApiServer implements AutoCloseable {
   /** Every deployment, in the same shape {@link #handleGetDeployment} returns for one. */
   private void handleDeploymentsList(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
+      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -565,9 +638,6 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleNode(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
-        return;
-      }
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
       int slash = tail.indexOf('/');
@@ -579,6 +649,14 @@ public final class ApiServer implements AutoCloseable {
       String action = tail.substring(slash + 1);
       if (nodeId.isBlank()) {
         respond(exchange, 400, "missing nodeId");
+        return;
+      }
+      // targetId=nodeId is what lets a gimle:nodes principal reach exactly its own subresources
+      // (Authorizer's node self-service short-circuit) with no RoleBinding needing to exist for
+      // it -- and nothing else.
+      Verb verb = "assignments".equals(action) ? Verb.READ : Verb.WRITE;
+      if (!requireAuthorized(
+          exchange, ResourceKind.NODE, verb, Optional.empty(), Optional.of(nodeId))) {
         return;
       }
       switch (action) {
@@ -684,7 +762,7 @@ public final class ApiServer implements AutoCloseable {
   /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */
   private void handleNodesList(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
+      if (!requireAuthorized(exchange, ResourceKind.NODE, Verb.READ, Optional.empty())) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -803,7 +881,7 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleTenantsList(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
+      if (!requireAuthorized(exchange, ResourceKind.TENANT, Verb.READ, Optional.empty())) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -822,18 +900,27 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleTenant(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
-        return;
-      }
       String id = pathSegmentAfter(exchange, "/tenants/");
       if (id.isBlank()) {
         respond(exchange, 400, "missing tenant id");
         return;
       }
       switch (exchange.getRequestMethod()) {
-        case "PUT" -> handlePutTenant(exchange, id);
-        case "GET" -> handleGetTenant(exchange, id);
-        case "DELETE" -> handleDeleteTenant(exchange, id);
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))) {
+            handlePutTenant(exchange, id);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.READ, Optional.of(id))) {
+            handleGetTenant(exchange, id);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.DELETE, Optional.of(id))) {
+            handleDeleteTenant(exchange, id);
+          }
+        }
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
@@ -889,9 +976,6 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleConfig(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
-        return;
-      }
       String tail = pathSegmentAfter(exchange, "/config/");
       if (tail.isBlank()) {
         respond(exchange, 400, "expected /config/{tenantId} or /config/{tenantId}/{key}");
@@ -908,7 +992,9 @@ public final class ApiServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        handleListConfig(exchange, tenantId);
+        if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.READ, Optional.of(tenantId))) {
+          handleListConfig(exchange, tenantId);
+        }
         return;
       }
       String key = tail.substring(slash + 1);
@@ -917,8 +1003,17 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       switch (exchange.getRequestMethod()) {
-        case "PUT" -> handlePutConfig(exchange, tenantId, key);
-        case "DELETE" -> handleDeleteConfig(exchange, tenantId, key);
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))) {
+            handlePutConfig(exchange, tenantId, key);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIG, Verb.DELETE, Optional.of(tenantId))) {
+            handleDeleteConfig(exchange, tenantId, key);
+          }
+        }
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
@@ -973,6 +1068,389 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, list);
   }
 
+  // ---- /roles and /roles/{name} ----
+
+  private void handleRolesList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.ROLE, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, store.listRoles().stream().map(ApiServer::roleToJson).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("roles list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleRole(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/roles/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing role name");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.WRITE, Optional.empty())) {
+            handlePutRole(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.READ, Optional.empty())) {
+            handleGetRole(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.DELETE, Optional.empty())) {
+            handleDeleteRole(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("role request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutRole(HttpExchange exchange, String name) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    raftNode.propose(new StateMutation.PutRole(roleFromJson(name, body)));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetRole(HttpExchange exchange, String name) throws IOException {
+    Optional<Role> role = store.getRole(name);
+    if (role.isEmpty()) {
+      respond(exchange, 404, "no such role: " + name);
+      return;
+    }
+    respondJson(exchange, 200, roleToJson(role.get()));
+  }
+
+  private void handleDeleteRole(HttpExchange exchange, String name) throws IOException {
+    raftNode.propose(new StateMutation.RemoveRole(name));
+    respond(exchange, 200, "ok");
+  }
+
+  private static Map<String, Object> roleToJson(Role role) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", role.name());
+    List<Map<String, Object>> permissions = new ArrayList<>();
+    for (Permission p : role.permissions()) {
+      Map<String, Object> pm = new LinkedHashMap<>();
+      pm.put("resource", p.resource().name());
+      pm.put("verb", p.verb().name());
+      p.tenantScope().ifPresent(t -> pm.put("tenantScope", t));
+      permissions.add(pm);
+    }
+    map.put("permissions", permissions);
+    return map;
+  }
+
+  private static Role roleFromJson(String name, Map<?, ?> body) {
+    List<?> permissionsList = (List<?>) body.get("permissions");
+    Set<Permission> permissions = new LinkedHashSet<>();
+    if (permissionsList != null) {
+      for (Object o : permissionsList) {
+        Map<?, ?> pm = (Map<?, ?>) o;
+        ResourceKind resource = ResourceKind.valueOf((String) pm.get("resource"));
+        Verb verb = Verb.valueOf((String) pm.get("verb"));
+        Object tenantScope = pm.get("tenantScope");
+        permissions.add(
+            new Permission(
+                resource,
+                verb,
+                tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope)));
+      }
+    }
+    return new Role(name, permissions);
+  }
+
+  // ---- /rolebindings and /rolebindings/{id} ----
+
+  private void handleRoleBindingsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.ROLE_BINDING, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          store.listRoleBindings().stream().map(ApiServer::roleBindingToJson).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("role bindings list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleRoleBinding(HttpExchange exchange) {
+    try {
+      String id = pathSegmentAfter(exchange, "/rolebindings/");
+      if (id.isBlank()) {
+        respond(exchange, 400, "missing role binding id");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE_BINDING, Verb.WRITE, Optional.empty())) {
+            handlePutRoleBinding(exchange, id);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.ROLE_BINDING, Verb.READ, Optional.empty())) {
+            handleGetRoleBinding(exchange, id);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE_BINDING, Verb.DELETE, Optional.empty())) {
+            handleDeleteRoleBinding(exchange, id);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("role binding request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutRoleBinding(HttpExchange exchange, String id) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    RoleBinding binding =
+        new RoleBinding(id, (String) body.get("subject"), (String) body.get("roleName"));
+    raftNode.propose(new StateMutation.PutRoleBinding(binding));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetRoleBinding(HttpExchange exchange, String id) throws IOException {
+    Optional<RoleBinding> binding = store.getRoleBinding(id);
+    if (binding.isEmpty()) {
+      respond(exchange, 404, "no such role binding: " + id);
+      return;
+    }
+    respondJson(exchange, 200, roleBindingToJson(binding.get()));
+  }
+
+  private void handleDeleteRoleBinding(HttpExchange exchange, String id) throws IOException {
+    raftNode.propose(new StateMutation.RemoveRoleBinding(id));
+    respond(exchange, 200, "ok");
+  }
+
+  private static Map<String, Object> roleBindingToJson(RoleBinding binding) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("id", binding.id());
+    map.put("subject", binding.subject());
+    map.put("roleName", binding.roleName());
+    return map;
+  }
+
+  // ---- /accounts and /accounts/{username} ----
+
+  private void handleAccountsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange, 200, store.listAccounts().stream().map(ApiServer::accountToJson).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("accounts list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleAccount(HttpExchange exchange) {
+    try {
+      String username = pathSegmentAfter(exchange, "/accounts/");
+      if (username.isBlank()) {
+        respond(exchange, 400, "missing username");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.WRITE, Optional.empty())) {
+            handlePutAccount(exchange, username);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.READ, Optional.empty())) {
+            handleGetAccount(exchange, username);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.DELETE, Optional.empty())) {
+            handleDeleteAccount(exchange, username);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondNotLeader(exchange);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("account request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Takes a raw {@code password} in the request body, never a pre-hashed value -- hashing happens
+   * here, server-side, via {@link PasswordHashes}, the same reason the CLI's {@code set account}
+   * never touches password-hashing logic itself. Doubles as create-or-reset (no separate "reset
+   * password" verb), matching {@code set tenant}/{@code set config}'s existing create-or-update
+   * convention.
+   */
+  private void handlePutAccount(HttpExchange exchange, String username) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String password = (String) body.get("password");
+    if (password == null || password.isBlank()) {
+      respond(exchange, 400, "missing password");
+      return;
+    }
+    byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
+    raftNode.propose(new StateMutation.PutAccount(new Account(username, passwordHash)));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetAccount(HttpExchange exchange, String username) throws IOException {
+    Optional<Account> account = store.getAccount(username);
+    if (account.isEmpty()) {
+      respond(exchange, 404, "no such account: " + username);
+      return;
+    }
+    respondJson(exchange, 200, accountToJson(account.get()));
+  }
+
+  private void handleDeleteAccount(HttpExchange exchange, String username) throws IOException {
+    raftNode.propose(new StateMutation.RemoveAccount(username));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Never includes {@code passwordHash} -- this is the one field an API response never leaks. */
+  private static Map<String, Object> accountToJson(Account account) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("username", account.username());
+    return map;
+  }
+
+  // ---- /auth/login, /auth/logout, /auth/session ----
+
+  /**
+   * No {@link #requireAuthorized} call in any of these three, deliberately: {@code /auth/login} and
+   * {@code /auth/session} must both be reachable with no identity yet (that's the whole point of a
+   * login endpoint, and how the console tells "logged out" apart from "logged in" -- {@code
+   * claudedocs/authn-authz-design.md} §6a), and {@code /auth/logout} only ever clears whatever
+   * cookie is presented, authenticated or not.
+   */
+  private void handleAuthLogin(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+      String username = (String) body.get("username");
+      String password = (String) body.get("password");
+      Optional<Account> account = username == null ? Optional.empty() : store.getAccount(username);
+      if (account.isEmpty()
+          || password == null
+          || !PasswordHashes.verify(password.toCharArray(), account.get().passwordHash())) {
+        // Deliberately the same message either way -- distinguishing "unknown username" from
+        // "wrong password" would let this endpoint enumerate valid usernames.
+        respondQuietly(exchange, 401, "invalid username or password");
+        return;
+      }
+      String token = SessionTokens.issue(username, sessionSigningKey, SESSION_TTL);
+      exchange
+          .getResponseHeaders()
+          .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
+      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of())));
+    } catch (IOException | RuntimeException e) {
+      log.warn("login request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleAuthLogout(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      exchange.getResponseHeaders().add("Set-Cookie", sessionCookieHeader("", 0));
+      respond(exchange, 200, "ok");
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /** Polled by the console on load to tell "already logged in" apart from "show the login page". */
+  private void handleAuthSession(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Optional<Principal> principal = resolvePrincipal(exchange);
+      if (principal.isEmpty()) {
+        respondQuietly(exchange, 401, "not authenticated");
+        return;
+      }
+      respondJson(exchange, 200, principalToJson(principal.get()));
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static Map<String, Object> principalToJson(Principal principal) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("username", principal.name());
+    map.put("groups", List.copyOf(principal.groups()));
+    return map;
+  }
+
   // ---- /logs/controlplane, /logs/nodes/{nodeId}, /logs/instances/{name}/{idx} ----
 
   /**
@@ -982,14 +1460,22 @@ public final class ApiServer implements AutoCloseable {
    */
   private void handleLogs(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
-        return;
-      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
       }
       String tail = pathSegmentAfter(exchange, "/logs/");
+      // A node's own logs (/logs/nodes/{nodeId}) are the one log target a gimle:nodes principal
+      // may reach via self-service -- everything else (controlplane, instances) needs a real
+      // permission, matching handleNode's own targetId convention.
+      Optional<String> targetNodeId =
+          tail.startsWith("nodes/")
+              ? Optional.of(tail.substring("nodes/".length()))
+              : Optional.empty();
+      if (!requireAuthorized(
+          exchange, ResourceKind.LOGS, Verb.READ, Optional.empty(), targetNodeId)) {
+        return;
+      }
       if (tail.equals("controlplane")) {
         handleControlPlaneLogs(exchange);
       } else if (tail.startsWith("nodes/")) {
@@ -1218,11 +1704,11 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
 
   /**
-   * No {@link #requireClientCertificate} call here, deliberately: this is the one endpoint that by
-   * design must be reachable without a client certificate (§4) -- it exists specifically to issue
-   * the cert that makes mTLS possible everywhere else. Three distinct auth contexts, distinguished
-   * entirely by what the request carries: a verified peer certificate present at all means rotation
-   * (§4b, subject must match); none present and {@code purpose == NODE_CLIENT} means a node join,
+   * No {@link #requireAuthorized} call here, deliberately: this is the one endpoint that by design
+   * must be reachable without a client certificate (§4) -- it exists specifically to issue the cert
+   * that makes mTLS possible everywhere else. Three distinct auth contexts, distinguished entirely
+   * by what the request carries: a verified peer certificate present at all means rotation (§4b,
+   * subject must match); none present and {@code purpose == NODE_CLIENT} means a node join,
    * authenticated by a one-time bootstrap token (§4); none present and {@code purpose ==
    * OPERATOR_CLIENT} means a human operator request, never auto-approved (§4a).
    */
@@ -1264,17 +1750,32 @@ public final class ApiServer implements AutoCloseable {
   private void handleRotationRequest(
       HttpExchange exchange, PKCS10CertificationRequest csr, X509Certificate presented)
       throws IOException {
-    String requestedSubject = csr.getSubject().toString();
-    String presentedSubject =
-        new X500Name(presented.getSubjectX500Principal().getName()).toString();
-    if (!requestedSubject.equals(presentedSubject)) {
+    // Compared as raw DER bytes, never as a re-parsed string:
+    // X509Certificate#getSubjectX500Principal
+    // ().getName() renders in RFC 2253 canonical order (most-specific RDN, CN, first), which does
+    // not match the ASN.1 encoding order csr.getSubject() preserves once a subject carries more
+    // than one RDN (every operator/node certificate does now, CN= plus O=) -- re-parsing that
+    // reordered string back into an X500Name silently changed which RDN sequence it held, making
+    // this check reject a subject against itself. getEncoded() sidesteps the round trip entirely.
+    boolean subjectsMatch;
+    try {
+      subjectsMatch =
+          java.util.Arrays.equals(
+              csr.getSubject().getEncoded(), presented.getSubjectX500Principal().getEncoded());
+    } catch (IOException e) {
+      subjectsMatch = false;
+    }
+    if (!subjectsMatch) {
       respond(
           exchange,
           403,
           "rotation CSR subject does not match the authenticating certificate's own subject");
       return;
     }
-    respondSigned(exchange, 200, csr);
+    // Preserves the exact prior subject (O= included) -- csr.getSubject() as its own override is
+    // exactly what makes rotation carry a principal's group membership forward unchanged, with no
+    // separate re-derivation from purpose needed.
+    respondSigned(exchange, 200, csr, csr.getSubject());
   }
 
   private void handleNodeJoinRequest(
@@ -1284,7 +1785,10 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 401, "missing or invalid bootstrap token");
       return;
     }
-    respondSigned(exchange, 200, csr);
+    // Server-stamped O=, never the CSR's own -- claudedocs/authn-authz-design.md §2a: a
+    // NODE_CLIENT CSR that self-declared O=gimle:operators must not be signed with it.
+    respondSigned(
+        exchange, 200, csr, Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_NODES));
   }
 
   private void handleOperatorJoinRequest(HttpExchange exchange, PKCS10CertificationRequest csr)
@@ -1293,10 +1797,11 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 202, csrResultToJson(CsrResult.pending(requestId)));
   }
 
-  private void respondSigned(HttpExchange exchange, int status, PKCS10CertificationRequest csr)
+  private void respondSigned(
+      HttpExchange exchange, int status, PKCS10CertificationRequest csr, X500Name subjectOverride)
       throws IOException {
     CertificateAuthority ca = certificateAuthority.orElseThrow();
-    X509Certificate signed = ca.signCertificateRequest(csr, LEAF_VALIDITY);
+    X509Certificate signed = ca.signCertificateRequest(csr, subjectOverride, LEAF_VALIDITY);
     respondJson(
         exchange,
         status,
@@ -1310,7 +1815,8 @@ public final class ApiServer implements AutoCloseable {
     try {
       String tail = pathSegmentAfter(exchange, "/bootstrap/csr/");
       if (tail.endsWith("/approve")) {
-        if (!requireClientCertificate(exchange)) {
+        if (!requireAuthorized(
+            exchange, ResourceKind.CERTIFICATE_REQUEST, Verb.APPROVE, Optional.empty())) {
           return;
         }
         if (!"POST".equals(exchange.getRequestMethod())) {
@@ -1355,11 +1861,11 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * §4a: an existing operator's own valid certificate is what authorizes this call -- {@link
-   * #requireClientCertificate} already rejected anything without one before this runs. No further
-   * identity check on *which* operator: any currently-trusted certificate holder may approve any
-   * pending request, matching this project's stated no-RBAC-yet posture rather than building a
-   * parallel authorization model just for this one action.
+   * §4a: {@link #handleBootstrapCsrSubResource}'s {@code /approve} branch already requires {@code
+   * CERTIFICATE_REQUEST:APPROVE} before this runs -- by default only a {@code
+   * group:gimle:operators} principal has it, via the built-in {@code cluster-admin} binding, so
+   * this is behavior-preserving for today's only-operators-exist clusters, no longer "any cert
+   * holder" as a matter of policy rather than incidental fact.
    */
   private void handleApprove(HttpExchange exchange, String requestId) throws IOException {
     Optional<PendingCsrStore.Entry> entry = pendingCsrStore.get(requestId);
@@ -1369,7 +1875,13 @@ public final class ApiServer implements AutoCloseable {
     }
     PKCS10CertificationRequest csr = Pem.decodeCsr(entry.get().csrPem());
     CertificateAuthority ca = certificateAuthority.orElseThrow();
-    X509Certificate signed = ca.signCertificateRequest(csr, LEAF_VALIDITY);
+    // Server-stamped O=, mirroring handleNodeJoinRequest -- an OPERATOR_CLIENT CSR's own Subject
+    // is never trusted verbatim either.
+    X509Certificate signed =
+        ca.signCertificateRequest(
+            csr,
+            Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_OPERATORS),
+            LEAF_VALIDITY);
     pendingCsrStore.approve(requestId, signed);
     respondJson(
         exchange,
@@ -1381,7 +1893,8 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleBootstrapTokens(HttpExchange exchange) {
     try {
-      if (!requireClientCertificate(exchange)) {
+      if (!requireAuthorized(
+          exchange, ResourceKind.BOOTSTRAP_TOKEN, Verb.WRITE, Optional.empty())) {
         return;
       }
       if (!"POST".equals(exchange.getRequestMethod())) {
@@ -1457,23 +1970,113 @@ public final class ApiServer implements AutoCloseable {
    * client certificate is optional at the TLS handshake, not enforced there) because {@code
    * HttpsConfigurator}/{@code HttpsParameters} negotiate per *connection*, before the HTTP request
    * (and therefore the path) is ever read -- there is no JDK API to make client-auth conditional on
-   * which path is about to be requested. So every handler that needs an authenticated identity
-   * enforces it itself, here, instead: {@code true} immediately in plaintext mode (unchanged
-   * behavior, no enforcement, matching today's baseline), else {@code true} only if the exchange
-   * carries a verified peer certificate. Writes the 401 itself on failure so every call site can
-   * just {@code return} without duplicating the response.
+   * which path is about to be requested. So every handler that needs an authenticated, *authorized*
+   * identity enforces it itself, here, instead: {@code true} immediately in plaintext mode
+   * (unchanged behavior, no enforcement, matching today's baseline -- see {@code
+   * claudedocs/authn-authz-design.md} §7), else resolves a {@link Principal} from either a verified
+   * peer certificate or a verified session cookie and checks it against {@link #authorizer}. Two
+   * distinct status codes where the pre-RBAC {@code requireClientCertificate} this replaces only
+   * ever wrote one: {@code 401} when there is no usable identity at all, {@code 403} when the
+   * identity is known but lacks the permission. Writes the response itself on failure so every call
+   * site can just {@code return} without duplicating it.
    */
-  private static boolean requireClientCertificate(HttpExchange exchange) {
-    if (!(exchange instanceof HttpsExchange httpsExchange)) {
+  private boolean requireAuthorized(
+      HttpExchange exchange,
+      ResourceKind resource,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId) {
+    if (!(exchange instanceof HttpsExchange)) {
       return true;
     }
-    try {
-      httpsExchange.getSSLSession().getPeerCertificates();
-      return true;
-    } catch (SSLPeerUnverifiedException e) {
-      respondQuietly(exchange, 401, "client certificate required");
+    Optional<Principal> principal = resolvePrincipal(exchange);
+    if (principal.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
       return false;
     }
+    if (!authorizer.authorize(principal.get(), resource, verb, tenant, targetId)) {
+      respondQuietly(exchange, 403, "forbidden");
+      return false;
+    }
+    return true;
+  }
+
+  /** {@code targetId}-less convenience overload for the majority of call sites that need none. */
+  private boolean requireAuthorized(
+      HttpExchange exchange, ResourceKind resource, Verb verb, Optional<String> tenant) {
+    return requireAuthorized(exchange, resource, verb, tenant, Optional.empty());
+  }
+
+  /**
+   * A verified client certificate wins over a session cookie when both are somehow present (mTLS is
+   * the stronger proof) -- in practice only one is ever offered by a given caller (the CLI/node
+   * agents never send a session cookie, the console never presents a client certificate).
+   */
+  private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    if (certificate.isPresent()) {
+      return Optional.of(principalFromCertificate(certificate.get()));
+    }
+    return sessionCookie(exchange)
+        .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+        .map(username -> new Principal(username, Set.of()));
+  }
+
+  /**
+   * {@code CN=} becomes the principal's name, every {@code O=} an entry in its groups -- see {@code
+   * claudedocs/authn-authz-design.md} §2/§2a for why {@code O=} is trustworthy here: it is stamped
+   * server-side at issuance ({@link #handleBootstrapCsrSubmit}), never taken verbatim from a
+   * client's own CSR.
+   */
+  private static Principal principalFromCertificate(X509Certificate certificate) {
+    X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());
+    RDN[] commonNames = subject.getRDNs(BCStyle.CN);
+    if (commonNames.length == 0) {
+      throw new IllegalStateException("certificate subject carries no CN=: " + subject);
+    }
+    Set<String> groups = new LinkedHashSet<>();
+    for (RDN rdn : subject.getRDNs(BCStyle.O)) {
+      groups.add(rdn.getFirst().getValue().toString());
+    }
+    return new Principal(commonNames[0].getFirst().getValue().toString(), groups);
+  }
+
+  private static Optional<String> sessionCookie(HttpExchange exchange) {
+    List<String> cookieHeaders = exchange.getRequestHeaders().get("Cookie");
+    if (cookieHeaders == null) {
+      return Optional.empty();
+    }
+    String prefix = SESSION_COOKIE_NAME + "=";
+    for (String header : cookieHeaders) {
+      for (String part : header.split(";")) {
+        String trimmed = part.trim();
+        if (trimmed.startsWith(prefix)) {
+          return Optional.of(trimmed.substring(prefix.length()));
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * {@code HttpOnly} (never readable by the console's own JS -- an XSS in the SPA can't exfiltrate
+   * it), {@code SameSite=Strict} (never attached to a request originating from another site -- a
+   * CSRF mitigation, since auth here is cookie- not header-based), {@code Secure} only in TLS mode
+   * (a plaintext connection can't set a cookie the browser would ever actually send back over
+   * plaintext anyway). {@code maxAgeSeconds} of {@code 0} is how {@link #handleAuthLogout} clears
+   * it.
+   */
+  private static String sessionCookieHeader(String token, long maxAgeSeconds) {
+    StringBuilder header =
+        new StringBuilder(SESSION_COOKIE_NAME)
+            .append('=')
+            .append(token)
+            .append("; Path=/; HttpOnly; SameSite=Strict; Max-Age=")
+            .append(maxAgeSeconds);
+    if (TransportProtocol.fromConfig() == TransportProtocol.TLS) {
+      header.append("; Secure");
+    }
+    return header.toString();
   }
 
   private static String pathSegmentAfter(HttpExchange exchange, String prefix) {

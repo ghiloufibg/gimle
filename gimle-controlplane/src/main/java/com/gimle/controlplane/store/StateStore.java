@@ -2,6 +2,12 @@ package com.gimle.controlplane.store;
 
 import com.gimle.controlplane.manifest.DeploymentManifestParser;
 import com.gimle.controlplane.manifest.DeploymentSpec;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
@@ -55,6 +61,9 @@ public final class StateStore {
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
+  private final Map<String, Role> roles = new ConcurrentHashMap<>();
+  private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
+  private final Map<String, Account> accounts = new ConcurrentHashMap<>();
 
   public StateStore(Path root) {
     this.root = root;
@@ -67,6 +76,9 @@ public final class StateStore {
       Files.createDirectories(tenantsDir());
       Files.createDirectories(quotaDir());
       Files.createDirectories(configDir());
+      Files.createDirectories(rolesDir());
+      Files.createDirectories(roleBindingsDir());
+      Files.createDirectories(accountsDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -261,6 +273,71 @@ public final class StateStore {
     configEntries.remove(configKey(tenantId, key));
   }
 
+  // ---- roles ----
+
+  public void putRole(Role role) {
+    writeAtomically(roleFile(role.name()), roleToYaml(role));
+    roles.put(role.name(), role);
+  }
+
+  public Optional<Role> getRole(String name) {
+    return Optional.ofNullable(roles.get(name));
+  }
+
+  public List<Role> listRoles() {
+    return List.copyOf(roles.values());
+  }
+
+  public void removeRole(String name) {
+    deleteQuietly(roleFile(name));
+    roles.remove(name);
+  }
+
+  // ---- role bindings ----
+
+  public void putRoleBinding(RoleBinding binding) {
+    writeAtomically(roleBindingFile(binding.id()), roleBindingToYaml(binding));
+    roleBindings.put(binding.id(), binding);
+  }
+
+  public Optional<RoleBinding> getRoleBinding(String id) {
+    return Optional.ofNullable(roleBindings.get(id));
+  }
+
+  public List<RoleBinding> listRoleBindings() {
+    return List.copyOf(roleBindings.values());
+  }
+
+  public void removeRoleBinding(String id) {
+    deleteQuietly(roleBindingFile(id));
+    roleBindings.remove(id);
+  }
+
+  // ---- accounts ----
+
+  /**
+   * Console-login-only, see {@link Account}'s own javadoc. {@link #listAccounts()} being empty is
+   * exactly the signal {@code ApiServer} checks before seeding a bootstrap account from {@code
+   * gimle-pki}'s {@code bootstrap-account.yaml} -- never re-seeded once any account exists.
+   */
+  public void putAccount(Account account) {
+    writeAtomically(accountFile(account.username()), accountToYaml(account));
+    accounts.put(account.username(), account);
+  }
+
+  public Optional<Account> getAccount(String username) {
+    return Optional.ofNullable(accounts.get(username));
+  }
+
+  public List<Account> listAccounts() {
+    return List.copyOf(accounts.values());
+  }
+
+  public void removeAccount(String username) {
+    deleteQuietly(accountFile(username));
+    accounts.remove(username);
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -280,7 +357,10 @@ public final class StateStore {
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
             .collect(Collectors.toUnmodifiableSet()),
-        List.copyOf(configEntries.values()));
+        List.copyOf(configEntries.values()),
+        List.copyOf(roles.values()),
+        List.copyOf(roleBindings.values()),
+        List.copyOf(accounts.values()));
   }
 
   /**
@@ -296,6 +376,9 @@ public final class StateStore {
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
     List.copyOf(configEntries.values()).forEach(e -> removeConfigEntry(e.tenantId(), e.key()));
+    List.copyOf(roles.keySet()).forEach(this::removeRole);
+    List.copyOf(roleBindings.keySet()).forEach(this::removeRoleBinding);
+    List.copyOf(accounts.keySet()).forEach(this::removeAccount);
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
@@ -305,6 +388,9 @@ public final class StateStore {
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
     snapshot.configEntries().forEach(this::putConfigEntry);
+    snapshot.roles().forEach(this::putRole);
+    snapshot.roleBindings().forEach(this::putRoleBinding);
+    snapshot.accounts().forEach(this::putAccount);
   }
 
   // ---- disk layout ----
@@ -375,6 +461,30 @@ public final class StateStore {
 
   private Path configDir() {
     return root.resolve("config");
+  }
+
+  private Path rolesDir() {
+    return root.resolve("roles");
+  }
+
+  private Path roleFile(String name) {
+    return rolesDir().resolve(name + ".yaml");
+  }
+
+  private Path roleBindingsDir() {
+    return root.resolve("rolebindings");
+  }
+
+  private Path roleBindingFile(String id) {
+    return roleBindingsDir().resolve(id + ".yaml");
+  }
+
+  private Path accountsDir() {
+    return root.resolve("accounts");
+  }
+
+  private Path accountFile(String username) {
+    return accountsDir().resolve(username + ".yaml");
   }
 
   private Path configFile(String tenantId, String key) {
@@ -461,6 +571,27 @@ public final class StateStore {
         file -> {
           ConfigEntry entry = configEntryFromMap(loadMap(file));
           configEntries.put(configKey(entry.tenantId(), entry.key()), entry);
+        });
+    loadEach(
+        rolesDir(),
+        "*.yaml",
+        file -> {
+          Role role = roleFromMap(loadMap(file));
+          roles.put(role.name(), role);
+        });
+    loadEach(
+        roleBindingsDir(),
+        "*.yaml",
+        file -> {
+          RoleBinding binding = roleBindingFromMap(loadMap(file));
+          roleBindings.put(binding.id(), binding);
+        });
+    loadEach(
+        accountsDir(),
+        "*.yaml",
+        file -> {
+          Account account = accountFromMap(loadMap(file));
+          accounts.put(account.username(), account);
         });
   }
 
@@ -719,5 +850,63 @@ public final class StateStore {
         (String) root.get("key"),
         value,
         (Boolean) root.get("encrypted"));
+  }
+
+  private static String roleToYaml(Role role) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("name", role.name());
+    List<Map<String, Object>> permissions = new ArrayList<>();
+    for (Permission p : role.permissions()) {
+      Map<String, Object> m = new LinkedHashMap<>();
+      m.put("resource", p.resource().name());
+      m.put("verb", p.verb().name());
+      p.tenantScope().ifPresent(t -> m.put("tenantScope", t));
+      permissions.add(m);
+    }
+    root.put("permissions", permissions);
+    return new Yaml().dump(root);
+  }
+
+  private static Role roleFromMap(Map<?, ?> root) {
+    String name = (String) root.get("name");
+    List<?> permissionsList = (List<?>) root.get("permissions");
+    Set<Permission> permissions = new LinkedHashSet<>();
+    for (Object o : permissionsList) {
+      Map<?, ?> m = (Map<?, ?>) o;
+      ResourceKind resource = ResourceKind.valueOf((String) m.get("resource"));
+      Verb verb = Verb.valueOf((String) m.get("verb"));
+      Object tenantScope = m.get("tenantScope");
+      permissions.add(
+          new Permission(
+              resource,
+              verb,
+              tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope)));
+    }
+    return new Role(name, permissions);
+  }
+
+  private static String roleBindingToYaml(RoleBinding binding) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("id", binding.id());
+    root.put("subject", binding.subject());
+    root.put("roleName", binding.roleName());
+    return new Yaml().dump(root);
+  }
+
+  private static RoleBinding roleBindingFromMap(Map<?, ?> root) {
+    return new RoleBinding(
+        (String) root.get("id"), (String) root.get("subject"), (String) root.get("roleName"));
+  }
+
+  private static String accountToYaml(Account account) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("username", account.username());
+    root.put("passwordHash", Base64.getEncoder().encodeToString(account.passwordHash()));
+    return new Yaml().dump(root);
+  }
+
+  private static Account accountFromMap(Map<?, ?> root) {
+    byte[] passwordHash = Base64.getDecoder().decode((String) root.get("passwordHash"));
+    return new Account((String) root.get("username"), passwordHash);
   }
 }

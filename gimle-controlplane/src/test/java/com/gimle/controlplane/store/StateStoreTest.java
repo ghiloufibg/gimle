@@ -1,11 +1,18 @@
 package com.gimle.controlplane.store;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.manifest.PlacementConstraints;
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -140,6 +147,47 @@ class StateStoreTest {
     assertTrue(store.listAssignments().isEmpty());
     assertTrue(store.getNodeRegistration("nope").isEmpty());
     assertTrue(store.getNodeHeartbeat("nope").isEmpty());
+  }
+
+  @Test
+  void role_role_binding_and_account_round_trip_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("authz-roundtrip");
+    StateStore store = new StateStore(root);
+    Role role =
+        new Role(
+            "viewer",
+            Set.of(
+                Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ),
+                Permission.scoped(ResourceKind.CONFIG, Verb.READ, "acme")));
+    RoleBinding binding = new RoleBinding("b1", RoleBinding.userSubject("alice"), "viewer");
+    Account account = new Account("admin", new byte[] {1, 2, 3, 4});
+
+    store.putRole(role);
+    store.putRoleBinding(binding);
+    store.putAccount(account);
+
+    assertEquals(Optional.of(role), store.getRole("viewer"));
+    assertEquals(Optional.of(binding), store.getRoleBinding("b1"));
+    assertEquals(Optional.of(account), store.getAccount("admin"));
+
+    // Account's generated equals() compares passwordHash by array reference, not content -- a
+    // freshly reloaded Account is a distinct object with a distinct (if equal-content) array, the
+    // same reason ConfigEntry-bearing round trips elsewhere in this codebase compare fields
+    // individually (assertArrayEquals on the byte[]) rather than the whole record.
+    StateStore reloaded = new StateStore(root);
+    assertEquals(List.of(role), reloaded.listRoles());
+    assertEquals(List.of(binding), reloaded.listRoleBindings());
+    assertEquals(1, reloaded.listAccounts().size());
+    assertEquals("admin", reloaded.listAccounts().get(0).username());
+    assertArrayEquals(account.passwordHash(), reloaded.listAccounts().get(0).passwordHash());
+
+    reloaded.removeRole("viewer");
+    reloaded.removeRoleBinding("b1");
+    reloaded.removeAccount("admin");
+    StateStore reloadedAgain = new StateStore(root);
+    assertTrue(reloadedAgain.listRoles().isEmpty());
+    assertTrue(reloadedAgain.listRoleBindings().isEmpty());
+    assertTrue(reloadedAgain.listAccounts().isEmpty());
   }
 
   @Test

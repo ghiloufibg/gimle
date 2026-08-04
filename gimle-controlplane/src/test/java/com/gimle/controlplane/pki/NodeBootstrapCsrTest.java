@@ -102,8 +102,13 @@ class NodeBootstrapCsrTest {
       TlsSettings issuedSettings = new TlsSettings(issuedCertFile, issuedKeyFile, caFile);
       HttpClient issuedClient =
           HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(issuedSettings)).build();
+      // Its own /nodes/{nodeId}/assignments, not the operator-only /nodes list -- the freshly
+      // issued certificate carries O=gimle:nodes (stamped server-side at issuance), which only
+      // grants self-service access to node-1's own subresources, not the cluster-wide node list.
+      // This is a more faithful proof of "usable for what a node actually needs to do" than the
+      // list endpoint this test used pre-RBAC.
       HttpRequest nodesRequest =
-          HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build();
+          HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-1/assignments")).GET().build();
       HttpResponse<String> nodesResponse =
           issuedClient.send(
               nodesRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -189,8 +194,13 @@ class NodeBootstrapCsrTest {
 
   private HttpClient mutualTlsClient(CertificateAuthority ca, String commonName) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
+    // O=gimle:operators: this is the "existing operator" whose certificate authorizes issuing a
+    // bootstrap token (BOOTSTRAP_TOKEN:WRITE, granted by the built-in cluster-admin binding) -- a
+    // bare CN=, as a real /bootstrap/csr flow would never produce post-RBAC, would resolve to a
+    // Principal with no group and be denied.
     PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("O=gimle:operators,CN=" + commonName));
     Path certFile =
         writePem(
             commonName + "-cert.pem",

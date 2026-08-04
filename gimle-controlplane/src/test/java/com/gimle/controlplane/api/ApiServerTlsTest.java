@@ -101,9 +101,9 @@ class ApiServerTlsTest {
       // certificate of its own. The server sets wantClientAuth, not needClientAuth (see
       // ApiServer#createHttpServer's javadoc -- HttpsConfigurator negotiates per connection,
       // before the request path is known, so there's no way to make client-auth conditional on
-      // path at that layer), so the TLS handshake itself succeeds;
-      // ApiServer#requireClientCertificate
-      // is what rejects the request, with a 401 at the HTTP layer instead of a handshake failure.
+      // path at that layer), so the TLS handshake itself succeeds; ApiServer#requireAuthorized is
+      // what rejects the request (no identity at all resolves), with a 401 at the HTTP layer
+      // instead of a handshake failure.
       SSLContext trustOnlyContext = SSLContext.getInstance("TLSv1.3");
       trustOnlyContext.init(null, trustManagersFor(ca), null);
       HttpClient client = HttpClient.newBuilder().sslContext(trustOnlyContext).build();
@@ -152,8 +152,12 @@ class ApiServerTlsTest {
 
   private TlsSettings issueLeaf(CertificateAuthority ca, String commonName) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
+    // O=gimle:operators: this is what resolves to the built-in cluster-admin role via the
+    // Authorizer's implicit group binding -- a bare CN=, as a real /bootstrap/csr flow would never
+    // produce post-RBAC, would resolve to a Principal with no group and be denied.
     PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("O=gimle:operators,CN=" + commonName));
     X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
 
     Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());

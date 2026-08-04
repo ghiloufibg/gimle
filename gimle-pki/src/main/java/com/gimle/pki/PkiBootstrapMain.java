@@ -1,5 +1,7 @@
 package com.gimle.pki;
 
+import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.PasswordHashes;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -7,8 +9,10 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -52,10 +56,44 @@ public final class PkiBootstrapMain {
     writeCa(outputDir, ca);
 
     issueLeaf(outputDir, ca, "controlplane", "CN=" + hostname, List.of(hostname, "localhost"));
-    issueLeaf(outputDir, ca, "operator", "CN=initial-operator", List.of());
+    issueLeaf(
+        outputDir,
+        ca,
+        "operator",
+        "O=" + BuiltinRoles.GROUP_OPERATORS + ",CN=initial-operator",
+        List.of());
+    String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     System.out.println(
         "wrote cluster CA, control-plane, and initial-operator material to " + outputDir);
+    System.out.println();
+    System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);
+    System.out.println(
+        "record this password now -- it is never written to disk in plaintext and cannot be "
+            + "recovered later. Log in to the console with it, then immediately run:");
+    System.out.println(
+        "  gimle set rolebinding admin-binding --subject user:admin --role cluster-admin");
+    System.out.println("using the initial-operator certificate to grant it real access.");
+  }
+
+  /**
+   * Writes a small bootstrap-only YAML file ({@code username}/{@code passwordHash}, hand-written
+   * rather than pulling in a YAML dependency this module otherwise has no use for) that {@code
+   * ApiServer} reads once at startup -- only while its {@code StateStore} has zero accounts -- and
+   * Raft-proposes as a real {@code Account}. {@code gimle-pki} runs standalone, before any
+   * control-plane process exists, so it cannot propose Raft state directly; this file is the
+   * hand-off point, the same role {@code ca.key}/{@code operator.key} already play for certificate
+   * material. Returns the generated plaintext password so the caller can print it exactly once.
+   */
+  private static String writeBootstrapAccount(Path outputDir) throws IOException {
+    byte[] passwordBytes = new byte[24];
+    new SecureRandom().nextBytes(passwordBytes);
+    String password = Base64.getUrlEncoder().withoutPadding().encodeToString(passwordBytes);
+    byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
+    String yaml =
+        "username: admin\npasswordHash: " + Base64.getEncoder().encodeToString(passwordHash) + "\n";
+    Files.writeString(outputDir.resolve("bootstrap-account.yaml"), yaml, StandardCharsets.US_ASCII);
+    return password;
   }
 
   private static void writeCa(Path outputDir, CertificateAuthority ca) throws IOException {

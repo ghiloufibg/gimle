@@ -1,0 +1,113 @@
+package com.gimle.controlplane.secret;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Optional;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+
+/**
+ * Stateless, HMAC-SHA256-signed console session tokens -- {@code claudedocs/authn-authz-design.md}
+ * §6. Format: {@code payload || HMAC-SHA256(key, payload)}, where {@code payload} is the username
+ * plus an expiry timestamp, mirroring {@code SecretCipher}'s self-contained {@code iv ||
+ * ciphertext} shape (here, {@code payload || tag}) so a single opaque string round-trips through
+ * {@link #verify} without a caller tracking anything separately.
+ *
+ * <p>Deliberately not a lookup table: unlike {@code BootstrapTokenRegistry}'s single-use tokens
+ * (checked once, against one control-plane node's memory, at issuance), a session token must keep
+ * verifying on every request, potentially against whichever control-plane node happens to receive
+ * it. A signed, stateless token needs no replication or shared table to make that work -- any node
+ * holding the same signing key verifies independently.
+ */
+public final class SessionTokens {
+
+  private static final String MAC_ALGORITHM = "HmacSHA256";
+
+  private SessionTokens() {}
+
+  public static String issue(String username, SecretKey signingKey, Duration ttl) {
+    long expiresAtEpochMilli = Instant.now().plus(ttl).toEpochMilli();
+    byte[] payload = encodePayload(username, expiresAtEpochMilli);
+    byte[] tag = hmac(payload, signingKey);
+    byte[] token = new byte[payload.length + tag.length];
+    System.arraycopy(payload, 0, token, 0, payload.length);
+    System.arraycopy(tag, 0, token, payload.length, tag.length);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
+  }
+
+  /**
+   * The verified username, or empty if {@code token} is malformed, its HMAC tag doesn't match
+   * (verified via {@link MessageDigest#isEqual}, never {@link Arrays#equals} -- a hand-rolled
+   * comparison here must be constant-time), or it has expired.
+   */
+  public static Optional<String> verify(String token, SecretKey signingKey) {
+    byte[] decoded;
+    try {
+      decoded = Base64.getUrlDecoder().decode(token);
+    } catch (IllegalArgumentException e) {
+      return Optional.empty();
+    }
+    int tagLength = macLength();
+    if (decoded.length <= tagLength) {
+      return Optional.empty();
+    }
+    byte[] payload = Arrays.copyOfRange(decoded, 0, decoded.length - tagLength);
+    byte[] presentedTag = Arrays.copyOfRange(decoded, decoded.length - tagLength, decoded.length);
+    if (!MessageDigest.isEqual(hmac(payload, signingKey), presentedTag)) {
+      return Optional.empty();
+    }
+    try {
+      DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
+      String username = in.readUTF();
+      long expiresAtEpochMilli = in.readLong();
+      if (Instant.now().toEpochMilli() > expiresAtEpochMilli) {
+        return Optional.empty();
+      }
+      return Optional.of(username);
+    } catch (IOException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static byte[] encodePayload(String username, long expiresAtEpochMilli) {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    try {
+      DataOutputStream out = new DataOutputStream(buffer);
+      out.writeUTF(username);
+      out.writeLong(expiresAtEpochMilli);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    return buffer.toByteArray();
+  }
+
+  private static byte[] hmac(byte[] payload, SecretKey signingKey) {
+    try {
+      Mac mac = Mac.getInstance(MAC_ALGORITHM);
+      mac.init(new SecretKeySpec(signingKey.getEncoded(), MAC_ALGORITHM));
+      return mac.doFinal(payload);
+    } catch (GeneralSecurityException e) {
+      throw new IllegalStateException("HMAC-SHA256 unavailable", e);
+    }
+  }
+
+  private static int macLength() {
+    try {
+      return Mac.getInstance(MAC_ALGORITHM).getMacLength();
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("HMAC-SHA256 unavailable", e);
+    }
+  }
+}
