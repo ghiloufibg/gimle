@@ -25,8 +25,23 @@ import javax.net.SocketFactory;
  * matching this project's MVP-first convention; virtual threads make the per-call connection/thread
  * cost cheap on both ends (a synchronous proxy call is exactly one virtual thread blocked on
  * exactly one connection).
+ *
+ * <p>The two cross-machine paths (plaintext TCP and TLS) bound both connect and read time -- a slow
+ * or network-partitioned peer must not block the calling virtual thread indefinitely (confirmed
+ * directly, not assumed: neither timeout was ever set here before this was added). The same-machine
+ * UDS path deliberately keeps neither: its connect can't meaningfully hang in the first place -- no
+ * network round-trip, kernel-mediated, per §1's own table in {@code
+ * claudedocs/tls-transport-security-design.md} -- and bounding its read would need a materially
+ * more complex mechanism ({@code SocketChannel} has no {@code setSoTimeout}; its {@link
+ * SocketChannel#socket()} adapter throws {@code UnsupportedOperationException} for a
+ * Unix-domain-family channel specifically, confirmed empirically, not assumed -- a real read
+ * timeout here would mean non-blocking mode plus a {@code Selector}), disproportionate to a risk
+ * that's specifically about network partitions, which a same-machine socket can't have.
  */
 public final class FabricClient {
+
+  private static final int CONNECT_TIMEOUT_MILLIS = 10_000;
+  private static final int READ_TIMEOUT_MILLIS = 30_000;
 
   private FabricClient() {}
 
@@ -41,14 +56,17 @@ public final class FabricClient {
     }
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       try (SocketChannel channel = SocketChannel.open()) {
-        channel.connect(endpoint);
+        Socket socket = channel.socket();
+        socket.connect(endpoint, CONNECT_TIMEOUT_MILLIS);
+        socket.setSoTimeout(READ_TIMEOUT_MILLIS);
         return callOverStreams(
-            endpoint, Channels.newInputStream(channel), Channels.newOutputStream(channel), request);
+            endpoint, socket.getInputStream(), socket.getOutputStream(), request);
       }
     }
     SocketFactory factory = SslContexts.forMutualTls(TlsSettings.fromConfig()).getSocketFactory();
     try (Socket socket = factory.createSocket()) {
-      socket.connect(endpoint);
+      socket.connect(endpoint, CONNECT_TIMEOUT_MILLIS);
+      socket.setSoTimeout(READ_TIMEOUT_MILLIS);
       return callOverStreams(endpoint, socket.getInputStream(), socket.getOutputStream(), request);
     }
   }

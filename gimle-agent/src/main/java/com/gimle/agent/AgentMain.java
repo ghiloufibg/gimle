@@ -226,6 +226,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/register"))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -238,11 +239,18 @@ public final class AgentMain {
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
   private static final String BOOTSTRAP_TOKEN_PROPERTY = "gimle.tls.bootstrapToken";
 
+  // Bounds every HTTP call this agent makes to the control plane -- a slow or partitioned control
+  // plane must not block the agent's tick loop indefinitely (confirmed directly, not assumed:
+  // neither timeout was ever set anywhere in this class before this was added).
+  private static final Duration HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+  private static final Duration HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
   private static HttpClient buildHttpClient() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return HttpClient.newHttpClient();
+      return HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).build();
     }
     return HttpClient.newBuilder()
+        .connectTimeout(HTTP_CONNECT_TIMEOUT)
         .sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()))
         .build();
   }
@@ -280,7 +288,8 @@ public final class AgentMain {
             keyPair, new X500Name("CN=" + nodeId), List.of(resolveAdvertisedHost()));
 
     SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
-    HttpClient bootstrapClient = HttpClient.newBuilder().sslContext(trustOnly).build();
+    HttpClient bootstrapClient =
+        HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).sslContext(trustOnly).build();
     Map<String, Object> body =
         csrSubmissionToJson(
             new CsrSubmission(
@@ -288,6 +297,7 @@ public final class AgentMain {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
             .header("Content-Type", "application/json")
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     HttpResponse<String> response =
@@ -344,6 +354,7 @@ public final class AgentMain {
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
               .header("Content-Type", "application/json")
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
       HttpResponse<String> response =
@@ -451,6 +462,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/heartbeat"))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -478,7 +490,10 @@ public final class AgentMain {
   private static List<AssignedInstance> fetchAssignments(
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
-        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments")).GET().build();
+        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .GET()
+            .build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     List<Object> raw = Json.asArray(Json.parse(response.body()));
@@ -510,7 +525,10 @@ public final class AgentMain {
       HttpClient httpClient, URI baseUrl, String tenantId)
       throws IOException, InterruptedException {
     HttpRequest request =
-        HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId)).GET().build();
+        HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId))
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .GET()
+            .build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     List<Object> raw = Json.asArray(Json.parse(response.body()));
