@@ -1,0 +1,274 @@
+package com.gimle.mimir.rpc;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.raft.AppendEntries;
+import com.gimle.mimir.raft.AppendEntriesResponse;
+import com.gimle.mimir.raft.InstallSnapshot;
+import com.gimle.mimir.raft.InstallSnapshotResponse;
+import com.gimle.mimir.raft.PeerConnection;
+import com.gimle.mimir.raft.RaftLog;
+import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.raft.RaftPeerClient;
+import com.gimle.mimir.raft.RaftRpcHandler;
+import com.gimle.mimir.raft.RaftTransport;
+import com.gimle.mimir.raft.RequestVote;
+import com.gimle.mimir.raft.RequestVoteResponse;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.mimir.store.StateStore;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
+
+/**
+ * The load-bearing checkpoint for the etcd-store-extraction design's step 7: a real 3-node {@code
+ * StoreNode} cluster (real Raft consensus over real sockets, real {@code StoreTransport} listeners)
+ * driven entirely through one {@link StoreClient}, proving the whole protocol works -- including
+ * leader-follow-retry across a forced failover -- before {@code ApiServer} is ever rewired onto it.
+ * Modeled directly on {@code RaftClusterTest}'s real-loopback-TCP pattern.
+ */
+@Isolated
+class StoreClientClusterTest {
+
+  @TempDir Path tempDir;
+
+  private final List<RaftNode> raftNodes = new ArrayList<>();
+  private final List<RaftTransport> raftTransports = new ArrayList<>();
+  private final List<StoreTransport> storeTransports = new ArrayList<>();
+  private StoreClient client;
+  private int clusterCounter;
+
+  @AfterEach
+  void tearDown() {
+    if (client != null) {
+      client.close();
+    }
+    for (StoreTransport transport : storeTransports) {
+      transport.close();
+    }
+    for (RaftNode node : raftNodes) {
+      node.close();
+    }
+    for (RaftTransport transport : raftTransports) {
+      transport.close();
+    }
+  }
+
+  private record ClusterNode(
+      String id,
+      RaftNode raftNode,
+      RaftTransport raftTransport,
+      StoreTransport storeTransport,
+      SocketAddress clientAddress) {}
+
+  private static final class HandlerRef implements RaftRpcHandler {
+    volatile RaftRpcHandler delegate;
+
+    @Override
+    public RequestVoteResponse onRequestVote(RequestVote request) {
+      return delegate.onRequestVote(request);
+    }
+
+    @Override
+    public AppendEntriesResponse onAppendEntries(AppendEntries request) {
+      return delegate.onAppendEntries(request);
+    }
+
+    @Override
+    public InstallSnapshotResponse onInstallSnapshot(InstallSnapshot request) {
+      return delegate.onInstallSnapshot(request);
+    }
+  }
+
+  private static InetSocketAddress reserveAddress() throws IOException {
+    try (ServerSocketChannel probe = ServerSocketChannel.open()) {
+      probe.bind(new InetSocketAddress("127.0.0.1", 0));
+      return (InetSocketAddress) probe.getLocalAddress();
+    }
+  }
+
+  private List<ClusterNode> buildCluster(int n) throws IOException {
+    List<String> ids = new ArrayList<>();
+    List<InetSocketAddress> raftAddresses = new ArrayList<>();
+    List<InetSocketAddress> clientAddresses = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      ids.add("node-" + i);
+      raftAddresses.add(reserveAddress());
+      clientAddresses.add(reserveAddress());
+    }
+    Map<String, String> raftIdToClientAddress = new HashMap<>();
+    for (int i = 0; i < n; i++) {
+      String raftId = ids.get(i) + ":" + raftAddresses.get(i).getPort();
+      raftIdToClientAddress.put(
+          raftId, clientAddresses.get(i).getHostString() + ":" + clientAddresses.get(i).getPort());
+    }
+
+    List<ClusterNode> clusterNodes = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      HandlerRef ref = new HandlerRef();
+      RaftTransport raftTransport = new RaftTransport(ref);
+      raftTransports.add(raftTransport);
+
+      Map<String, RaftPeerClient> peers = new HashMap<>();
+      for (int j = 0; j < n; j++) {
+        if (j == i) {
+          continue;
+        }
+        String peerRaftId = ids.get(j) + ":" + raftAddresses.get(j).getPort();
+        peers.put(peerRaftId, new PeerConnection(raftAddresses.get(j)));
+      }
+
+      Path dir = tempDir.resolve("cluster-" + (clusterCounter++) + "-node-" + i);
+      StateStore store = new StateStore(dir.resolve("store"));
+      RaftLog raftLog = new RaftLog(dir.resolve("raft"));
+      String selfRaftId = ids.get(i) + ":" + raftAddresses.get(i).getPort();
+      RaftNode raftNode = new RaftNode(selfRaftId, peers, raftLog, store);
+      ref.delegate = raftNode;
+      raftNodes.add(raftNode);
+
+      StoreNode storeNode = new StoreNode(raftNode, store, raftIdToClientAddress);
+      StoreTransport storeTransport = new StoreTransport(storeNode);
+      storeTransports.add(storeTransport);
+
+      raftTransport.listen(raftAddresses.get(i));
+      storeTransport.listen(clientAddresses.get(i));
+      raftNode.start();
+
+      clusterNodes.add(
+          new ClusterNode(
+              selfRaftId, raftNode, raftTransport, storeTransport, clientAddresses.get(i)));
+    }
+    return clusterNodes;
+  }
+
+  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (System.nanoTime() < deadline) {
+      if (condition.getAsBoolean()) {
+        return;
+      }
+      Thread.sleep(20);
+    }
+    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
+  }
+
+  /**
+   * Unlike {@link #awaitTrue}, returns the value the poll actually observed present -- reads
+   * round-robin across every node (design doc §4.5, no linearizability requirement), so a follow-up
+   * call after an {@code awaitTrue}-then-refetch pattern can legitimately land on a still-lagging
+   * replica and see it absent again, a false failure that has nothing to do with {@link
+   * StoreClient} correctness.
+   */
+  private static <T> T awaitPresent(Supplier<Optional<T>> poll, Duration timeout)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (System.nanoTime() < deadline) {
+      Optional<T> value = poll.get();
+      if (value.isPresent()) {
+        return value.get();
+      }
+      Thread.sleep(20);
+    }
+    throw new AssertionError("condition not met within " + timeout);
+  }
+
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
+    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
+    return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
+  }
+
+  private static List<SocketAddress> clientAddresses(List<ClusterNode> cluster) {
+    return cluster.stream().map(ClusterNode::clientAddress).toList();
+  }
+
+  @Test
+  @Timeout(15)
+  void a_client_can_read_and_write_through_any_endpoint_once_a_leader_is_elected()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    assertEquals(List.of(), client.listTenants());
+
+    client.propose(
+        new StateMutation.PutTenant(new Tenant("acme", new ResourceQuota(1024, 500, 10))));
+
+    Tenant found = awaitPresent(() -> client.getTenant("acme"), Duration.ofSeconds(3));
+    assertEquals("acme", found.id());
+  }
+
+  @Test
+  @Timeout(15)
+  void leases_are_acquired_renewed_and_released_through_the_client() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    LeaseGrant granted =
+        client.tryAcquireOrRenewLease("reconciler-leader", "api-1", Duration.ofSeconds(10));
+    assertTrue(granted.granted());
+
+    LeaseGrant denied =
+        client.tryAcquireOrRenewLease("reconciler-leader", "api-2", Duration.ofSeconds(10));
+    assertTrue(!denied.granted());
+    assertEquals("api-1", denied.holderId());
+
+    client.releaseLease("reconciler-leader", "api-1");
+    LeaseGrant grantedAfterRelease =
+        client.tryAcquireOrRenewLease("reconciler-leader", "api-2", Duration.ofSeconds(10));
+    assertTrue(grantedAfterRelease.granted());
+  }
+
+  @Test
+  @Timeout(30)
+  void a_client_keeps_writing_successfully_across_a_forced_leader_failover() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    ClusterNode firstLeader = awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    client.propose(
+        new StateMutation.PutTenant(new Tenant("before-failover", new ResourceQuota(1, 1, 1))));
+    awaitPresent(() -> client.getTenant("before-failover"), Duration.ofSeconds(3));
+
+    // Force this client's cached preferred leader to point at the soon-to-be-killed node, so the
+    // next write is guaranteed to exercise both the dead-endpoint-skip path (connection refused)
+    // and the leader-follow-retry path (a survivor's NotLeader hint), not just get lucky.
+    for (int i = 0; i < 5; i++) {
+      client.propose(
+          new StateMutation.PutTenant(new Tenant("warm-" + i, new ResourceQuota(1, 1, 1))));
+    }
+
+    firstLeader.storeTransport().close();
+    firstLeader.raftTransport().close();
+    firstLeader.raftNode().close();
+
+    List<ClusterNode> remaining = cluster.stream().filter(c -> c != firstLeader).toList();
+    awaitLeader(remaining);
+
+    client.propose(
+        new StateMutation.PutTenant(new Tenant("after-failover", new ResourceQuota(2, 2, 2))));
+    Tenant found = awaitPresent(() -> client.getTenant("after-failover"), Duration.ofSeconds(5));
+    assertEquals("after-failover", found.id());
+  }
+}

@@ -65,16 +65,20 @@ One command builds every Java module and the web console (Bun install, Vite buil
 then bundles the built SPA into `gimle-console`'s own jar so `gimle-controlplane` can serve it
 with no separate build/copy step.
 
-## 2. Launch a control plane and a node agent
+## 2. Launch a store, a control plane, and a node agent
 
 ```bash
+mvn gimle:store
 mvn gimle:controlplane
 mvn gimle:agent
 ```
 
 Each is a `spring-boot:run`-style goal from a small custom Maven plugin
 (`gimle-maven-plugin/`) — no `-pl <module>`, no manual classpath resolution. Run each in its own
-terminal; they stay in the foreground.
+terminal; they stay in the foreground. The store is its own process, separate from the control
+plane's own API server — see [Control plane](../architecture/control-plane.md) — but
+`gimle:controlplane`'s defaults already know where `gimle:store`'s defaults listen, so no extra
+flags are needed for this single-node walkthrough.
 
 ## 3. Deploy a module
 

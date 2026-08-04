@@ -9,8 +9,11 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 
 /**
  * {@code mvn gimle:controlplane} -- launches a real {@code ControlPlaneMain} process using {@code
- * gimle-controlplane}'s own resolved runtime classpath. No-ops in every other reactor module (see
- * {@link AbstractGimleMojo}).
+ * gimle-controlplane}'s own resolved runtime classpath. Talks to a {@code gimle-mimir} store
+ * cluster over the network rather than embedding one (etcd-store-extraction design doc) -- {@code
+ * gimle.controlplane.storeEndpoints} defaults to {@code gimle:store}'s own default client port, so
+ * the two goals keep working together with zero extra flags for single-node local dev. No-ops in
+ * every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(name = "controlplane", requiresDependencyResolution = ResolutionScope.RUNTIME)
 public final class ControlPlaneMojo extends AbstractGimleMojo {
@@ -19,12 +22,14 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   private String port;
 
   @Parameter(
-      property = "gimle.controlplane.stateDir",
-      defaultValue = "${project.build.directory}/gimle-state")
-  private String stateDir;
+      property = "gimle.controlplane.secretKeyPath",
+      defaultValue = "${project.build.directory}/gimle-state/secret.key")
+  private String secretKeyPath;
 
-  @Parameter(property = "gimle.controlplane.raftPort", defaultValue = "9080")
-  private String raftPort;
+  // Matches StoreMojo's own gimle.store.clientPort default (9091) -- see that Mojo's javadoc for
+  // why 9091, not 9090.
+  @Parameter(property = "gimle.controlplane.storeEndpoints", defaultValue = "127.0.0.1:9091")
+  private String storeEndpoints;
 
   /**
    * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
@@ -55,8 +60,9 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));
     command.add("com.gimle.controlplane.ControlPlaneMain");
     command.add(port);
-    command.add(stateDir);
-    command.add(raftPort);
+    command.add(secretKeyPath);
+    command.add("--store-endpoints");
+    command.add(storeEndpoints);
     return command;
   }
 }

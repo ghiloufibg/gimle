@@ -1,9 +1,9 @@
 package com.gimle.controlplane.tenant;
 
-import com.gimle.controlplane.manifest.DeploymentSpec;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 
@@ -43,7 +43,7 @@ public final class TenantUsage {
    * spec" without double-counting the deployment being submitted.
    */
   public static Usage currentlyAssigned(
-      StateStore store, String tenantId, String excludingDeploymentName) {
+      StoreReader store, String tenantId, String excludingDeploymentName) {
     long memoryBytes = 0;
     long cpuMillicores = 0;
     int instances = 0;
@@ -63,7 +63,7 @@ public final class TenantUsage {
   }
 
   /** One deployment's own contribution: {@code resourceRequest * effective replicas}. */
-  public static Usage contributionOf(StateStore store, DeploymentSpec spec) {
+  public static Usage contributionOf(StoreReader store, DeploymentSpec spec) {
     ModuleDescriptor descriptor;
     try {
       descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();

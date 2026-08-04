@@ -7,10 +7,17 @@ import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.mimir.raft.RaftLog;
+import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.rpc.StoreNode;
+import com.gimle.mimir.rpc.StoreTransport;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -54,6 +61,9 @@ class ControlPlaneAgentWorkerIntegrationTest {
   Path tempDir;
 
   private final List<Process> agentProcesses = new ArrayList<>();
+  private RaftNode storeRaftNode;
+  private StoreTransport storeTransport;
+  private StoreClient storeClient;
   private ApiServer apiServer;
   private Thread reconcileLoop;
   private volatile boolean stopReconcileLoop;
@@ -69,6 +79,15 @@ class ControlPlaneAgentWorkerIntegrationTest {
     }
     if (apiServer != null) {
       apiServer.close();
+    }
+    if (storeClient != null) {
+      storeClient.close();
+    }
+    if (storeTransport != null) {
+      storeTransport.close();
+    }
+    if (storeRaftNode != null) {
+      storeRaftNode.close();
     }
   }
 
@@ -109,7 +128,19 @@ class ControlPlaneAgentWorkerIntegrationTest {
     ReplicaCountReconciler replicaCountReconciler =
         new ReplicaCountReconciler(store, Duration.ofSeconds(17), Duration.ofSeconds(20));
     HealthReconciler healthReconciler = new HealthReconciler(store);
-    apiServer = new ApiServer(store, 0);
+
+    // A single-node gimle-mimir store, in-process, wrapping this same StateStore over a real
+    // loopback socket -- ApiServer no longer holds a StateStore directly (etcd-store-extraction
+    // design doc); the reconcilers above still read/write it directly, same as always.
+    RaftLog storeRaftLog = new RaftLog(tempDir.resolve("cp-raft"));
+    storeRaftNode = new RaftNode("self", Map.of(), storeRaftLog, store);
+    storeRaftNode.start();
+    StoreNode storeNode = new StoreNode(storeRaftNode, store, Map.of());
+    storeTransport = new StoreTransport(storeNode);
+    SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
+    storeClient = new StoreClient(List.of(storeAddress));
+
+    apiServer = new ApiServer(storeClient, 0);
     apiServer.start();
     String baseUrl = "http://localhost:" + apiServer.port();
 

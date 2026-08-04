@@ -1,17 +1,18 @@
 package com.gimle.controlplane.reconcile;
 
-import com.gimle.controlplane.manifest.DeploymentSpec;
-import com.gimle.controlplane.raft.MutationSink;
-import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.Scheduler;
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.ObservedHeartbeat;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,7 +49,7 @@ public final class DeploymentReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(DeploymentReconciler.class);
 
-  private final StateStore store;
+  private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
 
@@ -57,7 +58,7 @@ public final class DeploymentReconciler {
     this(store, scheduler, mutation -> mutation.applyTo(store));
   }
 
-  public DeploymentReconciler(StateStore store, Scheduler scheduler, MutationSink mutations) {
+  public DeploymentReconciler(StoreReader store, Scheduler scheduler, MutationSink mutations) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;

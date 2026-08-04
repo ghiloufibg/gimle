@@ -23,6 +23,7 @@
     <module>gimle-observability</module>
     <module>gimle-worker</module>
     <module>gimle-agent</module>
+    <module>gimle-mimir</module>
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
     <module>gimle-cli</module>
@@ -124,6 +125,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-agent</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-mimir</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-mimir</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Mimir</name>
+  <description>
+    The Raft-replicated state store as its own process: deployment/assignment/tenant/
+    RBAC manifest model, embedded StateStore, Raft consensus, and the client-facing
+    StoreRpc protocol gimle-controlplane's ApiServer talks to instead of holding this
+    machinery in-process. See claudedocs/etcd-store-extraction-design.md.
+  </description>
+
+  <properties>
+    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.mimir.StoreMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.logging,java.xml,java.naming</gimle.runtimeImage.jdkModules>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <!-- CertificateAuthority/CertificateSigningRequests: used by RaftTransport's TLS test fixtures
+         today, and by StoreMain's own certificate-rotation ticker once it exists (design doc §4.7:
+         gimle-mimir replicas get CA-signed leaf certs from the same single cluster CA every other
+         component uses, not ad-hoc self-signed certs). -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+</project>

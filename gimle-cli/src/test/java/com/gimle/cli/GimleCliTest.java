@@ -5,20 +5,28 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.mimir.raft.RaftLog;
+import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.rpc.StoreNode;
+import com.gimle.mimir.rpc.StoreTransport;
+import com.gimle.mimir.store.StateStore;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +43,9 @@ class GimleCliTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  private RaftNode storeRaftNode;
+  private StoreTransport storeTransport;
+  private StoreClient storeClient;
   private ApiServer server;
   private String serverAddress;
   private ByteArrayOutputStream outBuffer;
@@ -44,8 +55,19 @@ class GimleCliTest {
 
   @BeforeEach
   void startServer() throws IOException {
+    // A single-node gimle-mimir store, in-process, backing this test's ApiServer over a real
+    // loopback socket -- ApiServer no longer holds a StateStore directly (etcd-store-extraction
+    // design doc), so exercising it now always means standing up at least this much of a store.
     StateStore store = new StateStore(tempDir.resolve("store"));
-    server = new ApiServer(store, 0);
+    RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
+    storeRaftNode = new RaftNode("self", Map.of(), raftLog, store);
+    storeRaftNode.start();
+    StoreNode storeNode = new StoreNode(storeRaftNode, store, Map.of());
+    storeTransport = new StoreTransport(storeNode);
+    SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
+    storeClient = new StoreClient(List.of(storeAddress));
+
+    server = new ApiServer(storeClient, 0);
     server.start();
     serverAddress = "localhost:" + server.port();
     outBuffer = new ByteArrayOutputStream();
@@ -57,6 +79,9 @@ class GimleCliTest {
   @AfterEach
   void stopServer() {
     server.close();
+    storeClient.close();
+    storeTransport.close();
+    storeRaftNode.close();
   }
 
   private int run(String... args) {

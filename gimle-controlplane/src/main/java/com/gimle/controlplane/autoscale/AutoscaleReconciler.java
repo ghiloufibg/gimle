@@ -1,14 +1,16 @@
 package com.gimle.controlplane.autoscale;
 
-import com.gimle.controlplane.manifest.DeploymentSpec;
-import com.gimle.controlplane.raft.MutationSink;
-import com.gimle.controlplane.raft.StateMutation;
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.ObservedHeartbeat;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.mimir.manifest.AutoscalePolicy;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -26,13 +28,13 @@ import org.slf4j.LoggerFactory;
  * already applies to a different oscillation risk. {@link
  * com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in place of the
  * user-submitted {@code replicas} whenever a policy is present; this reconciler never touches
- * {@link com.gimle.controlplane.store.InstanceAssignment}s itself.
+ * {@link com.gimle.mimir.store.InstanceAssignment}s itself.
  */
 public final class AutoscaleReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(AutoscaleReconciler.class);
 
-  private final StateStore store;
+  private final StoreReader store;
   private final MutationSink mutations;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
@@ -40,7 +42,7 @@ public final class AutoscaleReconciler {
     this(store, mutation -> mutation.applyTo(store));
   }
 
-  public AutoscaleReconciler(StateStore store, MutationSink mutations) {
+  public AutoscaleReconciler(StoreReader store, MutationSink mutations) {
     this.store = store;
     this.mutations = mutations;
   }

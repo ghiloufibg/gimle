@@ -40,5 +40,11 @@
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcpkix-jdk18on</artifactId>
     </dependency>
+    <!-- OwnCertificateRotator's own rotation-check logging (shared between ApiServer and
+         StoreMain, see the class's own javadoc). -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
   </dependencies>
 </project>

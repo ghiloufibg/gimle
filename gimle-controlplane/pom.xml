@@ -71,5 +71,14 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
+    <!-- The Raft-replicated store as its own process (claudedocs/etcd-store-extraction-design.md):
+         manifest/deployment-spec types, StateMutation/MutationSink (the write vocabulary ApiServer
+         and the reconcilers propose through), and StoreClient (the network client that replaced this
+         module's own former in-process StateStore/RaftNode). StateStore itself also travels with
+         this dependency, used only by test code as a fast, network-free reconciler-test fixture. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
   </dependencies>
 </project>

@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.gimle.controlplane.api.ApiServer;
-import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -79,8 +79,9 @@ class CertificateRotationTest {
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    try (inProcessStore;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -132,8 +133,9 @@ class CertificateRotationTest {
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    try (inProcessStore;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 

@@ -13,6 +13,7 @@ Full design: `claudedocs/tls-transport-security-design.md`.
 | Transport | TLS mechanism |
 |---|---|
 | Control-plane API (`ApiServer`) | `com.sun.net.httpserver.HttpsServer`/`HttpsConfigurator` |
+| Store client RPC (`gimle-mimir`'s `StoreTransport`, what `ApiServer`'s `StoreClient` connects to) | `SSLServerSocket`/`SSLSocket`, the same swap Raft peer RPC uses |
 | Raft peer RPC | `SSLServerSocket`/`SSLSocket` in place of the plaintext `ServerSocketChannel`/`SocketChannel` |
 | Fabric cross-machine | Same `SSLSocket`/`SSLServerSocket` swap — never applied to the Unix-domain-socket same-machine path, which never leaves the kernel |
 | Gossip membership | DTLS (`SSLEngine` in datagram mode) — UDP needs DTLS's own handshake/retransmission handling, not plain TLS |
@@ -27,9 +28,14 @@ so certificate generation/signing lives in its own module, `gimle-pki`, backed b
 (`bcpkix-jdk18on`) — confirmed to use only public JDK crypto APIs underneath, not JDK-internal
 classes. `CertificateAuthority` is the one signing code path shared by initial cluster bootstrap, a
 node joining, a newly-approved operator, and rotation; `CertificateSigningRequests` builds the CSR
-side. Only `gimle-controlplane` (signs), `gimle-agent`, and `gimle-cli` (both generate their own
-CSRs) depend on it — `gimle-worker` never does, since a worker JVM inherits its cert material from
-the agent that spawned it rather than bootstrapping its own.
+side. `gimle-controlplane` (signs, at `/bootstrap/csr`), `gimle-mimir`, `gimle-agent`, and
+`gimle-cli` (the latter three generate their own CSRs, via the shared `OwnCertificateRotator` for
+rotation) depend on it — `gimle-worker` never does, since a worker JVM inherits its cert material
+from the agent that spawned it rather than bootstrapping its own. `gimle-mimir` submits its own
+rotation CSRs to a reachable `gimle-controlplane` replica's `/bootstrap/csr` rather than its own
+(it has no HTTP surface of its own) — CA custody stays on the API-server side even after the
+etcd-store-extraction split, mirroring how Kubernetes' own CSR API lives on `kube-apiserver`, not
+`etcd`.
 
 `mvn gimle:tls-init` generates a fresh cluster CA, the control plane's own leaf certificate, and the
 first human operator's leaf certificate in one shot (`com.gimle.pki.PkiBootstrapMain`).

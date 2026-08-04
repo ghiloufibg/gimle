@@ -3,13 +3,13 @@ package com.gimle.controlplane.reconcile;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;

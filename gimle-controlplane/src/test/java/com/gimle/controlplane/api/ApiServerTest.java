@@ -4,12 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
 import java.net.URI;
@@ -49,6 +50,7 @@ class ApiServerTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  private InProcessStore inProcessStore;
   private StateStore store;
   private ApiServer server;
   private HttpClient client;
@@ -56,8 +58,9 @@ class ApiServerTest {
 
   @BeforeEach
   void startServer() throws IOException {
-    store = new StateStore(tempDir.resolve("store"));
-    server = new ApiServer(store, 0);
+    inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    store = inProcessStore.store();
+    server = new ApiServer(inProcessStore.client(), 0);
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
@@ -66,6 +69,7 @@ class ApiServerTest {
   @AfterEach
   void stopServer() {
     server.close();
+    inProcessStore.close();
   }
 
   private HttpResponse<String> send(HttpRequest request) throws Exception {

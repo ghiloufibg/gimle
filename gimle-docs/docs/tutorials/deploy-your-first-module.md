@@ -18,7 +18,7 @@ sequenceDiagram
     autonumber
     actor Dev as Developer (CLI)
     participant API as ApiServer
-    participant Store as StateStore (Raft)
+    participant Store as gimle-mimir (StateStore, Raft)
     participant Recon as DeploymentReconciler
     participant Sched as Scheduler
     participant Agent as Node Agent

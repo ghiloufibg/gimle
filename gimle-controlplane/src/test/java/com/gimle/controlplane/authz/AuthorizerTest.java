@@ -3,7 +3,6 @@ package com.gimle.controlplane.authz;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.Principal;
@@ -11,6 +10,7 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;

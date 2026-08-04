@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Node topology
 
-Three Java process roles run on a machine — no other runtime, no containers, no sidecars:
+Four Java process roles run across a cluster — no other runtime, no containers, no sidecars:
 
 ```mermaid
 graph TD
@@ -15,11 +15,17 @@ graph TD
         Agent -->|spawns/supervises via Process API| Worker1
         Agent -->|spawns/supervises via Process API| Worker2
     end
-    CP["Control Plane<br/>(gimle-controlplane, Raft-replicated)"]
+    CP["Control Plane<br/>(gimle-controlplane, N replicas)"]
+    Store["Store<br/>(gimle-mimir, M replicas, Raft-replicated)"]
     Agent -->|reports capacity/state, executes placement| CP
+    CP <-->|StoreRpc, TCP| Store
     Worker1 -.->|health/metrics over a local control channel| Agent
     Worker2 -.->|health/metrics over a local control channel| Agent
 ```
+
+The control plane and the store are two independently-scalable process kinds, not one — the same
+split Kubernetes draws between `kube-apiserver` and `etcd` (see
+[Control plane](./control-plane.md)); `N` and `M` above need not match.
 
 ## Node Agent
 
@@ -40,9 +46,16 @@ scheduler each instance runs under) and `ProbeLoop` (calls each module's `Livene
 
 ## Control Plane
 
-One or more JVMs, Raft-replicated for HA (`gimle-controlplane`). Owns the API server, the state
-store, the scheduler, and the reconcilers — see [Control plane](./control-plane.md) for how those
-pieces fit together.
+One or more JVMs (`gimle-controlplane`). Owns the API server, the scheduler, and the reconcilers,
+talking to a separate `gimle-mimir` store cluster over the network rather than embedding a state
+store directly — see [Control plane](./control-plane.md) for how those pieces fit together.
+
+## Store
+
+One or more JVMs, Raft-replicated for HA (`gimle-mimir`). The etcd-equivalent piece: owns the
+Raft-replicated `StateStore` and answers `StoreRpc` requests from every `gimle-controlplane`
+replica. Decoupled from the control plane's own replica count on purpose — a control-plane
+process can restart or scale independently of store/Raft membership, and vice versa.
 
 ## Multi-machine deployment
 

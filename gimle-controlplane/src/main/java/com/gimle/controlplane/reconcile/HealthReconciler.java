@@ -1,13 +1,14 @@
 package com.gimle.controlplane.reconcile;
 
-import com.gimle.controlplane.raft.MutationSink;
-import com.gimle.controlplane.raft.StateMutation;
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.ObservedHeartbeat;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.restart.RestartTracker;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StoreReader;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -34,7 +35,7 @@ public final class HealthReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(HealthReconciler.class);
 
-  private final StateStore store;
+  private final StoreReader store;
   private final Duration initialDelay;
   private final double multiplier;
   private final Duration cap;
@@ -72,7 +73,7 @@ public final class HealthReconciler {
   }
 
   public HealthReconciler(
-      StateStore store,
+      StoreReader store,
       Duration initialDelay,
       double multiplier,
       Duration cap,

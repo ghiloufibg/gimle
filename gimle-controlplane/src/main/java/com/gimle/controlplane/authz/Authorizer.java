@@ -1,6 +1,5 @@
 package com.gimle.controlplane.authz;
 
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.Principal;
@@ -8,23 +7,26 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.mimir.store.StoreReader;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 
 /**
  * Resolves whether {@code principal} may perform {@code verb} on {@code resource} -- {@code
- * claudedocs/authn-authz-design.md} §3a. Reads {@link StateStore} directly rather than caching:
- * every existing reconciler in this codebase already re-derives its decision from the store on
- * every tick rather than tracking deltas (the same level-triggered posture), and an authorization
- * check happens once per request, not in a hot loop, so there is no performance reason to diverge
- * from that pattern here.
+ * claudedocs/authn-authz-design.md} §3a. Reads the store directly rather than caching: every
+ * existing reconciler in this codebase already re-derives its decision from the store on every tick
+ * rather than tracking deltas (the same level-triggered posture), and an authorization check
+ * happens once per request, not in a hot loop, so there is no performance reason to diverge from
+ * that pattern here. Takes {@link StoreReader} rather than a concrete {@code StateStore} so
+ * production code can pass a {@code StoreClient} (etcd-store-extraction design doc) while tests
+ * keep constructing a plain, network-free {@code StateStore}.
  */
 public final class Authorizer {
 
-  private final StateStore store;
+  private final StoreReader store;
 
-  public Authorizer(StateStore store) {
+  public Authorizer(StoreReader store) {
     this.store = store;
   }
 

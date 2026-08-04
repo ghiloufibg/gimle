@@ -4,12 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
@@ -82,8 +83,8 @@ class ApiServerAuthzTest {
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -124,8 +125,8 @@ class ApiServerAuthzTest {
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -162,7 +163,8 @@ class ApiServerAuthzTest {
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
     byte[] passwordHash = PasswordHashes.hash("s3cret-password".toCharArray());
     store.putAccount(new Account("admin", passwordHash));
     // The one custom RoleBinding this test needs so the logged-in session can actually reach
@@ -180,7 +182,8 @@ class ApiServerAuthzTest {
         new com.gimle.core.authz.RoleBinding(
             "b1", com.gimle.core.authz.RoleBinding.userSubject("admin"), "tenant-reader"));
 
-    try (ApiServer server = new ApiServer(store, 0)) {
+    try (inProcessStore;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
       // No cookieHandler: java.net.http.HttpClient's built-in CookieManager doesn't reliably

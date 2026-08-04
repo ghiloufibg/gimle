@@ -5,15 +5,22 @@ a real node agent as separate OS processes, deploy a real module artifact, and w
 in the console — no mocks, no curl-seeded fake state. All commands below are Git Bash (the shell
 this repo's other docs assume on Windows); adjust quoting for PowerShell/POSIX shells as needed.
 
-Everything here runs on one machine, launched via three `mvn gimle:*` commands (a small custom
+Everything here runs on one machine, launched via four `mvn gimle:*` commands (a small custom
 Maven plugin in `gimle-maven-plugin/`, `spring-boot:run`-style — no `-pl <module>`, no manual
 classpath resolution, no shell-stitched `java -cp ...` invocations). `JAVA_HOME` must point at a
 JDK 25 install for every step, and `bun` must be on `PATH` (Maven shells out to it — see
 `gimle-console/pom.xml`).
 
-Steps 1–5 below (build everything, launch the control plane and one node agent) are automated by
-`scripts/run-local-cluster.sh` — run it directly if you just want a cluster up, or read on for what
-it does and how to do steps 6–7 (deploy the example module, watch logs) by hand.
+The control plane no longer embeds its own Raft-replicated state store directly — it talks over
+the network to a separate `gimle-mimir` store process instead (etcd-store-extraction design doc),
+launched via its own `mvn gimle:store` goal, one process kind mirroring what `kube-apiserver`/
+`etcd` are to each other. `mvn gimle:controlplane`'s own default `--store-endpoints` already points
+at `mvn gimle:store`'s own default client port, so the two goals work together with no extra flags
+for this single-node walkthrough.
+
+Steps 1–6 below (build everything, launch the store, the control plane, and one node agent) are
+automated by `scripts/run-local-cluster.sh` — run it directly if you just want a cluster up, or
+read on for what it does and how to do steps 7–8 (deploy the example module, watch logs) by hand.
 
 ## 0. Prerequisites
 
@@ -64,24 +71,42 @@ Produces `gimle-examples/hello-module/target/hello-module-0.1.0-SNAPSHOT.jar` �
 both `module-info.class` and `META-INF/gimle/gimle-module.yaml`, exactly what `ModuleArtifactReader`
 requires. `gimle-examples/hello-module/deployment.yaml` (checked in) already points at it.
 
-## 3. Launch the control plane
+## 3. Launch the store
+
+```bash
+mvn gimle:store
+```
+
+No `-pl`, no classpath flags — `StoreMojo` resolves `gimle-mimir`'s own runtime classpath
+automatically and spawns a real `StoreMain` process (Raft port `9080`, client port `9091`, state
+under `gimle-mimir/target/gimle-mimir-state` by default — `mvn clean` resets it). Every other
+reactor module's own `gimle:store` execution no-ops immediately (matching one specific
+`artifactId`, see `AbstractGimleMojo`). Override defaults with `-Dgimle.store.stateDir=`,
+`-Dgimle.store.raftPort=`, `-Dgimle.store.clientPort=`. Leave this running in its own terminal —
+it has no HTTP surface of its own to check, but a "store node listening on client port ..." log
+line confirms it's up.
+
+## 4. Launch the control plane
+
+In a second terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):
 
 ```bash
 mvn gimle:controlplane
 ```
 
 No `-pl`, no classpath flags — `ControlPlaneMojo` resolves `gimle-controlplane`'s own runtime
-classpath automatically and spawns a real `ControlPlaneMain` process (port `8080`, Raft `9080`,
-state under `gimle-controlplane/target/gimle-state` by default — `mvn clean` resets it). Every
-other reactor module's own `gimle:controlplane` execution no-ops immediately (matching one specific
+classpath automatically and spawns a real `ControlPlaneMain` process (port `8080`, talking to the
+store from step 3 at `127.0.0.1:9091` by default, secrets under
+`gimle-controlplane/target/gimle-state/secret.key` — `mvn clean` resets it). Every other reactor
+module's own `gimle:controlplane` execution no-ops immediately (matching one specific
 `artifactId`, see `AbstractGimleMojo`). Override defaults with `-Dgimle.controlplane.port=`,
-`-Dgimle.controlplane.stateDir=`, `-Dgimle.controlplane.raftPort=`. Leave this running in its own
-terminal. Once it logs that it's serving, `http://127.0.0.1:8080/console` should load the console
-shell (with an empty/loading state — no agent has registered yet).
+`-Dgimle.controlplane.secretKeyPath=`, `-Dgimle.controlplane.storeEndpoints=`. Leave this running
+in its own terminal. Once it logs that it's serving, `http://127.0.0.1:8080/console` should load
+the console shell (with an empty/loading state — no agent has registered yet).
 
-## 4. Launch one node agent
+## 5. Launch one node agent
 
-In a second terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):
+In a fourth terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):
 
 ```bash
 mvn gimle:agent
@@ -97,7 +122,7 @@ alongside the first).
 
 Refresh `/console` → the Nodes screen should now show `node-1` with real reported capacity.
 
-## 5. Deploy the example module
+## 7. Deploy the example module
 
 Either through the console's "New deployment" form, or with:
 
@@ -115,29 +140,31 @@ dependency:build-classpath -Dmdep.outputFile=<file>`, then `java -cp
 gimle-cli/target/classes;<file-contents> com.gimle.cli.GimleCli <verb> ... --server
 127.0.0.1:8080`) — `gimle:deploy` only wraps the one `apply` case developers reach for constantly.
 
-## 6. Watch real logs, including live tail
+## 8. Watch real logs, including live tail
 
 From the console's Logs screen, pick the control plane, `node-1`, or the `hello-deployment`
 instance, and confirm real lines appear; toggle "follow" and confirm new lines arrive as the
 process keeps running.
 
-The same data is available from the CLI (see step 5's note on running it directly), as a genuine
+The same data is available from the CLI (see step 7's note on running it directly), as a genuine
 `kubectl logs -f` equivalent — `GimleCli logs controlplane --follow --server 127.0.0.1:8080`.
 Running this side-by-side with the console's own "follow" toggle on the same target is the real
 proof that one backend mechanism (the control plane's `/logs/*` routes, proxying to
 `AgentLogServer` where needed) serves both consumers identically.
 
-## 7. Shut down
+## 9. Shut down
 
 `Ctrl+C` the agent terminal first (it tears down its supervised worker), then the control plane
-terminal. `gimle-controlplane/target/gimle-state` holds Raft/state-store data across restarts;
-`mvn clean` (or delete it directly) for a clean slate.
+terminal, then the store terminal last (the control plane needs it reachable for its own shutdown
+housekeeping). `gimle-mimir/target/gimle-mimir-state` holds the Raft-replicated state across
+restarts; `gimle-controlplane/target/gimle-state` now holds only the control plane's own secrets.
+`mvn clean` (or delete either directly) for a clean slate.
 
 ## Iterating on the console UI itself
 
 For frontend-only iteration, skip rebuilding/reinstalling the `gimle-console` Maven module every
 time — run the Vite dev server directly, which proxies `/deployments`, `/nodes`, `/logs`, etc. to a
-control plane already running per steps 3–4 (see `gimle-console/vite.config.ts`):
+control plane already running per steps 3–5 (see `gimle-console/vite.config.ts`):
 
 ```bash
 cd gimle-console

@@ -11,15 +11,37 @@ everywhere else in the reactor. One-time setup: `com.gimle` needs a `<pluginGrou
 `~/.m2/settings.xml` (see [Getting started](../tutorials/getting-started.md)) for the short
 `gimle:*` prefix form to resolve at all.
 
+## `mvn gimle:store`
+
+Launches a real `StoreMain` process — the Raft-replicated state store as its own process (the
+etcd equivalent), separate from `gimle:controlplane`'s own API server (see
+[Control plane](../architecture/control-plane.md)). Run this *before* `mvn gimle:controlplane`;
+the latter's own `gimle.controlplane.storeEndpoints` default already points at this goal's default
+client port.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.store.stateDir` | `${project.build.directory}/gimle-mimir-state` | Where `StateStore`/`RaftLog` persist to disk. |
+| `gimle.store.raftPort` | `9080` | Raft peer-to-peer transport port. |
+| `gimle.store.clientPort` | `9091` | Client-facing `StoreRpc` port — what `gimle-controlplane` connects to. |
+| `gimle.store.peers` | *(unset, single-node)* | `host:raftPort:clientPort,...` for every other store replica, for a multi-node store cluster. |
+| `gimle.store.csrEndpoint` | *(unset)* | `host:port` of a reachable `ApiServer` to submit this store node's own certificate-rotation CSRs to — only meaningful in TLS mode. |
+| `gimle.store.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+
+```bash
+mvn gimle:store -Dgimle.store.clientPort=9091
+```
+
 ## `mvn gimle:controlplane`
 
-Launches a real `ControlPlaneMain` process.
+Launches a real `ControlPlaneMain` process, talking to a `gimle-mimir` store cluster over the
+network (see `mvn gimle:store` above) rather than embedding one.
 
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.controlplane.port` | `8080` | API server port. |
-| `gimle.controlplane.stateDir` | `${project.build.directory}/gimle-state` | Where `StateStore`/`RaftLog` persist to disk — see [Control plane](../architecture/control-plane.md). |
-| `gimle.controlplane.raftPort` | `9080` | Raft transport port. |
+| `gimle.controlplane.secretKeyPath` | `${project.build.directory}/gimle-state/secret.key` | Where this replica's own AES-256 secrets master key persists to disk. |
+| `gimle.controlplane.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
 | `gimle.controlplane.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 
 ```bash

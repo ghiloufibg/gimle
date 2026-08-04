@@ -1,0 +1,156 @@
+package com.gimle.mimir.rpc;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceObservation;
+import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.raft.RaftLog;
+import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.StateStore;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * Drives {@link StoreNode} directly against a real {@link RaftNode}/{@link StateStore} pair, no
+ * sockets -- the {@link StoreTransport}/{@link StoreConnection} network plumbing is covered
+ * separately by {@code StoreClient}'s own integration test (design plan step 7), so this test only
+ * needs to prove {@link StoreNode}'s own dispatch and leader-routing logic.
+ */
+class StoreNodeTest {
+
+  @TempDir Path tempDir;
+
+  private StoreNode leaderNode(String id) {
+    Path dir = tempDir.resolve(id);
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
+    raftNode.start(); // an empty peer set becomes its own leader immediately
+    return new StoreNode(raftNode, store, Map.of(id, id + "-client:9090"));
+  }
+
+  /** Never started, so it stays FOLLOWER with no leader hint at all -- the mid-election gap. */
+  private StoreNode neverElectedNode(String id) {
+    Path dir = tempDir.resolve(id);
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
+    return new StoreNode(raftNode, store, Map.of(id, id + "-client:9090"));
+  }
+
+  @Test
+  void a_leader_answers_reads_from_its_own_store() {
+    StoreNode node = leaderNode("reader");
+    StoreRpc.Response response = node.handle(new StoreRpc.GetTenant("acme"));
+    assertEquals(new StoreRpc.TenantResult(false, null), response);
+  }
+
+  @Test
+  void a_leader_applies_a_propose_and_the_read_reflects_it() {
+    StoreNode node = leaderNode("proposer");
+    Tenant tenant = new Tenant("acme", new ResourceQuota(1024, 500, 10));
+
+    StoreRpc.Response proposeResponse =
+        node.handle(new StoreRpc.Propose(new StateMutation.PutTenant(tenant)));
+    assertEquals(new StoreRpc.Ok(), proposeResponse);
+
+    StoreRpc.Response readResponse = node.handle(new StoreRpc.GetTenant("acme"));
+    assertEquals(new StoreRpc.TenantResult(true, tenant), readResponse);
+  }
+
+  @Test
+  void a_leader_accepts_a_heartbeat_directly_without_going_through_propose() {
+    StoreNode node = leaderNode("heartbeat-leader");
+    NodeHeartbeat heartbeat =
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1024, 512, 4000, 1000),
+            List.of(
+                new InstanceObservation(
+                    "greeter",
+                    0,
+                    new ModuleId("greeter", Version.parse("1.0.0")),
+                    "ACTIVE",
+                    true,
+                    true,
+                    0.0,
+                    0,
+                    0L,
+                    0L)));
+
+    StoreRpc.Response response = node.handle(new StoreRpc.PutHeartbeat(heartbeat));
+
+    assertEquals(new StoreRpc.Ok(), response);
+  }
+
+  @Test
+  void a_leader_grants_renews_and_releases_a_lease() {
+    StoreNode node = leaderNode("lease-leader");
+
+    StoreRpc.LeaseResult granted =
+        (StoreRpc.LeaseResult)
+            node.handle(new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-a", 15_000L));
+    assertTrue(granted.granted());
+    assertEquals("node-a", granted.holderId());
+
+    StoreRpc.LeaseResult denied =
+        (StoreRpc.LeaseResult)
+            node.handle(new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-b", 15_000L));
+    assertFalse(denied.granted());
+    assertEquals("node-a", denied.holderId());
+
+    StoreRpc.Response released =
+        node.handle(new StoreRpc.ReleaseLease("reconciler-leader", "node-a"));
+    assertEquals(new StoreRpc.Ok(), released);
+
+    StoreRpc.LeaseResult grantedAfterRelease =
+        (StoreRpc.LeaseResult)
+            node.handle(new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-b", 15_000L));
+    assertTrue(grantedAfterRelease.granted());
+  }
+
+  @Test
+  void a_non_leader_rejects_a_propose_with_not_leader_and_no_hint_yet() {
+    StoreNode node = neverElectedNode("follower");
+
+    StoreRpc.Response response =
+        node.handle(new StoreRpc.Propose(new StateMutation.RemoveTenant("acme")));
+
+    assertEquals(new StoreRpc.NotLeader(""), response);
+  }
+
+  @Test
+  void a_non_leader_rejects_a_heartbeat_a_lease_acquire_and_a_lease_release() {
+    StoreNode node = neverElectedNode("follower-writes");
+
+    assertEquals(
+        new StoreRpc.NotLeader(""),
+        node.handle(
+            new StoreRpc.PutHeartbeat(
+                new NodeHeartbeat("node-a", new ResourceUsageSnapshot(0, 0, 0, 0), List.of()))));
+    assertEquals(
+        new StoreRpc.NotLeader(""),
+        node.handle(new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-a", 1000L)));
+    assertEquals(
+        new StoreRpc.NotLeader(""),
+        node.handle(new StoreRpc.ReleaseLease("reconciler-leader", "node-a")));
+  }
+
+  @Test
+  void reads_are_still_served_by_a_non_leader_node() {
+    StoreNode node = neverElectedNode("follower-reads");
+    assertEquals(
+        new StoreRpc.DeploymentListResult(List.of()), node.handle(new StoreRpc.ListDeployments()));
+  }
+}

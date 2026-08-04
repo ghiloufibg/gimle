@@ -3,7 +3,7 @@ package com.gimle.controlplane.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.net.URI;
@@ -40,15 +40,15 @@ class ApiServerConsoleContractTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
-  private StateStore store;
+  private InProcessStore inProcessStore;
   private ApiServer server;
   private HttpClient client;
   private String baseUrl;
 
   @BeforeEach
   void startServer() throws IOException {
-    store = new StateStore(tempDir.resolve("store"));
-    server = new ApiServer(store, 0);
+    inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    server = new ApiServer(inProcessStore.client(), 0);
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
@@ -57,6 +57,7 @@ class ApiServerConsoleContractTest {
   @AfterEach
   void stopServer() {
     server.close();
+    inProcessStore.close();
   }
 
   private HttpResponse<String> send(HttpRequest request) throws Exception {

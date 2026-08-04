@@ -1,18 +1,20 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.raft.PeerConnection;
-import com.gimle.controlplane.raft.RaftLog;
-import com.gimle.controlplane.raft.RaftNode;
-import com.gimle.controlplane.raft.RaftPeerClient;
-import com.gimle.controlplane.raft.RaftTransport;
-import com.gimle.controlplane.store.StateStore;
-import com.gimle.core.protocol.Json;
+import com.gimle.mimir.raft.PeerConnection;
+import com.gimle.mimir.raft.RaftLog;
+import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.raft.RaftPeerClient;
+import com.gimle.mimir.raft.RaftTransport;
+import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.rpc.StoreNode;
+import com.gimle.mimir.rpc.StoreTransport;
+import com.gimle.mimir.store.StateStore;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,10 +37,14 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * A real 3-node cluster of {@link ApiServer}s over real HTTP, each backed by a real Raft loopback
- * cluster (design §2.6): a write to the leader succeeds and replicates; a write to a follower comes
- * back as a {@code 307} naming the correct leader; a heartbeat against a non-leader is rejected the
- * same way even though it never touches the Raft log at all (design §2.1).
+ * A real M-node {@code gimle-mimir} store cluster (real Raft over real sockets) behind N real
+ * {@link ApiServer} replicas, each with its own {@link StoreClient} pointed at every store endpoint
+ * -- the decoupled N:M topology the etcd-store-extraction design doc exists for. A write through
+ * *any* {@code ApiServer} replica now just succeeds, regardless of which store node currently holds
+ * Raft leadership: {@code StoreClient} follows the leader internally (design doc §4.4/§4.6), so
+ * there is no 307-redirect-to-a-peer-{@code ApiServer} behavior left to test -- that mechanism only
+ * ever made sense when one {@code ApiServer} was colocated 1:1 with one Raft member, which stopped
+ * being true the moment this split landed.
  */
 // See ApiServerTest for why: real ApiServer + real HttpClient on a loopback ephemeral port,
 // excluded from running concurrently with any other class doing the same.
@@ -54,75 +60,123 @@ class ApiServerRaftTest {
 
   @TempDir Path tempDir;
 
-  private final List<RaftNode> raftNodes = new ArrayList<>();
-  private final List<RaftTransport> raftTransports = new ArrayList<>();
+  private final List<RaftNode> storeRaftNodes = new ArrayList<>();
+  private final List<RaftTransport> storeRaftTransports = new ArrayList<>();
+  private final List<StoreTransport> storeTransports = new ArrayList<>();
+  private final List<StoreClient> storeClients = new ArrayList<>();
   private final List<ApiServer> apiServers = new ArrayList<>();
   private final HttpClient client = HttpClient.newHttpClient();
+  private int clusterCounter;
 
-  private record ClusterNode(String id, RaftNode raftNode, ApiServer apiServer, StateStore store) {}
+  private record StoreClusterNode(
+      String raftId,
+      RaftNode raftNode,
+      RaftTransport raftTransport,
+      StoreTransport storeTransport,
+      SocketAddress clientAddress) {
+
+    /** Simulates a hard machine crash: nothing about this node keeps answering afterward. */
+    void kill() {
+      storeTransport.close();
+      raftTransport.close();
+      raftNode.close();
+    }
+  }
 
   @AfterEach
   void tearDown() {
     for (ApiServer server : apiServers) {
       server.close();
     }
-    for (RaftNode node : raftNodes) {
+    for (StoreClient storeClient : storeClients) {
+      storeClient.close();
+    }
+    for (StoreTransport transport : storeTransports) {
+      transport.close();
+    }
+    for (RaftNode node : storeRaftNodes) {
       node.close();
     }
-    for (RaftTransport transport : raftTransports) {
+    for (RaftTransport transport : storeRaftTransports) {
       transport.close();
     }
   }
 
-  private static int reservePort() throws IOException {
+  private static InetSocketAddress reserveAddress() throws IOException {
     try (ServerSocketChannel probe = ServerSocketChannel.open()) {
       probe.bind(new InetSocketAddress("127.0.0.1", 0));
-      return ((InetSocketAddress) probe.getLocalAddress()).getPort();
+      return (InetSocketAddress) probe.getLocalAddress();
     }
   }
 
-  private List<ClusterNode> buildCluster(int n) throws IOException {
-    List<Integer> raftPorts = new ArrayList<>();
-    List<Integer> apiPorts = new ArrayList<>();
+  /** Mirrors {@code StoreClientClusterTest}'s own cluster builder (gimle-mimir). */
+  private List<StoreClusterNode> buildStoreCluster(int n) throws IOException {
+    List<String> ids = new ArrayList<>();
+    List<InetSocketAddress> raftAddresses = new ArrayList<>();
+    List<InetSocketAddress> clientAddresses = new ArrayList<>();
     for (int i = 0; i < n; i++) {
-      raftPorts.add(reservePort());
-      apiPorts.add(reservePort());
+      ids.add("store-" + i);
+      raftAddresses.add(reserveAddress());
+      clientAddresses.add(reserveAddress());
+    }
+    Map<String, String> raftIdToClientAddress = new HashMap<>();
+    for (int i = 0; i < n; i++) {
+      String raftId = ids.get(i) + ":" + raftAddresses.get(i).getPort();
+      raftIdToClientAddress.put(
+          raftId, clientAddresses.get(i).getHostString() + ":" + clientAddresses.get(i).getPort());
     }
 
-    List<ClusterNode> clusterNodes = new ArrayList<>();
+    List<StoreClusterNode> clusterNodes = new ArrayList<>();
     for (int i = 0; i < n; i++) {
       Map<String, RaftPeerClient> peers = new HashMap<>();
-      Map<String, String> peerApiAddresses = new HashMap<>();
       for (int j = 0; j < n; j++) {
         if (j == i) {
           continue;
         }
-        String peerRaftId = "127.0.0.1:" + raftPorts.get(j);
-        peers.put(
-            peerRaftId, new PeerConnection(new InetSocketAddress("127.0.0.1", raftPorts.get(j))));
-        peerApiAddresses.put(peerRaftId, "localhost:" + apiPorts.get(j));
+        String peerRaftId = ids.get(j) + ":" + raftAddresses.get(j).getPort();
+        peers.put(peerRaftId, new PeerConnection(raftAddresses.get(j)));
       }
 
-      Path dir = tempDir.resolve("node-" + i);
+      Path dir = tempDir.resolve("store-cluster-" + (clusterCounter++) + "-node-" + i);
       StateStore store = new StateStore(dir.resolve("store"));
       RaftLog raftLog = new RaftLog(dir.resolve("raft"));
-      String selfId = "127.0.0.1:" + raftPorts.get(i);
-      RaftNode raftNode = new RaftNode(selfId, peers, raftLog, store);
-      raftNodes.add(raftNode);
-      RaftTransport transport = new RaftTransport(raftNode);
-      raftTransports.add(transport);
-      transport.listen(new InetSocketAddress("127.0.0.1", raftPorts.get(i)));
+      String selfRaftId = ids.get(i) + ":" + raftAddresses.get(i).getPort();
+      RaftNode raftNode = new RaftNode(selfRaftId, peers, raftLog, store);
+      RaftTransport raftTransport = new RaftTransport(raftNode);
+      storeRaftTransports.add(raftTransport);
+      raftTransport.listen(raftAddresses.get(i));
       raftNode.start();
+      storeRaftNodes.add(raftNode);
 
-      ApiServer apiServer =
-          new ApiServer(
-              store, apiPorts.get(i), dir.resolve("secret.key"), raftNode, peerApiAddresses);
-      apiServer.start();
-      apiServers.add(apiServer);
+      StoreNode storeNode = new StoreNode(raftNode, store, raftIdToClientAddress);
+      StoreTransport storeTransport = new StoreTransport(storeNode);
+      storeTransports.add(storeTransport);
+      storeTransport.listen(clientAddresses.get(i));
 
-      clusterNodes.add(new ClusterNode("node-" + i, raftNode, apiServer, store));
+      clusterNodes.add(
+          new StoreClusterNode(
+              selfRaftId, raftNode, raftTransport, storeTransport, clientAddresses.get(i)));
     }
     return clusterNodes;
+  }
+
+  /**
+   * N {@code ApiServer} replicas, each its own {@link StoreClient} against every store endpoint.
+   */
+  private List<ApiServer> buildApiServers(int n, List<StoreClusterNode> storeCluster)
+      throws IOException {
+    List<SocketAddress> storeEndpoints =
+        storeCluster.stream().map(StoreClusterNode::clientAddress).toList();
+    List<ApiServer> servers = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      StoreClient storeClient = new StoreClient(storeEndpoints);
+      storeClients.add(storeClient);
+      ApiServer apiServer = new ApiServer(storeClient, 0, tempDir.resolve("secret-" + i + ".key"));
+      apiServer.start();
+      apiServers.add(apiServer);
+      servers.add(apiServer);
+    }
+    return servers;
   }
 
   private static void awaitTrue(BooleanSupplier condition, Duration timeout)
@@ -137,7 +191,8 @@ class ApiServerRaftTest {
     assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
   }
 
-  private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
+  private static StoreClusterNode awaitStoreLeader(List<StoreClusterNode> cluster)
+      throws InterruptedException {
     awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
     return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
   }
@@ -151,60 +206,49 @@ class ApiServerRaftTest {
 
   @Test
   @Timeout(15)
-  void a_write_to_the_leader_succeeds_and_becomes_visible_on_every_replica() throws Exception {
-    List<ClusterNode> cluster = buildCluster(3);
-    ClusterNode leader = awaitLeader(cluster);
-    String baseUrl = "http://localhost:" + leader.apiServer().port();
+  void a_write_through_any_api_server_replica_succeeds_and_is_visible_through_every_replica()
+      throws Exception {
+    List<StoreClusterNode> storeCluster = buildStoreCluster(3);
+    awaitStoreLeader(storeCluster);
+    List<ApiServer> replicas = buildApiServers(2, storeCluster);
 
     HttpResponse<String> put =
         client.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/t1"))
+            HttpRequest.newBuilder(
+                    URI.create("http://localhost:" + replicas.get(0).port() + "/tenants/t1"))
                 .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1024, 500, 10)))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     assertEquals(200, put.statusCode());
 
     awaitTrue(
-        () -> cluster.stream().allMatch(c -> c.store().getTenant("t1").isPresent()),
+        () ->
+            replicas.stream()
+                .allMatch(
+                    replica -> {
+                      try {
+                        HttpResponse<String> get =
+                            client.send(
+                                HttpRequest.newBuilder(
+                                        URI.create(
+                                            "http://localhost:" + replica.port() + "/tenants/t1"))
+                                    .GET()
+                                    .build(),
+                                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                        return get.statusCode() == 200;
+                      } catch (Exception e) {
+                        return false;
+                      }
+                    }),
         Duration.ofSeconds(3));
   }
 
   @Test
   @Timeout(15)
-  void a_write_to_a_follower_returns_307_with_the_leaders_address_and_a_json_body()
-      throws Exception {
-    List<ClusterNode> cluster = buildCluster(3);
-    ClusterNode leader = awaitLeader(cluster);
-    ClusterNode follower = cluster.stream().filter(c -> c != leader).findFirst().orElseThrow();
-    String followerUrl = "http://localhost:" + follower.apiServer().port();
-
-    HttpResponse<String> put =
-        client.send(
-            HttpRequest.newBuilder(URI.create(followerUrl + "/tenants/t2"))
-                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
-                .build(),
-            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-    assertEquals(307, put.statusCode());
-    assertTrue(put.headers().firstValue("Location").isPresent());
-    assertTrue(
-        put.headers()
-            .firstValue("Location")
-            .get()
-            .contains(String.valueOf(leader.apiServer().port())));
-    Map<String, Object> body = Json.asObject(Json.parse(put.body()));
-    assertEquals("not-leader", body.get("error"));
-    assertNotNull(body.get("leaderApiAddress"));
-  }
-
-  @Test
-  @Timeout(15)
-  void a_heartbeat_against_a_non_leader_is_rejected_without_touching_the_raft_log()
-      throws Exception {
-    List<ClusterNode> cluster = buildCluster(3);
-    ClusterNode leader = awaitLeader(cluster);
-    ClusterNode follower = cluster.stream().filter(c -> c != leader).findFirst().orElseThrow();
-    String followerUrl = "http://localhost:" + follower.apiServer().port();
+  void a_heartbeat_through_any_api_server_replica_succeeds() throws Exception {
+    List<StoreClusterNode> storeCluster = buildStoreCluster(3);
+    awaitStoreLeader(storeCluster);
+    List<ApiServer> replicas = buildApiServers(2, storeCluster);
 
     String heartbeatBody =
         """
@@ -213,12 +257,46 @@ class ApiServerRaftTest {
         """;
     HttpResponse<String> response =
         client.send(
-            HttpRequest.newBuilder(URI.create(followerUrl + "/nodes/agent-1/heartbeat"))
+            HttpRequest.newBuilder(
+                    URI.create(
+                        "http://localhost:" + replicas.get(1).port() + "/nodes/agent-1/heartbeat"))
                 .POST(HttpRequest.BodyPublishers.ofString(heartbeatBody))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-    assertEquals(307, response.statusCode());
-    assertTrue(follower.store().getNodeHeartbeat("agent-1").isEmpty());
+    assertEquals(200, response.statusCode());
+  }
+
+  @Test
+  @Timeout(30)
+  void
+      writes_keep_succeeding_through_the_same_api_server_replica_across_a_forced_store_leader_failover()
+          throws Exception {
+    List<StoreClusterNode> storeCluster = buildStoreCluster(3);
+    StoreClusterNode firstStoreLeader = awaitStoreLeader(storeCluster);
+    List<ApiServer> replicas = buildApiServers(2, storeCluster);
+    ApiServer replica = replicas.get(0);
+    String baseUrl = "http://localhost:" + replica.port();
+
+    HttpResponse<String> before =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/before-failover"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, before.statusCode());
+
+    firstStoreLeader.kill();
+    List<StoreClusterNode> remaining =
+        storeCluster.stream().filter(c -> c != firstStoreLeader).toList();
+    awaitStoreLeader(remaining);
+
+    HttpResponse<String> after =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/after-failover"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(2, 2, 2)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, after.statusCode());
   }
 }

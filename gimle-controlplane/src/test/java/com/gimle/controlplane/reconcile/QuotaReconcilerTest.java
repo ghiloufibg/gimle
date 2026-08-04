@@ -4,14 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.controlplane.manifest.DeploymentSpec;
-import com.gimle.controlplane.manifest.PlacementConstraints;
-import com.gimle.controlplane.raft.MutationSink;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.util.Optional;

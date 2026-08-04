@@ -1,11 +1,12 @@
 package com.gimle.controlplane.reconcile;
 
-import com.gimle.controlplane.manifest.DeploymentSpec;
-import com.gimle.controlplane.raft.MutationSink;
-import com.gimle.controlplane.raft.StateMutation;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StoreReader;
 import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -28,7 +29,7 @@ public final class QuotaReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(QuotaReconciler.class);
 
-  private final StateStore store;
+  private final StoreReader store;
   private final MutationSink mutations;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
@@ -36,7 +37,7 @@ public final class QuotaReconciler {
     this(store, mutation -> mutation.applyTo(store));
   }
 
-  public QuotaReconciler(StateStore store, MutationSink mutations) {
+  public QuotaReconciler(StoreReader store, MutationSink mutations) {
     this.store = store;
     this.mutations = mutations;
   }

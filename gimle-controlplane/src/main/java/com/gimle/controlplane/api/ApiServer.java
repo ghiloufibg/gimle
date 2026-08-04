@@ -2,20 +2,12 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.authz.Authorizer;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
-import com.gimle.controlplane.manifest.DeploymentManifestParser;
-import com.gimle.controlplane.manifest.DeploymentSpec;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
-import com.gimle.controlplane.raft.RaftLog;
-import com.gimle.controlplane.raft.RaftNode;
-import com.gimle.controlplane.raft.StateMutation;
 import com.gimle.controlplane.secret.KeyFileManager;
 import com.gimle.controlplane.secret.SecretCipher;
 import com.gimle.controlplane.secret.SessionTokens;
-import com.gimle.controlplane.store.InstanceAssignment;
-import com.gimle.controlplane.store.ObservedHeartbeat;
-import com.gimle.controlplane.store.StateStore;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
@@ -36,7 +28,6 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.CsrPurpose;
-import com.gimle.core.protocol.CsrRequestStatus;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
 import com.gimle.core.protocol.InstanceObservation;
@@ -50,11 +41,16 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.mimir.manifest.DeploymentManifestParser;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.pki.CertificateAuthority;
-import com.gimle.pki.CertificateSigningRequests;
+import com.gimle.pki.OwnCertificateRotator;
 import com.gimle.pki.Pem;
-import com.gimle.pki.RenewalSchedule;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -74,13 +70,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -117,15 +109,13 @@ public final class ApiServer implements AutoCloseable {
   private static final String SESSION_COOKIE_NAME = "gimle_session";
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
-  private final StateStore store;
+  private final StoreClient storeClient;
   private final SecretKey secretKey;
   // Signs/verifies console session cookies -- deliberately a second key, not a reuse of
   // secretKey's AES material, for key separation between two unrelated crypto purposes (see
   // SessionTokens' own javadoc).
   private final SecretKey sessionSigningKey;
   private final Authorizer authorizer;
-  private final RaftNode raftNode;
-  private final Map<String, String> peerApiAddresses;
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
   // avoids HttpClient spending a round trip on an upgrade negotiation that could never succeed.
   private final HttpClient agentHttpClient =
@@ -153,60 +143,36 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
-   * secrets to survive a restart, but not real deployments (see the three-argument constructor).
-   * Also builds an internal single-node {@link RaftNode} (majority of one, trivially always leader)
-   * rather than requiring every existing single-process caller to wire up Raft explicitly.
+   * secrets to survive a restart, but not real deployments (see the two-argument constructor).
    */
-  public ApiServer(StateStore store, int port) throws IOException {
-    this(store, port, ephemeralKeyPath());
+  public ApiServer(StoreClient storeClient, int port) throws IOException {
+    this(storeClient, port, ephemeralKeyPath());
   }
 
   /**
    * {@code secretKeyFilePath} is the control plane's persistent AES-256 secrets master key,
-   * generated on first run if absent. Builds an internal single-node {@link RaftNode} exactly like
-   * the two-argument constructor -- this overload only changes secrets persistence, not replication
-   * topology.
+   * generated on first run if absent. {@code storeClient} is this replica's already-constructed
+   * client against the store cluster (etcd-store-extraction design doc) -- unlike the pre-split
+   * {@code RaftNode}-based constructors this replaces, there is no "auto-build a trivial single-
+   * node store" convenience here: standing up even a single {@code StoreNode} requires a real
+   * listener, which is the caller's job (production: {@code ControlPlaneMain}; tests: a small
+   * in-process fixture spinning up exactly one).
    */
-  public ApiServer(StateStore store, int port, Path secretKeyFilePath) throws IOException {
-    this(store, port, secretKeyFilePath, singleNodeRaft(store), Map.of());
-  }
-
-  /**
-   * The real, multi-node-aware constructor: {@code raftNode} is this control-plane node's
-   * already-started {@link RaftNode}; {@code peerApiAddresses} maps every peer's Raft address to
-   * its HTTP API address, needed only to resolve a not-leader redirect's {@code Location} header to
-   * something an HTTP client can actually reach.
-   */
-  public ApiServer(
-      StateStore store,
-      int port,
-      Path secretKeyFilePath,
-      RaftNode raftNode,
-      Map<String, String> peerApiAddresses)
-      throws IOException {
+  public ApiServer(StoreClient storeClient, int port, Path secretKeyFilePath) throws IOException {
     this(
-        store,
+        storeClient,
         port,
         KeyFileManager.loadOrCreate(secretKeyFilePath),
-        KeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")),
-        raftNode,
-        peerApiAddresses);
+        KeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
   }
 
   private ApiServer(
-      StateStore store,
-      int port,
-      SecretKey secretKey,
-      SecretKey sessionSigningKey,
-      RaftNode raftNode,
-      Map<String, String> peerApiAddresses)
+      StoreClient storeClient, int port, SecretKey secretKey, SecretKey sessionSigningKey)
       throws IOException {
-    this.store = store;
+    this.storeClient = storeClient;
     this.secretKey = secretKey;
     this.sessionSigningKey = sessionSigningKey;
-    this.authorizer = new Authorizer(store);
-    this.raftNode = raftNode;
-    this.peerApiAddresses = Map.copyOf(peerApiAddresses);
+    this.authorizer = new Authorizer(storeClient);
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
@@ -258,18 +224,6 @@ public final class ApiServer implements AutoCloseable {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
     target.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
-  }
-
-  /**
-   * A single-node Raft cluster (peer set = {@code {self}}, majority = 1, so this node is trivially
-   * always leader) backed by a fresh temp directory -- what every constructor that predates Raft
-   * gets automatically, so existing single-process callers/tests need no changes.
-   */
-  private static RaftNode singleNodeRaft(StateStore store) throws IOException {
-    Path dir = Files.createTempDirectory("gimle-apiserver-ephemeral-raft-");
-    RaftNode node = new RaftNode("self", Map.of(), new RaftLog(dir.resolve("raft")), store);
-    node.start();
-    return node;
   }
 
   /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */
@@ -358,102 +312,49 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Checked periodically by {@code ControlPlaneMain}'s reconcile ticker (unconditionally, not
-   * leader-gated -- a follower needs its own cert fresh too), per §4b. When this node's own leaf
-   * certificate is due for renewal, submits a same-subject/fresh-key-pair rotation CSR to its own
-   * {@code /bootstrap/csr} over loopback, authenticated by its current (still-valid) mTLS material,
-   * writes the returned cert to {@code gimle.tls.certFile}, and calls {@link #reloadTlsMaterial}.
-   * No-op in plaintext mode. Returns {@code true} iff a rotation actually happened this call --
-   * §6's own listener-owning components ({@code RaftTransport}, {@code GossipMember}) key their own
-   * reload off this same on-disk material, so the caller needs to know whether to refresh them too,
-   * not just whether the check ran.
+   * leader-gated -- a follower needs its own cert fresh too), per §4b. Delegates the actual
+   * check-and-rotate-over-mTLS logic to {@link OwnCertificateRotator}, shared with {@code
+   * StoreMain} once the etcd-store-extraction split needed the identical mechanism a second caller
+   * -- this method's own job is just knowing *where* to submit the rotation CSR (its own loopback
+   * {@code /bootstrap/csr}, since this process is the CA-signing authority itself) and reloading
+   * its own {@code HttpsServer} afterward. No-op in plaintext mode. Returns {@code true} iff a
+   * rotation actually happened this call -- §6's own listener-owning components ({@code
+   * RaftTransport}, {@code GossipMember}) key their own reload off this same on-disk material, so
+   * the caller needs to know whether to refresh them too, not just whether the check ran.
    */
   public boolean checkAndRotateOwnCertificateIfDue() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return false;
     }
     TlsSettings settings = TlsSettings.fromConfig();
-    try {
-      X509Certificate current = loadOwnLeafCertificate(settings.certFile());
-      if (!RenewalSchedule.of(current).isDue(Instant.now())) {
-        return false;
+    URI ownCsrEndpoint = URI.create("https://127.0.0.1:" + boundPort + "/bootstrap/csr");
+    boolean rotated = OwnCertificateRotator.checkAndRotateIfDue(settings, ownCsrEndpoint);
+    if (rotated) {
+      try {
+        reloadTlsMaterial();
+      } catch (IOException e) {
+        log.warn("failed to reload TLS material after rotation: {}", e.getMessage(), e);
       }
-      log.info("own leaf certificate due for renewal, requesting rotation");
-      rotateOwnCertificate(settings, current);
-      return true;
-    } catch (RuntimeException | IOException e) {
-      log.warn("certificate rotation check failed: {}", e.getMessage(), e);
-      return false;
     }
+    return rotated;
   }
 
   /**
-   * Checked every reconcile tick by {@code ControlPlaneMain}, leader-gated like every other
-   * reconciler there -- seeds the one bootstrap {@link Account} {@code gimle-pki}'s {@code
-   * PkiBootstrapMain} wrote to disk, exactly once: a no-op the instant {@code store.listAccounts()}
-   * is non-empty, so this stays safe to call on every future tick forever after. Deliberately never
-   * called eagerly from the constructor: a freshly started {@link RaftNode} is not leader yet
-   * (leader election is scheduled asynchronously, even for a single-node "trivially always leader"
-   * cluster -- see {@code RaftNode#start}), so {@code raftNode.propose} would just throw {@link
-   * GimleRaftException} before any election has had a chance to run.
+   * Checked every reconcile tick by {@code ControlPlaneMain}, gated by the reconciler-leader lease
+   * there exactly like every other reconciler -- seeds the one bootstrap {@link Account} {@code
+   * gimle-pki}'s {@code PkiBootstrapMain} wrote to disk, exactly once: a no-op the instant {@code
+   * storeClient.listAccounts()} is non-empty, so this stays safe to call on every future tick
+   * forever after. This method itself no longer checks leadership -- {@code storeClient.propose}
+   * already follows the store's current leader internally (etcd-store-extraction design doc
+   * §4.4/§4.6), and *which* {@code ApiServer} replica calls this at all is the caller's lease-based
+   * election to decide, not a concern of the method being called.
    */
   public void seedBootstrapAccountIfNeeded() {
-    if (!raftNode.isLeader() || !store.listAccounts().isEmpty()) {
+    if (!storeClient.listAccounts().isEmpty()) {
       return;
     }
     BootstrapAccountFile.loadIfConfigured()
-        .ifPresent(account -> raftNode.propose(new StateMutation.PutAccount(account)));
-  }
-
-  private void rotateOwnCertificate(TlsSettings settings, X509Certificate current)
-      throws IOException {
-    KeyPair keyPair = generateRsaKeyPair();
-    X500Name subject = new X500Name(current.getSubjectX500Principal().getName());
-    PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
-    HttpClient loopbackClient =
-        HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
-    HttpRequest request =
-        HttpRequest.newBuilder(URI.create("https://127.0.0.1:" + boundPort + "/bootstrap/csr"))
-            .header("Content-Type", "application/json")
-            .POST(
-                HttpRequest.BodyPublishers.ofString(
-                    Json.write(
-                        csrSubmissionToJson(
-                            new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr))))))
-            .build();
-    HttpResponse<String> response;
-    try {
-      response = loopbackClient.send(request, HttpResponse.BodyHandlers.ofString());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IOException("interrupted while requesting own certificate rotation", e);
-    }
-    if (response.statusCode() != 200) {
-      throw new IOException(
-          "own rotation request rejected with status "
-              + response.statusCode()
-              + ": "
-              + response.body());
-    }
-    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-    Files.writeString(
-        settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
-    Files.writeString(
-        settings.keyFile(), Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
-    reloadTlsMaterial();
-  }
-
-  private static X509Certificate loadOwnLeafCertificate(Path certFile) throws IOException {
-    return Pem.decodeCertificate(Files.readString(certFile, StandardCharsets.US_ASCII));
-  }
-
-  private static KeyPair generateRsaKeyPair() {
-    try {
-      KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-      generator.initialize(2048);
-      return generator.generateKeyPair();
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("RSA key pair generation unavailable", e);
-    }
+        .ifPresent(account -> storeClient.propose(new StateMutation.PutAccount(account)));
   }
 
   // ---- /deployments/{name} ----
@@ -489,7 +390,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (GimleManifestException | IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -514,7 +415,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 409, quotaRejection.get());
       return;
     }
-    raftNode.propose(new StateMutation.PutDeployment(spec));
+    storeClient.propose(new StateMutation.PutDeployment(spec));
     respond(exchange, 200, "ok");
   }
 
@@ -532,7 +433,7 @@ public final class ApiServer implements AutoCloseable {
       return Optional.empty();
     }
     String tenantId = spec.tenantId().get();
-    Optional<Tenant> tenant = store.getTenant(tenantId);
+    Optional<Tenant> tenant = storeClient.getTenant(tenantId);
     if (tenant.isEmpty()) {
       return Optional.of("unknown tenantId: " + tenantId);
     }
@@ -543,7 +444,7 @@ public final class ApiServer implements AutoCloseable {
       return Optional.of(
           "cannot verify tenant quota: artifact unreadable at " + spec.artifactPath());
     }
-    TenantUsage.Usage existing = TenantUsage.currentlyAssigned(store, tenantId, spec.name());
+    TenantUsage.Usage existing = TenantUsage.currentlyAssigned(storeClient, tenantId, spec.name());
     TenantUsage.Usage withThisSubmission =
         existing.plus(
             descriptor.resourceRequest().memoryBytes() * spec.replicas(),
@@ -561,7 +462,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
-    Optional<DeploymentSpec> spec = store.getDeployment(name);
+    Optional<DeploymentSpec> spec = storeClient.getDeployment(name);
     if (spec.isEmpty()) {
       respond(exchange, 404, "no such deployment: " + name);
       return;
@@ -570,7 +471,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
-    raftNode.propose(new StateMutation.RemoveDeployment(name));
+    storeClient.propose(new StateMutation.RemoveDeployment(name));
     respond(exchange, 200, "ok");
   }
 
@@ -585,7 +486,9 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respondJson(
-          exchange, 200, store.listDeployments().stream().map(this::deploymentStatus).toList());
+          exchange,
+          200,
+          storeClient.listDeployments().stream().map(this::deploymentStatus).toList());
     } catch (IOException | RuntimeException e) {
       log.warn("deployments list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -603,7 +506,7 @@ public final class ApiServer implements AutoCloseable {
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
 
     List<Map<String, Object>> instances = new ArrayList<>();
-    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+    for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
@@ -616,12 +519,12 @@ public final class ApiServer implements AutoCloseable {
     status.put("spec", specMap);
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
-    status.put("quotaViolating", store.isQuotaViolating(spec.name()));
+    status.put("quotaViolating", storeClient.isQuotaViolating(spec.name()));
     return status;
   }
 
   private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
-    return store
+    return storeClient
         .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
         .flatMap(
@@ -666,7 +569,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -685,7 +588,7 @@ public final class ApiServer implements AutoCloseable {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
     Object apiAddress = body.get("apiAddress");
-    raftNode.propose(
+    storeClient.propose(
         new StateMutation.PutNodeRegistration(
             new NodeRegistration(
                 nodeId,
@@ -697,17 +600,15 @@ public final class ApiServer implements AutoCloseable {
   /**
    * Heartbeats are deliberately never Raft-replicated: high-frequency, tolerate a brief gap after a
    * leader change, and replicating every one would make the log's write rate scale with cluster
-   * size for no correctness benefit. Only the leader's own {@code StateStore} ever receives them
-   * directly -- a non-leader rejects with the same not-leader response every other write uses, even
-   * though this path never touches the Raft log.
+   * size for no correctness benefit. Only the store's current leader ever receives them directly --
+   * {@link StoreClient#putHeartbeat} follows the leader internally (etcd-store-extraction design
+   * doc §4.4/§4.6) the same way {@code storeClient.propose} does, throwing {@link
+   * GimleRaftException} on the same store-unavailable response every other write uses if no leader
+   * could be reached, even though this path never touches the Raft log.
    */
   private void handleHeartbeat(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
-      return;
-    }
-    if (!raftNode.isLeader()) {
-      respondNotLeader(exchange);
       return;
     }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
@@ -716,7 +617,7 @@ public final class ApiServer implements AutoCloseable {
     for (Object entry : (List<?>) body.get("instances")) {
       instances.add(observationFromJson((Map<?, ?>) entry));
     }
-    store.putNodeHeartbeat(new NodeHeartbeat(nodeId, capacity, instances));
+    storeClient.putHeartbeat(new NodeHeartbeat(nodeId, capacity, instances));
     respond(exchange, 200, "ok");
   }
 
@@ -726,11 +627,11 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     List<Map<String, Object>> assigned = new ArrayList<>();
-    for (InstanceAssignment assignment : store.listAssignments()) {
+    for (InstanceAssignment assignment : storeClient.listAssignments()) {
       if (!assignment.nodeId().equals(nodeId)) {
         continue;
       }
-      Optional<DeploymentSpec> spec = store.getDeployment(assignment.deploymentName());
+      Optional<DeploymentSpec> spec = storeClient.getDeployment(assignment.deploymentName());
       if (spec.isEmpty()) {
         continue; // stale assignment; DeploymentReconciler will remove it shortly
       }
@@ -770,7 +671,7 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       List<Map<String, Object>> nodes = new ArrayList<>();
-      for (NodeRegistration registration : store.listNodeRegistrations()) {
+      for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("nodeId", registration.nodeId());
         Map<String, Object> capabilities = new LinkedHashMap<>();
@@ -778,7 +679,7 @@ public final class ApiServer implements AutoCloseable {
             "supportedTiers",
             registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
         node.put("capabilities", capabilities);
-        store
+        storeClient
             .getNodeHeartbeat(registration.nodeId())
             .ifPresent(
                 observed -> {
@@ -889,7 +790,7 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respondJson(
-          exchange, 200, store.listTenants().stream().map(ApiServer::tenantToJson).toList());
+          exchange, 200, storeClient.listTenants().stream().map(ApiServer::tenantToJson).toList());
     } catch (IOException | RuntimeException e) {
       log.warn("tenants list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -924,7 +825,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -943,12 +844,12 @@ public final class ApiServer implements AutoCloseable {
             ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
             ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
             ((Number) quotaMap.get("maxInstances")).intValue());
-    raftNode.propose(new StateMutation.PutTenant(new Tenant(id, quota)));
+    storeClient.propose(new StateMutation.PutTenant(new Tenant(id, quota)));
     respond(exchange, 200, "ok");
   }
 
   private void handleGetTenant(HttpExchange exchange, String id) throws IOException {
-    Optional<Tenant> tenant = store.getTenant(id);
+    Optional<Tenant> tenant = storeClient.getTenant(id);
     if (tenant.isEmpty()) {
       respond(exchange, 404, "no such tenant: " + id);
       return;
@@ -957,7 +858,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteTenant(HttpExchange exchange, String id) throws IOException {
-    raftNode.propose(new StateMutation.RemoveTenant(id));
+    storeClient.propose(new StateMutation.RemoveTenant(id));
     respond(exchange, 200, "ok");
   }
 
@@ -1017,7 +918,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -1037,14 +938,14 @@ public final class ApiServer implements AutoCloseable {
         encrypted
             ? SecretCipher.encrypt(value.getBytes(StandardCharsets.UTF_8), secretKey)
             : value.getBytes(StandardCharsets.UTF_8);
-    raftNode.propose(
+    storeClient.propose(
         new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted)));
     respond(exchange, 200, "ok");
   }
 
   private void handleDeleteConfig(HttpExchange exchange, String tenantId, String key)
       throws IOException {
-    raftNode.propose(new StateMutation.RemoveConfigEntry(tenantId, key));
+    storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, key));
     respond(exchange, 200, "ok");
   }
 
@@ -1056,7 +957,7 @@ public final class ApiServer implements AutoCloseable {
    */
   private void handleListConfig(HttpExchange exchange, String tenantId) throws IOException {
     List<Map<String, Object>> list = new ArrayList<>();
-    for (ConfigEntry entry : store.listConfigEntriesFor(tenantId)) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
       byte[] plaintext =
           entry.encrypted() ? SecretCipher.decrypt(entry.value(), secretKey) : entry.value();
       Map<String, Object> m = new LinkedHashMap<>();
@@ -1079,7 +980,8 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      respondJson(exchange, 200, store.listRoles().stream().map(ApiServer::roleToJson).toList());
+      respondJson(
+          exchange, 200, storeClient.listRoles().stream().map(ApiServer::roleToJson).toList());
     } catch (IOException | RuntimeException e) {
       log.warn("roles list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -1114,7 +1016,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -1127,12 +1029,12 @@ public final class ApiServer implements AutoCloseable {
 
   private void handlePutRole(HttpExchange exchange, String name) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
-    raftNode.propose(new StateMutation.PutRole(roleFromJson(name, body)));
+    storeClient.propose(new StateMutation.PutRole(roleFromJson(name, body)));
     respond(exchange, 200, "ok");
   }
 
   private void handleGetRole(HttpExchange exchange, String name) throws IOException {
-    Optional<Role> role = store.getRole(name);
+    Optional<Role> role = storeClient.getRole(name);
     if (role.isEmpty()) {
       respond(exchange, 404, "no such role: " + name);
       return;
@@ -1141,7 +1043,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteRole(HttpExchange exchange, String name) throws IOException {
-    raftNode.propose(new StateMutation.RemoveRole(name));
+    storeClient.propose(new StateMutation.RemoveRole(name));
     respond(exchange, 200, "ok");
   }
 
@@ -1193,7 +1095,7 @@ public final class ApiServer implements AutoCloseable {
       respondJson(
           exchange,
           200,
-          store.listRoleBindings().stream().map(ApiServer::roleBindingToJson).toList());
+          storeClient.listRoleBindings().stream().map(ApiServer::roleBindingToJson).toList());
     } catch (IOException | RuntimeException e) {
       log.warn("role bindings list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -1230,7 +1132,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -1245,12 +1147,12 @@ public final class ApiServer implements AutoCloseable {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     RoleBinding binding =
         new RoleBinding(id, (String) body.get("subject"), (String) body.get("roleName"));
-    raftNode.propose(new StateMutation.PutRoleBinding(binding));
+    storeClient.propose(new StateMutation.PutRoleBinding(binding));
     respond(exchange, 200, "ok");
   }
 
   private void handleGetRoleBinding(HttpExchange exchange, String id) throws IOException {
-    Optional<RoleBinding> binding = store.getRoleBinding(id);
+    Optional<RoleBinding> binding = storeClient.getRoleBinding(id);
     if (binding.isEmpty()) {
       respond(exchange, 404, "no such role binding: " + id);
       return;
@@ -1259,7 +1161,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteRoleBinding(HttpExchange exchange, String id) throws IOException {
-    raftNode.propose(new StateMutation.RemoveRoleBinding(id));
+    storeClient.propose(new StateMutation.RemoveRoleBinding(id));
     respond(exchange, 200, "ok");
   }
 
@@ -1283,7 +1185,9 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respondJson(
-          exchange, 200, store.listAccounts().stream().map(ApiServer::accountToJson).toList());
+          exchange,
+          200,
+          storeClient.listAccounts().stream().map(ApiServer::accountToJson).toList());
     } catch (IOException | RuntimeException e) {
       log.warn("accounts list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -1318,7 +1222,7 @@ public final class ApiServer implements AutoCloseable {
         default -> respond(exchange, 405, "method not allowed");
       }
     } catch (GimleRaftException e) {
-      respondNotLeader(exchange);
+      respondStoreUnavailable(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -1344,12 +1248,12 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
-    raftNode.propose(new StateMutation.PutAccount(new Account(username, passwordHash)));
+    storeClient.propose(new StateMutation.PutAccount(new Account(username, passwordHash)));
     respond(exchange, 200, "ok");
   }
 
   private void handleGetAccount(HttpExchange exchange, String username) throws IOException {
-    Optional<Account> account = store.getAccount(username);
+    Optional<Account> account = storeClient.getAccount(username);
     if (account.isEmpty()) {
       respond(exchange, 404, "no such account: " + username);
       return;
@@ -1358,7 +1262,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleDeleteAccount(HttpExchange exchange, String username) throws IOException {
-    raftNode.propose(new StateMutation.RemoveAccount(username));
+    storeClient.propose(new StateMutation.RemoveAccount(username));
     respond(exchange, 200, "ok");
   }
 
@@ -1387,7 +1291,8 @@ public final class ApiServer implements AutoCloseable {
       Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
       String username = (String) body.get("username");
       String password = (String) body.get("password");
-      Optional<Account> account = username == null ? Optional.empty() : store.getAccount(username);
+      Optional<Account> account =
+          username == null ? Optional.empty() : storeClient.getAccount(username);
       if (account.isEmpty()
           || password == null
           || !PasswordHashes.verify(password.toCharArray(), account.get().passwordHash())) {
@@ -1536,7 +1441,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     String nodeId =
-        store.listAssignmentsFor(deploymentName).stream()
+        storeClient.listAssignmentsFor(deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
             .map(InstanceAssignment::nodeId)
             .findFirst()
@@ -1552,7 +1457,7 @@ public final class ApiServer implements AutoCloseable {
 
   /** Looks up the owning node's self-reported log-server address and forwards the request as-is. */
   private void proxyToAgent(HttpExchange exchange, String nodeId, String path) throws IOException {
-    Optional<NodeRegistration> registration = store.getNodeRegistration(nodeId);
+    Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
     if (registration.isEmpty()) {
       respond(exchange, 404, "unknown node: " + nodeId);
       return;
@@ -1931,14 +1836,6 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
-    Map<String, Object> map = new LinkedHashMap<>();
-    map.put("purpose", submission.purpose().name());
-    map.put("csrPem", submission.csrPem());
-    submission.bootstrapToken().ifPresent(token -> map.put("bootstrapToken", token));
-    return map;
-  }
-
   private static CsrSubmission csrSubmissionFromJson(Map<String, Object> json) {
     CsrPurpose purpose = CsrPurpose.valueOf((String) json.get("purpose"));
     String csrPem = (String) json.get("csrPem");
@@ -1953,14 +1850,6 @@ public final class ApiServer implements AutoCloseable {
     result.certificatePem().ifPresent(cert -> map.put("certificatePem", cert));
     result.caCertificatePem().ifPresent(ca -> map.put("caCertificatePem", ca));
     return map;
-  }
-
-  private static CsrResult csrResultFromJson(Map<String, Object> json) {
-    CsrRequestStatus status = CsrRequestStatus.valueOf((String) json.get("status"));
-    Optional<String> requestId = Optional.ofNullable((String) json.get("requestId"));
-    Optional<String> certificatePem = Optional.ofNullable((String) json.get("certificatePem"));
-    Optional<String> caCertificatePem = Optional.ofNullable((String) json.get("caCertificatePem"));
-    return new CsrResult(status, requestId, certificatePem, caCertificatePem);
   }
 
   // ---- HTTP plumbing ----
@@ -2118,27 +2007,14 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A write rejected by a non-leader: {@code 307} preserves the original method on redirect
-   * (required for PUT/POST/DELETE), with a {@code Location} header pointing at the current leader's
-   * HTTP address when known, plus a JSON body serving a Gimlé-aware caller that reads structured
-   * fields instead of following the redirect.
+   * A write that {@code storeClient} couldn't get any store endpoint to serve -- every configured
+   * endpoint was tried, including one leader-follow retry against a {@code NotLeader} hint (design
+   * doc §4.4/§4.6), before {@link GimleRaftException} was thrown. {@code 503}, not the pre-split
+   * {@code 307} redirect: leader routing is now entirely internal to {@code StoreClient}, invisible
+   * to the HTTP caller, so this process has no leader address left to redirect anyone to -- a
+   * simplification of the client contract, not a lesser response, per the design doc's own framing.
    */
-  private void respondNotLeader(HttpExchange exchange) {
-    try {
-      Optional<String> leaderRaftId = raftNode.leaderHint();
-      Optional<String> leaderApiAddress = leaderRaftId.map(peerApiAddresses::get);
-      leaderApiAddress.ifPresent(
-          address ->
-              exchange
-                  .getResponseHeaders()
-                  .add("Location", "http://" + address + exchange.getRequestURI().getPath()));
-      Map<String, Object> body = new LinkedHashMap<>();
-      body.put("error", "not-leader");
-      body.put("leaderRaftId", leaderRaftId.orElse(null));
-      body.put("leaderApiAddress", leaderApiAddress.orElse(null));
-      respondJson(exchange, 307, body);
-    } catch (IOException e) {
-      log.warn("failed to write not-leader response: {}", e.getMessage());
-    }
+  private void respondStoreUnavailable(HttpExchange exchange) {
+    respondQuietly(exchange, 503, "store temporarily unavailable; retry shortly");
   }
 }

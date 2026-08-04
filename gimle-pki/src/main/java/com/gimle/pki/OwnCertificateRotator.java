@@ -1,0 +1,143 @@
+package com.gimle.pki;
+
+import com.gimle.core.protocol.CsrPurpose;
+import com.gimle.core.protocol.CsrRequestStatus;
+import com.gimle.core.protocol.CsrResult;
+import com.gimle.core.protocol.CsrSubmission;
+import com.gimle.core.protocol.Json;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * The renewal half of a node's own leaf-certificate lifecycle, shared between {@code ApiServer}
+ * (calling its own loopback {@code /bootstrap/csr}) and {@code StoreMain} (calling a reachable
+ * {@code ApiServer} replica's {@code /bootstrap/csr} over the network) -- extracted once {@code
+ * StoreMain} needed the identical logic a second caller (etcd-store-extraction design doc §4.7/§9:
+ * {@code gimle-mimir} replicas get CA-signed leaf certs from the same single cluster CA every other
+ * component uses, via the same renewal-over-mTLS mechanism, not an ad-hoc self-signed cert or a
+ * second CSR-signing authority). Deliberately does not reload any listener itself -- {@code
+ * RaftTransport}/{@code StoreTransport}/{@code ApiServer}'s own {@code HttpsServer} are each a
+ * different caller's concern, so the boolean return tells the caller whether *any* reload is
+ * needed, same contract {@code ApiServer.checkAndRotateOwnCertificateIfDue} already had.
+ */
+public final class OwnCertificateRotator {
+
+  private static final Logger log = LoggerFactory.getLogger(OwnCertificateRotator.class);
+
+  private OwnCertificateRotator() {}
+
+  /**
+   * No-op in plaintext mode or when nothing is due yet. Returns {@code true} iff a rotation
+   * actually happened -- the caller is responsible for reloading whatever listeners key off {@code
+   * settings.certFile()}/{@code keyFile()} afterward.
+   */
+  public static boolean checkAndRotateIfDue(TlsSettings settings, URI csrEndpoint) {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return false;
+    }
+    try {
+      X509Certificate current = loadOwnLeafCertificate(settings.certFile());
+      if (!RenewalSchedule.of(current).isDue(Instant.now())) {
+        return false;
+      }
+      if (csrEndpoint == null) {
+        log.warn("own leaf certificate is due for renewal but no CSR endpoint is configured");
+        return false;
+      }
+      log.info("own leaf certificate due for renewal, requesting rotation from {}", csrEndpoint);
+      rotate(settings, current, csrEndpoint);
+      return true;
+    } catch (RuntimeException | IOException e) {
+      log.warn("certificate rotation check failed: {}", e.getMessage(), e);
+      return false;
+    }
+  }
+
+  private static void rotate(TlsSettings settings, X509Certificate current, URI csrEndpoint)
+      throws IOException {
+    KeyPair keyPair = generateRsaKeyPair();
+    X500Name subject = new X500Name(current.getSubjectX500Principal().getName());
+    PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
+    HttpClient client =
+        HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
+    HttpRequest request =
+        HttpRequest.newBuilder(csrEndpoint)
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(
+                        csrSubmissionToJson(
+                            new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr))))))
+            .build();
+    HttpResponse<String> response;
+    try {
+      response = client.send(request, HttpResponse.BodyHandlers.ofString());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("interrupted while requesting own certificate rotation", e);
+    }
+    if (response.statusCode() != 200) {
+      throw new IOException(
+          "own rotation request rejected with status "
+              + response.statusCode()
+              + ": "
+              + response.body());
+    }
+    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
+    Files.writeString(
+        settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+    Files.writeString(
+        settings.keyFile(), Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
+  }
+
+  private static X509Certificate loadOwnLeafCertificate(Path certFile) throws IOException {
+    return Pem.decodeCertificate(Files.readString(certFile, StandardCharsets.US_ASCII));
+  }
+
+  private static KeyPair generateRsaKeyPair() {
+    try {
+      KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+      generator.initialize(2048);
+      return generator.generateKeyPair();
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("RSA key pair generation is unavailable", e);
+    }
+  }
+
+  private static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("purpose", submission.purpose().name());
+    map.put("csrPem", submission.csrPem());
+    submission.bootstrapToken().ifPresent(token -> map.put("bootstrapToken", token));
+    return map;
+  }
+
+  private static CsrResult csrResultFromJson(Map<String, Object> json) {
+    CsrRequestStatus status = CsrRequestStatus.valueOf((String) json.get("status"));
+    Optional<String> requestId = Optional.ofNullable((String) json.get("requestId"));
+    Optional<String> certificatePem = Optional.ofNullable((String) json.get("certificatePem"));
+    Optional<String> caCertificatePem = Optional.ofNullable((String) json.get("caCertificatePem"));
+    return new CsrResult(status, requestId, certificatePem, caCertificatePem);
+  }
+}

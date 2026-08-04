@@ -2,7 +2,7 @@ package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.gimle.controlplane.store.StateStore;
+import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.pki.CertificateAuthority;
@@ -71,8 +71,8 @@ class ApiServerTlsTest {
     configureServerTls(ca);
     TlsSettings clientSettings = issueLeaf(ca, "operator");
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
       HttpClient client = HttpClient.newBuilder().sslContext(clientContext).build();
@@ -94,8 +94,8 @@ class ApiServerTlsTest {
             new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
     configureServerTls(ca);
 
-    StateStore store = new StateStore(tempDir.resolve("store"));
-    try (ApiServer server = new ApiServer(store, 0)) {
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
       server.start();
       // A client that trusts the CA (so it accepts the server's own cert) but presents no client
       // certificate of its own. The server sets wantClientAuth, not needClientAuth (see
