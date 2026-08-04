@@ -13,7 +13,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * (etcd-store-extraction design doc), what {@code mvn gimle:controlplane} used to embed directly
  * before the split. No-ops in every other reactor module (see {@link AbstractGimleMojo}).
  */
-@Mojo(name = "store", requiresDependencyResolution = ResolutionScope.RUNTIME)
+@Mojo(name = "store", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class StoreMojo extends AbstractGimleMojo {
 
   @Parameter(

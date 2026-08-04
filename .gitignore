@@ -3,6 +3,10 @@ target/
 *.log
 claudedocs/
 
+# mvn gimle:bootstrap's own state dir (store raft state, control-plane secret key, TLS material) --
+# not under target/, and contains non-.log files the blanket *.log rule above doesn't catch.
+gimle-bootstrap/
+
 # gimle-console (npm/Vite-family project, outside the Maven reactor) build artifacts
 gimle-console/node_modules/
 gimle-console/dist/

@@ -1,10 +1,7 @@
 package com.gimle.mavenplugin;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -78,22 +75,9 @@ public abstract class AbstractGimleMojo extends AbstractMojo {
   }
 
   /**
-   * Resolves the real java launcher this Maven process itself is running under, mirroring {@code
-   * gimle-agent}'s own {@code ResourceLimitEnforcementTest.javaExecutable()} -- so the spawned
-   * child runs on the exact same JDK the developer already has active for this build.
+   * @see GimleProcesses#javaExecutable()
    */
   protected static String javaExecutable() {
-    Optional<String> command = ProcessHandle.current().info().command();
-    if (command.isPresent()) {
-      return command.get();
-    }
-    Path javaBin = Path.of(System.getProperty("java.home"), "bin");
-    for (String candidate : List.of("java", "java.exe")) {
-      Path path = javaBin.resolve(candidate);
-      if (Files.isRegularFile(path)) {
-        return path.toString();
-      }
-    }
-    throw new IllegalStateException("could not locate the java launcher under " + javaBin);
+    return GimleProcesses.javaExecutable();
   }
 }

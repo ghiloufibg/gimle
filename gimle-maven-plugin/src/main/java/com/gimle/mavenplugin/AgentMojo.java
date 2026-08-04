@@ -10,14 +10,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.artifact.Artifact;
-import org.eclipse.aether.artifact.DefaultArtifact;
-import org.eclipse.aether.collection.CollectRequest;
-import org.eclipse.aether.graph.Dependency;
 import org.eclipse.aether.repository.RemoteRepository;
-import org.eclipse.aether.resolution.ArtifactResult;
-import org.eclipse.aether.resolution.DependencyRequest;
-import org.eclipse.aether.resolution.DependencyResolutionException;
 
 /**
  * {@code mvn gimle:agent} -- launches a real {@code AgentMain} process using {@code gimle-agent}'s
@@ -29,7 +22,7 @@ import org.eclipse.aether.resolution.DependencyResolutionException;
  * against the already-{@code mvn install}ed {@code com.gimle:gimle-worker} artifact via Maven's own
  * dependency resolver, independent of reactor build order.
  */
-@Mojo(name = "agent", requiresDependencyResolution = ResolutionScope.RUNTIME)
+@Mojo(name = "agent", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class AgentMojo extends AbstractGimleMojo {
 
   @Parameter(property = "gimle.agent.nodeId", defaultValue = "node-1")
@@ -73,7 +66,13 @@ public final class AgentMojo extends AbstractGimleMojo {
 
   @Override
   protected List<String> buildCommand() throws MojoExecutionException {
-    String workerClasspath = resolveWorkerClasspath();
+    String workerClasspath =
+        GimleProcesses.resolveRuntimeClasspath(
+            "gimle-worker",
+            projectVersion,
+            remoteRepositories,
+            repositorySystemSession,
+            repositorySystem);
 
     List<String> command = new ArrayList<>();
     command.add(javaExecutable());
@@ -92,32 +91,5 @@ public final class AgentMojo extends AbstractGimleMojo {
     command.add(workerClasspath);
     command.add("com.gimle.worker.WorkerMain");
     return command;
-  }
-
-  private String resolveWorkerClasspath() throws MojoExecutionException {
-    Artifact workerArtifact =
-        new DefaultArtifact("com.gimle", "gimle-worker", "jar", projectVersion);
-    CollectRequest collectRequest = new CollectRequest();
-    collectRequest.setRoot(new Dependency(workerArtifact, "runtime"));
-    collectRequest.setRepositories(remoteRepositories);
-    DependencyRequest dependencyRequest = new DependencyRequest(collectRequest, null);
-
-    List<ArtifactResult> results;
-    try {
-      results =
-          repositorySystem
-              .resolveDependencies(repositorySystemSession, dependencyRequest)
-              .getArtifactResults();
-    } catch (DependencyResolutionException e) {
-      throw new MojoExecutionException(
-          "failed to resolve gimle-worker's runtime classpath -- has `mvn install` been run yet?",
-          e);
-    }
-
-    List<String> paths = new ArrayList<>();
-    for (ArtifactResult result : results) {
-      paths.add(result.getArtifact().getFile().getAbsolutePath());
-    }
-    return String.join(File.pathSeparator, paths);
   }
 }

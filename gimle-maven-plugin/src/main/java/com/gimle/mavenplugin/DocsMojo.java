@@ -35,7 +35,7 @@ import org.apache.maven.project.MavenProject;
  * {@code maven-javadoc-plugin} {@code pluginManagement} entry), so nothing else chains it before
  * {@code gimle-docs}'s own build runs.
  */
-@Mojo(name = "docs")
+@Mojo(name = "docs", threadSafe = true)
 public final class DocsMojo extends AbstractMojo {
 
   @Parameter(defaultValue = "${project}", readonly = true, required = true)

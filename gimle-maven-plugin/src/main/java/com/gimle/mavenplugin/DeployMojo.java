@@ -12,7 +12,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * a running control plane via a real {@code GimleCli} subprocess, using {@code gimle-cli}'s own
  * resolved runtime classpath. No-ops in every other reactor module (see {@link AbstractGimleMojo}).
  */
-@Mojo(name = "deploy", requiresDependencyResolution = ResolutionScope.RUNTIME)
+@Mojo(name = "deploy", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class DeployMojo extends AbstractGimleMojo {
 
   @Parameter(property = "gimle.deploy.file", required = true)

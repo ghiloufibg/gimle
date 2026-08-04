@@ -16,7 +16,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * ${project.runtimeClasspathElements}} is already everything the spawned process needs -- the same
  * simple shape {@code DeployMojo} uses for {@code gimle-cli}.
  */
-@Mojo(name = "tls-init", requiresDependencyResolution = ResolutionScope.RUNTIME)
+@Mojo(name = "tls-init", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class TlsInitMojo extends AbstractGimleMojo {
 
   @Parameter(property = "gimle.tlsInit.outputDir", defaultValue = "./gimle-tls")

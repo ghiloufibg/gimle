@@ -15,7 +15,10 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * the two goals keep working together with zero extra flags for single-node local dev. No-ops in
  * every other reactor module (see {@link AbstractGimleMojo}).
  */
-@Mojo(name = "controlplane", requiresDependencyResolution = ResolutionScope.RUNTIME)
+@Mojo(
+    name = "controlplane",
+    requiresDependencyResolution = ResolutionScope.RUNTIME,
+    threadSafe = true)
 public final class ControlPlaneMojo extends AbstractGimleMojo {
 
   @Parameter(property = "gimle.controlplane.port", defaultValue = "8080")
