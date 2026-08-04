@@ -14,9 +14,13 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.jetbrains.jetCheck.Generator;
+import org.jetbrains.jetCheck.IntDistribution;
+import org.jetbrains.jetCheck.PropertyChecker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -258,5 +262,111 @@ class AutoscaleReconcilerTest {
         proposalsToReachCeiling,
         proposals.get(),
         "ticks after convergence must not re-propose the already-correct ceiling value");
+  }
+
+  /**
+   * One arbitrary scenario for the property below: a policy, a starting effective replica count
+   * already within that policy's bounds (the realistic case -- this reconciler is the only writer
+   * of {@code effectiveReplicas}, and always clamps before writing, so a value outside the current
+   * policy's bounds would only arise from an external edit or a since-narrowed policy; out of scope
+   * for this property, not a gap in it), and a variable number of ready instances each reporting
+   * their own CPU usage.
+   */
+  private record AutoscaleScenario(
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      int currentEffective,
+      List<Long> readyCpuMillicoresUsed) {}
+
+  private static final Generator<AutoscaleScenario> AUTOSCALE_SCENARIOS =
+      Generator.from(
+          env -> {
+            int minReplicas = env.generate(Generator.integers(0, 5));
+            int maxReplicas = minReplicas + env.generate(Generator.integers(0, 10));
+            int targetCpuUtilizationPercent = env.generate(Generator.integers(1, 200));
+            int currentEffective = env.generate(Generator.integers(minReplicas, maxReplicas));
+            List<Long> readyCpuMillicoresUsed =
+                env
+                    .generate(
+                        Generator.listsOf(IntDistribution.uniform(1, 4), Generator.integers(0, 50)))
+                    .stream()
+                    .map(Long::valueOf)
+                    .toList();
+            return new AutoscaleScenario(
+                minReplicas,
+                maxReplicas,
+                targetCpuUtilizationPercent,
+                currentEffective,
+                readyCpuMillicoresUsed);
+          });
+
+  /**
+   * A variable-length generalization of {@link #twoReadyInstancesAt}: one ready instance per entry
+   * in {@code cpuMillicoresUsedPerInstance}, all on {@code node-a}.
+   */
+  private static void readyInstancesAt(
+      StateStore store,
+      String deploymentName,
+      ModuleId moduleId,
+      List<Long> cpuMillicoresUsedPerInstance) {
+    List<InstanceObservation> observations = new ArrayList<>();
+    for (int i = 0; i < cpuMillicoresUsedPerInstance.size(); i++) {
+      store.putAssignment(new InstanceAssignment(deploymentName, i, "node-a", moduleId, ""));
+      observations.add(
+          new InstanceObservation(
+              deploymentName,
+              i,
+              moduleId,
+              "ACTIVE",
+              true,
+              true,
+              0.0,
+              0,
+              cpuMillicoresUsedPerInstance.get(i),
+              0L));
+    }
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a", new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0), observations));
+  }
+
+  /**
+   * CLAUDE.md's own "convergence tests from arbitrary starting states" requirement, for the one of
+   * the three remaining reconcilers that's genuinely stateless (design doc §1.1): rather than
+   * re-deriving the reconciler's own ceil/ratio formula as the "expected" value (which would just
+   * be testing that the code agrees with itself), this asserts the two invariants the class's own
+   * javadoc actually promises -- clamped to policy bounds, moved by at most one replica per tick --
+   * hold across hundreds of arbitrary policy/utilization/replica-count combinations, not just the
+   * handful of hand-picked examples above.
+   */
+  @Test
+  void a_tick_never_leaves_the_configured_bounds_or_moves_more_than_one_replica() {
+    Path jar = buildFixtureJar();
+    AtomicInteger trial = new AtomicInteger();
+    PropertyChecker.forAll(
+        AUTOSCALE_SCENARIOS,
+        scenario -> {
+          StateStore store =
+              new StateStore(tempDir.resolve("prop-autoscale-" + trial.incrementAndGet()));
+          AutoscalePolicy policy =
+              new AutoscalePolicy(
+                  scenario.minReplicas(),
+                  scenario.maxReplicas(),
+                  scenario.targetCpuUtilizationPercent());
+          DeploymentSpec spec =
+              deployment("orders-service", scenario.currentEffective(), jar, policy);
+          store.putDeployment(spec);
+          store.putEffectiveReplicas("orders-service", scenario.currentEffective());
+          readyInstancesAt(
+              store, "orders-service", spec.moduleId(), scenario.readyCpuMillicoresUsed());
+
+          new AutoscaleReconciler(store).reconcileOnce();
+          int next = store.getEffectiveReplicas("orders-service").orElseThrow();
+
+          boolean withinBounds = next >= scenario.minReplicas() && next <= scenario.maxReplicas();
+          boolean atMostOneStep = Math.abs(next - scenario.currentEffective()) <= 1;
+          return withinBounds && atMostOneStep;
+        });
   }
 }

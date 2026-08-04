@@ -13,6 +13,10 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.jetbrains.jetCheck.Generator;
+import org.jetbrains.jetCheck.IntDistribution;
+import org.jetbrains.jetCheck.PropertyChecker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -161,5 +165,110 @@ class HealthReconcilerTest {
     assertTrue(
         hasAssignment(store, "orders-service", 0),
         "exhausted budget must stop further rescheduling");
+  }
+
+  /** One arbitrary assignment's observation shape, per {@link HealthReconciler#isHealthy}. */
+  private enum ObservationKind {
+    NONE,
+    HEALTHY,
+    UNHEALTHY_NOT_ALIVE,
+    UNHEALTHY_FAILED_STATE,
+    UNHEALTHY_BOTH
+  }
+
+  /**
+   * One arbitrary assignment's scenario. {@code ready} is generated but must never affect the
+   * outcome -- {@code readiness_alone_never_triggers_a_reschedule} already covers this as a single
+   * hand-picked example; folding it into the property's own entropy generalizes that same guarantee
+   * across every {@code ObservationKind} rather than just one.
+   */
+  private record HealthScenario(ObservationKind kind, boolean ready) {
+    boolean isUnhealthy() {
+      return kind != ObservationKind.NONE && kind != ObservationKind.HEALTHY;
+    }
+  }
+
+  private static final Generator<HealthScenario> SINGLE_SCENARIO =
+      Generator.from(
+          env ->
+              new HealthScenario(
+                  env.generate(Generator.sampledFrom(ObservationKind.values())),
+                  env.generate(Generator.booleans())));
+
+  // Same reasoning as ReplicaCountReconcilerTest's own property: a single assignment's domain (5
+  // kinds x 2 booleans = 10 combinations) is too small for jetCheck's default 100-iteration
+  // diversity requirement. A list of 1-3 independent assignments supplies real entropy and tests
+  // that one reconcile pass gets every assignment's decision right independently.
+  private static final Generator<List<HealthScenario>> HEALTH_SCENARIOS =
+      Generator.listsOf(IntDistribution.uniform(1, 3), SINGLE_SCENARIO);
+
+  private static void putObservationIfAny(
+      StateStore store, String nodeId, String deploymentName, HealthScenario scenario) {
+    List<InstanceObservation> instances =
+        switch (scenario.kind()) {
+          case NONE -> List.of();
+          case HEALTHY ->
+              List.of(
+                  new InstanceObservation(
+                      deploymentName, 0, ORDERS, "ACTIVE", true, scenario.ready()));
+          case UNHEALTHY_NOT_ALIVE ->
+              List.of(
+                  new InstanceObservation(
+                      deploymentName, 0, ORDERS, "ACTIVE", false, scenario.ready()));
+          case UNHEALTHY_FAILED_STATE ->
+              List.of(
+                  new InstanceObservation(
+                      deploymentName, 0, ORDERS, "FAILED", true, scenario.ready()));
+          case UNHEALTHY_BOTH ->
+              List.of(
+                  new InstanceObservation(
+                      deploymentName, 0, ORDERS, "FAILED", false, scenario.ready()));
+        };
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(nodeId, new ResourceUsageSnapshot(1000, 0, 1000, 0), instances));
+  }
+
+  /**
+   * CLAUDE.md's own "convergence tests from arbitrary starting states" requirement. Unlike {@link
+   * ReplicaCountReconciler}'s property, this one genuinely needs two {@code reconcileOnce()} calls,
+   * not one (design doc §1.2's own correction): {@code RestartTracker}'s constructor rejects a zero
+   * {@code initialDelay} outright, so {@code delayUntilNextAttempt} can never be {@code <= 0} on
+   * the very first recorded failure -- a single-call property here could only ever observe the
+   * healthy-survives half, never a removal. Uses {@code fastReconciler}'s own tiny backoff
+   * parameters (10ms initial delay) and the same sleep-past-it shape the existing hand-picked
+   * examples above already use, just generalized across many arbitrary observation combinations at
+   * once instead of one.
+   */
+  @Test
+  void a_fresh_reconciler_matches_the_documented_health_decision_after_two_ticks() {
+    AtomicInteger trial = new AtomicInteger();
+    PropertyChecker.forAll(
+        HEALTH_SCENARIOS,
+        scenarios -> {
+          StateStore store =
+              new StateStore(tempDir.resolve("prop-health-" + trial.incrementAndGet()));
+          for (int i = 0; i < scenarios.size(); i++) {
+            store.putAssignment(new InstanceAssignment("deployment-" + i, 0, "node-" + i));
+            putObservationIfAny(store, "node-" + i, "deployment-" + i, scenarios.get(i));
+          }
+
+          HealthReconciler reconciler = fastReconciler(store);
+          reconciler.reconcileOnce(); // first failure observed: starts the (10ms) backoff
+          try {
+            Thread.sleep(30); // comfortably past the 10ms initial delay
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+          }
+          reconciler.reconcileOnce(); // backoff elapsed: now it removes unhealthy assignments
+
+          for (int i = 0; i < scenarios.size(); i++) {
+            boolean removed = !hasAssignment(store, "deployment-" + i, 0);
+            if (removed != scenarios.get(i).isUnhealthy()) {
+              return false;
+            }
+          }
+          return true;
+        });
   }
 }

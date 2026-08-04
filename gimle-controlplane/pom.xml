@@ -71,5 +71,17 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
+    <!-- Property-based testing for reconciler convergence-from-arbitrary-state coverage (CLAUDE.md's
+         own reconciler-convergence-test requirement). Framework-agnostic: PropertyChecker.forAll(...)
+         is called from a plain @Test method, no custom JUnit engine. Deliberately not jqwik, whose
+         maintainer shipped a real prompt-injection payload targeting AI coding agents in v1.10.0 and
+         whose current release still prints an adversarially-phrased message to test output and
+         states it's "not meant to be used by any 'AI' coding agents at all." -->
+    <dependency>
+      <groupId>org.jetbrains</groupId>
+      <artifactId>jetCheck</artifactId>
+      <version>0.3.0</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
