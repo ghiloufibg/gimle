@@ -76,5 +76,16 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
+    <!-- Network-fault-injection tests only: a Java client for a separately-running toxiproxy-server
+         process, used to inject a real dropped/slow connection between two real subprocesses (a
+         hard process kill, which existing integration tests already cover, can't exercise a flaky
+         network that never actually kills anything). Tests using this skip cleanly (via
+         Assumptions.assumeTrue) when that server isn't reachable, rather than failing the build. -->
+    <dependency>
+      <groupId>eu.rekawek.toxiproxy</groupId>
+      <artifactId>toxiproxy-java</artifactId>
+      <version>2.1.7</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

@@ -171,8 +171,28 @@ public final class WorkerMain {
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));
     String advertisedHost = resolveAdvertisedHost();
-    InetSocketAddress advertised = new InetSocketAddress(advertisedHost, bound.getPort());
+    // Test-support seam only: lets a fault-injection test make this worker advertise a Toxiproxy
+    // proxy's port instead of its own real bound one, without touching the real listener. It still
+    // binds and listens on its own real ephemeral port unconditionally above; this only changes
+    // what gets announced to the rest of the cluster via the Hello message -> gossip catalog. Since
+    // overriding the advertised port means nothing in the system ever learns the real one, a paired
+    // seam reports it back to the test directly (see below).
+    int advertisedPort = Integer.getInteger("gimle.fabric.advertisedPort", bound.getPort());
+    InetSocketAddress advertised = new InetSocketAddress(advertisedHost, advertisedPort);
+    reportRealFabricPortIfRequested(bound.getPort());
     return new FabricBinding(server, new FabricEndpoints(udsPath.toString(), advertised));
+  }
+
+  // Test-support seam only, paired with the advertised-port override above: with the advertised
+  // port overridden, nothing else in the system (not even this worker's own agent, whose Hello
+  // message now carries the override) ever learns the real bound port -- so a test that needs to
+  // point a proxy's upstream at it has no other way to find out. Writes plain-text digits, no-op
+  // unless a test opts in.
+  private static void reportRealFabricPortIfRequested(int realPort) throws IOException {
+    String path = System.getProperty("gimle.fabric.realPortFile");
+    if (path != null) {
+      Files.writeString(Path.of(path), Integer.toString(realPort));
+    }
   }
 
   private static String resolveAdvertisedHost() {
