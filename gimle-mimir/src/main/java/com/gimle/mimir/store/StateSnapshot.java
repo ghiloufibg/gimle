@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -30,7 +31,8 @@ public record StateSnapshot(
     List<RoleBinding> roleBindings,
     List<Account> accounts,
     List<ReconcilerInstanceState> reconcilerInstanceStates,
-    Set<String> cordonedNodes) {
+    Set<String> cordonedNodes,
+    List<InstanceEvent> instanceEvents) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -46,5 +48,6 @@ public record StateSnapshot(
     accounts = List.copyOf(accounts);
     reconcilerInstanceStates = List.copyOf(reconcilerInstanceStates);
     cordonedNodes = Set.copyOf(cordonedNodes);
+    instanceEvents = List.copyOf(instanceEvents);
   }
 }

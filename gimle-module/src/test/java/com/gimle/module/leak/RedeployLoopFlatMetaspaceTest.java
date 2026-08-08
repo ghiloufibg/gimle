@@ -168,7 +168,12 @@ class RedeployLoopFlatMetaspaceTest {
             modulePathEntryOf(com.gimle.core.module.ModuleId.class),
             modulePathEntryOf(com.gimle.module.lifecycle.ModuleController.class),
             modulePathEntryOf(RedeployLoopDriver.class),
-            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class));
+            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class),
+            // ModuleController logs every lifecycle transition (a real fix, not incidental --
+            // TransitionFailed's cause used to be dropped even from this worker's own log); slf4j
+            // API is now a real class-init-time dependency of a class this subprocess loads, not
+            // just a compile-time one satisfied by gimle-core's own logging setup elsewhere.
+            modulePathEntryOf(org.slf4j.Logger.class));
     StringBuilder cp = new StringBuilder();
     for (Path entry : entries) {
       if (cp.length() > 0) {

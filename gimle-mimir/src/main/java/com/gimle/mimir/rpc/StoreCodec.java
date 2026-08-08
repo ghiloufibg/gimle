@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
@@ -61,6 +62,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_RECONCILER_INSTANCE_STATE = 43;
   private static final byte TAG_LIST_RECONCILER_INSTANCE_STATES = 45;
   private static final byte TAG_IS_NODE_CORDONED = 47;
+  private static final byte TAG_LIST_INSTANCE_EVENTS = 48;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -85,6 +87,7 @@ public final class StoreCodec {
   private static final byte TAG_ROLE_BINDING_LIST_RESULT = 42;
   private static final byte TAG_RECONCILER_INSTANCE_STATE_RESULT = 44;
   private static final byte TAG_RECONCILER_INSTANCE_STATE_LIST_RESULT = 46;
+  private static final byte TAG_INSTANCE_EVENT_LIST_RESULT = 49;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -210,6 +213,11 @@ public final class StoreCodec {
         }
         case StoreRpc.ListReconcilerInstanceStates v ->
             out.writeByte(TAG_LIST_RECONCILER_INSTANCE_STATES);
+        case StoreRpc.ListInstanceEvents v -> {
+          out.writeByte(TAG_LIST_INSTANCE_EVENTS);
+          out.writeUTF(v.deploymentName());
+          out.writeInt(v.instanceIndex());
+        }
         case StoreRpc.Ok v -> out.writeByte(TAG_OK);
         case StoreRpc.NotLeader v -> {
           out.writeByte(TAG_NOT_LEADER);
@@ -349,6 +357,13 @@ public final class StoreCodec {
             DomainCodec.writeReconcilerInstanceState(out, s);
           }
         }
+        case StoreRpc.InstanceEventListResult v -> {
+          out.writeByte(TAG_INSTANCE_EVENT_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (InstanceEvent e : v.values()) {
+            DomainCodec.writeInstanceEvent(out, e);
+          }
+        }
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -390,6 +405,8 @@ public final class StoreCodec {
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
             new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
         case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();
+        case TAG_LIST_INSTANCE_EVENTS ->
+            new StoreRpc.ListInstanceEvents(in.readUTF(), in.readInt());
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
         case TAG_LEASE_RESULT ->
@@ -504,6 +521,14 @@ public final class StoreCodec {
             values.add(DomainCodec.readReconcilerInstanceState(in));
           }
           yield new StoreRpc.ReconcilerInstanceStateListResult(values);
+        }
+        case TAG_INSTANCE_EVENT_LIST_RESULT -> {
+          int count = in.readInt();
+          List<InstanceEvent> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readInstanceEvent(in));
+          }
+          yield new StoreRpc.InstanceEventListResult(values);
         }
         default -> throw new IllegalArgumentException("unknown StoreRpc tag: " + tag);
       };

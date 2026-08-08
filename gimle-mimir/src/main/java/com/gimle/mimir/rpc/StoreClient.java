@@ -5,6 +5,7 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -194,6 +195,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
     return ((StoreRpc.ReconcilerInstanceStateListResult)
             sendRead(new StoreRpc.ListReconcilerInstanceStates()))
+        .values();
+  }
+
+  public List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex) {
+    return ((StoreRpc.InstanceEventListResult)
+            sendRead(new StoreRpc.ListInstanceEvents(deploymentName, instanceIndex)))
         .values();
   }
 

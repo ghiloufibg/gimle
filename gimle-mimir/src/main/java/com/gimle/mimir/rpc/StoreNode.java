@@ -70,6 +70,9 @@ public final class StoreNode implements StoreRpcHandler {
               store.getReconcilerInstanceState(r.deploymentName(), r.instanceIndex()));
       case StoreRpc.ListReconcilerInstanceStates r ->
           new StoreRpc.ReconcilerInstanceStateListResult(store.listReconcilerInstanceStates());
+      case StoreRpc.ListInstanceEvents r ->
+          new StoreRpc.InstanceEventListResult(
+              store.listInstanceEvents(r.deploymentName(), r.instanceIndex()));
     };
   }
 

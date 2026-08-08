@@ -30,6 +30,8 @@ import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.CsrPurpose;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -183,6 +185,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/deployments/", this::handleDeployment);
     target.createContext("/deployments", this::handleDeploymentsList);
     target.createContext("/metrics", this::handleMetrics);
+    target.createContext("/events", this::handleEvents);
     target.createContext("/nodes/", this::handleNode);
     target.createContext("/nodes", this::handleNodesList);
     target.createContext("/tenants/", this::handleTenant);
@@ -621,6 +624,7 @@ public final class ApiServer implements AutoCloseable {
         case "assignments" -> handleAssignments(exchange, nodeId);
         case "cordon" -> handleCordon(exchange, nodeId, true);
         case "uncordon" -> handleCordon(exchange, nodeId, false);
+        case "events" -> handleAppendInstanceEvent(exchange);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
     } catch (GimleRaftException e) {
@@ -729,6 +733,82 @@ public final class ApiServer implements AutoCloseable {
     }
     storeClient.propose(new StateMutation.PutNodeCordon(nodeId, cordoned));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Relays one worker-reported {@link InstanceEvent}, forwarded by its agent, into the durable
+   * per-instance event log -- the {@code nodeId} in the URL is only used for the {@code NODE:WRITE}
+   * self-service authorization {@link #handleNode} already applied; the event itself carries its
+   * own deployment/instance identity, unrelated to which node happened to relay it.
+   */
+  private void handleAppendInstanceEvent(HttpExchange exchange) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object causeSummary = body.get("causeSummary");
+    InstanceEvent event =
+        new InstanceEvent(
+            (String) body.get("id"),
+            (String) body.get("deploymentName"),
+            ((Number) body.get("instanceIndex")).intValue(),
+            InstanceEventKind.valueOf((String) body.get("kind")),
+            (String) body.get("message"),
+            causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
+            ((Number) body.get("occurredAtEpochMilli")).longValue());
+    storeClient.propose(new StateMutation.AppendInstanceEvent(event));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code GET /events?deployment=<name>&instance=<index>} -- an instance's own timeline,
+   * newest-first, capped at {@code StateStore}'s own per-instance retention window. Authorized the
+   * same as every other per-deployment read ({@code /deployments}, the {@code /metrics} rollup):
+   * {@code DEPLOYMENT:READ}, unscoped -- events carry no tenant of their own to scope against.
+   */
+  private void handleEvents(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, String> query = parseQuery(exchange);
+      String deploymentName = query.get("deployment");
+      String instanceParam = query.get("instance");
+      if (deploymentName == null || deploymentName.isBlank() || instanceParam == null) {
+        respond(exchange, 400, "expected ?deployment=<name>&instance=<index>");
+        return;
+      }
+      int instanceIndex = Integer.parseInt(instanceParam);
+      List<Map<String, Object>> events = new ArrayList<>();
+      for (InstanceEvent event : storeClient.listInstanceEvents(deploymentName, instanceIndex)) {
+        events.add(instanceEventToJson(event));
+      }
+      respondJson(exchange, 200, events);
+    } catch (NumberFormatException e) {
+      respondQuietly(exchange, 400, "instance must be an integer");
+    } catch (IOException | RuntimeException e) {
+      log.warn("events request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static Map<String, Object> instanceEventToJson(InstanceEvent event) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("id", event.id());
+    map.put("deploymentName", event.deploymentName());
+    map.put("instanceIndex", event.instanceIndex());
+    map.put("kind", event.kind().name());
+    map.put("message", event.message());
+    event.causeSummary().ifPresent(summary -> map.put("causeSummary", summary));
+    map.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
+    return map;
   }
 
   /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */

@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
@@ -72,6 +73,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_RECONCILER_INSTANCE_STATE = 19;
   private static final byte MUT_REMOVE_RECONCILER_INSTANCE_STATE = 20;
   private static final byte MUT_PUT_NODE_CORDON = 21;
+  private static final byte MUT_APPEND_INSTANCE_EVENT = 22;
 
   /**
    * Generous upper bound for any single length-prefixed frame this codec ever produces (a {@link
@@ -365,6 +367,10 @@ public final class RaftCodec {
         out.writeUTF(m.nodeId());
         out.writeBoolean(m.cordoned());
       }
+      case StateMutation.AppendInstanceEvent m -> {
+        out.writeByte(MUT_APPEND_INSTANCE_EVENT);
+        DomainCodec.writeInstanceEvent(out, m.event());
+      }
     }
   }
 
@@ -403,6 +409,8 @@ public final class RaftCodec {
       case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
           new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
+      case MUT_APPEND_INSTANCE_EVENT ->
+          new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -466,6 +474,10 @@ public final class RaftCodec {
       out.writeInt(snapshot.cordonedNodes().size());
       for (String nodeId : snapshot.cordonedNodes()) {
         out.writeUTF(nodeId);
+      }
+      out.writeInt(snapshot.instanceEvents().size());
+      for (InstanceEvent event : snapshot.instanceEvents()) {
+        DomainCodec.writeInstanceEvent(out, event);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -541,6 +553,11 @@ public final class RaftCodec {
       for (int i = 0; i < cordonedCount; i++) {
         cordonedNodes.add(in.readUTF());
       }
+      List<InstanceEvent> instanceEvents = new ArrayList<>();
+      int instanceEventCount = in.readInt();
+      for (int i = 0; i < instanceEventCount; i++) {
+        instanceEvents.add(DomainCodec.readInstanceEvent(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -554,7 +571,8 @@ public final class RaftCodec {
           roleBindings,
           accounts,
           reconcilerInstanceStates,
-          cordonedNodes);
+          cordonedNodes,
+          instanceEvents);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

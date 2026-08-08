@@ -47,6 +47,17 @@ public final class ControlMessageCodec {
               Double.toString(m.requestRatePerSecond()),
               Integer.toString(m.queueDepth()),
               Double.toString(m.errorRatePerSecond()));
+      case ControlMessage.InstanceEventOccurred m ->
+          line(
+              "INSTANCE_EVENT",
+              escape(m.event().id()),
+              escape(m.event().deploymentName()),
+              Integer.toString(m.event().instanceIndex()),
+              m.event().kind().name(),
+              escape(m.event().message()),
+              Boolean.toString(m.event().causeSummary().isPresent()),
+              escape(m.event().causeSummary().orElse("")),
+              Long.toString(m.event().occurredAtEpochMilli()));
       case ControlMessage.ServiceRegistered m ->
           line("SERVICE_REGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.ServiceUnregistered m ->
@@ -117,6 +128,19 @@ public final class ControlMessageCodec {
               Double.parseDouble(field(fields, 4)),
               Integer.parseInt(field(fields, 5)),
               Double.parseDouble(field(fields, 6)));
+      case "INSTANCE_EVENT" -> {
+        boolean causePresent = Boolean.parseBoolean(field(fields, 6));
+        String causeSummary = unescape(field(fields, 7));
+        yield new ControlMessage.InstanceEventOccurred(
+            new InstanceEvent(
+                unescape(field(fields, 1)),
+                unescape(field(fields, 2)),
+                Integer.parseInt(field(fields, 3)),
+                InstanceEventKind.valueOf(field(fields, 4)),
+                unescape(field(fields, 5)),
+                causePresent ? Optional.of(causeSummary) : Optional.empty(),
+                Long.parseLong(field(fields, 8))));
+      }
       case "SERVICE_REGISTERED" ->
           new ControlMessage.ServiceRegistered(
               decodeId(field(fields, 1)), decodeExport(field(fields, 2)));

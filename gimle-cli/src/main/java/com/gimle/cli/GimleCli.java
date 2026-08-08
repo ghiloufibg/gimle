@@ -18,6 +18,7 @@ import java.util.List;
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
+ *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
  *   gimle delete tenant &lt;id&gt;
@@ -109,8 +110,17 @@ public final class GimleCli {
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
+      case "events" -> handleEvents(rest, client, output, out);
       default -> throw new CliException(usage());
     }
+  }
+
+  private static void handleEvents(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.size() < 2) {
+      throw new CliException("usage: gimle events <deploymentName> <instanceIndex>");
+    }
+    new EventsCommand(client, output, out).run(args.get(0), args.get(1));
   }
 
   private static void handleGet(
@@ -209,6 +219,7 @@ public final class GimleCli {
           get node-assignments <nodeId>
           cordon <nodeId>
           uncordon <nodeId>
+          events <deploymentName> <instanceIndex>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
           delete tenant <id>

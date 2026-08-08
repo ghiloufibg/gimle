@@ -13,6 +13,8 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -96,6 +98,17 @@ class StoreCodecTest {
     return new ObservedHeartbeat(nodeHeartbeat(), Instant.parse("2026-01-01T00:00:00Z"));
   }
 
+  private static InstanceEvent instanceEvent() {
+    return new InstanceEvent(
+        "evt-1",
+        "greeter",
+        0,
+        InstanceEventKind.TRANSITION_FAILED,
+        "transition ACTIVE -> STOPPING failed",
+        Optional.of("java.lang.IllegalStateException: boom"),
+        1_700_000_000_000L);
+  }
+
   static Stream<StoreRpc> variants() {
     return Stream.of(
         // leader-only writes
@@ -123,6 +136,7 @@ class StoreCodecTest {
         new StoreRpc.GetEffectiveReplicas("greeter"),
         new StoreRpc.GetRollingIndex("greeter"),
         new StoreRpc.GetNodeHeartbeat("node-1"),
+        new StoreRpc.ListInstanceEvents("greeter", 0),
         // responses
         new StoreRpc.Ok(),
         new StoreRpc.NotLeader("node-2:8081"),
@@ -151,7 +165,8 @@ class StoreCodecTest {
         new StoreRpc.TenantListResult(List.of(tenant())),
         new StoreRpc.ConfigEntryListResult(List.of()),
         new StoreRpc.RoleListResult(List.of(role())),
-        new StoreRpc.RoleBindingListResult(List.of(roleBinding())));
+        new StoreRpc.RoleBindingListResult(List.of(roleBinding())),
+        new StoreRpc.InstanceEventListResult(List.of(instanceEvent())));
   }
 
   @ParameterizedTest

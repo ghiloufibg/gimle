@@ -124,7 +124,10 @@ class RetainingPathAttributionTest {
             modulePathEntryOf(com.gimle.core.module.ModuleId.class),
             modulePathEntryOf(com.gimle.module.lifecycle.ModuleController.class),
             modulePathEntryOf(RetainingPathDriver.class),
-            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class));
+            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class),
+            // See RedeployLoopFlatMetaspaceTest's identical entry: ModuleController now logs
+            // every lifecycle transition, making slf4j API a real class-init-time dependency.
+            modulePathEntryOf(org.slf4j.Logger.class));
     StringBuilder cp = new StringBuilder();
     for (Path entry : entries) {
       if (cp.length() > 0) {

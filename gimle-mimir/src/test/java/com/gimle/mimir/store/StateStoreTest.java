@@ -14,6 +14,8 @@ import com.gimle.core.authz.Verb;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -230,6 +232,99 @@ class StateStoreTest {
     target.restoreFromSnapshot(snapshot);
 
     assertTrue(target.isNodeCordoned("node-1"));
+  }
+
+  @Test
+  void instance_events_round_trip_newest_first_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("events-roundtrip");
+    StateStore store = new StateStore(root);
+    InstanceEvent first =
+        new InstanceEvent(
+            "evt-1", "orders-service", 0, InstanceEventKind.INSTALLED, "module installed", 1_000L);
+    InstanceEvent second =
+        new InstanceEvent(
+            "evt-2", "orders-service", 0, InstanceEventKind.RESOLVED, "module resolved", 2_000L);
+
+    store.putInstanceEvent(first);
+    store.putInstanceEvent(second);
+
+    assertEquals(List.of(second, first), store.listInstanceEvents("orders-service", 0));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(List.of(second, first), reloaded.listInstanceEvents("orders-service", 0));
+  }
+
+  @Test
+  void an_instance_events_transition_failed_cause_summary_round_trips() {
+    Path root = tempDir.resolve("events-cause-summary");
+    StateStore store = new StateStore(root);
+    InstanceEvent event =
+        new InstanceEvent(
+            "evt-1",
+            "orders-service",
+            0,
+            InstanceEventKind.TRANSITION_FAILED,
+            "transition ACTIVE -> STOPPING failed",
+            Optional.of("java.lang.IllegalStateException: boom"),
+            3_000L);
+
+    store.putInstanceEvent(event);
+
+    assertEquals(List.of(event), store.listInstanceEvents("orders-service", 0));
+    StateStore reloaded = new StateStore(root);
+    assertEquals(List.of(event), reloaded.listInstanceEvents("orders-service", 0));
+  }
+
+  @Test
+  void instance_events_beyond_the_retention_cap_prune_the_oldest_first() {
+    Path root = tempDir.resolve("events-retention");
+    StateStore store = new StateStore(root);
+    // 51 events, one over the 50-per-instance retention cap.
+    for (int i = 0; i < 51; i++) {
+      store.putInstanceEvent(
+          new InstanceEvent(
+              "evt-" + i,
+              "orders-service",
+              0,
+              InstanceEventKind.ACTIVE,
+              "module active",
+              1_000L + i));
+    }
+
+    List<InstanceEvent> events = store.listInstanceEvents("orders-service", 0);
+    assertEquals(50, events.size());
+    // Newest-first: the very first event (evt-0) was pruned, evt-50 is now first.
+    assertEquals("evt-50", events.get(0).id());
+    assertEquals("evt-1", events.get(events.size() - 1).id());
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(50, reloaded.listInstanceEvents("orders-service", 0).size());
+  }
+
+  @Test
+  void an_unknown_instance_has_no_events() {
+    Path root = tempDir.resolve("events-unknown");
+    StateStore store = new StateStore(root);
+
+    assertTrue(store.listInstanceEvents("never-deployed", 0).isEmpty());
+  }
+
+  @Test
+  void a_snapshot_carries_instance_events_and_restores_them() {
+    Path root = tempDir.resolve("snapshot-events");
+    StateStore store = new StateStore(root);
+    InstanceEvent event =
+        new InstanceEvent(
+            "evt-1", "orders-service", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
+    store.putInstanceEvent(event);
+
+    StateSnapshot snapshot = store.snapshot();
+    assertEquals(List.of(event), snapshot.instanceEvents());
+
+    StateStore target = new StateStore(tempDir.resolve("snapshot-events-target"));
+    target.restoreFromSnapshot(snapshot);
+
+    assertEquals(List.of(event), target.listInstanceEvents("orders-service", 0));
   }
 
   @Test

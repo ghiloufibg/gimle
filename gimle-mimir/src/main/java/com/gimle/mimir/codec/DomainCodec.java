@@ -10,6 +10,8 @@ import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -410,6 +412,35 @@ public final class DomainCodec {
         pendingRetry,
         permanentlyFailed,
         firstSeenMissingAtEpochMilli);
+  }
+
+  public static void writeInstanceEvent(DataOutputStream out, InstanceEvent event)
+      throws IOException {
+    out.writeUTF(event.id());
+    out.writeUTF(event.deploymentName());
+    out.writeInt(event.instanceIndex());
+    out.writeUTF(event.kind().name());
+    out.writeUTF(event.message());
+    out.writeUTF(event.causeSummary().orElse(""));
+    out.writeLong(event.occurredAtEpochMilli());
+  }
+
+  public static InstanceEvent readInstanceEvent(DataInputStream in) throws IOException {
+    String id = in.readUTF();
+    String deploymentName = in.readUTF();
+    int instanceIndex = in.readInt();
+    InstanceEventKind kind = InstanceEventKind.valueOf(in.readUTF());
+    String message = in.readUTF();
+    String causeSummary = in.readUTF();
+    long occurredAtEpochMilli = in.readLong();
+    return new InstanceEvent(
+        id,
+        deploymentName,
+        instanceIndex,
+        kind,
+        message,
+        causeSummary.isEmpty() ? Optional.empty() : Optional.of(causeSummary),
+        occurredAtEpochMilli);
   }
 
   public static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

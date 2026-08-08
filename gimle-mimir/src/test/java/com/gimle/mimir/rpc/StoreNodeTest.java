@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
@@ -152,5 +154,27 @@ class StoreNodeTest {
     StoreNode node = neverElectedNode("follower-reads");
     assertEquals(
         new StoreRpc.DeploymentListResult(List.of()), node.handle(new StoreRpc.ListDeployments()));
+  }
+
+  @Test
+  void a_leader_appends_an_instance_event_and_the_list_read_reflects_it() {
+    StoreNode node = leaderNode("events-leader");
+    InstanceEvent event =
+        new InstanceEvent("evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
+
+    StoreRpc.Response proposeResponse =
+        node.handle(new StoreRpc.Propose(new StateMutation.AppendInstanceEvent(event)));
+    assertEquals(new StoreRpc.Ok(), proposeResponse);
+
+    StoreRpc.Response listResponse = node.handle(new StoreRpc.ListInstanceEvents("greeter", 0));
+    assertEquals(new StoreRpc.InstanceEventListResult(List.of(event)), listResponse);
+  }
+
+  @Test
+  void listing_instance_events_for_an_unknown_instance_is_empty() {
+    StoreNode node = leaderNode("events-empty");
+    assertEquals(
+        new StoreRpc.InstanceEventListResult(List.of()),
+        node.handle(new StoreRpc.ListInstanceEvents("never-deployed", 0)));
   }
 }

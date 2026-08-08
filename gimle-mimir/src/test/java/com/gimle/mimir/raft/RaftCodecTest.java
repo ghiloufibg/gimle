@@ -15,6 +15,8 @@ import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.ResourceQuota;
@@ -234,7 +236,10 @@ class RaftCodecTest {
             List.of(new RoleBinding("b1", RoleBinding.groupSubject("gimle:operators"), "viewer")),
             List.of(new Account("admin", new byte[] {9, 8, 7, 6})),
             List.of(new ReconcilerInstanceState("greeter", 0, 2, 100L, 200L, true, false, -1L)),
-            Set.of("node-1"));
+            Set.of("node-1"),
+            List.of(
+                new InstanceEvent(
+                    "evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -260,6 +265,7 @@ class RaftCodecTest {
         snapshot.accounts().get(0).passwordHash(), decoded.accounts().get(0).passwordHash());
     assertEquals(snapshot.reconcilerInstanceStates(), decoded.reconcilerInstanceStates());
     assertEquals(snapshot.cordonedNodes(), decoded.cordonedNodes());
+    assertEquals(snapshot.instanceEvents(), decoded.instanceEvents());
   }
 
   @Test
@@ -282,6 +288,26 @@ class RaftCodecTest {
 
     LogEntry removeAccount = logEntry(5L, new StateMutation.RemoveAccount("admin"));
     assertEquals(removeAccount, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(removeAccount)));
+  }
+
+  @Test
+  void round_trips_an_append_instance_event_mutation_with_and_without_a_cause_summary() {
+    InstanceEvent withoutCause =
+        new InstanceEvent("evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
+    LogEntry active = logEntry(1L, new StateMutation.AppendInstanceEvent(withoutCause));
+    assertEquals(active, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(active)));
+
+    InstanceEvent withCause =
+        new InstanceEvent(
+            "evt-2",
+            "greeter",
+            0,
+            InstanceEventKind.TRANSITION_FAILED,
+            "transition ACTIVE -> STOPPING failed",
+            Optional.of("java.lang.IllegalStateException: boom"),
+            2_000L);
+    LogEntry failed = logEntry(2L, new StateMutation.AppendInstanceEvent(withCause));
+    assertEquals(failed, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(failed)));
   }
 
   @Test

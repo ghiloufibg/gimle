@@ -49,7 +49,19 @@ class ControlMessageCodecTest {
         new ControlMessage.StartModule("corr-5", ID),
         new ControlMessage.StopModule("corr-6", ID),
         new ControlMessage.UninstallModule("corr-7", ID),
-        new ControlMessage.Ping("corr-8"));
+        new ControlMessage.Ping("corr-8"),
+        new ControlMessage.InstanceEventOccurred(
+            new InstanceEvent(
+                "evt-1", "orders-service", 0, InstanceEventKind.ACTIVE, "module active", 1_000L)),
+        new ControlMessage.InstanceEventOccurred(
+            new InstanceEvent(
+                "evt-2",
+                "orders-service",
+                0,
+                InstanceEventKind.TRANSITION_FAILED,
+                "transition ACTIVE -> STOPPING failed",
+                java.util.Optional.of("java.lang.IllegalStateException: boom with spaces"),
+                2_000L)));
   }
 
   static Stream<String> freeTextEdgeCases() {

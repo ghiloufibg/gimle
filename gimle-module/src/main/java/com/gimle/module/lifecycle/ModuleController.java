@@ -18,6 +18,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Drives a module through {@code INSTALLED -> RESOLVED -> STARTING -> ACTIVE -> STOPPING ->
@@ -36,6 +38,8 @@ import java.util.function.Consumer;
  * class's.
  */
 public final class ModuleController {
+
+  private static final Logger log = LoggerFactory.getLogger(ModuleController.class);
 
   private final ModuleRegistry registry;
   private final ModuleResolver resolver;
@@ -356,7 +360,24 @@ public final class ModuleController {
     emit(new LifecycleEvent.TransitionFailed(id, from, to, cause, Instant.now()));
   }
 
+  /**
+   * Logs every transition (previously silently dropped even from this worker's own log -- a {@code
+   * TransitionFailed} cause was visible nowhere until it reached whatever consumed {@link
+   * #eventSink}, if anything did) before forwarding to {@code eventSink}, the same order every
+   * other side-effecting call in this class follows: durable/local effect first, notification
+   * after.
+   */
   private void emit(LifecycleEvent event) {
+    if (event instanceof LifecycleEvent.TransitionFailed failed) {
+      log.warn(
+          "module {} failed transitioning {} -> {}",
+          failed.id(),
+          failed.from(),
+          failed.to(),
+          failed.cause());
+    } else {
+      log.info("module {} {}", event.id(), event.getClass().getSimpleName());
+    }
     eventSink.accept(event);
   }
 }

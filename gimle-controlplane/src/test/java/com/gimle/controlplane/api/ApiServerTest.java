@@ -420,6 +420,94 @@ class ApiServerTest {
   }
 
   @Test
+  void posting_an_instance_event_makes_it_readable_through_get_events() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    String eventBody =
+        """
+        {"id":"evt-1","deploymentName":"orders-service","instanceIndex":0,\
+        "kind":"ACTIVE","message":"module active","occurredAtEpochMilli":1000}
+        """;
+
+    HttpResponse<String> posted =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/events"))
+                .POST(HttpRequest.BodyPublishers.ofString(eventBody))
+                .build());
+    assertEquals(200, posted.statusCode());
+
+    HttpResponse<String> events =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/events?deployment=orders-service&instance=0"))
+                .GET()
+                .build());
+    assertEquals(200, events.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(events.body()));
+    assertEquals(1, body.size());
+    assertEquals("evt-1", body.get(0).get("id"));
+    assertEquals("orders-service", body.get(0).get("deploymentName"));
+    assertEquals(0L, body.get(0).get("instanceIndex"));
+    assertEquals("ACTIVE", body.get(0).get("kind"));
+    assertEquals("module active", body.get(0).get("message"));
+    assertFalse(body.get(0).containsKey("causeSummary"));
+  }
+
+  @Test
+  void a_posted_transition_failed_event_carries_its_cause_summary() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    String eventBody =
+        """
+        {"id":"evt-2","deploymentName":"orders-service","instanceIndex":0,\
+        "kind":"TRANSITION_FAILED","message":"transition ACTIVE -> STOPPING failed",\
+        "causeSummary":"java.lang.IllegalStateException: boom","occurredAtEpochMilli":2000}
+        """;
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/events"))
+            .POST(HttpRequest.BodyPublishers.ofString(eventBody))
+            .build());
+
+    HttpResponse<String> events =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/events?deployment=orders-service&instance=0"))
+                .GET()
+                .build());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(events.body()));
+    assertEquals(1, body.size());
+    assertEquals("java.lang.IllegalStateException: boom", body.get(0).get("causeSummary"));
+  }
+
+  @Test
+  void get_events_requires_deployment_and_instance_query_params() throws Exception {
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/events")).GET().build());
+
+    assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  void get_events_for_an_instance_with_no_events_is_empty() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/events?deployment=unknown&instance=0"))
+                .GET()
+                .build());
+
+    assertEquals(200, response.statusCode());
+    assertTrue(((List<?>) Json.parse(response.body())).isEmpty());
+  }
+
+  @Test
   void method_not_allowed_on_a_valid_path() throws Exception {
     HttpResponse<String> response =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register")).GET().build());

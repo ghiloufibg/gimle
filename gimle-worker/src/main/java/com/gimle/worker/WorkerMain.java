@@ -6,6 +6,8 @@ import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.ControlMessage;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.registry.FabricServiceRegistry;
@@ -131,6 +133,14 @@ public final class WorkerMain {
             activeModules.remove(uninstalled.id());
           }
           sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
+          identityRegistry
+              .lookup(event.id())
+              .ifPresent(
+                  identity ->
+                      sendQuietly(
+                          channel,
+                          new ControlMessage.InstanceEventOccurred(
+                              instanceEventFor(event, identity))));
         };
     ModuleController controller =
         new ModuleController(
@@ -410,6 +420,77 @@ public final class WorkerMain {
       case LifecycleEvent.Stopping ignored -> "STOPPING";
       case LifecycleEvent.Uninstalled ignored -> "UNINSTALLED";
       case LifecycleEvent.TransitionFailed ignored -> "FAILED";
+    };
+  }
+
+  /**
+   * Builds the durable {@link InstanceEvent} counterpart to a {@link LifecycleEvent} -- only called
+   * once an {@link InstanceIdentity} is registered for the module (matching {@link #mdcTagsFor}'s
+   * own "no identity yet, skip" posture), since an event with no deployment/index to attach to has
+   * nowhere durable to live. A fresh {@code id} per event gives {@code gimle-cli events}/the
+   * console's events panel a stable pagination key independent of storage order.
+   */
+  private static InstanceEvent instanceEventFor(LifecycleEvent event, InstanceIdentity identity) {
+    long occurredAtEpochMilli = event.at().toEpochMilli();
+    String id = java.util.UUID.randomUUID().toString();
+    return switch (event) {
+      case LifecycleEvent.Installed ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.INSTALLED,
+              "module installed",
+              occurredAtEpochMilli);
+      case LifecycleEvent.Resolved ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.RESOLVED,
+              "module resolved",
+              occurredAtEpochMilli);
+      case LifecycleEvent.Starting ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.STARTING,
+              "module starting",
+              occurredAtEpochMilli);
+      case LifecycleEvent.Active ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.ACTIVE,
+              "module active",
+              occurredAtEpochMilli);
+      case LifecycleEvent.Stopping stopping ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.STOPPING,
+              "module stopping, drain deadline " + stopping.deadline(),
+              occurredAtEpochMilli);
+      case LifecycleEvent.Uninstalled ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.UNINSTALLED,
+              "module uninstalled",
+              occurredAtEpochMilli);
+      case LifecycleEvent.TransitionFailed failed ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.TRANSITION_FAILED,
+              "transition " + failed.from() + " -> " + failed.to() + " failed",
+              Optional.of(failed.cause().getClass().getName() + ": " + failed.cause().getMessage()),
+              occurredAtEpochMilli);
     };
   }
 

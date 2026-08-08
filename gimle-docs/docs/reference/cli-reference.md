@@ -25,6 +25,7 @@ gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
+gimle events <deploymentName> <instanceIndex>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>
@@ -83,6 +84,9 @@ gimle get node-assignments node-1 --server 127.0.0.1:8080
 # Exclude a node from future placement without evicting what's already running there
 gimle cordon node-1 --server 127.0.0.1:8080
 gimle uncordon node-1 --server 127.0.0.1:8080
+
+# An instance's own lifecycle timeline (installed, resolved, started, active, ...)
+gimle events orders-service-deployment 0 --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

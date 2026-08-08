@@ -69,6 +69,15 @@ public sealed interface ControlMessage {
   }
 
   /**
+   * Sent by a worker every time one of its hosted instances crosses a lifecycle transition -- the
+   * durable counterpart to {@link ModuleStateChanged}, which the agent relays but never retains.
+   * The agent proposes {@code AppendInstanceEvent} against the control-plane's state store on
+   * receipt; a worker between agent restarts loses at most the events from that gap, the same
+   * "brief gap tolerated" posture {@code MetricsReport}/heartbeats already have.
+   */
+  record InstanceEventOccurred(InstanceEvent event) implements ControlMessage {}
+
+  /**
    * Sent by a worker the moment it registers (or tears down) a service export. The agent folds
    * these into its own service catalog, gossips them cluster-wide, and relays catalog deltas it
    * learns from gossip back down to its supervised workers over this same per-instance channel.

@@ -10,6 +10,8 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -29,6 +31,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -70,6 +74,21 @@ public final class StateStore implements StoreReader {
   private final Map<String, ReconcilerInstanceState> reconcilerInstanceStates =
       new ConcurrentHashMap<>();
 
+  /**
+   * The store's first many-per-key resource: every other map here holds at most one current value
+   * per key, but an instance's lifecycle timeline is inherently a bounded history, not a single
+   * current value -- see {@link #putInstanceEvent} for how the per-instance retention cap keeps
+   * "many" bounded rather than unbounded.
+   */
+  private final Map<String, List<InstanceEvent>> instanceEvents = new ConcurrentHashMap<>();
+
+  /**
+   * Oldest events beyond this count (per instance) are pruned on the next {@link #putInstanceEvent}
+   * -- keeps each instance's timeline small and bounded rather than growing forever, matching
+   * {@code causeSummary}'s own "footprint over completeness" trade-off.
+   */
+  private static final int MAX_EVENTS_PER_INSTANCE = 50;
+
   public StateStore(Path root) {
     this.root = root;
     try {
@@ -86,6 +105,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(roleBindingsDir());
       Files.createDirectories(accountsDir());
       Files.createDirectories(reconcilerStateDir());
+      Files.createDirectories(instanceEventsDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -450,6 +470,40 @@ public final class StateStore implements StoreReader {
     return List.copyOf(reconcilerInstanceStates.values());
   }
 
+  // ---- per-instance lifecycle event log ----
+
+  /**
+   * Appends one event to {@code event.deploymentName()}/{@code event.instanceIndex()}'s timeline,
+   * pruning the oldest event(s) once {@link #MAX_EVENTS_PER_INSTANCE} is exceeded -- a pure
+   * function of the event and what's already stored, so every Raft replica applying the same
+   * committed {@code AppendInstanceEvent} entries in the same order ends up with identical pruning
+   * decisions, not a separate non-replicated cleanup pass.
+   */
+  public void putInstanceEvent(InstanceEvent event) {
+    writeAtomically(instanceEventFile(event), instanceEventToYaml(event));
+    String key = instanceEventsKey(event.deploymentName(), event.instanceIndex());
+    instanceEvents.compute(
+        key,
+        (k, existing) -> {
+          List<InstanceEvent> updated = new ArrayList<>(existing == null ? List.of() : existing);
+          updated.add(event);
+          while (updated.size() > MAX_EVENTS_PER_INSTANCE) {
+            InstanceEvent oldest = updated.remove(0);
+            deleteQuietly(instanceEventFile(oldest));
+          }
+          return List.copyOf(updated);
+        });
+  }
+
+  /** Newest-first -- the natural read order for a timeline, matching {@code /logs}' own tail. */
+  public List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex) {
+    List<InstanceEvent> events =
+        instanceEvents.getOrDefault(instanceEventsKey(deploymentName, instanceIndex), List.of());
+    List<InstanceEvent> reversed = new ArrayList<>(events);
+    Collections.reverse(reversed);
+    return List.copyOf(reversed);
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -477,7 +531,8 @@ public final class StateStore implements StoreReader {
         nodeCordons.entrySet().stream()
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
-            .collect(Collectors.toUnmodifiableSet()));
+            .collect(Collectors.toUnmodifiableSet()),
+        instanceEvents.values().stream().flatMap(List::stream).toList());
   }
 
   /**
@@ -499,6 +554,7 @@ public final class StateStore implements StoreReader {
     List.copyOf(accounts.keySet()).forEach(this::removeAccount);
     List.copyOf(reconcilerInstanceStates.values())
         .forEach(s -> removeReconcilerInstanceState(s.deploymentName(), s.instanceIndex()));
+    clearAllInstanceEvents();
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
@@ -513,6 +569,22 @@ public final class StateStore implements StoreReader {
     snapshot.roleBindings().forEach(this::putRoleBinding);
     snapshot.accounts().forEach(this::putAccount);
     snapshot.reconcilerInstanceStates().forEach(this::putReconcilerInstanceState);
+    // Oldest-first per instance, matching how putInstanceEvent's own pruning expects to see them
+    // -- StateSnapshot#instanceEvents preserves that order (see snapshot() above), and replaying
+    // in the same order here reproduces identical per-instance retention-cap pruning decisions.
+    snapshot.instanceEvents().forEach(this::putInstanceEvent);
+  }
+
+  /**
+   * Full wipe used only by {@link #restoreFromSnapshot} -- unlike every other resource kind here,
+   * instance events have no public per-key {@code remove}; pruning is deliberately internal to
+   * {@link #putInstanceEvent} only, not a capability callers reach for directly.
+   */
+  private void clearAllInstanceEvents() {
+    for (List<InstanceEvent> events : instanceEvents.values()) {
+      events.forEach(e -> deleteQuietly(instanceEventFile(e)));
+    }
+    instanceEvents.clear();
   }
 
   // ---- disk layout ----
@@ -626,6 +698,25 @@ public final class StateStore implements StoreReader {
   }
 
   private static String reconcilerStateKey(String deploymentName, int instanceIndex) {
+    return deploymentName + "#" + instanceIndex;
+  }
+
+  private Path instanceEventsDir() {
+    return root.resolve("events");
+  }
+
+  /**
+   * One file per event, named by its own generated id -- unique by construction, no ordering baked
+   * into the filename since read order comes from {@code occurredAtEpochMilli} instead.
+   */
+  private Path instanceEventFile(InstanceEvent event) {
+    return instanceEventsDir()
+        .resolve(event.deploymentName())
+        .resolve(String.valueOf(event.instanceIndex()))
+        .resolve(event.id() + ".yaml");
+  }
+
+  private static String instanceEventsKey(String deploymentName, int instanceIndex) {
     return deploymentName + "#" + instanceIndex;
   }
 
@@ -750,6 +841,32 @@ public final class StateStore implements StoreReader {
           reconcilerInstanceStates.put(
               reconcilerStateKey(state.deploymentName(), state.instanceIndex()), state);
         });
+    loadEach(
+        instanceEventsDir(),
+        "*/*/*.yaml",
+        file -> {
+          InstanceEvent event = instanceEventFromMap(loadMap(file));
+          String key = instanceEventsKey(event.deploymentName(), event.instanceIndex());
+          instanceEvents.compute(
+              key,
+              (k, existing) -> {
+                List<InstanceEvent> updated =
+                    new ArrayList<>(existing == null ? List.of() : existing);
+                updated.add(event);
+                return updated;
+              });
+        });
+    // Sort each instance's loaded events by occurrence time -- loadEach's directory-stream order
+    // is not guaranteed to match append order, but putInstanceEvent's own pruning assumes the
+    // in-memory list is oldest-first (it prunes from the front). Ties (same millisecond) are
+    // broken by id for a stable, deterministic order across replicas that saw the same events.
+    for (Map.Entry<String, List<InstanceEvent>> entry : instanceEvents.entrySet()) {
+      List<InstanceEvent> sorted = new ArrayList<>(entry.getValue());
+      sorted.sort(
+          Comparator.comparingLong(InstanceEvent::occurredAtEpochMilli)
+              .thenComparing(InstanceEvent::id));
+      entry.setValue(List.copyOf(sorted));
+    }
   }
 
   private interface FileLoader {
@@ -1102,5 +1219,29 @@ public final class StateStore implements StoreReader {
         (Boolean) root.get("pendingRetry"),
         (Boolean) root.get("permanentlyFailed"),
         ((Number) root.get("firstSeenMissingAtEpochMilli")).longValue());
+  }
+
+  private static String instanceEventToYaml(InstanceEvent event) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("id", event.id());
+    root.put("deploymentName", event.deploymentName());
+    root.put("instanceIndex", event.instanceIndex());
+    root.put("kind", event.kind().name());
+    root.put("message", event.message());
+    event.causeSummary().ifPresent(summary -> root.put("causeSummary", summary));
+    root.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
+    return new Yaml().dump(root);
+  }
+
+  private static InstanceEvent instanceEventFromMap(Map<?, ?> root) {
+    Object causeSummary = root.get("causeSummary");
+    return new InstanceEvent(
+        (String) root.get("id"),
+        (String) root.get("deploymentName"),
+        ((Number) root.get("instanceIndex")).intValue(),
+        InstanceEventKind.valueOf((String) root.get("kind")),
+        (String) root.get("message"),
+        causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
+        ((Number) root.get("occurredAtEpochMilli")).longValue());
   }
 }

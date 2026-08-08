@@ -147,6 +147,24 @@ missing-since timers) is therefore persisted through the store as a `ReconcilerI
 (`gimle-mimir`), not held only in a local map: the new leader picks the in-progress backoff back up
 instead of silently re-granting a full restart budget to an already-flapping instance.
 
+## Instance event log
+
+Every lifecycle transition a worker drives (`INSTALLED`/`RESOLVED`/`STARTING`/`ACTIVE`/`STOPPING`/
+`UNINSTALLED`/a failed transition with its cause) is durably recorded per-instance, not just relayed
+as a fire-and-forget `ModuleStateChanged` notification the way it always has been. The worker builds
+an `InstanceEvent`, its agent forwards it to the control plane
+(`POST /nodes/{id}/events`), and it lands in `gimle-mimir`'s state store as an
+`AppendInstanceEvent` mutation — the store's first many-per-key resource kind (every other resource
+holds one current value per key; an instance's timeline is a bounded, ordered history instead,
+capped at 50 events per instance with oldest-first pruning applied deterministically inside
+`applyTo` so every Raft replica prunes identically). `GET /events?deployment=&instance=` and
+`gimle-cli events <deploymentName> <instanceIndex>` read it back newest-first.
+
+This is deliberately distinct from general audit logging (who changed what, cluster-wide) — that
+remains a separate, unbuilt roadmap item. The event log is per-instance timeline data, and a
+`TRANSITION_FAILED` event's `causeSummary` is deliberately just an exception's class name plus
+message, not a full stack trace, to keep each event's footprint small.
+
 ## What the control plane deliberately doesn't do
 
 Membership and failure detection between machines is a SWIM-style gossip protocol running

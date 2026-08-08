@@ -3,6 +3,7 @@ package com.gimle.mimir.rpc;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -61,7 +62,8 @@ public sealed interface StoreRpc {
           GetRollingIndex,
           GetNodeHeartbeat,
           GetReconcilerInstanceState,
-          ListReconcilerInstanceStates {}
+          ListReconcilerInstanceStates,
+          ListInstanceEvents {}
 
   sealed interface Response extends StoreRpc
       permits Ok,
@@ -85,7 +87,8 @@ public sealed interface StoreRpc {
           RoleListResult,
           RoleBindingListResult,
           ReconcilerInstanceStateResult,
-          ReconcilerInstanceStateListResult {}
+          ReconcilerInstanceStateListResult,
+          InstanceEventListResult {}
 
   // ---- leader-only writes ----
 
@@ -142,6 +145,8 @@ public sealed interface StoreRpc {
   record GetReconcilerInstanceState(String deploymentName, int instanceIndex) implements Request {}
 
   record ListReconcilerInstanceStates() implements Request {}
+
+  record ListInstanceEvents(String deploymentName, int instanceIndex) implements Request {}
 
   // ---- responses ----
 
@@ -201,4 +206,6 @@ public sealed interface StoreRpc {
 
   record ReconcilerInstanceStateListResult(List<ReconcilerInstanceState> values)
       implements Response {}
+
+  record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
 }

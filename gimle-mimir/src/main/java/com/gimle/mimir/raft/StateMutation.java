@@ -3,6 +3,7 @@ package com.gimle.mimir.raft;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -103,6 +104,18 @@ public sealed interface StateMutation {
     @Override
     public void applyTo(StateStore store) {
       store.putNodeCordon(nodeId, cordoned);
+    }
+  }
+
+  /**
+   * No corresponding {@code RemoveInstanceEvent} -- retention-cap pruning is internal to {@link
+   * StateStore#putInstanceEvent}, applied identically on every replica as this same mutation is
+   * replayed, not a separate mutation of its own.
+   */
+  record AppendInstanceEvent(InstanceEvent event) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putInstanceEvent(event);
     }
   }
 

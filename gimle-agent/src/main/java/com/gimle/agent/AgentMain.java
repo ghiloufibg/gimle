@@ -13,6 +13,7 @@ import com.gimle.core.protocol.CsrPurpose;
 import com.gimle.core.protocol.CsrRequestStatus;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.tls.SslContexts;
@@ -478,6 +479,37 @@ public final class AgentMain {
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
+  /**
+   * Relays one worker-reported {@link InstanceEvent} to the control plane, the same
+   * agent-forwards-what-a-worker-told-it shape {@link #sendHeartbeat} already has -- best-effort,
+   * matching {@code WorkerMain}'s own {@code sendQuietly} posture for this same message: a lost
+   * event costs nothing more than an incomplete timeline entry, never a stalled agent.
+   */
+  private static void postInstanceEvent(
+      HttpClient httpClient, URI baseUrl, String nodeId, InstanceEvent event) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("id", event.id());
+    body.put("deploymentName", event.deploymentName());
+    body.put("instanceIndex", event.instanceIndex());
+    body.put("kind", event.kind().name());
+    body.put("message", event.message());
+    event.causeSummary().ifPresent(summary -> body.put("causeSummary", summary));
+    body.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
+    try {
+      HttpRequest request =
+          HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/events"))
+              .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+              .build();
+      httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      log.warn(
+          "failed to relay instance event {} for node {}: {}", event.id(), nodeId, e.getMessage());
+    }
+  }
+
   static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
     boolean alive = !"FAILED".equals(state);
@@ -660,7 +692,9 @@ public final class AgentMain {
 
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
-        .start(() -> driveInstanceUp(instance, key, gossipMember, catalog, httpClient, baseUrl));
+        .start(
+            () ->
+                driveInstanceUp(instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId));
   }
 
   /**
@@ -720,13 +754,14 @@ public final class AgentMain {
       GossipMember gossipMember,
       ServiceCatalog catalog,
       HttpClient httpClient,
-      URI baseUrl) {
+      URI baseUrl,
+      String nodeId) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
       Thread.ofVirtual()
           .name("gimle-instance-reader-" + key)
-          .start(() -> readLoop(instance, key, gossipMember, catalog));
+          .start(() -> readLoop(instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId));
 
       connection.send(
           new ControlMessage.InstallModule(
@@ -774,7 +809,13 @@ public final class AgentMain {
   }
 
   private static void readLoop(
-      SupervisedInstance instance, String key, GossipMember gossipMember, ServiceCatalog catalog) {
+      SupervisedInstance instance,
+      String key,
+      GossipMember gossipMember,
+      ServiceCatalog catalog,
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId) {
     try {
       Optional<ControlMessage> received;
       while ((received = instance.connection.receive()).isPresent()) {
@@ -783,6 +824,8 @@ public final class AgentMain {
           instance.lifecycleState = changed.state();
         } else if (message instanceof ControlMessage.Nack nack) {
           log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
+        } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
+          postInstanceEvent(httpClient, baseUrl, nodeId, occurred.event());
         } else if (message instanceof ControlMessage.Hello hello) {
           instance.fabricWorkerId = hello.workerId();
           instance.fabricUdsPath = hello.fabricUdsPath();
