@@ -57,6 +57,30 @@ certificate already has unconditional full access, so defaulting the operator gr
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
 
+### `CONFIG` vs. `SECRET`: one storage type, two permissions
+
+A tenant's `ConfigEntry` set (`/config/{tenantId}[/{key}]`) is a single storage type whose entries
+carry their own `encrypted` flag, but the two are guarded by distinct `ResourceKind`s: a plaintext
+entry (`encrypted=false`) requires `CONFIG`, an encrypted one requires `SECRET`. This lets a role
+hold read/write access to a tenant's ordinary configuration without also being able to touch its
+secrets, or vice versa — a real gap otherwise, since nothing about "can read this tenant's config"
+implies "should be able to decrypt its API keys."
+
+Enforcement follows the entry, not the URL: a `PUT` picks `CONFIG` or `SECRET` off the request
+body's own `encrypted` field before authorizing (the one write in `ApiServer` that reads its body
+ahead of the authorization check, for exactly this reason); a `DELETE` looks the entry up first to
+learn its `encrypted` flag, 404s if it doesn't exist, then authorizes against whichever kind it
+actually is; the list endpoint (`GET /config/{tenantId}`) checks both `CONFIG:READ` and
+`SECRET:READ` for the caller and returns each entry only if the caller holds the permission that
+entry's own `encrypted` flag requires — a caller holding only one of the two still gets a 200 with
+a correctly filtered, not empty-or-403, response.
+
+`SECRET` is purely additive at the `ResourceKind` enum level, so `cluster-admin` picks it up
+automatically (it iterates every `ResourceKind` at class-load time). It is **not** retroactive: any
+already-persisted custom `Role` that was granted `CONFIG` before this split does not gain `SECRET`
+access automatically — that's the correct tightening, not an oversight, but worth calling out
+explicitly since it changes behavior for encrypted entries under a pre-existing `CONFIG`-only role.
+
 ## Two identity paths, one authorization engine
 
 ```mermaid

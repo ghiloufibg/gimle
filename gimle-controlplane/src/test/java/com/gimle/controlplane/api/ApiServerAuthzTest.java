@@ -7,6 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.PasswordHashes;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -257,6 +262,147 @@ class ApiServerAuthzTest {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(401, afterLogout.statusCode());
     }
+  }
+
+  /**
+   * {@code CONFIG} and {@code SECRET} are enforced as fully independent permissions: a role holding
+   * only one must be denied write/delete on the other kind of entry, and {@code
+   * /config/{tenantId}}'s list response must be filtered per-entry rather than gated uniformly.
+   */
+  @Test
+  void config_and_secret_permissions_are_independently_enforced_and_filtered() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    byte[] passwordHash = PasswordHashes.hash("pw".toCharArray());
+    store.putAccount(new Account("config-user", passwordHash));
+    store.putAccount(new Account("secret-user", passwordHash));
+    store.putRole(
+        new Role(
+            "config-only",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.CONFIG, Verb.READ),
+                Permission.unscoped(ResourceKind.CONFIG, Verb.WRITE),
+                Permission.unscoped(ResourceKind.CONFIG, Verb.DELETE))));
+    store.putRole(
+        new Role(
+            "secret-only",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.SECRET, Verb.READ),
+                Permission.unscoped(ResourceKind.SECRET, Verb.WRITE),
+                Permission.unscoped(ResourceKind.SECRET, Verb.DELETE))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("config-user"), "config-only"));
+    store.putRoleBinding(
+        new RoleBinding("b2", RoleBinding.userSubject("secret-user"), "secret-only"));
+
+    try (inProcessStore;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String configCookie = login(client, baseUrl, "config-user", "pw");
+      String secretCookie = login(client, baseUrl, "secret-user", "pw");
+
+      // A CONFIG-only caller can write a plaintext entry but not an encrypted one.
+      assertEquals(
+          200, putConfig(client, baseUrl, configCookie, "tenant-1", "plain-key", "p", false));
+      assertEquals(
+          403, putConfig(client, baseUrl, configCookie, "tenant-1", "secret-key", "s", true));
+
+      // A SECRET-only caller can write an encrypted entry but not a plaintext one.
+      assertEquals(
+          200, putConfig(client, baseUrl, secretCookie, "tenant-1", "secret-key", "s", true));
+      assertEquals(
+          403, putConfig(client, baseUrl, secretCookie, "tenant-1", "plain-key-2", "p2", false));
+
+      // The list response is filtered per-entry: each caller sees only their own kind.
+      List<Map<String, Object>> configView = listConfig(client, baseUrl, configCookie, "tenant-1");
+      assertEquals(1, configView.size());
+      assertEquals("plain-key", configView.get(0).get("key"));
+
+      List<Map<String, Object>> secretView = listConfig(client, baseUrl, secretCookie, "tenant-1");
+      assertEquals(1, secretView.size());
+      assertEquals("secret-key", secretView.get(0).get("key"));
+      assertEquals("s", secretView.get(0).get("value"));
+
+      // Deleting the other kind's entry is forbidden, not merely a no-op.
+      assertEquals(403, deleteConfig(client, baseUrl, configCookie, "tenant-1", "secret-key"));
+      assertEquals(403, deleteConfig(client, baseUrl, secretCookie, "tenant-1", "plain-key"));
+
+      // A nonexistent key is 404 -- looked up before authorization can even pick a resource kind.
+      assertEquals(404, deleteConfig(client, baseUrl, configCookie, "tenant-1", "does-not-exist"));
+
+      // Each caller can delete their own kind.
+      assertEquals(200, deleteConfig(client, baseUrl, configCookie, "tenant-1", "plain-key"));
+      assertEquals(200, deleteConfig(client, baseUrl, secretCookie, "tenant-1", "secret-key"));
+    }
+  }
+
+  private static String login(HttpClient client, String baseUrl, String username, String password)
+      throws IOException, InterruptedException {
+    HttpResponse<String> response =
+        client.send(
+            loginRequest(baseUrl, username, password),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, response.statusCode());
+    String setCookie = response.headers().firstValue("Set-Cookie").orElse("");
+    return setCookie.substring(0, setCookie.indexOf(';'));
+  }
+
+  private static int putConfig(
+      HttpClient client,
+      String baseUrl,
+      String cookie,
+      String tenantId,
+      String key,
+      String value,
+      boolean encrypted)
+      throws IOException, InterruptedException {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("value", value);
+    body.put("encrypted", encrypted);
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/" + tenantId + "/" + key))
+            .header("Content-Type", "application/json")
+            .header("Cookie", cookie)
+            .PUT(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int deleteConfig(
+      HttpClient client, String baseUrl, String cookie, String tenantId, String key)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/" + tenantId + "/" + key))
+            .header("Cookie", cookie)
+            .DELETE()
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static List<Map<String, Object>> listConfig(
+      HttpClient client, String baseUrl, String cookie, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/" + tenantId))
+            .header("Cookie", cookie)
+            .GET()
+            .build();
+    HttpResponse<String> response =
+        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, response.statusCode());
+    return Json.asObjectList(Json.parse(response.body()));
   }
 
   private static HttpRequest loginRequest(String baseUrl, String username, String password) {

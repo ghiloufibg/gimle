@@ -905,9 +905,7 @@ public final class ApiServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.READ, Optional.of(tenantId))) {
-          handleListConfig(exchange, tenantId);
-        }
+        handleListConfig(exchange, tenantId);
         return;
       }
       String key = tail.substring(slash + 1);
@@ -917,13 +915,26 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))) {
-            handlePutConfig(exchange, tenantId, key);
+          // The resource kind an entry is written under depends on the request body's own
+          // `encrypted` flag, so the body must be read before authorizing -- unlike every other
+          // write in this class, which authorizes purely off the URL.
+          Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+          String value = (String) body.get("value");
+          boolean encrypted = Boolean.TRUE.equals(body.get("encrypted"));
+          ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
+          if (requireAuthorized(exchange, resource, Verb.WRITE, Optional.of(tenantId))) {
+            handlePutConfig(exchange, tenantId, key, value, encrypted);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIG, Verb.DELETE, Optional.of(tenantId))) {
+          Optional<ConfigEntry> existing = findConfigEntry(tenantId, key);
+          if (existing.isEmpty()) {
+            respond(exchange, 404, "no such config entry: " + key);
+            return;
+          }
+          ResourceKind resource =
+              existing.get().encrypted() ? ResourceKind.SECRET : ResourceKind.CONFIG;
+          if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))) {
             handleDeleteConfig(exchange, tenantId, key);
           }
         }
@@ -941,11 +952,15 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private void handlePutConfig(HttpExchange exchange, String tenantId, String key)
+  private Optional<ConfigEntry> findConfigEntry(String tenantId, String key) {
+    return storeClient.listConfigEntriesFor(tenantId).stream()
+        .filter(e -> e.key().equals(key))
+        .findFirst();
+  }
+
+  private void handlePutConfig(
+      HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
-    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
-    String value = (String) body.get("value");
-    boolean encrypted = Boolean.TRUE.equals(body.get("encrypted"));
     byte[] stored =
         encrypted
             ? SecretCipher.encrypt(value.getBytes(StandardCharsets.UTF_8), secretKey)
@@ -962,14 +977,51 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Returns every entry for {@code tenantId}, decrypted -- the node agent's fetch point: an agent
-   * fetches a deployment's tenant-scoped {@code ConfigEntry} set from the control plane, already
-   * decrypted server-side. Plaintext leaves this process only over the same authenticated
-   * control-plane connection every other agent request already uses.
+   * Returns every entry for {@code tenantId} the caller can see, decrypted -- the node agent's
+   * fetch point: an agent fetches a deployment's tenant-scoped {@code ConfigEntry} set from the
+   * control plane, already decrypted server-side. Plaintext leaves this process only over the same
+   * authenticated control-plane connection every other agent request already uses.
+   *
+   * <p>Unlike every other list endpoint in this class, access here is per-entry rather than
+   * uniform: a caller holding only {@code CONFIG:READ} sees plaintext entries, one holding only
+   * {@code SECRET:READ} sees encrypted entries, and one holding neither is refused outright.
    */
   private void handleListConfig(HttpExchange exchange, String tenantId) throws IOException {
+    boolean canReadConfig;
+    boolean canReadSecrets;
+    if (exchange instanceof HttpsExchange) {
+      Optional<Principal> principal = resolvePrincipal(exchange);
+      if (principal.isEmpty()) {
+        respondQuietly(exchange, 401, "authentication required");
+        return;
+      }
+      canReadConfig =
+          authorizer.authorize(
+              principal.get(),
+              ResourceKind.CONFIG,
+              Verb.READ,
+              Optional.of(tenantId),
+              Optional.empty());
+      canReadSecrets =
+          authorizer.authorize(
+              principal.get(),
+              ResourceKind.SECRET,
+              Verb.READ,
+              Optional.of(tenantId),
+              Optional.empty());
+      if (!canReadConfig && !canReadSecrets) {
+        respondQuietly(exchange, 403, "forbidden");
+        return;
+      }
+    } else {
+      canReadConfig = true;
+      canReadSecrets = true;
+    }
     List<Map<String, Object>> list = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
+      if (entry.encrypted() ? !canReadSecrets : !canReadConfig) {
+        continue;
+      }
       byte[] plaintext =
           entry.encrypted() ? SecretCipher.decrypt(entry.value(), secretKey) : entry.value();
       Map<String, Object> m = new LinkedHashMap<>();
