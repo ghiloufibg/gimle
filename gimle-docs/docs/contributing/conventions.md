@@ -63,6 +63,11 @@ test; the supervisor requires kill-and-recover tests at every isolation tier.
 - `pre-commit` runs `mvn verify` and blocks on failure — this documentation site included, whenever
   the `docs` profile is what's being verified.
 
+These hooks are tracked at `.githooks/` (not `.git/hooks/`, which is per-checkout and never
+committed) — run `scripts/install-hooks.sh` once per checkout to point Git at them
+(`git config core.hooksPath .githooks`). CI (`.github/workflows/ci.yml`) runs the same `mvn verify`
+independently on every push/PR, so the hook is a fast local gate, not the only enforcement.
+
 ## Repo hygiene
 
 Commit only essential source and config. No generated reports or ad-hoc markdown files except

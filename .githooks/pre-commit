@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Runs the full build/test/format/checkstyle gate before every commit (CLAUDE.md's own convention,
+# previously documented but never actually enforceable -- nothing installed this hook anywhere).
+# Install with scripts/install-hooks.sh.
+set -euo pipefail
+
+echo "pre-commit: running mvn verify (this can take a while)..."
+mvn verify
