@@ -168,4 +168,32 @@ class ModuleControllerTest {
     f.controller().uninstall(f.id());
     assertThrows(NoSuchElementException.class, () -> f.registry().state(f.id()));
   }
+
+  @Test
+  void force_failed_transitions_an_active_module_straight_to_failed_and_emits_transition_failed() {
+    Fixture f = fixtureFor("com.gimle.fixture.force_failed");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+    assertEquals(ModuleState.ACTIVE, f.registry().state(f.id()));
+
+    f.controller().forceFailed(f.id(), "restart budget exhausted");
+
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+    LifecycleEvent last = f.events().get(f.events().size() - 1);
+    assertTrue(last instanceof LifecycleEvent.TransitionFailed);
+    LifecycleEvent.TransitionFailed failed = (LifecycleEvent.TransitionFailed) last;
+    assertEquals(ModuleState.ACTIVE, failed.from());
+    assertEquals(ModuleState.FAILED, failed.to());
+    assertEquals("restart budget exhausted", failed.cause().getMessage());
+  }
+
+  @Test
+  void force_failed_rejects_a_module_that_is_not_active() {
+    Fixture f = fixtureFor("com.gimle.fixture.force_failed_not_active");
+    // Still INSTALLED -- never resolved/started.
+    assertThrows(
+        GimleLifecycleException.class,
+        () -> f.controller().forceFailed(f.id(), "should not apply"));
+    assertEquals(ModuleState.INSTALLED, f.registry().state(f.id()));
+  }
 }

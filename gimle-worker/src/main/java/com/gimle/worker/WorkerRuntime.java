@@ -236,6 +236,17 @@ public final class WorkerRuntime {
     if (!tracker.recordFailureAndCheckShouldRetry(now)) {
       log.error("module {} exhausted its restart budget; giving up on this worker", id);
       restartsInFlight.remove(id);
+      // Escalate to FAILED rather than leaving the module ACTIVE-but-permanently-broken: this is
+      // what makes AgentMain's alive flag flip and HealthReconciler's machine-tier reschedule
+      // fire, completing the module -> worker -> machine escalation chain instead of dead-ending
+      // here. Best-effort: a lost race against some other concurrent transition shouldn't crash
+      // the worker tick over a module that's already leaving ACTIVE anyway.
+      try {
+        controller.forceFailed(id, "restart budget exhausted");
+      } catch (RuntimeException e) {
+        log.warn(
+            "could not force module {} to FAILED after budget exhaustion: {}", id, e.getMessage());
+      }
       onModuleRestartBudgetExhausted.accept(id);
       return;
     }

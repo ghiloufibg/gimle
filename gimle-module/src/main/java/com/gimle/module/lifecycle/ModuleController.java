@@ -315,6 +315,24 @@ public final class ModuleController {
     }
   }
 
+  /**
+   * Forces an {@code ACTIVE} module straight to {@code FAILED}, for a caller that has already
+   * decided restarting further is pointless (e.g. {@code WorkerRuntime} exhausting a module's
+   * restart budget) -- unlike {@link #markFailedAndEmit}'s other call sites, there's no thrown hook
+   * exception driving this, just a policy decision, so {@code cause} is synthesized from {@code
+   * reason}. Going through this method (rather than {@code registry.markFailed} directly) is what
+   * makes the failure visible: it emits the same {@link LifecycleEvent.TransitionFailed} {@code
+   * WorkerMain}'s lifecycle sink already turns into a {@code ControlMessage
+   * .ModuleStateChanged("FAILED")}, which is what flips {@code AgentMain}'s {@code alive} flag and
+   * lets {@code HealthReconciler}'s machine-tier reschedule fire -- the escalation this method
+   * exists to unblock.
+   */
+  public void forceFailed(ModuleId id, String reason) {
+    requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
+    markFailedAndEmit(
+        id, ModuleState.ACTIVE, ModuleState.FAILED, new IllegalStateException(reason));
+  }
+
   private void requireState(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
     ModuleState current = registry.state(id);
     if (current != expected) {
