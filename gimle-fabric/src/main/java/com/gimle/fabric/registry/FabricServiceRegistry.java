@@ -196,6 +196,11 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
+  public Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName) {
+    return localRegistry.lookupOwnedByInterfaceName(interfaceName);
+  }
+
+  @Override
   public void markUnready(ModuleId owner) {
     localRegistry.markUnready(owner);
     // Deliberately no catalog/wire effect: a same-worker readiness demotion is tolerated as

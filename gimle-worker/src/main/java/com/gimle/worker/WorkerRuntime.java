@@ -107,6 +107,16 @@ public final class WorkerRuntime {
     this.onInstanceUninstalled = onInstanceUninstalled;
   }
 
+  /**
+   * The concurrency-bounding {@link BoundedModuleScheduler} this runtime created for {@code id} at
+   * its most recent {@code Active} transition, if any -- lets {@code FabricServer} route an inbound
+   * call's actual invocation through the same per-module concurrency budget {@link ProbeLoop}
+   * already uses for health checks, rather than real request traffic bypassing it entirely.
+   */
+  public Optional<BoundedModuleScheduler> schedulerFor(ModuleId id) {
+    return Optional.ofNullable(schedulers.get(id));
+  }
+
   public void onLifecycleEvent(LifecycleEvent event) {
     switch (event) {
       case LifecycleEvent.Active active -> onActive(active.id());

@@ -1,8 +1,10 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -30,6 +32,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.function.Function;
 import javax.net.ssl.SSLServerSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,12 +58,33 @@ public final class FabricServer implements AutoCloseable {
 
   private final ServiceRegistry localRegistry;
   private final ClassLoader interfaceLoader;
+  private final Function<ModuleId, Optional<ModuleContext>> contextLookup;
+  private final Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   private volatile boolean closed;
 
   public FabricServer(ServiceRegistry localRegistry, ClassLoader interfaceLoader) {
+    this(localRegistry, interfaceLoader, id -> Optional.empty(), id -> Optional.empty());
+  }
+
+  /**
+   * {@code contextLookup}/{@code executorLookup} let a real worker route an inbound call's actual
+   * invocation through the target module's own {@link ModuleContext} in-flight counter (so {@code
+   * ModuleController#stop}'s drain wait sees real traffic, not just a hosted module's own hook
+   * code) and its concurrency-bounding scheduler (so a slow/hostile caller can't run more
+   * concurrent invocations against one module than its own worker allows) -- both absent (the
+   * default, single-arg constructor above) for a test or a module this worker isn't itself
+   * supervising, in which case a call is still served, just without either safeguard.
+   */
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup) {
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
+    this.contextLookup = contextLookup;
+    this.executorLookup = executorLookup;
   }
 
   /**
@@ -225,27 +251,75 @@ public final class FabricServer implements AutoCloseable {
     // typically private to one hosted module's own layer (gimle-api doesn't exist yet to host a
     // service contract on a shared platform layer every worker-wide interfaceLoader can resolve),
     // so a single fixed loader can't be relied on to see it. The registry already holds the
-    // provider's instance keyed by the exact Class its own module registered it under -- no
-    // separate resolution needed.
-    Optional<?> instance = localRegistry.lookupByInterfaceName(request.interfaceName());
-    if (instance.isEmpty()) {
-      throw new NoSuchElementException(
-          "no local service registered for " + request.interfaceName());
-    }
+    // provider's instance (and its owning module) keyed by the exact Class its own module
+    // registered it under -- no separate resolution needed.
+    ServiceRegistry.OwnedInstance owned =
+        localRegistry
+            .lookupOwnedByInterfaceName(request.interfaceName())
+            .orElseThrow(
+                () ->
+                    new NoSuchElementException(
+                        "no local service registered for " + request.interfaceName()));
+
     Class<?>[] paramTypes = new Class<?>[request.paramTypeNames().length];
     for (int i = 0; i < paramTypes.length; i++) {
       paramTypes[i] = resolveClass(request.paramTypeNames()[i]);
     }
-    // The Method must come from the public interface Class, not instance.get().getClass()
+    // The Method must come from the public interface Class, not owned.instance().getClass()
     // directly: a lambda or InstanceMdcContext MDC-tagging proxy implementing the interface is
     // itself package-private/synthetic, and Method#invoke checks the *declaring class*'s
     // accessibility, not just the method's own public modifier -- reflecting through the
     // interface (which the registering module's own Class.getInterfaces() always exposes as the
     // real public interface object) avoids IllegalAccessException.
-    Class<?> iface = findInterface(instance.get().getClass(), request.interfaceName());
+    Class<?> iface = findInterface(owned.instance().getClass(), request.interfaceName());
     Method method = iface.getMethod(request.methodName(), paramTypes);
     Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs());
-    return method.invoke(instance.get(), args);
+
+    ModuleId owner = owned.owner();
+    Optional<ModuleContext> ctx = contextLookup.apply(owner);
+    ctx.ifPresent(ModuleContext::beginRequest);
+    try {
+      Optional<ModuleWorkExecutor> executor = executorLookup.apply(owner);
+      if (executor.isEmpty()) {
+        // No scheduler registered for this module -- a test double, or a module this worker
+        // isn't itself supervising via WorkerRuntime. Serve the call directly rather than
+        // failing it outright, same "degrade, don't fail" posture the rest of this codebase uses
+        // when optional instrumentation isn't wired up.
+        return method.invoke(owned.instance(), args);
+      }
+      return invokeBounded(executor.get(), method, owned.instance(), args);
+    } finally {
+      ctx.ifPresent(ModuleContext::endRequest);
+    }
+  }
+
+  /**
+   * Runs {@code method.invoke} on {@code executor} (bounding this module's real concurrent inbound
+   * traffic, not just its own probe checks) and blocks for the result, unwrapping {@link
+   * ExecutionException} back to exactly the exception {@code method.invoke} would have thrown
+   * directly -- {@link #dispatch}'s catch blocks distinguish a genuine {@link
+   * InvocationTargetException} (the callee's own exception) from a framework-level failure, and
+   * that distinction has to survive crossing the executor's {@link Future} boundary unchanged.
+   */
+  private Object invokeBounded(
+      ModuleWorkExecutor executor, Method method, Object instance, Object[] args)
+      throws ReflectiveOperationException {
+    Future<Object> future = executor.submit(() -> method.invoke(instance, args));
+    try {
+      return future.get();
+    } catch (ExecutionException e) {
+      switch (e.getCause()) {
+        case InvocationTargetException ite -> throw ite;
+        case IllegalAccessException iae -> throw iae;
+        case RuntimeException re -> throw re;
+        case null, default ->
+            throw new IllegalStateException(
+                "unexpected failure invoking via bounded scheduler", e.getCause());
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("interrupted while invoking via bounded scheduler", e);
+    }
   }
 
   private static Class<?> findInterface(Class<?> instanceClass, String interfaceName) {

@@ -38,6 +38,19 @@ public interface ServiceRegistry {
   Optional<Object> lookupByInterfaceName(String interfaceName);
 
   /**
+   * Same selection as {@link #lookupByInterfaceName}, but also returns which module owns the
+   * selected instance -- needed by {@code FabricServer} to look up that specific module's own
+   * {@link ModuleContext}/concurrency-bounding scheduler for an inbound call, which a bare instance
+   * reference alone can't provide. Selects in the same single round-robin step as the plain lookup
+   * so the returned owner and instance are always for the very same picked provider, never two
+   * independent picks that could land on different providers under concurrent registration changes.
+   */
+  Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName);
+
+  /** One round-robin pick from {@link #lookupOwnedByInterfaceName}, paired with its owner. */
+  record OwnedInstance(ModuleId owner, Object instance) {}
+
+  /**
    * Stops handing out new references to {@code owner}'s services; existing callers are unaffected.
    */
   void markUnready(ModuleId owner);

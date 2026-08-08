@@ -316,6 +316,17 @@ public final class ModuleController {
   }
 
   /**
+   * The {@link ModuleContext} this controller created for {@code id} at resolve time, if it's still
+   * resolved/active -- lets a caller outside this class (e.g. {@code FabricServer}, dispatching an
+   * inbound fabric call) route work through the exact same {@code beginRequest}/{@code endRequest}
+   * in-flight counter {@link #stop}'s drain wait already reads, rather than that counter only ever
+   * being incremented by a hosted module's own hook code and never by real external traffic.
+   */
+  public Optional<ModuleContext> context(ModuleId id) {
+    return Optional.ofNullable(contextsByModule.get(id));
+  }
+
+  /**
    * Forces an {@code ACTIVE} module straight to {@code FAILED}, for a caller that has already
    * decided restarting further is pointless (e.g. {@code WorkerRuntime} exhausting a module's
    * restart budget) -- unlike {@link #markFailedAndEmit}'s other call sites, there's no thrown hook

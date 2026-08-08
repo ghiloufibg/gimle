@@ -59,6 +59,11 @@ public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
   }
 
   @Override
+  public Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName) {
+    return delegate.lookupOwnedByInterfaceName(interfaceName);
+  }
+
+  @Override
   public void markUnready(ModuleId owner) {
     delegate.markUnready(owner);
   }

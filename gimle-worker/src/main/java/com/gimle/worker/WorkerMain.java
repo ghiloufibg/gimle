@@ -98,10 +98,6 @@ public final class WorkerMain {
     ServiceRegistry taggedLocal =
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
-    FabricBinding fabricBinding = bindFabricServer(taggedLocal, interfaceLoader);
-    FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
-    FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
-    tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
     FabricServiceRegistry fabricRegistry =
         new FabricServiceRegistry(
@@ -148,6 +144,16 @@ public final class WorkerMain {
                     identity.deploymentName(), identity.instanceIndex()));
     runtimeRef.set(runtime);
 
+    // Constructed only now that controller/runtime exist: FabricServer routes an inbound call's
+    // actual invocation through the target module's own ModuleContext (drain-visible in-flight
+    // count) and BoundedModuleScheduler (real concurrency bound, not just probe checks), both of
+    // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
+    FabricBinding fabricBinding =
+        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime);
+    FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
+    FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
+    tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
+
     channel.send(
         new ControlMessage.Hello(
             workerId,
@@ -165,8 +171,17 @@ public final class WorkerMain {
 
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */
   private static FabricBinding bindFabricServer(
-      ServiceRegistry localRegistry, ClassLoader interfaceLoader) throws IOException {
-    FabricServer server = new FabricServer(localRegistry, interfaceLoader);
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      ModuleController controller,
+      WorkerRuntime runtime)
+      throws IOException {
+    FabricServer server =
+        new FabricServer(
+            localRegistry,
+            interfaceLoader,
+            controller::context,
+            id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit));
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));

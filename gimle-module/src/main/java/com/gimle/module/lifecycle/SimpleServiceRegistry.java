@@ -36,15 +36,30 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
 
   @Override
   public Optional<Object> lookupByInterfaceName(String interfaceName) {
+    return findInterface(interfaceName).flatMap(this::select);
+  }
+
+  @Override
+  public Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName) {
+    return findInterface(interfaceName)
+        .flatMap(this::selectEntry)
+        .map(entry -> new OwnedInstance(entry.owner(), entry.instance()));
+  }
+
+  private Optional<Class<?>> findInterface(String interfaceName) {
     for (Class<?> iface : entriesByInterface.keySet()) {
       if (iface.getName().equals(interfaceName)) {
-        return select(iface);
+        return Optional.of(iface);
       }
     }
     return Optional.empty();
   }
 
   private Optional<Object> select(Class<?> iface) {
+    return selectEntry(iface).map(Entry::instance);
+  }
+
+  private Optional<Entry> selectEntry(Class<?> iface) {
     List<Entry> entries = entriesByInterface.get(iface);
     if (entries == null || entries.isEmpty()) {
       return Optional.empty();
@@ -55,7 +70,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
     }
     AtomicInteger cursor = cursors.computeIfAbsent(iface, key -> new AtomicInteger());
     int index = Math.floorMod(cursor.getAndIncrement(), ready.size());
-    return Optional.of(ready.get(index).instance());
+    return Optional.of(ready.get(index));
   }
 
   @Override
