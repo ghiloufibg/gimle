@@ -87,12 +87,11 @@ are grouped into:
 - **Gap**: When the reconciler-leader lease moves, every instance's restart backoff clock and "give up, stop retrying" marker silently resets — a replica already given up on can be rescheduled again, right when the system is least stable. This is the one place these reconcilers violate the "level-triggered, converge from any starting state" rule CLAUDE.md calls the hardest-to-test, most important correctness property in the codebase.
 - **Value**: High · **Difficulty**: Medium · **Fit**: Yes (persist backoff state as `StateMutation`s, or re-derive from observation history each tick)
 
-### P0-7. No authentication/authorization by default on the control-plane API
-- **Module**: `gimle-controlplane`, `gimle-core`
-- **Evidence**: `TransportProtocol` (`gimle-core/src/main/java/com/gimle/core/tls/TransportProtocol.java:27`) defaults to `PLAINTEXT`; `ApiServer.requireAuthorized()` (`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java:1878-1880`) returns `true` immediately for any non-`HttpsExchange`.
-- **Real-world comparison**: Kubernetes removed `--insecure-port` specifically because default-open API access was a recurring CVE source; Elasticsearch ships security features on by default since 8.0. MongoDB is the cautionary real-world case study here: its pre-3.6 default of binding with no authentication enabled directly caused a wave of ransomed, publicly-exposed databases once internet-wide scanning found them — the industry's answer since has been "authenticated by default," not "authenticated if you remember to configure it."
-- **Gap**: In the default deployment mode every route — deployments, nodes, tenants, config/secrets, roles, accounts, bootstrap tokens — is fully open to any network caller, not degraded. The RBAC/mTLS system underneath (`Authorizer`, `Principal`, `SessionTokens`) is genuinely well-built but opt-in behind `gimle.transport.protocol=tls`.
-- **Value**: High · **Difficulty**: Small · **Fit**: Yes (flip the default and/or add a loud startup warning; making TLS mandatory is a larger, more disruptive follow-up)
+### ~~P0-7. No authentication/authorization by default~~ — reclassified, not a gap
+See [Not gaps](#not-gaps--verified-correct-or-already-an-explicit-documented-tradeoff) below —
+PLAINTEXT-by-default is a deliberate project decision (frictionless local testing/usage), not an
+oversight. Original finding kept there for the record, with the one actionable sliver (a startup
+banner) demoted to P3.
 
 ### P0-8. Secrets and plain config share one RBAC resource kind
 - **Module**: `gimle-core`, `gimle-controlplane`
@@ -205,6 +204,7 @@ These are real, verified findings — just not worth prioritizing given the proj
 - **Locality-tier load balancing is a hard cutoff** — a single lightly-loaded same-machine replica absorbs 100% of traffic even with idle remote replicas, no capacity-aware spillover like Envoy's overprovisioning factor — `gimle-fabric`. Low/Medium/Yes.
 - **Invalid all-zero `SpanContext`** constructed when no active span exists at call time — harmless under the current no-op exporter, will misbehave the moment a real OTLP backend is wired in — `gimle-fabric`. Low/Small/Yes.
 - **No request rate limiting/throttling on the control-plane API**, even in authenticated/TLS mode — `gimle-controlplane`. Low/Medium/Partial.
+- **No startup log banner for the no-auth-by-default posture** — the PLAINTEXT default itself is intentional (see Not gaps), but a loud, explicit "running with no authentication" line at boot would make the tradeoff visible instead of silent — `gimle-controlplane`. Low/Small/Yes.
 - **Two independent, unsynchronized failure detectors** (SWIM gossip vs. the control plane's own 15s heartbeat-dark timeout) can disagree about node liveness — matches CLAUDE.md's stated design ("gossip off the control plane's critical path") so this is intentional, but worth documenting as a known inconsistency rather than rediscovering it as a bug — `gimle-fabric`, `gimle-controlplane`. Medium/Large/No.
 - **No linearizable/quorum read path** in the store's read API — every read can observe stale/partitioned-minority data with no opt-in for a fresher read, a documented simplification already — `gimle-mimir`. Medium/Medium/Partial.
 - **Raft chaos testing is real but scripted, not randomized/Jepsen-style** — six well-chosen scenarios exist (`RaftClusterTest.java:211-334`) but no randomized nemesis + linearizability checker — `gimle-mimir`. Medium/Large/No.
@@ -216,17 +216,45 @@ These are real, verified findings — just not worth prioritizing given the proj
 
 Listed so these don't get re-flagged in a future pass:
 
+- **No authentication/authorization by default on the control-plane API** (`TransportProtocol` defaults to `PLAINTEXT` — `gimle-core/src/main/java/com/gimle/core/tls/TransportProtocol.java:27`; `ApiServer.requireAuthorized()` returns `true` for any non-`HttpsExchange` — `ApiServer.java:1878-1880`). **This is a deliberate project decision**, not an oversight: Gimlé is meant to be trivial to spin up and try locally, and requiring TLS/certs before you can deploy a module would be exactly the kind of onboarding friction this project wants to avoid. The RBAC/mTLS system underneath (`Authorizer`, `Principal`, `SessionTokens`, `gimle-pki`) is real and well-built for anyone who *does* want to lock a cluster down — it's opt-in via `gimle.transport.protocol=tls`, which is the right default posture for a teaching project even though it would be the wrong one for a real product. The one small, genuinely worthwhile follow-up: a loud startup log line ("running with no authentication — do not expose this port") so the tradeoff is visible, not silent. See P3.
 - **Classloader leak detector's sampled, JFR-based retaining-path correlation** (`LeakTracker.java`, `OldObjectSampleCorrelator.java`) is meaningfully thinner than Eclipse MAT/Plumbr's exhaustive dominator-tree analysis — but this is an honest, self-documented tradeoff (the javadoc explains why the "proper" approach doesn't work in-process), not a hidden defect.
 - **cgroup v2 kernel-level resource enforcement and Tier 3 FFM namespace isolation** — deliberately deferred per CLAUDE.md ("Core architecture: tiered isolation"). Do not build these speculatively.
 - **Two independent failure detectors disagreeing** — see P3 above; intentional per CLAUDE.md's gossip-off-critical-path design note, just worth documenting explicitly.
+
+## Cross-platform constraint check
+
+CLAUDE.md's "Core architecture" section already commits Gimlé to a portable-first design:
+enforcement stays in pure-JVM territory (`PortableJvmFlagsResourceLimiter` — `-Xmx`/
+`ActiveProcessorCount`) until a second, explicitly platform-specific `ResourceLimiter`
+implementation is built later; cgroup v2 and FFM `unshare`/`setns` are named, deliberate
+deferrals, not gaps to close opportunistically. Every item in P0–P2 above was checked against
+that same bar before being included:
+
+- **P0-5** (metrics pipeline dead wiring) and **P2-2** (no live resource-usage feedback loop) both
+  route through `ResourceUsage`/`WorkerMetrics`, which are populated by the worker JVM's own
+  self-reporting — `Runtime.totalMemory()`/`freeMemory()`, `ThreadMXBean`, JFR CPU/allocation
+  events. All of it is standard `java.lang.management`/JFR API, identical on Linux/macOS/Windows,
+  zero native or OS-specific code — exactly the same portability bar
+  `PortableJvmFlagsResourceLimiter` already meets. Nothing here needs cgroup reads or FFM calls.
+- **P2-3** (worker crash cause classification) needs only `-XX:+ExitOnOutOfMemoryError` (a
+  standard cross-platform JVM flag) plus parsing the `hs_err_pid*.log` the JVM already writes on
+  every platform — no OS-specific exit-code interpretation (unlike, say, reading Linux's cgroup
+  OOM-kill signal, which would *not* be portable and is correctly out of scope).
+- **P0-6** (reconciler backoff state not replicated) is pure state-persistence logic against the
+  existing `StateStore`/`MutationSink` — no platform surface at all.
+
+None of P0–P2 needed to be pushed down for platform-dependence reasons; the only genuinely
+platform-specific work in the whole gap analysis is cgroup v2 / FFM Tier 3, and those are already
+correctly excluded above as existing, deliberate deferrals rather than items on this backlog.
 
 ---
 
 ## Suggested execution order
 
-1. **P0 items, in listed order** — each is small-to-medium, self-contained, and closes either a
-   correctness bug (P0-1, P0-6, P0-9) or a "looks implemented, isn't" gap (P0-2, P0-3, P0-4, P0-5)
-   or a foundational engineering-rigor gap (P0-7, P0-8, P0-10, P0-11).
+1. **P0 items, in listed order** (P0-7 reclassified as not-a-gap, see Not gaps) — each is
+   small-to-medium, self-contained, and closes either a correctness bug (P0-1, P0-6, P0-9) or a
+   "looks implemented, isn't" gap (P0-2, P0-3, P0-4, P0-5) or a foundational engineering-rigor gap
+   (P0-8, P0-10, P0-11).
 2. **P2 quick wins** (P2-1 through P2-13) — same shape as P0 but lower individual value; good
    filler between P1 initiatives.
 3. **P1 big rocks**, each scoped into its own sub-plan before starting:
