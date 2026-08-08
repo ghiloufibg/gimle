@@ -43,7 +43,11 @@ are grouped into:
 
 ## P0 — Fix first (high value, tractable)
 
-### P0-1. Raft log entries and term/vote state are never fsynced before being acknowledged as durable
+All ten tractable P0 items (P0-1 through P0-6, P0-8 through P0-11 — P0-7 was reclassified, see
+below) have landed on this branch, one commit each, in the order listed. Findings kept below for
+the record, per this document's own stated convention.
+
+### ~~P0-1. Raft log entries and term/vote state are never fsynced before being acknowledged as durable~~ — Done
 - **Module**: `gimle-mimir`
 - **Evidence**: `AtomicFiles.writeAtomically` (`gimle-mimir/src/main/java/com/gimle/mimir/store/AtomicFiles.java:21-35`) does `Files.write` + atomic rename with no `FileChannel.force`/fsync; called from `RaftLog.append` (`RaftLog.java:76-79`) and `RaftLog.setTermAndVote` (`RaftLog.java:68-72`) before entries are treated as safely appended.
 - **Real-world comparison**: ZooKeeper's transaction log (`SyncRequestProcessor`) fsyncs before ack, which is where this "sync before you tell anyone" discipline for coordination services originates; etcd's raft WAL calls `fileutil.Fsync` before an entry counts as persisted, and CockroachDB's Pebble/RocksDB engine does the same under its Raft layer; Kafka's metadata log fsyncs per its flush policy before advancing the high-watermark used for acks.
@@ -51,7 +55,7 @@ are grouped into:
 - **Value**: High — this is *the* teaching point about why Raft requires durable-before-ack.
 - **Difficulty**: Small · **Fit**: Yes
 
-### P0-2. `placement.requiredLabels` is parsed and persisted but never consulted by the scheduler
+### ~~P0-2. `placement.requiredLabels` is parsed and persisted but never consulted by the scheduler~~ — Done
 - **Modules**: `gimle-mimir`, `gimle-controlplane`
 - **Evidence**: `DeploymentManifestParser.parseRequiredLabels` (`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentManifestParser.java:117-151`) round-trips through `StateStore.java:721`; `NodeCandidate` (`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/NodeCandidate.java:20-25`) has no node-label concept at all, and `Scheduler.place` (`Scheduler.java:24-100`) never filters on them.
 - **Real-world comparison**: Kubernetes' `nodeSelector`/`nodeAffinity` actually filter the candidate set in `kube-scheduler`; HashiCorp Nomad's `constraint` stanza and Apache Mesos' resource-offer attribute matching do the equivalent filtering for their own schedulers — Nomad in particular is a closer scale/complexity match for `gimle-controlplane`'s scheduler than Kubernetes is.
@@ -59,28 +63,28 @@ are grouped into:
 - **Value**: High — exactly the "looks implemented, isn't" class of bug this audit exists to catch.
 - **Difficulty**: Small · **Fit**: Yes
 
-### P0-3. Module restart-budget exhaustion is a dead end — no escalation to worker or machine tier
+### ~~P0-3. Module restart-budget exhaustion is a dead end — no escalation to worker or machine tier~~ — Done
 - **Module**: `gimle-worker`
 - **Evidence**: `WorkerRuntime.restartModule` (`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java:224-241`) — when the retry budget is exhausted, it only logs and calls `onModuleRestartBudgetExhausted`, which in `WorkerMain.java:144` is literally `id -> log.error(...)`. Module state is left `ACTIVE`, so `AgentMain`'s `alive` flag never flips and `HealthReconciler`'s machine-tier reschedule never fires.
 - **Real-world comparison**: Kubernetes' `CrashLoopBackOff` never gives up — it caps backoff at 5 minutes and keeps retrying, so there's always a next action. This is also the exact shape of Erlang/OTP supervision trees, the direct intellectual ancestor of Gimlé's own tiered self-healing story: when a worker process exceeds its supervisor's `max_restarts`/`max_seconds` intensity, the supervisor itself terminates and escalates to *its* supervisor, restarting a whole subtree — there is always a next tier, never a silent dead end.
 - **Gap**: A module that structurally restarts fine but always fails liveness becomes a permanent zombie — the module→worker→machine escalation chain CLAUDE.md describes is broken at the very first hop.
 - **Value**: High · **Difficulty**: Small · **Fit**: Yes
 
-### P0-4. Real inbound fabric traffic bypasses both the concurrency bound and the drain mechanism
+### ~~P0-4. Real inbound fabric traffic bypasses both the concurrency bound and the drain mechanism~~ — Done
 - **Modules**: `gimle-module`, `gimle-fabric`, `gimle-worker`
 - **Evidence**: `SimpleModuleContext.beginRequest`/`endRequest` (`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java:41-48`) have **zero** call sites outside their own definitions; `ModuleController.awaitDrain` (`ModuleController.java:286-295`) polls `inFlightCount()`, which can therefore never be nonzero; `FabricServer` (`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java:154,169,248`) dispatches inbound RPCs on a raw unbounded virtual-thread-per-connection, calling `method.invoke` directly — never through `BoundedModuleScheduler` or `ModuleContext`.
 - **Real-world comparison**: Kubernetes' `preStop` + endpoint deregistration + grace period genuinely waits for real in-flight connections; Kafka broker shutdown drains real in-flight requests; Envoy's hot-restart connection draining and Akka Cluster's `CoordinatedShutdown` phases both make "stop accepting new work, finish what's in flight, then terminate" an explicit, ordered protocol rather than an immediate teardown.
 - **Gap**: `ModuleController.stop()`'s drain wait and the "bounded virtual-thread scheduler per instance" CLAUDE.md describes are both real, tested mechanisms — but neither is wired to the actual request path. `stop()` proceeds to disposal regardless of genuinely in-flight fabric calls, and nothing caps per-instance concurrency.
 - **Value**: High · **Difficulty**: Medium · **Fit**: Yes (thread `beginRequest`/`endRequest` + the scheduler through `FabricServer.invokeLocally`)
 
-### P0-5. Metrics pipeline for autoscaling and observability is entirely disconnected — dead wiring
+### ~~P0-5. Metrics pipeline for autoscaling and observability is entirely disconnected — dead wiring~~ — Done
 - **Modules**: `gimle-agent`, `gimle-os`, `gimle-observability`, `gimle-fabric`
 - **Evidence**: `AgentMain.observationJson` (`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java:459-476`) never sets `cpuMillicoresUsed`/`memoryBytesUsed`/`requestRatePerSecond`/`queueDepth`; `PortableJvmFlagsResourceLimiter.currentUsage()` (`gimle-os/src/main/java/com/gimle/os/portable/PortableJvmFlagsResourceLimiter.java:38-48`) unconditionally returns `(0, 0)`; `WorkerMetrics` (`gimle-observability/src/main/java/com/gimle/observability/WorkerMetrics.java:25-68`) is instantiated only in its own test — no caller anywhere in `gimle-worker`/`gimle-fabric`/`gimle-agent`; `FabricServiceRegistry.invokeRemote`/`FabricServer.dispatch` never record latency/error/traffic.
 - **Real-world comparison**: kubelet/cAdvisor poll real cgroup counters feeding HPA and OOM decisions; Kafka/ES record request rate/latency/errors directly in the request path, not as disconnected instrumentation; the Nomad Autoscaler and Cassandra's `nodetool`/JMX metrics are built the same way — the scaling/ops decision is driven by a real, continuously-updated counter, never a field that's always zero.
 - **Gap**: `AutoscaleReconciler` computes CPU utilization from a field that is architecturally guaranteed to always be `0` — autoscaling can mathematically never scale up. This is dead wiring, not a documented deferral (unlike cgroup enforcement, which *is* documented as deferred).
 - **Value**: High · **Difficulty**: Medium · **Fit**: Partial (wiring `WorkerMetrics` + JVM-self-reported usage through the heartbeat is one session; true per-module JFR CPU attribution is more)
 
-### P0-6. Reconciler backoff/grace-period state lives only in process memory, resets on controller failover
+### ~~P0-6. Reconciler backoff/grace-period state lives only in process memory, resets on controller failover~~ — Done
 - **Module**: `gimle-controlplane`
 - **Evidence**: `HealthReconciler`'s `restartTrackers`/`pendingRetry`/`permanentlyFailed` and `ReplicaCountReconciler`'s `firstSeenMissingAt` (`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java:44-46`, `ReplicaCountReconciler.java:48`) are plain `ConcurrentHashMap`s, never written through `MutationSink`/`StateMutation`. Reconcile ticks only run on whichever `ApiServer` replica holds the `reconciler-leader` lease (`ControlPlaneMain.java:123-146`), which can move.
 - **Real-world comparison**: Kubernetes stores `CrashLoopBackOff`-relevant state in the Pod's own etcd-backed status precisely so controller-manager restarts don't reset it; Temporal's whole premise ("durable execution") is that workflow/retry state survives worker crashes because it's persisted, not held in a worker's memory; Akka Cluster Sharding persists rebalance/shard state via a cluster singleton plus replicated data rather than trusting one node's local memory to survive a handoff.
@@ -93,28 +97,28 @@ PLAINTEXT-by-default is a deliberate project decision (frictionless local testin
 oversight. Original finding kept there for the record, with the one actionable sliver (a startup
 banner) demoted to P3.
 
-### P0-8. Secrets and plain config share one RBAC resource kind
+### ~~P0-8. Secrets and plain config share one RBAC resource kind~~ — Done
 - **Module**: `gimle-core`, `gimle-controlplane`
 - **Evidence**: `ResourceKind` (`gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java:12-20`) has a single `CONFIG` entry, no `SECRET`; `ApiServer.handleListConfig` (`ApiServer.java:958-970`) returns every entry for a tenant already decrypted, gated only by `CONFIG:READ`.
 - **Real-world comparison**: Kubernetes RBAC treats `configmaps` and `secrets` as distinct resource types so a role can grant one without the other; HashiCorp Vault goes further with per-path policies and dedicated, leased secret engines rather than any config/secret conflation.
 - **Gap**: A role granted `CONFIG:READ` for dashboarding purposes silently also grants read access to every decrypted secret under that tenant — RBAC granularity doesn't match the sensitivity split the `encrypted` flag already implies.
 - **Value**: High · **Difficulty**: Small · **Fit**: Yes
 
-### P0-9. `FabricClient` has no connect or read timeout
+### ~~P0-9. `FabricClient` has no connect or read timeout~~ — Done
 - **Module**: `gimle-fabric`
 - **Evidence**: `FabricClient.connect` (`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricClient.java:33-51`) calls `connect(endpoint)` with no timeout; no `setSoTimeout`/connect-timeout anywhere under `gimle-fabric/src/main`.
 - **Real-world comparison**: Envoy cluster config always sets `connect_timeout` + per-route `timeout`, and gRPC's deadline propagation makes an explicit timeout mandatory on every call; a timed-out upstream counts as an error for outlier detection just like a connection failure.
 - **Gap**: A remote endpoint that accepts the connection but never responds (half-open, GC pause, deadlock) hangs the calling virtual thread forever. `CircuitBreaker.recordFailure()` is only reached on `IOException`, so a hung endpoint never trips the breaker — the exact "slow/stuck node" scenario outlier ejection exists to catch is currently undetectable.
 - **Value**: High · **Difficulty**: Small · **Fit**: Yes
 
-### P0-10. No CI and no installed git hooks enforce any of the documented "binding, not optional" conventions
+### ~~P0-10. No CI and no installed git hooks enforce any of the documented "binding, not optional" conventions~~ — Done
 - **Repo-wide**
 - **Evidence**: No `.github/workflows`, `Jenkinsfile`, or `.gitlab-ci.yml` anywhere; `.git/hooks/` contains only default `*.sample` files — no real `pre-commit`/`commit-msg` script and no tracked install step for the ones CLAUDE.md/`gimle-PROJECT-v2.md` describe.
 - **Real-world comparison**: any project claiming "pre-commit runs `mvn verify` and blocks on failure" backs it with either a committed hook-install step or branch-protection CI.
 - **Gap**: The documented conventions (AI-attribution rejection, mandatory `mvn verify` before commit) are currently aspirational text with zero enforcement in the actual repo — a broken build or a policy-violating commit can reach `master` unchecked.
 - **Value**: High · **Difficulty**: Small · **Fit**: Yes (a GitHub Actions workflow running `mvn verify` + a tracked hook-install script closes both halves)
 
-### P0-11. Convergence-from-arbitrary-starting-state tests exist for only 2 of 5 reconcilers
+### ~~P0-11. Convergence-from-arbitrary-starting-state tests exist for only 2 of 5 reconcilers~~ — Done
 - **Module**: `gimle-controlplane`
 - **Evidence**: Only `DeploymentReconcilerTest` (`.../DeploymentReconcilerTest.java:148-167`) and `QuotaReconcilerTest` (`.../QuotaReconcilerTest.java:106`) are explicitly shaped as "arbitrary starting state converges" tests. `HealthReconcilerTest`, `ReplicaCountReconcilerTest`, `AutoscaleReconcilerTest` only cover individual transitions.
 - **Real-world comparison**: Kubernetes controller test suites lean heavily on table-driven "given this arbitrary observed+desired state, converge to this" tests for exactly this property.
@@ -251,10 +255,9 @@ correctly excluded above as existing, deliberate deferrals rather than items on 
 
 ## Suggested execution order
 
-1. **P0 items, in listed order** (P0-7 reclassified as not-a-gap, see Not gaps) — each is
-   small-to-medium, self-contained, and closes either a correctness bug (P0-1, P0-6, P0-9) or a
-   "looks implemented, isn't" gap (P0-2, P0-3, P0-4, P0-5) or a foundational engineering-rigor gap
-   (P0-8, P0-10, P0-11).
+1. ~~**P0 items, in listed order**~~ — **Done** (P0-7 reclassified as not-a-gap, see Not gaps);
+   each closed either a correctness bug (P0-1, P0-6, P0-9), a "looks implemented, isn't" gap
+   (P0-2, P0-3, P0-4, P0-5), or a foundational engineering-rigor gap (P0-8, P0-10, P0-11).
 2. **P2 quick wins** (P2-1 through P2-13) — same shape as P0 but lower individual value; good
    filler between P1 initiatives.
 3. **P1 big rocks**, each scoped into its own sub-plan before starting:
