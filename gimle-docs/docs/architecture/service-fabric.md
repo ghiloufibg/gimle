@@ -41,7 +41,13 @@ the same-worker shortcut — it genuinely goes over the wire.
 - The load balancer prefers locality — healthy same-worker instance first, then same-machine, then
   remote by least-outstanding-requests (`LeastOutstandingRequestsSelector`).
 - `CircuitBreaker` handles outlier ejection at the registry level, so an unhealthy instance stops
-  receiving traffic before a health probe would even declare it dead.
+  receiving traffic before a health probe would even declare it dead -- keyed off `FabricClient`
+  throwing an `IOException`, which now also covers a peer that accepted the connection and then
+  wedged (never wrote a response): `FabricClient.call` bounds connect+write+read together with one
+  timeout (`FabricClient.DEFAULT_TIMEOUT`, 5s, or an explicit `Duration` overload), closing the
+  underlying channel/socket to unblock the caller and surfacing a `SocketTimeoutException` if it
+  elapses. Before this, only an outright refused or reset connection failed fast; a wedged peer
+  left a caller hanging indefinitely with nothing to trip the breaker at all.
 
 ## Membership: gossip, not the control plane
 
