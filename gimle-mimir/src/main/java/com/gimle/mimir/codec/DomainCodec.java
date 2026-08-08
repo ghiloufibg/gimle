@@ -22,6 +22,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -373,6 +374,39 @@ public final class DomainCodec {
     NodeHeartbeat heartbeat = readNodeHeartbeat(in);
     Instant receivedAt = Instant.parse(in.readUTF());
     return new ObservedHeartbeat(heartbeat, receivedAt);
+  }
+
+  public static void writeReconcilerInstanceState(
+      DataOutputStream out, ReconcilerInstanceState state) throws IOException {
+    out.writeUTF(state.deploymentName());
+    out.writeInt(state.instanceIndex());
+    out.writeInt(state.attemptsInWindow());
+    out.writeLong(state.windowStartEpochMilli());
+    out.writeLong(state.nextAllowedAttemptEpochMilli());
+    out.writeBoolean(state.pendingRetry());
+    out.writeBoolean(state.permanentlyFailed());
+    out.writeLong(state.firstSeenMissingAtEpochMilli());
+  }
+
+  public static ReconcilerInstanceState readReconcilerInstanceState(DataInputStream in)
+      throws IOException {
+    String deploymentName = in.readUTF();
+    int instanceIndex = in.readInt();
+    int attemptsInWindow = in.readInt();
+    long windowStartEpochMilli = in.readLong();
+    long nextAllowedAttemptEpochMilli = in.readLong();
+    boolean pendingRetry = in.readBoolean();
+    boolean permanentlyFailed = in.readBoolean();
+    long firstSeenMissingAtEpochMilli = in.readLong();
+    return new ReconcilerInstanceState(
+        deploymentName,
+        instanceIndex,
+        attemptsInWindow,
+        windowStartEpochMilli,
+        nextAllowedAttemptEpochMilli,
+        pendingRetry,
+        permanentlyFailed,
+        firstSeenMissingAtEpochMilli);
   }
 
   public static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

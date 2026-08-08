@@ -133,6 +133,13 @@ leadership: once `ApiServer` is decoupled from the store's own Raft membership, 
 specifically to keep "exactly one active controller" true the way colocating reconcilers with a
 Raft node used to provide for free.
 
+Losing that lease reconstructs `HealthReconciler`/`ReplicaCountReconciler` from scratch on whichever
+replica wins it next — a fresh Java object with no memory of what the previous holder was doing.
+Their restart-budget/grace-period bookkeeping (per-instance attempt counts, backoff windows,
+missing-since timers) is therefore persisted through the store as a `ReconcilerInstanceState`
+(`gimle-mimir`), not held only in a local map: the new leader picks the in-progress backoff back up
+instead of silently re-granting a full restart budget to an already-flapping instance.
+
 ## What the control plane deliberately doesn't do
 
 Membership and failure detection between machines is a SWIM-style gossip protocol running

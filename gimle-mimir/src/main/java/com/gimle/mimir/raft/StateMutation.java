@@ -7,6 +7,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 
 /**
@@ -156,6 +157,21 @@ public sealed interface StateMutation {
     @Override
     public void applyTo(StateStore store) {
       store.removeAccount(username);
+    }
+  }
+
+  record PutReconcilerInstanceState(ReconcilerInstanceState state) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putReconcilerInstanceState(state);
+    }
+  }
+
+  record RemoveReconcilerInstanceState(String deploymentName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeReconcilerInstanceState(deploymentName, instanceIndex);
     }
   }
 }

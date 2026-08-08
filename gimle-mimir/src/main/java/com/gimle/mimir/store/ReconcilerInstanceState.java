@@ -1,0 +1,50 @@
+package com.gimle.mimir.store;
+
+/**
+ * Persisted per-instance backoff/grace-period bookkeeping, keyed by {@code deploymentName}/{@code
+ * instanceIndex} -- consolidates what {@code HealthReconciler} (restart-budget tracking via {@code
+ * RestartTracker}, plus its own {@code pendingRetry}/{@code permanentlyFailed} flags) and {@code
+ * ReplicaCountReconciler} (missing-since grace-period timer) each used to hold only in a plain
+ * {@code ConcurrentHashMap}, lost on every control-plane restart or reconciler-leader failover. One
+ * record rather than two resource kinds: both are exactly the same shape of "this reconciler's
+ * bookkeeping for this instance must survive a failover", and a rebuilt reconciler resumes both
+ * together for a given instance anyway. Each reconciler only ever reads/writes its own fields --
+ * {@code HealthReconciler} never touches {@code firstSeenMissingAtEpochMilli} and vice versa -- so
+ * a write from one reconciler always starts from the other's already-persisted state to avoid
+ * clobbering it.
+ *
+ * @param attemptsInWindow mirrors {@code RestartTracker#attemptsInWindow}; {@code 0} if no restart
+ *     has been recorded in the current window.
+ * @param windowStartEpochMilli mirrors {@code RestartTracker#windowStart}; {@link #ABSENT} if no
+ *     window has been opened.
+ * @param nextAllowedAttemptEpochMilli mirrors {@code RestartTracker#nextAllowedAttempt}; {@link
+ *     #ABSENT} if no restart has been recorded yet.
+ * @param pendingRetry {@code HealthReconciler}'s "backoff approved, waiting for the delay to
+ *     elapse" flag.
+ * @param permanentlyFailed {@code HealthReconciler}'s "restart budget exhausted, giving up" flag.
+ * @param firstSeenMissingAtEpochMilli {@code ReplicaCountReconciler}'s grace-period timer start;
+ *     {@link #ABSENT} if the instance is currently confirmed by its node's heartbeat.
+ */
+public record ReconcilerInstanceState(
+    String deploymentName,
+    int instanceIndex,
+    int attemptsInWindow,
+    long windowStartEpochMilli,
+    long nextAllowedAttemptEpochMilli,
+    boolean pendingRetry,
+    boolean permanentlyFailed,
+    long firstSeenMissingAtEpochMilli) {
+
+  /** Sentinel for an unset timestamp field -- {@code Optional} doesn't survive the wire codec. */
+  public static final long ABSENT = -1L;
+
+  /** True once every field is back at its default -- signals the record can be deleted outright. */
+  public boolean isEmpty() {
+    return attemptsInWindow == 0
+        && windowStartEpochMilli == ABSENT
+        && nextAllowedAttemptEpochMilli == ABSENT
+        && !pendingRetry
+        && !permanentlyFailed
+        && firstSeenMissingAtEpochMilli == ABSENT;
+  }
+}

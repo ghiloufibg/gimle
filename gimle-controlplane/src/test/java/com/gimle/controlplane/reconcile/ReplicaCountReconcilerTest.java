@@ -183,4 +183,35 @@ class ReplicaCountReconcilerTest {
     assertTrue(hasAssignment(store, "orders-service", 0));
     assertTrue(hasAssignment(store, "catalog-service", 0));
   }
+
+  @Test
+  void grace_period_state_survives_a_reconciler_reconstruction_against_the_same_store()
+      throws InterruptedException {
+    // Simulates a reconciler-leader failover: a fresh ReplicaCountReconciler instance, backed by
+    // the same on-disk store, must resume the already-elapsing grace-period timer rather than
+    // restarting it, which would delay a legitimate reschedule.
+    Path dir = tempDir.resolve("survives-reconstruction");
+    StateStore store = new StateStore(dir);
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
+
+    ReplicaCountReconciler original =
+        new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofMillis(80));
+    original.reconcileOnce(); // starts the grace period
+    assertTrue(hasAssignment(store, "orders-service", 0));
+
+    // Reopen the store (a real process restart would do this too) and construct a brand-new
+    // reconciler against it -- no in-memory state carries over except what was persisted.
+    StateStore reopened = new StateStore(dir);
+    ReplicaCountReconciler resumed =
+        new ReplicaCountReconciler(reopened, Duration.ofSeconds(15), Duration.ofMillis(80));
+
+    Thread.sleep(100); // past the original grace-period deadline, not a fresh one
+    resumed.reconcileOnce();
+
+    assertFalse(
+        hasAssignment(reopened, "orders-service", 0),
+        "the resumed reconciler should have completed the grace period it didn't start itself");
+  }
 }

@@ -14,6 +14,7 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StoreReader;
 import java.io.UncheckedIOException;
 import java.net.SocketAddress;
@@ -176,6 +177,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     StoreRpc.HeartbeatResult r =
         (StoreRpc.HeartbeatResult) sendRead(new StoreRpc.GetNodeHeartbeat(nodeId));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<ReconcilerInstanceState> getReconcilerInstanceState(
+      String deploymentName, int instanceIndex) {
+    StoreRpc.ReconcilerInstanceStateResult r =
+        (StoreRpc.ReconcilerInstanceStateResult)
+            sendRead(new StoreRpc.GetReconcilerInstanceState(deploymentName, instanceIndex));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
+    return ((StoreRpc.ReconcilerInstanceStateListResult)
+            sendRead(new StoreRpc.ListReconcilerInstanceStates()))
+        .values();
   }
 
   // ---- transport ----

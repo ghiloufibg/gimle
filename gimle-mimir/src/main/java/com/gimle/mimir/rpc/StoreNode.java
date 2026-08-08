@@ -64,6 +64,11 @@ public final class StoreNode implements StoreRpcHandler {
           intResult(store.getEffectiveReplicas(r.deploymentName()));
       case StoreRpc.GetRollingIndex r -> intResult(store.getRollingIndex(r.deploymentName()));
       case StoreRpc.GetNodeHeartbeat r -> heartbeatResult(store.getNodeHeartbeat(r.nodeId()));
+      case StoreRpc.GetReconcilerInstanceState r ->
+          reconcilerInstanceStateResult(
+              store.getReconcilerInstanceState(r.deploymentName(), r.instanceIndex()));
+      case StoreRpc.ListReconcilerInstanceStates r ->
+          new StoreRpc.ReconcilerInstanceStateListResult(store.listReconcilerInstanceStates());
     };
   }
 
@@ -159,5 +164,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.IntResult(true, v))
         .orElseGet(() -> new StoreRpc.IntResult(false, 0));
+  }
+
+  private static StoreRpc.ReconcilerInstanceStateResult reconcilerInstanceStateResult(
+      Optional<com.gimle.mimir.store.ReconcilerInstanceState> value) {
+    return value
+        .map(v -> new StoreRpc.ReconcilerInstanceStateResult(true, v))
+        .orElseGet(() -> new StoreRpc.ReconcilerInstanceStateResult(false, null));
   }
 }

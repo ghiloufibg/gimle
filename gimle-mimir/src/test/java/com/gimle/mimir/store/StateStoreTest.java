@@ -139,6 +139,52 @@ class StateStoreTest {
   }
 
   @Test
+  void reconciler_instance_state_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("reconciler-state-roundtrip");
+    StateStore store = new StateStore(root);
+    ReconcilerInstanceState state =
+        new ReconcilerInstanceState("orders-service", 0, 2, 100L, 200L, true, false, 300L);
+
+    store.putReconcilerInstanceState(state);
+    assertEquals(Optional.of(state), store.getReconcilerInstanceState("orders-service", 0));
+    assertEquals(List.of(state), store.listReconcilerInstanceStates());
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(Optional.of(state), reloaded.getReconcilerInstanceState("orders-service", 0));
+  }
+
+  @Test
+  void removed_reconciler_instance_state_is_gone_after_reload() {
+    Path root = tempDir.resolve("reconciler-state-removed");
+    StateStore store = new StateStore(root);
+    store.putReconcilerInstanceState(
+        new ReconcilerInstanceState("orders-service", 0, 1, 100L, 200L, true, false, -1L));
+
+    store.removeReconcilerInstanceState("orders-service", 0);
+    assertTrue(store.getReconcilerInstanceState("orders-service", 0).isEmpty());
+
+    StateStore reloaded = new StateStore(root);
+    assertTrue(reloaded.getReconcilerInstanceState("orders-service", 0).isEmpty());
+  }
+
+  @Test
+  void a_snapshot_carries_reconciler_instance_state_and_restores_it() {
+    Path root = tempDir.resolve("snapshot-reconciler-state");
+    StateStore store = new StateStore(root);
+    ReconcilerInstanceState state =
+        new ReconcilerInstanceState("orders-service", 0, 2, 100L, 200L, true, false, -1L);
+    store.putReconcilerInstanceState(state);
+
+    StateSnapshot snapshot = store.snapshot();
+    assertEquals(List.of(state), snapshot.reconcilerInstanceStates());
+
+    StateStore target = new StateStore(tempDir.resolve("snapshot-reconciler-state-target"));
+    target.restoreFromSnapshot(snapshot);
+
+    assertEquals(Optional.of(state), target.getReconcilerInstanceState("orders-service", 0));
+  }
+
+  @Test
   void unknown_resources_return_empty_or_empty_collections() {
     Path root = tempDir.resolve("empty-store");
     StateStore store = new StateStore(root);

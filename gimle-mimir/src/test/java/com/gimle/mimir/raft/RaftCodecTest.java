@@ -23,6 +23,7 @@ import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -231,7 +232,8 @@ class RaftCodecTest {
                         Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ),
                         Permission.scoped(ResourceKind.CONFIG, Verb.READ, "tenant-1")))),
             List.of(new RoleBinding("b1", RoleBinding.groupSubject("gimle:operators"), "viewer")),
-            List.of(new Account("admin", new byte[] {9, 8, 7, 6})));
+            List.of(new Account("admin", new byte[] {9, 8, 7, 6})),
+            List.of(new ReconcilerInstanceState("greeter", 0, 2, 100L, 200L, true, false, -1L)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -255,6 +257,7 @@ class RaftCodecTest {
     assertEquals(snapshot.accounts().get(0).username(), decoded.accounts().get(0).username());
     assertArrayEquals(
         snapshot.accounts().get(0).passwordHash(), decoded.accounts().get(0).passwordHash());
+    assertEquals(snapshot.reconcilerInstanceStates(), decoded.reconcilerInstanceStates());
   }
 
   @Test

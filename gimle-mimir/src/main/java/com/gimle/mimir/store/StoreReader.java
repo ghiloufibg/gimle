@@ -61,4 +61,9 @@ public interface StoreReader {
   Optional<Integer> getRollingIndex(String deploymentName);
 
   Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId);
+
+  Optional<ReconcilerInstanceState> getReconcilerInstanceState(
+      String deploymentName, int instanceIndex);
+
+  List<ReconcilerInstanceState> listReconcilerInstanceStates();
 }

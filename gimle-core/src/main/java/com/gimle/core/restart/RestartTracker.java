@@ -2,6 +2,7 @@ package com.gimle.core.restart;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Bounded-retry-with-backoff: exponential delay between attempts, capped, giving up after a
@@ -53,6 +54,47 @@ public final class RestartTracker {
     this.cap = cap;
     this.maxAttemptsPerWindow = maxAttemptsPerWindow;
     this.window = window;
+  }
+
+  /**
+   * Reconstructs a tracker with its rolling-window bookkeeping already populated -- for a caller
+   * resuming from persisted state (e.g. after a reconciler-leader failover) rather than starting a
+   * fresh budget. {@code windowStart} of {@code null} means no window has ever been opened, the
+   * same as a freshly-constructed tracker.
+   */
+  public static RestartTracker restore(
+      Duration initialDelay,
+      double multiplier,
+      Duration cap,
+      int maxAttemptsPerWindow,
+      Duration window,
+      int attemptsInWindow,
+      Instant windowStart,
+      Instant nextAllowedAttempt) {
+    RestartTracker tracker =
+        new RestartTracker(initialDelay, multiplier, cap, maxAttemptsPerWindow, window);
+    tracker.attemptsInWindow = attemptsInWindow;
+    tracker.windowStart = windowStart;
+    tracker.nextAllowedAttempt = nextAllowedAttempt == null ? Instant.EPOCH : nextAllowedAttempt;
+    return tracker;
+  }
+
+  /** How many attempts have been recorded in the current rolling window. */
+  public int attemptsInWindow() {
+    return attemptsInWindow;
+  }
+
+  /** Empty if no window has been opened yet (no failure recorded since construction/reset). */
+  public Optional<Instant> windowStart() {
+    return Optional.ofNullable(windowStart);
+  }
+
+  /**
+   * The earliest instant a retry is allowed, per the most recent {@link
+   * #recordFailureAndCheckShouldRetry} call -- {@code Instant.EPOCH} if none has been recorded yet.
+   */
+  public Instant nextAllowedAttempt() {
+    return nextAllowedAttempt;
   }
 
   /**

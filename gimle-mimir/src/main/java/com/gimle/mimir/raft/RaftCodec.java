@@ -9,6 +9,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -68,6 +69,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_ROLE_BINDING = 16;
   private static final byte MUT_PUT_ACCOUNT = 17;
   private static final byte MUT_REMOVE_ACCOUNT = 18;
+  private static final byte MUT_PUT_RECONCILER_INSTANCE_STATE = 19;
+  private static final byte MUT_REMOVE_RECONCILER_INSTANCE_STATE = 20;
 
   /**
    * Generous upper bound for any single length-prefixed frame this codec ever produces (a {@link
@@ -347,6 +350,15 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_ACCOUNT);
         out.writeUTF(m.username());
       }
+      case StateMutation.PutReconcilerInstanceState m -> {
+        out.writeByte(MUT_PUT_RECONCILER_INSTANCE_STATE);
+        DomainCodec.writeReconcilerInstanceState(out, m.state());
+      }
+      case StateMutation.RemoveReconcilerInstanceState m -> {
+        out.writeByte(MUT_REMOVE_RECONCILER_INSTANCE_STATE);
+        out.writeUTF(m.deploymentName());
+        out.writeInt(m.instanceIndex());
+      }
     }
   }
 
@@ -380,6 +392,10 @@ public final class RaftCodec {
       case MUT_REMOVE_ROLE_BINDING -> new StateMutation.RemoveRoleBinding(in.readUTF());
       case MUT_PUT_ACCOUNT -> new StateMutation.PutAccount(DomainCodec.readAccount(in));
       case MUT_REMOVE_ACCOUNT -> new StateMutation.RemoveAccount(in.readUTF());
+      case MUT_PUT_RECONCILER_INSTANCE_STATE ->
+          new StateMutation.PutReconcilerInstanceState(DomainCodec.readReconcilerInstanceState(in));
+      case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
+          new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -435,6 +451,10 @@ public final class RaftCodec {
       out.writeInt(snapshot.accounts().size());
       for (Account account : snapshot.accounts()) {
         DomainCodec.writeAccount(out, account);
+      }
+      out.writeInt(snapshot.reconcilerInstanceStates().size());
+      for (ReconcilerInstanceState state : snapshot.reconcilerInstanceStates()) {
+        DomainCodec.writeReconcilerInstanceState(out, state);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -500,6 +520,11 @@ public final class RaftCodec {
       for (int i = 0; i < accountCount; i++) {
         accounts.add(DomainCodec.readAccount(in));
       }
+      List<ReconcilerInstanceState> reconcilerInstanceStates = new ArrayList<>();
+      int reconcilerInstanceStateCount = in.readInt();
+      for (int i = 0; i < reconcilerInstanceStateCount; i++) {
+        reconcilerInstanceStates.add(DomainCodec.readReconcilerInstanceState(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -511,7 +536,8 @@ public final class RaftCodec {
           configEntries,
           roles,
           roleBindings,
-          accounts);
+          accounts,
+          reconcilerInstanceStates);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

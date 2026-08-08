@@ -162,4 +162,31 @@ class HealthReconcilerTest {
         hasAssignment(store, "orders-service", 0),
         "exhausted budget must stop further rescheduling");
   }
+
+  @Test
+  void backoff_state_survives_a_reconciler_reconstruction_against_the_same_store()
+      throws InterruptedException {
+    // Simulates a reconciler-leader failover: a fresh HealthReconciler instance, backed by the
+    // same on-disk store, must resume the in-progress backoff rather than re-granting a full
+    // restart budget to an already-flapping instance.
+    Path dir = tempDir.resolve("survives-reconstruction");
+    StateStore store = new StateStore(dir);
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    heartbeat(store, "node-a", false, "ACTIVE");
+
+    fastReconciler(store).reconcileOnce(); // first failure recorded, pending retry not yet elapsed
+    assertTrue(hasAssignment(store, "orders-service", 0));
+
+    // Reopen the store (a real process restart would do this too) and construct a brand-new
+    // reconciler against it -- no in-memory state carries over except what was persisted.
+    StateStore reopened = new StateStore(dir);
+    HealthReconciler resumed = fastReconciler(reopened);
+
+    Thread.sleep(30);
+    resumed.reconcileOnce(); // if the pending backoff wasn't resumed, this would start a new one
+
+    assertFalse(
+        hasAssignment(reopened, "orders-service", 0),
+        "the resumed reconciler should have completed the backoff it didn't start itself");
+  }
 }

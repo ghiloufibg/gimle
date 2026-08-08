@@ -7,14 +7,12 @@ import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +28,15 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Readiness ({@code ready=false}) never triggers a reschedule here: readiness failures only flip
  * tracked readiness state, never restart anything.
+ *
+ * <p>Backoff bookkeeping (the {@link RestartTracker}'s attempt count/window, plus this reconciler's
+ * own {@code pendingRetry}/{@code permanentlyFailed} flags) is persisted through {@link
+ * StoreReader}/{@link MutationSink} as a {@link ReconcilerInstanceState}, not held in a local map
+ * -- a reconciler-leader failover reconstructs this class fresh, and without persistence it would
+ * silently forget every in-progress backoff, re-granting a full restart budget to an
+ * already-flapping instance. Each read-modify-write starts from the currently persisted record so a
+ * write here never clobbers {@code ReplicaCountReconciler}'s own {@code
+ * firstSeenMissingAtEpochMilli} field in the same consolidated record.
  */
 public final class HealthReconciler {
 
@@ -41,9 +48,6 @@ public final class HealthReconciler {
   private final Duration cap;
   private final int maxAttemptsPerWindow;
   private final Duration window;
-  private final Map<String, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
-  private final Set<String> pendingRetry = ConcurrentHashMap.newKeySet();
-  private final Set<String> permanentlyFailed = ConcurrentHashMap.newKeySet();
   private final MutationSink mutations;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
@@ -92,8 +96,8 @@ public final class HealthReconciler {
   public void reconcileOnce() {
     Instant now = Instant.now();
     for (InstanceAssignment assignment : store.listAssignments()) {
-      String key = key(assignment);
-      if (permanentlyFailed.contains(key)) {
+      ReconcilerInstanceState persisted = currentState(assignment);
+      if (persisted.permanentlyFailed()) {
         continue;
       }
       Optional<InstanceObservation> observation = findObservation(assignment);
@@ -101,26 +105,45 @@ public final class HealthReconciler {
         continue; // ReplicaCountReconciler's concern, not this one
       }
       if (isHealthy(observation.get())) {
-        Optional.ofNullable(restartTrackers.get(key)).ifPresent(RestartTracker::recordSuccess);
-        pendingRetry.remove(key);
+        recordHealthy(assignment, persisted);
         continue;
       }
-      handleUnhealthy(assignment, key, now);
+      handleUnhealthy(assignment, persisted, now);
     }
   }
 
-  private void handleUnhealthy(InstanceAssignment assignment, String key, Instant now) {
-    RestartTracker tracker = restartTrackers.computeIfAbsent(key, k -> newTracker());
-    if (!pendingRetry.contains(key)) {
+  private void recordHealthy(InstanceAssignment assignment, ReconcilerInstanceState persisted) {
+    if (persisted.attemptsInWindow() == 0
+        && persisted.windowStartEpochMilli() == ReconcilerInstanceState.ABSENT
+        && !persisted.pendingRetry()) {
+      return; // nothing to reset -- avoid an unnecessary write on every healthy tick
+    }
+    save(
+        new ReconcilerInstanceState(
+            assignment.deploymentName(),
+            assignment.instanceIndex(),
+            0,
+            ReconcilerInstanceState.ABSENT,
+            ReconcilerInstanceState.ABSENT,
+            false,
+            persisted.permanentlyFailed(),
+            persisted.firstSeenMissingAtEpochMilli()));
+  }
+
+  private void handleUnhealthy(
+      InstanceAssignment assignment, ReconcilerInstanceState persisted, Instant now) {
+    RestartTracker tracker = restoreTracker(persisted);
+    boolean pendingRetry = persisted.pendingRetry();
+    if (!pendingRetry) {
       if (!tracker.recordFailureAndCheckShouldRetry(now)) {
         log.error(
             "deployment {} instance {} exhausted its restart budget; giving up on rescheduling it",
             assignment.deploymentName(),
             assignment.instanceIndex());
-        permanentlyFailed.add(key);
+        persistTracker(assignment, persisted, tracker, false, true);
         return;
       }
-      pendingRetry.add(key);
+      pendingRetry = true;
     }
 
     Duration delay = tracker.delayUntilNextAttempt(now);
@@ -128,8 +151,77 @@ public final class HealthReconciler {
       mutations.propose(
           new StateMutation.RemoveAssignment(
               assignment.deploymentName(), assignment.instanceIndex()));
-      pendingRetry.remove(key);
+      persistTracker(assignment, persisted, tracker, false, false);
+      return;
     }
+    persistTracker(assignment, persisted, tracker, true, false);
+  }
+
+  private RestartTracker restoreTracker(ReconcilerInstanceState persisted) {
+    if (persisted.windowStartEpochMilli() == ReconcilerInstanceState.ABSENT) {
+      return newTracker();
+    }
+    Instant nextAllowedAttempt =
+        persisted.nextAllowedAttemptEpochMilli() == ReconcilerInstanceState.ABSENT
+            ? Instant.EPOCH
+            : Instant.ofEpochMilli(persisted.nextAllowedAttemptEpochMilli());
+    return RestartTracker.restore(
+        initialDelay,
+        multiplier,
+        cap,
+        maxAttemptsPerWindow,
+        window,
+        persisted.attemptsInWindow(),
+        Instant.ofEpochMilli(persisted.windowStartEpochMilli()),
+        nextAllowedAttempt);
+  }
+
+  private void persistTracker(
+      InstanceAssignment assignment,
+      ReconcilerInstanceState previous,
+      RestartTracker tracker,
+      boolean pendingRetry,
+      boolean permanentlyFailed) {
+    save(
+        new ReconcilerInstanceState(
+            assignment.deploymentName(),
+            assignment.instanceIndex(),
+            tracker.attemptsInWindow(),
+            tracker.windowStart().map(Instant::toEpochMilli).orElse(ReconcilerInstanceState.ABSENT),
+            tracker.nextAllowedAttempt().equals(Instant.EPOCH)
+                ? ReconcilerInstanceState.ABSENT
+                : tracker.nextAllowedAttempt().toEpochMilli(),
+            pendingRetry,
+            permanentlyFailed,
+            previous.firstSeenMissingAtEpochMilli()));
+  }
+
+  private void save(ReconcilerInstanceState state) {
+    if (state.isEmpty()) {
+      mutations.propose(
+          new StateMutation.RemoveReconcilerInstanceState(
+              state.deploymentName(), state.instanceIndex()));
+    } else {
+      mutations.propose(new StateMutation.PutReconcilerInstanceState(state));
+    }
+  }
+
+  private ReconcilerInstanceState currentState(InstanceAssignment assignment) {
+    return store
+        .getReconcilerInstanceState(assignment.deploymentName(), assignment.instanceIndex())
+        .orElseGet(() -> emptyState(assignment));
+  }
+
+  private static ReconcilerInstanceState emptyState(InstanceAssignment assignment) {
+    return new ReconcilerInstanceState(
+        assignment.deploymentName(),
+        assignment.instanceIndex(),
+        0,
+        ReconcilerInstanceState.ABSENT,
+        ReconcilerInstanceState.ABSENT,
+        false,
+        false,
+        ReconcilerInstanceState.ABSENT);
   }
 
   private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
@@ -152,10 +244,6 @@ public final class HealthReconciler {
 
   private static boolean isHealthy(InstanceObservation observation) {
     return observation.alive() && !"FAILED".equals(observation.lifecycleState());
-  }
-
-  private static String key(InstanceAssignment assignment) {
-    return assignment.deploymentName() + "#" + assignment.instanceIndex();
   }
 
   private RestartTracker newTracker() {

@@ -66,6 +66,8 @@ public final class StateStore implements StoreReader {
   private final Map<String, Role> roles = new ConcurrentHashMap<>();
   private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
   private final Map<String, Account> accounts = new ConcurrentHashMap<>();
+  private final Map<String, ReconcilerInstanceState> reconcilerInstanceStates =
+      new ConcurrentHashMap<>();
 
   public StateStore(Path root) {
     this.root = root;
@@ -81,6 +83,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(rolesDir());
       Files.createDirectories(roleBindingsDir());
       Files.createDirectories(accountsDir());
+      Files.createDirectories(reconcilerStateDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -394,6 +397,35 @@ public final class StateStore implements StoreReader {
     accounts.remove(username);
   }
 
+  // ---- reconciler backoff/grace-period bookkeeping ----
+
+  /**
+   * Written by {@code HealthReconciler} and {@code ReplicaCountReconciler} alike -- see {@link
+   * ReconcilerInstanceState}'s own javadoc for why both share one resource kind.
+   */
+  public void putReconcilerInstanceState(ReconcilerInstanceState state) {
+    writeAtomically(
+        reconcilerStateFile(state.deploymentName(), state.instanceIndex()),
+        reconcilerInstanceStateToYaml(state));
+    reconcilerInstanceStates.put(
+        reconcilerStateKey(state.deploymentName(), state.instanceIndex()), state);
+  }
+
+  public Optional<ReconcilerInstanceState> getReconcilerInstanceState(
+      String deploymentName, int instanceIndex) {
+    return Optional.ofNullable(
+        reconcilerInstanceStates.get(reconcilerStateKey(deploymentName, instanceIndex)));
+  }
+
+  public void removeReconcilerInstanceState(String deploymentName, int instanceIndex) {
+    deleteQuietly(reconcilerStateFile(deploymentName, instanceIndex));
+    reconcilerInstanceStates.remove(reconcilerStateKey(deploymentName, instanceIndex));
+  }
+
+  public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
+    return List.copyOf(reconcilerInstanceStates.values());
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -416,7 +448,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(configEntries.values()),
         List.copyOf(roles.values()),
         List.copyOf(roleBindings.values()),
-        List.copyOf(accounts.values()));
+        List.copyOf(accounts.values()),
+        List.copyOf(reconcilerInstanceStates.values()));
   }
 
   /**
@@ -435,6 +468,8 @@ public final class StateStore implements StoreReader {
     List.copyOf(roles.keySet()).forEach(this::removeRole);
     List.copyOf(roleBindings.keySet()).forEach(this::removeRoleBinding);
     List.copyOf(accounts.keySet()).forEach(this::removeAccount);
+    List.copyOf(reconcilerInstanceStates.values())
+        .forEach(s -> removeReconcilerInstanceState(s.deploymentName(), s.instanceIndex()));
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
@@ -447,6 +482,7 @@ public final class StateStore implements StoreReader {
     snapshot.roles().forEach(this::putRole);
     snapshot.roleBindings().forEach(this::putRoleBinding);
     snapshot.accounts().forEach(this::putAccount);
+    snapshot.reconcilerInstanceStates().forEach(this::putReconcilerInstanceState);
   }
 
   // ---- disk layout ----
@@ -541,6 +577,18 @@ public final class StateStore implements StoreReader {
 
   private Path accountFile(String username) {
     return accountsDir().resolve(username + ".yaml");
+  }
+
+  private Path reconcilerStateDir() {
+    return root.resolve("reconciler");
+  }
+
+  private Path reconcilerStateFile(String deploymentName, int instanceIndex) {
+    return reconcilerStateDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
+  }
+
+  private static String reconcilerStateKey(String deploymentName, int instanceIndex) {
+    return deploymentName + "#" + instanceIndex;
   }
 
   private Path configFile(String tenantId, String key) {
@@ -648,6 +696,14 @@ public final class StateStore implements StoreReader {
         file -> {
           Account account = accountFromMap(loadMap(file));
           accounts.put(account.username(), account);
+        });
+    loadEach(
+        reconcilerStateDir(),
+        "*/*.yaml",
+        file -> {
+          ReconcilerInstanceState state = reconcilerInstanceStateFromMap(loadMap(file));
+          reconcilerInstanceStates.put(
+              reconcilerStateKey(state.deploymentName(), state.instanceIndex()), state);
         });
   }
 
@@ -974,5 +1030,30 @@ public final class StateStore implements StoreReader {
   private static Account accountFromMap(Map<?, ?> root) {
     byte[] passwordHash = Base64.getDecoder().decode((String) root.get("passwordHash"));
     return new Account((String) root.get("username"), passwordHash);
+  }
+
+  private static String reconcilerInstanceStateToYaml(ReconcilerInstanceState state) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("deploymentName", state.deploymentName());
+    root.put("instanceIndex", state.instanceIndex());
+    root.put("attemptsInWindow", state.attemptsInWindow());
+    root.put("windowStartEpochMilli", state.windowStartEpochMilli());
+    root.put("nextAllowedAttemptEpochMilli", state.nextAllowedAttemptEpochMilli());
+    root.put("pendingRetry", state.pendingRetry());
+    root.put("permanentlyFailed", state.permanentlyFailed());
+    root.put("firstSeenMissingAtEpochMilli", state.firstSeenMissingAtEpochMilli());
+    return new Yaml().dump(root);
+  }
+
+  private static ReconcilerInstanceState reconcilerInstanceStateFromMap(Map<?, ?> root) {
+    return new ReconcilerInstanceState(
+        (String) root.get("deploymentName"),
+        ((Number) root.get("instanceIndex")).intValue(),
+        ((Number) root.get("attemptsInWindow")).intValue(),
+        ((Number) root.get("windowStartEpochMilli")).longValue(),
+        ((Number) root.get("nextAllowedAttemptEpochMilli")).longValue(),
+        (Boolean) root.get("pendingRetry"),
+        (Boolean) root.get("permanentlyFailed"),
+        ((Number) root.get("firstSeenMissingAtEpochMilli")).longValue());
   }
 }

@@ -10,6 +10,7 @@ import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.RaftCodec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -57,6 +58,8 @@ public final class StoreCodec {
   private static final byte TAG_GET_EFFECTIVE_REPLICAS = 20;
   private static final byte TAG_GET_ROLLING_INDEX = 21;
   private static final byte TAG_GET_NODE_HEARTBEAT = 22;
+  private static final byte TAG_GET_RECONCILER_INSTANCE_STATE = 43;
+  private static final byte TAG_LIST_RECONCILER_INSTANCE_STATES = 45;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -79,6 +82,8 @@ public final class StoreCodec {
   private static final byte TAG_CONFIG_ENTRY_LIST_RESULT = 40;
   private static final byte TAG_ROLE_LIST_RESULT = 41;
   private static final byte TAG_ROLE_BINDING_LIST_RESULT = 42;
+  private static final byte TAG_RECONCILER_INSTANCE_STATE_RESULT = 44;
+  private static final byte TAG_RECONCILER_INSTANCE_STATE_LIST_RESULT = 46;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -193,6 +198,13 @@ public final class StoreCodec {
           out.writeByte(TAG_GET_NODE_HEARTBEAT);
           out.writeUTF(v.nodeId());
         }
+        case StoreRpc.GetReconcilerInstanceState v -> {
+          out.writeByte(TAG_GET_RECONCILER_INSTANCE_STATE);
+          out.writeUTF(v.deploymentName());
+          out.writeInt(v.instanceIndex());
+        }
+        case StoreRpc.ListReconcilerInstanceStates v ->
+            out.writeByte(TAG_LIST_RECONCILER_INSTANCE_STATES);
         case StoreRpc.Ok v -> out.writeByte(TAG_OK);
         case StoreRpc.NotLeader v -> {
           out.writeByte(TAG_NOT_LEADER);
@@ -318,6 +330,20 @@ public final class StoreCodec {
             DomainCodec.writeRoleBinding(out, b);
           }
         }
+        case StoreRpc.ReconcilerInstanceStateResult v -> {
+          out.writeByte(TAG_RECONCILER_INSTANCE_STATE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeReconcilerInstanceState(out, v.value());
+          }
+        }
+        case StoreRpc.ReconcilerInstanceStateListResult v -> {
+          out.writeByte(TAG_RECONCILER_INSTANCE_STATE_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (ReconcilerInstanceState s : v.values()) {
+            DomainCodec.writeReconcilerInstanceState(out, s);
+          }
+        }
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -355,6 +381,9 @@ public final class StoreCodec {
         case TAG_GET_EFFECTIVE_REPLICAS -> new StoreRpc.GetEffectiveReplicas(in.readUTF());
         case TAG_GET_ROLLING_INDEX -> new StoreRpc.GetRollingIndex(in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
+        case TAG_GET_RECONCILER_INSTANCE_STATE ->
+            new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
+        case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
         case TAG_LEASE_RESULT ->
@@ -456,6 +485,19 @@ public final class StoreCodec {
             values.add(DomainCodec.readRoleBinding(in));
           }
           yield new StoreRpc.RoleBindingListResult(values);
+        }
+        case TAG_RECONCILER_INSTANCE_STATE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.ReconcilerInstanceStateResult(
+              present, present ? DomainCodec.readReconcilerInstanceState(in) : null);
+        }
+        case TAG_RECONCILER_INSTANCE_STATE_LIST_RESULT -> {
+          int count = in.readInt();
+          List<ReconcilerInstanceState> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readReconcilerInstanceState(in));
+          }
+          yield new StoreRpc.ReconcilerInstanceStateListResult(values);
         }
         default -> throw new IllegalArgumentException("unknown StoreRpc tag: " + tag);
       };
