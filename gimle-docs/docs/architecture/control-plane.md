@@ -111,6 +111,15 @@ tenant isolation, and required labels. Cordoning is deliberately just a binary "
 here" flag: it never evicts an instance already running on the node, and preemption and
 taint/toleration-style soft constraints remain out of scope.
 
+The scheduler's own anti-affinity is node-granularity only — it keeps two replicas of one module
+off the *same node*, not necessarily the same worker JVM. Whether two *different* modules placed
+on the same node end up sharing one worker JVM (Tier 1 density) is an agent-local decision the
+scheduler has no visibility into; see [Tiered isolation](./tiered-isolation.md)'s own section on
+this. The agent's own density logic separately guarantees two replicas of the *same* module never
+land in the same worker even when anti-affinity is off, since that would corrupt the worker
+runtime's per-module bookkeeping — a narrower, worker-level guarantee the node-level scheduler
+constraint doesn't provide by itself.
+
 ## Reconcilers
 
 One control loop per resource kind, each comparing desired state to observed state and emitting

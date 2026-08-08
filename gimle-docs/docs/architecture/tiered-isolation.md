@@ -46,3 +46,14 @@ purpose. The portable JVM-flags path is the whole story for resource enforcement
 [Module lifecycle](../reference/module-lifecycle.md) for how a module moves through a worker once
 placed, and [Node topology](./node-topology.md) for how Node Agent, Worker JVM, and Control Plane
 relate above this diagram.
+
+## Tier 1 density: agent-local, not scheduler-visible
+
+The node agent packs multiple Tier-1 instances into one shared worker JVM when it's safe to do so:
+same node (implicit -- an agent only ever reuses its own already-running workers), same tenant (or
+both untenanted), never two instances of the same module (which would corrupt `WorkerRuntime`'s
+per-`ModuleId` keying), and under a fixed density cap. This is deliberately agent-local and
+invisible to the control plane: the scheduler still reasons about node-level capacity only, with no
+concept of which worker a Tier-1 instance lands in once it's placed on a node, and per-worker
+`-Xmx` subdivision is out of scope -- a shared worker's memory ceiling stays whatever it was sized
+for at spawn time, unchanged as new instances join it.

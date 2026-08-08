@@ -84,6 +84,16 @@ public final class AgentMain {
   private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
   /**
+   * Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared worker JVM
+   * before preferring a fresh one -- a simple constant to start, not a configurable knob yet. See
+   * {@link #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly,
+   * since this only ever scans this agent's own {@code supervised} map; same tenant or both
+   * untenanted; never two instances of the same module, which would corrupt {@code WorkerRuntime}'s
+   * per-{@code ModuleId} keying).
+   */
+  private static final int MAX_TIER1_DENSITY = 4;
+
+  /**
    * Enables the retaining-path attribution {@code OldObjectSampleCorrelator} (gimle-module) can
    * only surface when the worker JVM itself was launched with {@code path-to-gc-roots=true} -- that
    * setting is a recording-launch option, not something settable through the in-process {@code
@@ -609,20 +619,41 @@ public final class AgentMain {
       currentKeys.add(key);
       if (!supervised.containsKey(key)) {
         try {
-          startInstance(
-              assigned,
-              key,
-              supervised,
-              nodeId,
-              javaExecutable,
-              commandTail,
-              resourceLimiter,
-              capacityTracker,
-              gossipMember,
-              catalog,
-              httpClient,
-              baseUrl,
-              logRoot);
+          ModuleDescriptor descriptor =
+              ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
+          if (!resourceLimiter.supports(descriptor.isolationTier())) {
+            throw GimleIsolationException.tierUnsupported(
+                assigned.moduleId(), descriptor.isolationTier());
+          }
+          Optional<SupervisedInstance> reusable =
+              findReusableTier1Worker(assigned, descriptor, supervised);
+          if (reusable.isPresent()) {
+            installIntoExistingWorker(
+                assigned,
+                key,
+                descriptor,
+                reusable.get(),
+                supervised,
+                capacityTracker,
+                httpClient,
+                baseUrl);
+          } else {
+            startInstance(
+                assigned,
+                key,
+                descriptor,
+                supervised,
+                nodeId,
+                javaExecutable,
+                commandTail,
+                resourceLimiter,
+                capacityTracker,
+                gossipMember,
+                catalog,
+                httpClient,
+                baseUrl,
+                logRoot);
+          }
         } catch (IOException | RuntimeException e) {
           log.error("failed to start instance {}: {}", key, e.getMessage(), e);
         }
@@ -635,9 +666,85 @@ public final class AgentMain {
     }
   }
 
+  /**
+   * Tier 1 density: reuse an already-running worker for {@code assigned} instead of spawning a new
+   * JVM, when doing so is safe -- deliberately narrow (agent-local, node-implicit) scope, see
+   * {@link #MAX_TIER1_DENSITY}'s own javadoc. Groups {@code supervised} by connection identity
+   * (every instance sharing one worker shares one {@link WorkerConnection} reference) rather than
+   * scanning candidates independently, since the module-conflict and density checks are properties
+   * of the *worker as a whole*, not of any single instance already on it.
+   */
+  static Optional<SupervisedInstance> findReusableTier1Worker(
+      AssignedInstance assigned,
+      ModuleDescriptor descriptor,
+      Map<String, SupervisedInstance> supervised) {
+    if (descriptor.isolationTier() != IsolationTier.TIER_1) {
+      return Optional.empty();
+    }
+    Map<WorkerConnection, List<SupervisedInstance>> byConnection = new LinkedHashMap<>();
+    for (SupervisedInstance existing : supervised.values()) {
+      if (existing.connection != null) {
+        byConnection.computeIfAbsent(existing.connection, c -> new ArrayList<>()).add(existing);
+      }
+    }
+    for (List<SupervisedInstance> group : byConnection.values()) {
+      SupervisedInstance representative = group.get(0);
+      boolean allTier1 =
+          group.stream().allMatch(i -> i.descriptor.isolationTier() == IsolationTier.TIER_1);
+      boolean sameTenant = representative.assigned.tenantId().equals(assigned.tenantId());
+      // Installing the same ModuleId twice into one worker would corrupt WorkerRuntime's
+      // per-ModuleId keying (registry, identityRegistry, per-module schedulers) -- this can happen
+      // even with anti-affinity off, since two replicas of one module landing on the same node is
+      // already legal today; density must never let them land in the same *worker* too.
+      boolean noModuleConflict =
+          group.stream().noneMatch(i -> i.assigned.moduleId().equals(assigned.moduleId()));
+      boolean underDensityLimit = group.size() < MAX_TIER1_DENSITY;
+      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit) {
+        return Optional.of(representative);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Installs {@code assigned} into {@code existing}'s already-running worker over its already-open
+   * connection -- no new {@link WorkerProcessSupervisor}, {@link ControlChannelServer}, or {@link
+   * ResourceLimitHandle}: the shared worker's {@code -Xmx} stays whatever it was sized for at spawn
+   * time (per-worker resource-limit subdivision is out of scope for this reduced form of density).
+   * {@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} are copied from {@code
+   * existing} rather than waiting on a second {@code Hello} that will never arrive -- the worker
+   * already sent its one {@code Hello} for this connection before {@code existing} was ever placed.
+   */
+  private static void installIntoExistingWorker(
+      AssignedInstance assigned,
+      String key,
+      ModuleDescriptor descriptor,
+      SupervisedInstance existing,
+      Map<String, SupervisedInstance> supervised,
+      CapacityTracker capacityTracker,
+      HttpClient httpClient,
+      URI baseUrl) {
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
+    instance.connection = existing.connection;
+    instance.fabricWorkerId = existing.fabricWorkerId;
+    instance.fabricUdsPath = existing.fabricUdsPath;
+    instance.fabricTcpAddress = existing.fabricTcpAddress;
+    supervised.put(key, instance);
+    capacityTracker.tryAssign(key, descriptor.resourceRequest());
+    try {
+      sendInstallStartSequence(instance, instance.connection, httpClient, baseUrl);
+    } catch (IOException e) {
+      log.error("failed to install {} into shared worker: {}", key, e.getMessage());
+      supervised.remove(key);
+      capacityTracker.release(key);
+    }
+  }
+
   private static void startInstance(
       AssignedInstance assigned,
       String key,
+      ModuleDescriptor descriptor,
       Map<String, SupervisedInstance> supervised,
       String nodeId,
       String javaExecutable,
@@ -650,13 +757,6 @@ public final class AgentMain {
       URI baseUrl,
       Path logRoot)
       throws IOException {
-    ModuleDescriptor descriptor =
-        ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
-    if (!resourceLimiter.supports(descriptor.isolationTier())) {
-      throw GimleIsolationException.tierUnsupported(
-          assigned.moduleId(), descriptor.isolationTier());
-    }
-
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
     ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
@@ -694,7 +794,8 @@ public final class AgentMain {
         .name("gimle-instance-starter-" + key)
         .start(
             () ->
-                driveInstanceUp(instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId));
+                driveInstanceUp(
+                    instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId, supervised));
   }
 
   /**
@@ -755,31 +856,53 @@ public final class AgentMain {
       ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
-      String nodeId) {
+      String nodeId,
+      Map<String, SupervisedInstance> supervised) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
       Thread.ofVirtual()
           .name("gimle-instance-reader-" + key)
-          .start(() -> readLoop(instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId));
-
-      connection.send(
-          new ControlMessage.InstallModule(
-              nextCorrelationId(),
-              instance.assigned.artifactPath(),
-              instance.assigned.deploymentName(),
-              instance.assigned.instanceIndex()));
-      connection.send(
-          new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
-      // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
-      // Start, over this same ordered channel, so every module hook's config(key) lookups are
-      // already backed by real values from the moment it starts.
-      deliverConfig(instance, connection, httpClient, baseUrl);
-      connection.send(
-          new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
+          .start(
+              () ->
+                  readLoop(
+                      instance,
+                      key,
+                      gossipMember,
+                      catalog,
+                      httpClient,
+                      baseUrl,
+                      nodeId,
+                      supervised));
+      sendInstallStartSequence(instance, connection, httpClient, baseUrl);
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
     }
+  }
+
+  /**
+   * The {@code InstallModule}/{@code ResolveModule}/(config)/{@code StartModule} sequence a fresh
+   * worker gets right after connecting ({@link #driveInstanceUp}) and a shared worker gets when a
+   * new Tier-1 instance joins it ({@link #installIntoExistingWorker}) -- identical either way, the
+   * only difference is whether the connection was just accepted or already open.
+   */
+  private static void sendInstallStartSequence(
+      SupervisedInstance instance, WorkerConnection connection, HttpClient httpClient, URI baseUrl)
+      throws IOException {
+    connection.send(
+        new ControlMessage.InstallModule(
+            nextCorrelationId(),
+            instance.assigned.artifactPath(),
+            instance.assigned.deploymentName(),
+            instance.assigned.instanceIndex()));
+    connection.send(
+        new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
+    // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
+    // Start, over this same ordered channel, so every module hook's config(key) lookups are
+    // already backed by real values from the moment it starts.
+    deliverConfig(instance, connection, httpClient, baseUrl);
+    connection.send(
+        new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
   }
 
   private static void deliverConfig(
@@ -808,6 +931,17 @@ public final class AgentMain {
     }
   }
 
+  /**
+   * One reader thread per connection, not per instance -- when Tier 1 density packs several
+   * instances onto one worker, only the instance that actually accepted the connection ({@code
+   * instance} here) has a reader thread; every message naming a {@code ModuleId} ({@code
+   * ModuleStateChanged}/{@code ServiceRegistered}/{@code ServiceUnregistered}/{@code
+   * MetricsReport}) is demuxed via {@link #findByModuleId} to whichever sibling {@code
+   * SupervisedInstance} it actually belongs to, since starting a second reader on the same
+   * connection would race two threads over one socket. {@code Hello} is the one message that isn't
+   * module-scoped -- it fires once, before any sibling could have joined this connection, so it's
+   * always safe to apply directly to {@code instance}.
+   */
   private static void readLoop(
       SupervisedInstance instance,
       String key,
@@ -815,13 +949,16 @@ public final class AgentMain {
       ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
-      String nodeId) {
+      String nodeId,
+      Map<String, SupervisedInstance> supervised) {
+    WorkerConnection connection = instance.connection;
     try {
       Optional<ControlMessage> received;
-      while ((received = instance.connection.receive()).isPresent()) {
+      while ((received = connection.receive()).isPresent()) {
         ControlMessage message = received.get();
         if (message instanceof ControlMessage.ModuleStateChanged changed) {
-          instance.lifecycleState = changed.state();
+          findByModuleId(supervised, connection, changed.id())
+              .ifPresent(target -> target.lifecycleState = changed.state());
         } else if (message instanceof ControlMessage.Nack nack) {
           log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
@@ -837,28 +974,52 @@ public final class AgentMain {
           // otherwise never reach it.
           syncCatalogToWorker(instance, catalog);
         } else if (message instanceof ControlMessage.ServiceRegistered registered) {
-          registerIntoCatalog(
-              instance, gossipMember, catalog, registered.moduleId(), registered.export(), true);
+          findByModuleId(supervised, connection, registered.moduleId())
+              .ifPresent(
+                  target ->
+                      registerIntoCatalog(
+                          target,
+                          gossipMember,
+                          catalog,
+                          registered.moduleId(),
+                          registered.export(),
+                          true));
         } else if (message instanceof ControlMessage.ServiceUnregistered unregistered) {
-          registerIntoCatalog(
-              instance,
-              gossipMember,
-              catalog,
-              unregistered.moduleId(),
-              unregistered.export(),
-              false);
+          findByModuleId(supervised, connection, unregistered.moduleId())
+              .ifPresent(
+                  target ->
+                      registerIntoCatalog(
+                          target,
+                          gossipMember,
+                          catalog,
+                          unregistered.moduleId(),
+                          unregistered.export(),
+                          false));
         } else if (message instanceof ControlMessage.MetricsReport metrics) {
-          instance.cpuMillicoresUsed = metrics.cpuMillicoresUsed();
-          instance.memoryBytesUsed = metrics.memoryBytesUsed();
-          instance.requestRatePerSecond = metrics.requestRatePerSecond();
-          instance.errorRatePerSecond = metrics.errorRatePerSecond();
-          instance.queueDepth = metrics.queueDepth();
+          findByModuleId(supervised, connection, metrics.id())
+              .ifPresent(
+                  target -> {
+                    target.cpuMillicoresUsed = metrics.cpuMillicoresUsed();
+                    target.memoryBytesUsed = metrics.memoryBytesUsed();
+                    target.requestRatePerSecond = metrics.requestRatePerSecond();
+                    target.errorRatePerSecond = metrics.errorRatePerSecond();
+                    target.queueDepth = metrics.queueDepth();
+                  });
         }
       }
       log.info("instance {} control channel closed", key);
     } catch (IOException e) {
       log.warn("instance {} control channel failed: {}", key, e.getMessage());
     }
+  }
+
+  /** Every {@code SupervisedInstance} sharing {@code connection} whose module is {@code id}. */
+  private static Optional<SupervisedInstance> findByModuleId(
+      Map<String, SupervisedInstance> supervised, WorkerConnection connection, ModuleId id) {
+    return supervised.values().stream()
+        .filter(candidate -> candidate.connection == connection)
+        .filter(candidate -> candidate.assigned.moduleId().equals(id))
+        .findFirst();
   }
 
   private static void syncCatalogToWorker(SupervisedInstance instance, ServiceCatalog catalog) {
@@ -927,17 +1088,28 @@ public final class AgentMain {
     WorkerConnection connection = instance.connection;
     if (connection != null) {
       try {
+        // StopModule alone drives ACTIVE -> STOPPING -> UNINSTALLED in one call on the worker
+        // side (ModuleController#stop already finishes with its own uninstall) -- no separate
+        // UninstallModule follow-up needed or wanted here.
         connection.send(
             new ControlMessage.StopModule(nextCorrelationId(), instance.assigned.moduleId()));
       } catch (IOException e) {
         log.warn("failed to send StopModule to instance {}: {}", key, e.getMessage());
       }
     }
-    instance.supervisor.close();
-    try {
-      instance.server.close();
-    } catch (IOException e) {
-      log.warn("failed to close control channel server for instance {}: {}", key, e.getMessage());
+    // Tier 1 density: a worker hosting more than one instance must survive this one's teardown --
+    // killing the process would take every sibling down with it. Only the last instance on a
+    // worker (the common case, density or not) actually tears the process down.
+    boolean sharedWithAnotherInstance =
+        connection != null
+            && supervised.values().stream().anyMatch(other -> other.connection == connection);
+    if (!sharedWithAnotherInstance) {
+      instance.supervisor.close();
+      try {
+        instance.server.close();
+      } catch (IOException e) {
+        log.warn("failed to close control channel server for instance {}: {}", key, e.getMessage());
+      }
     }
     capacityTracker.release(key);
   }

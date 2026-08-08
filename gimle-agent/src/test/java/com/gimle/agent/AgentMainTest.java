@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.HealthProbes;
@@ -11,7 +12,11 @@ import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -126,5 +131,197 @@ class AgentMainTest {
     assertEquals(12.5, observation.get("requestRatePerSecond"));
     assertEquals(0.5, observation.get("errorRatePerSecond"));
     assertEquals(3, observation.get("queueDepth"));
+  }
+
+  // ---- Tier 1 density: findReusableTier1Worker ----
+
+  private static ModuleDescriptor descriptor(String name, IsolationTier tier) {
+    return new ModuleDescriptor(
+        name,
+        Version.parse("1.0.0"),
+        List.of(),
+        List.of(),
+        tier,
+        REQUEST,
+        LIMIT,
+        HealthProbes.NONE,
+        Optional.empty());
+  }
+
+  private static AssignedInstance assignedInstance(
+      String deploymentName, ModuleDescriptor descriptor, Optional<String> tenantId) {
+    return new AssignedInstance(
+        deploymentName, 0, descriptor.id(), "/does/not/matter.jar", tenantId);
+  }
+
+  /**
+   * A real (but never connected) {@link SocketChannel}-backed {@link WorkerConnection} -- only its
+   * object identity matters to {@code findReusableTier1Worker}'s connection-grouping logic, not its
+   * ability to actually send/receive.
+   */
+  private static WorkerConnection fakeConnection() {
+    try {
+      return new WorkerConnection(SocketChannel.open());
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private static SupervisedInstance supervisedInstance(
+      AssignedInstance assigned, ModuleDescriptor descriptor, WorkerConnection connection) {
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.connection = connection;
+    return instance;
+  }
+
+  @Test
+  void a_tier1_instance_reuses_an_existing_tier1_worker_of_the_same_tenant() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.of("acme"));
+    SupervisedInstance existing =
+        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("provider-deployment#0", existing);
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.of("acme"));
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+
+    assertTrue(reusable.isPresent());
+    assertEquals(existing, reusable.get());
+  }
+
+  @Test
+  void a_tier2_instance_is_never_packed_into_an_existing_worker() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "provider-deployment#0",
+        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+
+    ModuleDescriptor tier2Descriptor = descriptor("dedicated", IsolationTier.TIER_2);
+    AssignedInstance tier2Assigned =
+        assignedInstance("dedicated-deployment", tier2Descriptor, Optional.empty());
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(tier2Assigned, tier2Descriptor, supervised);
+
+    assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void different_tenant_tier1_instances_are_not_packed_together() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.of("acme"));
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "provider-deployment#0",
+        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.of("other-tenant"));
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+
+    assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void both_untenanted_tier1_instances_are_packed_together() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "provider-deployment#0",
+        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+
+    assertTrue(reusable.isPresent());
+  }
+
+  @Test
+  void a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica() {
+    // Two replicas of the same module landing in the same worker would corrupt WorkerRuntime's
+    // per-ModuleId keying -- must be excluded even though nothing else here disqualifies it.
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor descriptor = descriptor("greeter", IsolationTier.TIER_1);
+    AssignedInstance replicaZero =
+        assignedInstance("greeter-deployment", descriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "greeter-deployment#0", supervisedInstance(replicaZero, descriptor, sharedConnection));
+
+    AssignedInstance replicaOne =
+        new AssignedInstance(
+            "greeter-deployment", 1, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(replicaOne, descriptor, supervised);
+
+    assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void a_worker_at_the_density_cap_is_not_reused() {
+    WorkerConnection sharedConnection = fakeConnection();
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    // Fill the shared worker up to MAX_TIER1_DENSITY (4) with four distinct modules.
+    for (int i = 0; i < 4; i++) {
+      ModuleDescriptor occupantDescriptor = descriptor("occupant-" + i, IsolationTier.TIER_1);
+      AssignedInstance occupantAssigned =
+          assignedInstance("occupant-" + i + "-deployment", occupantDescriptor, Optional.empty());
+      supervised.put(
+          "occupant-" + i + "-deployment#0",
+          supervisedInstance(occupantAssigned, occupantDescriptor, sharedConnection));
+    }
+
+    ModuleDescriptor newDescriptor = descriptor("one-too-many", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("one-too-many-deployment", newDescriptor, Optional.empty());
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+
+    assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void a_worker_with_no_established_connection_yet_is_never_reused() {
+    // Still starting up (server.accept() hasn't returned yet) -- connection is null.
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "provider-deployment#0", supervisedInstance(existingAssigned, existingDescriptor, null));
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+
+    assertFalse(reusable.isPresent());
   }
 }
