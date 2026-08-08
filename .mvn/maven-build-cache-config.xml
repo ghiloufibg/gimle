@@ -5,14 +5,23 @@
   itself, not configured here), so editing gimle-core invalidates the cache entry for every
   downstream module transitively. What *is* configured here is making sure "changed" is detected
   completely for everything a hash can't see automatically: test resources, plugin-version-only
-  changes (runAlways), and the two modules whose real inputs the default glob doesn't cover
-  (gimle-smoke-tests, gimle-console).
+  changes (runAlways).
+
+  Caching itself is disabled below. The schema actually bundled with the pinned
+  maven-build-cache-extension version has no per-project override element at all (confirmed
+  against that version's own build-cache-config XSD; no "projectsConfig" or equivalent exists),
+  so there is no way to exclude gimle-smoke-tests (never-cache-this-slow-suite) or gimle-console
+  (Bun/Vite inputs the *.java/*.xml/*.yaml glob below can't see) from caching with this extension
+  version. Caching everything anyway risks exactly the stale-cached-console/stale-suite-result
+  correctness problem those two exclusions existed to prevent, so disabling is the safe default
+  until either the extension is upgraded to a version whose schema supports per-project
+  overrides, or the exclusion is expressed some other way (e.g. a per-module property).
 -->
-<cache xmlns="http://maven.apache.org/BUILD-CACHE-CONFIG/1.1.0"
+<cache xmlns="http://maven.apache.org/BUILD-CACHE-CONFIG/1.3.0"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-       xsi:schemaLocation="http://maven.apache.org/BUILD-CACHE-CONFIG/1.1.0 http://maven.apache.org/xsd/build-cache-config-1.1.0.xsd">
+       xsi:schemaLocation="http://maven.apache.org/BUILD-CACHE-CONFIG/1.3.0 http://maven.apache.org/xsd/build-cache-config-1.3.0.xsd">
   <configuration>
-    <enabled>true</enabled>
+    <enabled>false</enabled>
     <hashAlgorithm>SHA-256</hashAlgorithm>
     <local>
       <location>${user.home}/.m2/build-cache</location>
@@ -34,27 +43,18 @@
            stricter Checkstyle rule release, an fmt-maven-plugin update) with zero source-file
            change, which the input-glob hash by design cannot see. Always running them is the
            safe default until/unless build time data shows they're the bottleneck. -->
-      <goals>
-        <goal artifactId="fmt-maven-plugin">check</goal>
-        <goal artifactId="maven-checkstyle-plugin">check</goal>
-      </goals>
+      <goalsLists>
+        <goalsList artifactId="fmt-maven-plugin">
+          <goals>
+            <goal>check</goal>
+          </goals>
+        </goalsList>
+        <goalsList artifactId="maven-checkstyle-plugin">
+          <goals>
+            <goal>check</goal>
+          </goals>
+        </goalsList>
+      </goalsLists>
     </runAlways>
   </executionControl>
-
-  <projectsConfig>
-    <!-- Subprocess-and-browser suite: spawns real ControlPlaneMain/AgentMain/WorkerMain
-         processes and drives a real browser. Deliberately opt-in-only (-Psmoke) and slow by
-         nature, exactly the kind of suite where a stale cached PASS would hide a real
-         regression, so it's never cached, full stop. -->
-    <project artifactId="gimle-smoke-tests">
-      <cache enabled="false"/>
-    </project>
-    <!-- Bun/Vite build via exec-maven-plugin: no Java sources, and its real inputs
-         (gimle-console/src/**, package.json, bun.lock) aren't covered by the *.java/*.xml/*.yaml
-         glob above. Needs its own glob before it's safe to cache, so it's excluded here rather
-         than silently under-hashed and risking a stale bundled console. -->
-    <project artifactId="gimle-console">
-      <cache enabled="false"/>
-    </project>
-  </projectsConfig>
 </cache>
