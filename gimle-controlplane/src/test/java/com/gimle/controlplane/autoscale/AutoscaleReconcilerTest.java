@@ -260,4 +260,31 @@ class AutoscaleReconcilerTest {
         proposals.get(),
         "ticks after convergence must not re-propose the already-correct ceiling value");
   }
+
+  @Test
+  void converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count() {
+    // Simulates effectiveReplicas left behind by a policy edit (a lower maxReplicas, or a higher
+    // minReplicas) applied after the value was last written -- a fresh reconciler has no history
+    // of how it got there, only what's persisted now, and must still converge to the current
+    // policy's bounds on this very first tick.
+    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+
+    Path jarHigh = buildFixtureJar();
+    DeploymentSpec highSpec = deployment("above-max-service", 2, jarHigh, policy);
+    store.putDeployment(highSpec);
+    store.putEffectiveReplicas("above-max-service", 9); // already above maxReplicas=5
+    twoReadyInstancesAt(store, "above-max-service", highSpec.moduleId(), 10L); // 100% util
+
+    Path jarLow = buildFixtureJar();
+    DeploymentSpec lowSpec = deployment("below-min-service", 2, jarLow, policy);
+    store.putDeployment(lowSpec);
+    store.putEffectiveReplicas("below-min-service", -3); // already below minReplicas=1
+    twoReadyInstancesAt(store, "below-min-service", lowSpec.moduleId(), 1L); // 10% util
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(5, store.getEffectiveReplicas("above-max-service").orElseThrow());
+    assertEquals(1, store.getEffectiveReplicas("below-min-service").orElseThrow());
+  }
 }

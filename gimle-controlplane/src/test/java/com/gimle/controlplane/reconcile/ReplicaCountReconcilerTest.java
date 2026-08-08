@@ -9,9 +9,11 @@ import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -213,5 +215,51 @@ class ReplicaCountReconcilerTest {
     assertFalse(
         hasAssignment(reopened, "orders-service", 0),
         "the resumed reconciler should have completed the grace period it didn't start itself");
+  }
+
+  @Test
+  void converges_correctly_from_an_arbitrary_mix_of_persisted_grace_period_state() {
+    // A brand-new reconciler must handle every one of these correctly on its very first tick, with
+    // no history of its own -- exactly what a reconciler-leader failover leaves behind.
+    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    long now = Instant.now().toEpochMilli();
+
+    // 1. Confirmed by a fresh heartbeat -- must survive untouched.
+    store.putAssignment(new InstanceAssignment("confirmed-service", 0, "node-a"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1000, 0, 1000, 0),
+            List.of(
+                new InstanceObservation("confirmed-service", 0, ORDERS, "ACTIVE", true, true))));
+
+    // 2. Not confirmed, grace-period timer already elapsed before this reconciler even existed --
+    // must be removed on this very first tick, not treated as freshly missing.
+    store.putAssignment(new InstanceAssignment("overdue-service", 0, "node-b"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat("node-b", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
+    store.putReconcilerInstanceState(
+        new ReconcilerInstanceState(
+            "overdue-service",
+            0,
+            0,
+            ReconcilerInstanceState.ABSENT,
+            ReconcilerInstanceState.ABSENT,
+            false,
+            false,
+            now - 60_000));
+
+    // 3. Not confirmed, no persisted timer yet -- the grace period starts now, so it must not be
+    // removed on this same first tick.
+    store.putAssignment(new InstanceAssignment("fresh-missing-service", 0, "node-c"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat("node-c", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
+
+    new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofSeconds(30))
+        .reconcileOnce();
+
+    assertTrue(hasAssignment(store, "confirmed-service", 0));
+    assertFalse(hasAssignment(store, "overdue-service", 0));
+    assertTrue(hasAssignment(store, "fresh-missing-service", 0));
   }
 }

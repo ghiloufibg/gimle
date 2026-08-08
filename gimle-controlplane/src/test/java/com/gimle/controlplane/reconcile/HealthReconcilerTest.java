@@ -9,9 +9,11 @@ import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -37,11 +39,16 @@ class HealthReconcilerTest {
   }
 
   private static void heartbeat(StateStore store, String nodeId, boolean alive, String state) {
+    heartbeatFor(store, nodeId, "orders-service", alive, state);
+  }
+
+  private static void heartbeatFor(
+      StateStore store, String nodeId, String deploymentName, boolean alive, String state) {
     store.putNodeHeartbeat(
         new NodeHeartbeat(
             nodeId,
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, state, alive, true))));
+            List.of(new InstanceObservation(deploymentName, 0, ORDERS, state, alive, true))));
   }
 
   @Test
@@ -188,5 +195,62 @@ class HealthReconcilerTest {
     assertFalse(
         hasAssignment(reopened, "orders-service", 0),
         "the resumed reconciler should have completed the backoff it didn't start itself");
+  }
+
+  @Test
+  void converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states() {
+    // A brand-new reconciler must handle every one of these correctly on its very first tick, with
+    // no history of its own -- exactly what a reconciler-leader failover leaves behind.
+    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    long now = Instant.now().toEpochMilli();
+
+    // 1. Healthy: no persisted state, nothing should happen to it.
+    store.putAssignment(new InstanceAssignment("healthy-service", 0, "node-healthy"));
+    heartbeatFor(store, "node-healthy", "healthy-service", true, "ACTIVE");
+
+    // 2. Unhealthy, already pending retry whose delay elapsed before this reconciler even existed
+    // -- must be rescheduled on this very first tick, not treated as a fresh failure.
+    store.putAssignment(new InstanceAssignment("overdue-service", 0, "node-overdue"));
+    heartbeatFor(store, "node-overdue", "overdue-service", false, "ACTIVE");
+    store.putReconcilerInstanceState(
+        new ReconcilerInstanceState(
+            "overdue-service",
+            0,
+            1,
+            now - 60_000,
+            now - 30_000,
+            true,
+            false,
+            ReconcilerInstanceState.ABSENT));
+
+    // 3. Unhealthy, never tracked before -- starts a fresh backoff, must not reschedule yet.
+    store.putAssignment(new InstanceAssignment("fresh-unhealthy-service", 0, "node-fresh"));
+    heartbeatFor(store, "node-fresh", "fresh-unhealthy-service", false, "ACTIVE");
+
+    // 4. Already permanently failed under a previous leader -- must stay untouched forever, not
+    // re-evaluated as if it were a fresh failure.
+    store.putAssignment(new InstanceAssignment("exhausted-service", 0, "node-exhausted"));
+    heartbeatFor(store, "node-exhausted", "exhausted-service", false, "ACTIVE");
+    store.putReconcilerInstanceState(
+        new ReconcilerInstanceState(
+            "exhausted-service",
+            0,
+            5,
+            now - 600_000,
+            now - 500_000,
+            false,
+            true,
+            ReconcilerInstanceState.ABSENT));
+
+    // Production-scale backoff parameters (not fastReconciler's tiny ones): the point of case 3
+    // is that its freshly-started backoff has *not* elapsed within this single tick.
+    new HealthReconciler(store).reconcileOnce();
+
+    assertTrue(hasAssignment(store, "healthy-service", 0));
+    assertFalse(hasAssignment(store, "overdue-service", 0));
+    assertTrue(hasAssignment(store, "fresh-unhealthy-service", 0));
+    assertTrue(hasAssignment(store, "exhausted-service", 0));
+    assertTrue(
+        store.getReconcilerInstanceState("exhausted-service", 0).orElseThrow().permanentlyFailed());
   }
 }
