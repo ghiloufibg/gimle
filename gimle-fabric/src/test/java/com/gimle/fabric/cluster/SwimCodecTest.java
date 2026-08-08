@@ -3,6 +3,7 @@ package com.gimle.fabric.cluster;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleCodecException;
 import java.io.ByteArrayOutputStream;
@@ -64,6 +65,7 @@ class SwimCodecTest {
   void a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating() throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
+    out.writeByte(1); // version
     out.writeByte(0); // TAG_PING
     out.writeLong(1L); // seq
     out.writeInt(Integer.MAX_VALUE - 8); // forged piggyback count
@@ -74,9 +76,29 @@ class SwimCodecTest {
     assertThrows(UncheckedIOException.class, () -> SwimCodec.decode(datagram, datagram.length));
   }
 
+  @Test
+  void rejects_an_unrecognized_version_before_decoding_the_tag() throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DataOutputStream out = new DataOutputStream(buffer);
+    out.writeByte(99); // an unrecognized future version
+    // Deliberately garbage after the version byte -- the version check must reject before any of
+    // this is interpreted as a tag/fields.
+    out.writeByte(0);
+    out.writeLong(0L);
+    byte[] datagram = buffer.toByteArray();
+
+    GimleCodecException thrown =
+        assertThrows(GimleCodecException.class, () -> SwimCodec.decode(datagram, datagram.length));
+    assertTrue(
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("1"),
+        "expected the message to name both the declared (99) and max supported (1) versions, got: "
+            + thrown.getMessage());
+  }
+
   private static byte[] pingDatagramWithForgedCatalogLength(int forgedLength) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
+    out.writeByte(1); // version
     out.writeByte(0); // TAG_PING
     out.writeLong(1L); // seq
     out.writeInt(0); // piggyback count = 0

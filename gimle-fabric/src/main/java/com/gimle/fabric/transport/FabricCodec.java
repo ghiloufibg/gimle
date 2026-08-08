@@ -13,13 +13,21 @@ import java.io.UncheckedIOException;
 
 /**
  * Encodes/decodes a {@link FabricFrame} as a 4-byte big-endian length prefix followed by a one-byte
- * frame-type tag and the frame's fields, each {@code byte[]} field itself length-prefixed. This
- * diverges from {@code ControlMessageCodec}'s line-oriented text framing because {@code
- * serializedArgs}/{@code serializedReturn}/{@code serializedThrowable} are arbitrary {@code
- * ObjectOutputStream} bytes that can contain any byte value including newlines, so a text codec's
- * escaping trick doesn't apply -- length-prefixing is the standard, minimal fix.
+ * wire-protocol version, a one-byte frame-type tag, and the frame's fields, each {@code byte[]}
+ * field itself length-prefixed. This diverges from {@code ControlMessageCodec}'s line-oriented text
+ * framing because {@code serializedArgs}/{@code serializedReturn}/{@code serializedThrowable} are
+ * arbitrary {@code ObjectOutputStream} bytes that can contain any byte value including newlines, so
+ * a text codec's escaping trick doesn't apply -- length-prefixing is the standard, minimal fix.
+ *
+ * <p>The version byte is checked before any version-specific field is decoded: a reader either
+ * understands {@link #CURRENT_VERSION} (the only version any writer produces today) or rejects the
+ * frame outright with {@link GimleCodecException#unsupportedVersion} -- no negotiation, matching
+ * this codec's existing "reject, don't misdecode" posture for a corrupted length prefix.
  */
 public final class FabricCodec {
+
+  /** The only wire-protocol version any writer produces today; bump this when the shape changes. */
+  private static final int CURRENT_VERSION = 1;
 
   private static final byte TAG_INVOKE_REQUEST = 0;
   private static final byte TAG_INVOKE_RESPONSE = 1;
@@ -74,6 +82,7 @@ public final class FabricCodec {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
+      out.writeByte(CURRENT_VERSION);
       switch (frame) {
         case FabricFrame.InvokeRequest r -> {
           out.writeByte(TAG_INVOKE_REQUEST);
@@ -109,6 +118,8 @@ public final class FabricCodec {
   private static FabricFrame decodeBody(byte[] body) {
     try {
       DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(body));
+      int version = in.readByte();
+      GimleCodecException.checkVersion(version, CURRENT_VERSION);
       byte tag = in.readByte();
       return switch (tag) {
         case TAG_INVOKE_REQUEST -> {

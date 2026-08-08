@@ -12,12 +12,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Encodes/decodes a {@link SwimMessage} to a single UDP datagram payload: a one-byte message-type
- * tag, the type's own fields, then the membership piggyback list, then the opaque catalog piggyback
- * payload. Package-private -- an implementation detail of {@link GossipMember}, not a public wire
- * contract other modules touch directly.
+ * Encodes/decodes a {@link SwimMessage} to a single UDP datagram payload: a one-byte wire-protocol
+ * version, a one-byte message-type tag, the type's own fields, then the membership piggyback list,
+ * then the opaque catalog piggyback payload. Package-private -- an implementation detail of {@link
+ * GossipMember}, not a public wire contract other modules touch directly.
+ *
+ * <p>The version byte is the literal first byte of the datagram (there's no length prefix at this
+ * layer to put it after -- the datagram boundary is the frame boundary) and is checked before any
+ * version-specific field is decoded, matching {@code FabricCodec}'s same "reject, don't misdecode"
+ * posture.
  */
 final class SwimCodec {
+
+  /** The only wire-protocol version any writer produces today; bump this when the shape changes. */
+  private static final int CURRENT_VERSION = 1;
 
   private static final byte TAG_PING = 0;
   private static final byte TAG_PING_REQ = 1;
@@ -37,6 +45,7 @@ final class SwimCodec {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
+      out.writeByte(CURRENT_VERSION);
       switch (message) {
         case SwimMessage.Ping m -> {
           out.writeByte(TAG_PING);
@@ -75,6 +84,8 @@ final class SwimCodec {
   static SwimMessage decode(byte[] datagram, int length) {
     try {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(datagram, 0, length));
+      int version = in.readByte();
+      GimleCodecException.checkVersion(version, CURRENT_VERSION);
       byte tag = in.readByte();
       long seq = in.readLong();
       return switch (tag) {

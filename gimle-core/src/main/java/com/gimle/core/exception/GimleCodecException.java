@@ -27,6 +27,16 @@ public class GimleCodecException extends RuntimeException {
             + " bytes; rejecting before allocation");
   }
 
+  public static GimleCodecException unsupportedVersion(
+      int declaredVersion, int maxSupportedVersion) {
+    return new GimleCodecException(
+        "wire protocol version "
+            + declaredVersion
+            + " is not supported by this reader (max supported: "
+            + maxSupportedVersion
+            + ")");
+  }
+
   /**
    * Rejects a network-supplied length or element count before it is used to size an allocation --
    * negative outright, or above {@code maxLength} for this field. Shared by every codec that reads
@@ -39,6 +49,18 @@ public class GimleCodecException extends RuntimeException {
     }
     if (declaredLength > maxLength) {
       throw frameTooLarge(declaredLength, maxLength);
+    }
+  }
+
+  /**
+   * Rejects a frame whose wire-protocol version this reader doesn't understand -- checked before
+   * any version-specific field is decoded, so an unsupported version fails fast with a clear cause
+   * rather than misdecoding fields a newer/older writer laid out differently. No negotiation: a
+   * reader either understands {@code declaredVersion} or it doesn't.
+   */
+  public static void checkVersion(int declaredVersion, int maxSupportedVersion) {
+    if (declaredVersion < 1 || declaredVersion > maxSupportedVersion) {
+      throw unsupportedVersion(declaredVersion, maxSupportedVersion);
     }
   }
 }

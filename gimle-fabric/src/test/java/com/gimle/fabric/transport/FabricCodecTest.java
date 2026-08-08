@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.fabric.trace.TraceContext;
@@ -77,6 +78,7 @@ class FabricCodecTest {
   void rejects_a_forged_huge_param_count_before_allocating() throws IOException {
     ByteArrayOutputStream body = new ByteArrayOutputStream();
     DataOutputStream bodyOut = new DataOutputStream(body);
+    bodyOut.writeByte(1); // version
     bodyOut.writeByte(0); // TAG_INVOKE_REQUEST
     bodyOut.writeLong(1L); // correlationId
     bodyOut.writeLong(1L); // trace.traceIdHigh
@@ -97,6 +99,33 @@ class FabricCodecTest {
 
     assertThrows(
         GimleCodecException.class, () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
+  }
+
+  @Test
+  void rejects_an_unrecognized_version_before_decoding_the_tag() throws IOException {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    DataOutputStream bodyOut = new DataOutputStream(body);
+    bodyOut.writeByte(99); // an unrecognized future version
+    // Deliberately garbage after the version byte -- if the version check didn't happen first,
+    // a naive decoder might still try (and fail differently, or worse, succeed with garbage) to
+    // interpret this as a tag/fields. The version check must reject before any of that runs.
+    bodyOut.writeByte(0);
+    bodyOut.writeLong(0L);
+    byte[] bodyBytes = body.toByteArray();
+
+    ByteArrayOutputStream frame = new ByteArrayOutputStream();
+    new DataOutputStream(frame).writeInt(bodyBytes.length);
+    frame.write(bodyBytes);
+    byte[] frameBytes = frame.toByteArray();
+
+    GimleCodecException thrown =
+        assertThrows(
+            GimleCodecException.class,
+            () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
+    assertTrue(
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("1"),
+        "expected the message to name both the declared (99) and max supported (1) versions, got: "
+            + thrown.getMessage());
   }
 
   @Test
