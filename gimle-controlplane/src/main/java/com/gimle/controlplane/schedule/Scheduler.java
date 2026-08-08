@@ -6,6 +6,7 @@ import com.gimle.core.module.ResourceSpec;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity: first-fit-decreasing over free
@@ -54,6 +55,32 @@ public final class Scheduler {
       boolean antiAffinityAcrossNodes,
       Optional<String> tenantId,
       List<NodeCandidate> candidates) {
+    return place(
+        deploymentName,
+        instanceIndex,
+        tier,
+        resourceRequest,
+        antiAffinityAcrossNodes,
+        tenantId,
+        Set.of(),
+        candidates);
+  }
+
+  /**
+   * {@code requiredNodeLabels} is the manifest's {@code placement.requiredLabels}, matched by exact
+   * set membership against each candidate's {@code NodeCapabilities.labels()} -- a candidate
+   * missing even one required label is excluded outright, same "reject, don't downgrade" posture as
+   * every other constraint here. Empty is a no-op, matching an unset manifest field.
+   */
+  public String place(
+      String deploymentName,
+      int instanceIndex,
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      boolean antiAffinityAcrossNodes,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels,
+      List<NodeCandidate> candidates) {
     List<NodeCandidate> tierEligible =
         candidates.stream().filter(c -> c.capabilities().supportedTiers().contains(tier)).toList();
 
@@ -83,10 +110,21 @@ public final class Scheduler {
       tenantEligible = affinityEligible;
     }
 
+    List<NodeCandidate> labelEligible;
+    if (!requiredNodeLabels.isEmpty()) {
+      labelEligible =
+          tenantEligible.stream().filter(c -> c.labels().containsAll(requiredNodeLabels)).toList();
+      if (labelEligible.isEmpty() && !tenantEligible.isEmpty()) {
+        throw GimleSchedulingException.requiredLabelsUnsatisfied(deploymentName, instanceIndex);
+      }
+    } else {
+      labelEligible = tenantEligible;
+    }
+
     long requiredMemory = resourceRequest.memoryBytes();
     long requiredCpu = resourceRequest.cpuMillicores();
 
-    return tenantEligible.stream()
+    return labelEligible.stream()
         .sorted(
             Comparator.comparingLong(NodeCandidate::freeMemoryBytes)
                 .thenComparingLong(NodeCandidate::freeCpuMillicores)

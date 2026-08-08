@@ -54,4 +54,19 @@ public class GimleSchedulingException extends RuntimeException {
             + " cannot be placed without co-residing with a different tenant's instance on every"
             + " node with capacity and tier support");
   }
+
+  /**
+   * The manifest's {@code placement.requiredLabels} names at least one label no eligible node
+   * carries -- same "reject, don't silently ignore the constraint" posture as anti-affinity and
+   * tenant isolation above.
+   */
+  public static GimleSchedulingException requiredLabelsUnsatisfied(
+      String deploymentName, int instanceIndex) {
+    return new GimleSchedulingException(
+        "deployment "
+            + deploymentName
+            + " instance "
+            + instanceIndex
+            + " requires node labels that no node with capacity and tier support carries");
+  }
 }

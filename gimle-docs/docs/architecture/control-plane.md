@@ -98,6 +98,12 @@ Places module instances given resource requests, isolation tier, anti-affinity
 out every replica), and current machine load (`InstanceAssignment`, `TenantUsage`). Tier selection
 makes this a two-dimensional bin-packing problem (resources × tier), not a single-dimension one.
 
+`PlacementConstraints.requiredNodeLabels` (a manifest's `placement.requiredLabels`) is matched by
+exact set membership against each node's own operator-assigned labels — a flat, expression-free
+label set on both sides, no key/value structure. A node's labels are set once at agent startup via
+the `gimle.node.labels` system property (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and
+reported at registration alongside its isolation-tier support.
+
 ## Reconcilers
 
 One control loop per resource kind, each comparing desired state to observed state and emitting

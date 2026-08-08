@@ -172,6 +172,11 @@ public final class DomainCodec {
       out.writeUTF(tier.name());
     }
     out.writeUTF(registration.apiAddress().orElse(""));
+    Set<String> labels = registration.capabilities().labels();
+    out.writeInt(labels.size());
+    for (String label : labels) {
+      out.writeUTF(label);
+    }
   }
 
   public static NodeRegistration readNodeRegistration(DataInputStream in) throws IOException {
@@ -182,9 +187,14 @@ public final class DomainCodec {
       tiers.add(IsolationTier.valueOf(in.readUTF()));
     }
     String apiAddress = in.readUTF();
+    Set<String> labels = new LinkedHashSet<>();
+    int labelCount = in.readInt();
+    for (int i = 0; i < labelCount; i++) {
+      labels.add(in.readUTF());
+    }
     return new NodeRegistration(
         nodeId,
-        new NodeCapabilities(tiers),
+        new NodeCapabilities(tiers, labels),
         apiAddress.isEmpty() ? Optional.empty() : Optional.of(apiAddress));
   }
 

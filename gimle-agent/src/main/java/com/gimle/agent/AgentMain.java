@@ -220,6 +220,7 @@ public final class AgentMain {
     }
     Map<String, Object> capabilities = new LinkedHashMap<>();
     capabilities.put("supportedTiers", supportedTiers.stream().map(Enum::name).toList());
+    capabilities.put("labels", nodeLabels());
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("capabilities", capabilities);
     body.put("apiAddress", apiAddress);
@@ -229,6 +230,27 @@ public final class AgentMain {
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  /**
+   * Operator-assigned placement labels for this node (e.g. {@code -Dgimle.node.labels=gpu,ssd}),
+   * matching {@code gimle.process.role}/{@code gimle.node.id}'s existing system-property config
+   * pattern rather than adding a new positional CLI argument -- this keeps every existing launcher
+   * (AgentMojo, gimle-smoke-tests, manual invocations) working unchanged. Empty by default: a node
+   * with no labels simply can't satisfy any deployment that requires one.
+   */
+  private static List<String> nodeLabels() {
+    String raw = System.getProperty("gimle.node.labels", "");
+    if (raw.isBlank()) {
+      return List.of();
+    }
+    List<String> labels = new ArrayList<>();
+    for (String label : raw.split(",")) {
+      if (!label.isBlank()) {
+        labels.add(label.trim());
+      }
+    }
+    return labels;
   }
 
   // ---- TLS bootstrap (§4) and rotation (§4b) ----

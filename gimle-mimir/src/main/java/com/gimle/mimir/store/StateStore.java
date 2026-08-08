@@ -779,6 +779,7 @@ public final class StateStore implements StoreReader {
     capabilities.put(
         "supportedTiers",
         registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+    capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
     root.put("capabilities", capabilities);
     registration.apiAddress().ifPresent(address -> root.put("apiAddress", address));
     return new Yaml().dump(root);
@@ -792,10 +793,19 @@ public final class StateStore implements StoreReader {
         tiers.stream()
             .map(t -> IsolationTier.valueOf((String) t))
             .collect(Collectors.toCollection(LinkedHashSet::new));
+    // Absent on a snapshot written before labels existed -- default to none rather than fail to
+    // load an otherwise-valid, already-persisted registration.
+    List<?> rawLabels = (List<?>) capabilities.get("labels");
+    Set<String> labels =
+        rawLabels == null
+            ? Set.of()
+            : rawLabels.stream()
+                .map(String.class::cast)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     Object apiAddress = root.get("apiAddress");
     return new NodeRegistration(
         nodeId,
-        new NodeCapabilities(supportedTiers),
+        new NodeCapabilities(supportedTiers, labels),
         apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress));
   }
 

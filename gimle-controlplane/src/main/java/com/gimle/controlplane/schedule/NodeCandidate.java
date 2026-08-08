@@ -16,6 +16,11 @@ import java.util.Set;
  * node-level tenant segregation for Tier 2/3 placements, which have a real process/kernel isolation
  * boundary regardless of node co-residency but may still need physical separation for compliance
  * reasons. Empty for an untenanted candidate set, which exempts every deployment from this filter.
+ *
+ * <p>{@code labels} mirrors {@code capabilities().labels()} as its own top-level accessor (rather
+ * than requiring every caller to reach through {@code capabilities()}) since the scheduler's
+ * required-label filter reads it on every candidate, the same way {@code tenantsPresent} already
+ * gets its own accessor instead of being read off the assignment set directly.
  */
 public record NodeCandidate(
     String nodeId,
@@ -34,6 +39,10 @@ public record NodeCandidate(
       ResourceUsageSnapshot capacity,
       boolean alreadyRunsThisDeployment) {
     this(nodeId, capabilities, capacity, alreadyRunsThisDeployment, Set.of());
+  }
+
+  Set<String> labels() {
+    return capabilities.labels();
   }
 
   long freeMemoryBytes() {

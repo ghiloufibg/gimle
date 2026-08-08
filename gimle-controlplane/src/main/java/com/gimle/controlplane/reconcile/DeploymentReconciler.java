@@ -137,6 +137,7 @@ public final class DeploymentReconciler {
                 descriptor.resourceRequest(),
                 spec.placement().antiAffinityAcrossNodes(),
                 spec.tenantId(),
+                spec.placement().requiredNodeLabels().orElse(Set.of()),
                 candidates);
         mutations.propose(
             new StateMutation.PutAssignment(

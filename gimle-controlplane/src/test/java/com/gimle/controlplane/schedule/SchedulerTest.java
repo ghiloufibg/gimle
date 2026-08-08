@@ -217,4 +217,83 @@ class SchedulerTest {
 
     assertEquals("node-other-tenant", chosen);
   }
+
+  // ---- placement.requiredLabels ----
+
+  private static NodeCandidate nodeWithLabels(String id, long freeMemoryBytes, Set<String> labels) {
+    return new NodeCandidate(
+        id,
+        new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2), labels),
+        new ResourceUsageSnapshot(freeMemoryBytes, 0, 1000, 0),
+        false);
+  }
+
+  @Test
+  void required_labels_excludes_a_node_missing_one_of_them() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithLabels("node-no-labels", 800L * 1024 * 1024, Set.of()),
+            nodeWithLabels("node-gpu", 200L * 1024 * 1024, Set.of("gpu")));
+
+    String chosen =
+        scheduler.place(
+            "orders",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            false,
+            Optional.empty(),
+            Set.of("gpu"),
+            candidates);
+
+    assertEquals("node-gpu", chosen);
+  }
+
+  @Test
+  void required_labels_permits_a_node_carrying_extra_labels_beyond_what_is_required() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithLabels("node-gpu-ssd", 800L * 1024 * 1024, Set.of("gpu", "ssd")));
+
+    String chosen =
+        scheduler.place(
+            "orders",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            false,
+            Optional.empty(),
+            Set.of("gpu"),
+            candidates);
+
+    assertEquals("node-gpu-ssd", chosen);
+  }
+
+  @Test
+  void required_labels_fails_outright_when_no_capable_node_carries_them() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithLabels("node-no-labels", 800L * 1024 * 1024, Set.of()));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders",
+                0,
+                IsolationTier.TIER_1,
+                REQUEST,
+                false,
+                Optional.empty(),
+                Set.of("gpu"),
+                candidates));
+  }
+
+  @Test
+  void required_labels_is_not_enforced_when_the_manifest_does_not_request_any() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithLabels("node-no-labels", 800L * 1024 * 1024, Set.of()));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-no-labels", chosen);
+  }
 }

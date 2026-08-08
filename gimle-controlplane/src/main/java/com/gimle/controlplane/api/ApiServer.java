@@ -678,6 +678,7 @@ public final class ApiServer implements AutoCloseable {
         capabilities.put(
             "supportedTiers",
             registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+        capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
         node.put("capabilities", capabilities);
         storeClient
             .getNodeHeartbeat(registration.nodeId())
@@ -716,7 +717,18 @@ public final class ApiServer implements AutoCloseable {
     for (Object tier : tiers) {
       supportedTiers.add(IsolationTier.valueOf((String) tier));
     }
-    return new NodeCapabilities(supportedTiers);
+    // "labels" is absent from an older agent build's registration request -- default to no
+    // labels rather than fail the registration outright, matching this class's existing
+    // degrade-don't-fail posture for other optional/newer fields (see NodeRegistration's own
+    // apiAddress javadoc).
+    Object rawLabels = map.get("labels");
+    Set<String> labels = new LinkedHashSet<>();
+    if (rawLabels instanceof List<?> list) {
+      for (Object label : list) {
+        labels.add((String) label);
+      }
+    }
+    return new NodeCapabilities(supportedTiers, labels);
   }
 
   private static Map<String, Object> capacityToJson(ResourceUsageSnapshot capacity) {
