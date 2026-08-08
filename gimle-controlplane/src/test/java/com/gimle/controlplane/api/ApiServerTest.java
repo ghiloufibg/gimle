@@ -6,9 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
+import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -361,6 +366,57 @@ class ApiServerTest {
 
     assertEquals(200, assignments.statusCode());
     assertTrue(((List<?>) Json.parse(assignments.body())).isEmpty());
+  }
+
+  @Test
+  void metrics_endpoint_rolls_up_average_request_and_error_rate_per_deployment() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 2)))
+            .build());
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putAssignment(new InstanceAssignment("orders-service", 1, "node-a"));
+    ModuleId moduleId = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1000L, 0, 1000, 0),
+            List.of(
+                new InstanceObservation(
+                    "orders-service", 0, moduleId, "ACTIVE", true, true, 10.0, 0, 0L, 0L, 2.0),
+                new InstanceObservation(
+                    "orders-service", 1, moduleId, "ACTIVE", true, true, 20.0, 0, 0L, 0L, 4.0))));
+
+    HttpResponse<String> metrics =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/metrics")).GET().build());
+
+    assertEquals(200, metrics.statusCode());
+    List<Map<String, Object>> rows = Json.asObjectList(Json.parse(metrics.body()));
+    assertEquals(1, rows.size());
+    Map<String, Object> row = rows.get(0);
+    assertEquals("orders-service", row.get("deploymentName"));
+    assertEquals(2L, row.get("instanceCount"));
+    assertEquals(15.0, row.get("avgRequestRatePerSecond"));
+    assertEquals(3.0, row.get("avgErrorRatePerSecond"));
+  }
+
+  @Test
+  void metrics_endpoint_reports_zero_instances_for_a_deployment_with_no_observations()
+      throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
+            .build());
+
+    HttpResponse<String> metrics =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/metrics")).GET().build());
+
+    assertEquals(200, metrics.statusCode());
+    List<Map<String, Object>> rows = Json.asObjectList(Json.parse(metrics.body()));
+    assertEquals(1, rows.size());
+    assertEquals(0L, rows.get(0).get("instanceCount"));
+    assertEquals(0.0, rows.get(0).get("avgRequestRatePerSecond"));
+    assertEquals(0.0, rows.get(0).get("avgErrorRatePerSecond"));
   }
 
   @Test

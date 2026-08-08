@@ -45,7 +45,8 @@ public final class ControlMessageCodec {
               Long.toString(m.cpuMillicoresUsed()),
               Long.toString(m.memoryBytesUsed()),
               Double.toString(m.requestRatePerSecond()),
-              Integer.toString(m.queueDepth()));
+              Integer.toString(m.queueDepth()),
+              Double.toString(m.errorRatePerSecond()));
       case ControlMessage.ServiceRegistered m ->
           line("SERVICE_REGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.ServiceUnregistered m ->
@@ -114,7 +115,8 @@ public final class ControlMessageCodec {
               Long.parseLong(field(fields, 2)),
               Long.parseLong(field(fields, 3)),
               Double.parseDouble(field(fields, 4)),
-              Integer.parseInt(field(fields, 5)));
+              Integer.parseInt(field(fields, 5)),
+              Double.parseDouble(field(fields, 6)));
       case "SERVICE_REGISTERED" ->
           new ControlMessage.ServiceRegistered(
               decodeId(field(fields, 1)), decodeExport(field(fields, 2)));

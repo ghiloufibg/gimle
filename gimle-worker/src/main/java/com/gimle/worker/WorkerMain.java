@@ -169,7 +169,7 @@ public final class WorkerMain {
     tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
     Thread.ofVirtual()
         .name("gimle-metrics-reporter")
-        .start(() -> metricsReportLoop(channel, activeModules));
+        .start(() -> metricsReportLoop(channel, activeModules, workerMetrics, runtime));
 
     channel.send(
         new ControlMessage.Hello(
@@ -198,11 +198,27 @@ public final class WorkerMain {
    * anywhere in this codebase yet), a reasonable approximation once it is. Feeds {@code
    * AutoscaleReconciler}'s CPU-utilization math, which previously always saw zero since nothing on
    * this side ever sent a {@code MetricsReport} at all.
+   *
+   * <p>Request/error rate comes from {@code workerMetrics}' cumulative counters, diffed against the
+   * previous tick's reading and divided by the interval -- {@code WorkerMetrics} itself only
+   * exposes running totals (Micrometer counters never go down), so computing a rate is this loop's
+   * job, not the metrics registry's. A module's first tick after going ACTIVE has no prior reading
+   * to diff against and reports {@code 0} rather than a spurious spike from "0 to whatever it's
+   * accumulated since startup." Queue depth comes straight from that module's own {@code
+   * BoundedModuleScheduler}, when one exists yet (it doesn't during the brief window between a
+   * module going ACTIVE and {@code WorkerRuntime} finishing wiring its scheduler).
    */
-  private static void metricsReportLoop(ControlChannelClient channel, Set<ModuleId> activeModules) {
+  private static void metricsReportLoop(
+      ControlChannelClient channel,
+      Set<ModuleId> activeModules,
+      WorkerMetrics workerMetrics,
+      WorkerRuntime runtime) {
     com.sun.management.OperatingSystemMXBean osBean =
         (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
     Runtime jvmRuntime = Runtime.getRuntime();
+    Map<ModuleId, Double> lastRequestCount = new ConcurrentHashMap<>();
+    Map<ModuleId, Double> lastErrorCount = new ConcurrentHashMap<>();
+    double intervalSeconds = METRICS_REPORT_INTERVAL.toMillis() / 1000.0;
     while (!Thread.currentThread().isInterrupted()) {
       try {
         Thread.sleep(METRICS_REPORT_INTERVAL.toMillis());
@@ -215,10 +231,30 @@ public final class WorkerMain {
           cpuLoad < 0 ? 0 : Math.round(cpuLoad * osBean.getAvailableProcessors() * 1000);
       long memoryBytesUsed = jvmRuntime.totalMemory() - jvmRuntime.freeMemory();
       for (ModuleId id : activeModules) {
+        double requestCount = workerMetrics.requestCount(id);
+        double errorCount = workerMetrics.errorCount(id);
+        double requestRatePerSecond =
+            rateSince(lastRequestCount.put(id, requestCount), requestCount, intervalSeconds);
+        double errorRatePerSecond =
+            rateSince(lastErrorCount.put(id, errorCount), errorCount, intervalSeconds);
+        int queueDepth =
+            runtime.schedulerFor(id).map(BoundedModuleScheduler::queuedCount).orElse(0);
         sendQuietly(
-            channel, new ControlMessage.MetricsReport(id, cpuMillicoresUsed, memoryBytesUsed));
+            channel,
+            new ControlMessage.MetricsReport(
+                id,
+                cpuMillicoresUsed,
+                memoryBytesUsed,
+                requestRatePerSecond,
+                queueDepth,
+                errorRatePerSecond));
       }
     }
+  }
+
+  /** {@code null} previous means this module's first tick -- report 0 rather than a false spike. */
+  private static double rateSince(Double previous, double current, double intervalSeconds) {
+    return previous == null ? 0.0 : Math.max(0.0, current - previous) / intervalSeconds;
   }
 
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */

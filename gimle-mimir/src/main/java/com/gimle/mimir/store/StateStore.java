@@ -936,6 +936,7 @@ public final class StateStore implements StoreReader {
       m.put("queueDepth", obs.queueDepth());
       m.put("cpuMillicoresUsed", obs.cpuMillicoresUsed());
       m.put("memoryBytesUsed", obs.memoryBytesUsed());
+      m.put("errorRatePerSecond", obs.errorRatePerSecond());
       instances.add(m);
     }
     root.put("instances", instances);
@@ -975,7 +976,8 @@ public final class StateStore implements StoreReader {
               numberOrDefault(m.get("requestRatePerSecond"), 0.0).doubleValue(),
               numberOrDefault(m.get("queueDepth"), 0).intValue(),
               numberOrDefault(m.get("cpuMillicoresUsed"), 0L).longValue(),
-              numberOrDefault(m.get("memoryBytesUsed"), 0L).longValue()));
+              numberOrDefault(m.get("memoryBytesUsed"), 0L).longValue(),
+              numberOrDefault(m.get("errorRatePerSecond"), 0.0).doubleValue()));
     }
     return new ObservedHeartbeat(new NodeHeartbeat(nodeId, capacity, instances), receivedAt);
   }

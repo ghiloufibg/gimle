@@ -496,6 +496,9 @@ public final class AgentMain {
     observation.put("ready", ready);
     observation.put("cpuMillicoresUsed", instance.cpuMillicoresUsed);
     observation.put("memoryBytesUsed", instance.memoryBytesUsed);
+    observation.put("requestRatePerSecond", instance.requestRatePerSecond);
+    observation.put("errorRatePerSecond", instance.errorRatePerSecond);
+    observation.put("queueDepth", instance.queueDepth);
     return observation;
   }
 
@@ -804,6 +807,9 @@ public final class AgentMain {
         } else if (message instanceof ControlMessage.MetricsReport metrics) {
           instance.cpuMillicoresUsed = metrics.cpuMillicoresUsed();
           instance.memoryBytesUsed = metrics.memoryBytesUsed();
+          instance.requestRatePerSecond = metrics.requestRatePerSecond();
+          instance.errorRatePerSecond = metrics.errorRatePerSecond();
+          instance.queueDepth = metrics.queueDepth();
         }
       }
       log.info("instance {} control channel closed", key);

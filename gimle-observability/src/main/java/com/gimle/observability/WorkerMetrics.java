@@ -49,6 +49,26 @@ public final class WorkerMetrics {
     }
   }
 
+  /**
+   * The cumulative request count {@link #recordRequest} has ever incremented for {@code id} --
+   * {@code 0} if no request has been recorded yet, matching an absent counter rather than throwing.
+   * A caller wanting a rate (e.g. {@code WorkerMain}'s periodic metrics report) takes two readings
+   * a known interval apart and divides the delta, the same pattern {@code recordThreadCount}'s own
+   * gauge-vs-counter split already implies: this class exposes cumulative totals, not rates.
+   */
+  public double requestCount(ModuleId id) {
+    Counter counter = registry.find("gimle.module.request.count").tags(tagsFor(id)).counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  /**
+   * Same shape as {@link #requestCount}, for the error-only counter {@link #recordRequest} feeds.
+   */
+  public double errorCount(ModuleId id) {
+    Counter counter = registry.find("gimle.module.request.errors").tags(tagsFor(id)).counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
   public void recordThreadCount(ModuleId id, long count) {
     gaugeHolder(threadCounts, "gimle.module.threads", id).set(count);
   }

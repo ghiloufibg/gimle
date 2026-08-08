@@ -48,6 +48,16 @@ public final class BoundedModuleScheduler implements AutoCloseable {
     this.executor = Executors.newThreadPerTaskExecutor(factory);
   }
 
+  /**
+   * An estimate of how many submitted tasks are currently blocked waiting for a concurrency permit,
+   * not yet running -- {@link Semaphore#getQueueLength()}'s own "best effort, not a point-in-time
+   * guarantee under contention" caveat applies, which is fine for a periodic metrics signal (feeds
+   * {@code MetricsReport#queueDepth}) rather than a correctness-critical read.
+   */
+  public int queuedCount() {
+    return concurrencyBound.getQueueLength();
+  }
+
   public <T> Future<T> submit(Callable<T> task) {
     Callable<T> withCallerContext = Context.current().wrap(task);
     Callable<T> tagged =

@@ -317,6 +317,7 @@ public final class DomainCodec {
     out.writeInt(obs.queueDepth());
     out.writeLong(obs.cpuMillicoresUsed());
     out.writeLong(obs.memoryBytesUsed());
+    out.writeDouble(obs.errorRatePerSecond());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -330,6 +331,7 @@ public final class DomainCodec {
     int queueDepth = in.readInt();
     long cpuMillicoresUsed = in.readLong();
     long memoryBytesUsed = in.readLong();
+    double errorRatePerSecond = in.readDouble();
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -340,7 +342,8 @@ public final class DomainCodec {
         requestRatePerSecond,
         queueDepth,
         cpuMillicoresUsed,
-        memoryBytesUsed);
+        memoryBytesUsed,
+        errorRatePerSecond);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

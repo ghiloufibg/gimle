@@ -84,6 +84,28 @@ class WorkerMetricsTest {
   }
 
   @Test
+  void request_count_reflects_the_cumulative_total() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+
+    metrics.recordRequest(ID, Duration.ofMillis(10), false);
+    metrics.recordRequest(ID, Duration.ofMillis(10), false);
+    metrics.recordRequest(ID, Duration.ofMillis(10), true);
+
+    assertEquals(3.0, metrics.requestCount(ID));
+    assertEquals(1.0, metrics.errorCount(ID));
+  }
+
+  @Test
+  void request_and_error_count_are_zero_before_any_request_is_recorded() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+
+    assertEquals(0.0, metrics.requestCount(ID));
+    assertEquals(0.0, metrics.errorCount(ID));
+  }
+
+  @Test
   void metrics_for_different_modules_are_tagged_independently() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);

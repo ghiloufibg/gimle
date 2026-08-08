@@ -182,6 +182,7 @@ public final class ApiServer implements AutoCloseable {
   private void registerContexts(HttpServer target) throws IOException {
     target.createContext("/deployments/", this::handleDeployment);
     target.createContext("/deployments", this::handleDeploymentsList);
+    target.createContext("/metrics", this::handleMetrics);
     target.createContext("/nodes/", this::handleNode);
     target.createContext("/nodes", this::handleNodesList);
     target.createContext("/tenants/", this::handleTenant);
@@ -523,6 +524,58 @@ public final class ApiServer implements AutoCloseable {
     return status;
   }
 
+  /**
+   * A per-deployment rollup of the same real request/error-rate data {@link #deploymentStatus}
+   * already surfaces per-instance -- average request rate, average error rate, and how many
+   * instances contributed a reading, one row per deployment. Instances with no observation yet
+   * (never heartbeated, or heartbeated but not yet reporting metrics) simply don't contribute to
+   * the average rather than dragging it toward zero, the same "degrade, don't fail" posture {@link
+   * #findObservation} already has for a missing reading.
+   */
+  private void handleMetrics(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      List<Map<String, Object>> rows = new ArrayList<>();
+      for (DeploymentSpec spec : storeClient.listDeployments()) {
+        List<InstanceObservation> observations = new ArrayList<>();
+        for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.name())) {
+          findObservation(assignment).ifPresent(observations::add);
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("deploymentName", spec.name());
+        row.put("instanceCount", observations.size());
+        row.put(
+            "avgRequestRatePerSecond",
+            average(observations, InstanceObservation::requestRatePerSecond));
+        row.put(
+            "avgErrorRatePerSecond",
+            average(observations, InstanceObservation::errorRatePerSecond));
+        rows.add(row);
+      }
+      respondJson(exchange, 200, rows);
+    } catch (IOException | RuntimeException e) {
+      log.warn("metrics rollup request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static double average(
+      List<InstanceObservation> observations,
+      java.util.function.ToDoubleFunction<InstanceObservation> extractor) {
+    if (observations.isEmpty()) {
+      return 0.0;
+    }
+    return observations.stream().mapToDouble(extractor).average().orElse(0.0);
+  }
+
   private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
     return storeClient
         .getNodeHeartbeat(assignment.nodeId())
@@ -778,7 +831,8 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
         numberField(map, "queueDepth", 0).intValue(),
         numberField(map, "cpuMillicoresUsed", 0L).longValue(),
-        numberField(map, "memoryBytesUsed", 0L).longValue());
+        numberField(map, "memoryBytesUsed", 0L).longValue(),
+        numberField(map, "errorRatePerSecond", 0.0).doubleValue());
   }
 
   private static Number numberField(Map<?, ?> map, String key, Number defaultValue) {
@@ -793,6 +847,7 @@ public final class ApiServer implements AutoCloseable {
     map.put("alive", obs.alive());
     map.put("ready", obs.ready());
     map.put("requestRatePerSecond", obs.requestRatePerSecond());
+    map.put("errorRatePerSecond", obs.errorRatePerSecond());
     map.put("queueDepth", obs.queueDepth());
     map.put("cpuMillicoresUsed", obs.cpuMillicoresUsed());
     map.put("memoryBytesUsed", obs.memoryBytesUsed());

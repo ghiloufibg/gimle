@@ -39,20 +39,32 @@ public sealed interface ControlMessage {
   record HealthReport(ModuleId id, boolean alive, boolean ready) implements ControlMessage {}
 
   /**
-   * {@code requestRatePerSecond}/{@code queueDepth} feed autoscaling decisions; a worker that
-   * hasn't wired request-rate collection yet can report {@code 0}/{@code 0} via the three-argument
-   * constructor below instead of inventing values it doesn't have.
+   * {@code requestRatePerSecond}/{@code errorRatePerSecond}/{@code queueDepth} feed autoscaling
+   * decisions; a worker that hasn't wired request-rate collection yet can report {@code 0}s via the
+   * three-argument constructor below instead of inventing values it doesn't have. {@code
+   * errorRatePerSecond} was added after the other two; the pre-existing five-argument constructor
+   * is preserved as an overload defaulting it to {@code 0} so no earlier call site needs updating.
    */
   record MetricsReport(
       ModuleId id,
       long cpuMillicoresUsed,
       long memoryBytesUsed,
       double requestRatePerSecond,
-      int queueDepth)
+      int queueDepth,
+      double errorRatePerSecond)
       implements ControlMessage {
 
     public MetricsReport(ModuleId id, long cpuMillicoresUsed, long memoryBytesUsed) {
-      this(id, cpuMillicoresUsed, memoryBytesUsed, 0.0, 0);
+      this(id, cpuMillicoresUsed, memoryBytesUsed, 0.0, 0, 0.0);
+    }
+
+    public MetricsReport(
+        ModuleId id,
+        long cpuMillicoresUsed,
+        long memoryBytesUsed,
+        double requestRatePerSecond,
+        int queueDepth) {
+      this(id, cpuMillicoresUsed, memoryBytesUsed, requestRatePerSecond, queueDepth, 0.0);
     }
   }
 

@@ -28,6 +28,7 @@ class ControlMessageCodecTest {
         new ControlMessage.HealthReport(ID, true, false),
         new ControlMessage.MetricsReport(ID, 250L, 134217728L),
         new ControlMessage.MetricsReport(ID, 250L, 134217728L, 12.5, 7),
+        new ControlMessage.MetricsReport(ID, 250L, 134217728L, 12.5, 7, 1.5),
         new ControlMessage.ServiceRegistered(
             ID, new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"))),
         new ControlMessage.ServiceUnregistered(

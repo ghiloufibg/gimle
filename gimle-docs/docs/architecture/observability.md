@@ -21,7 +21,16 @@ deployment wants is a separate, later decision, independent of the instrumentati
 `FabricServer` records every real inbound call's latency/outcome here, not just synthetic test
 traffic. Separately, each worker JVM self-reports its own process CPU load and heap usage (portable
 `java.lang.management`, no cgroups) to its agent every few seconds, which is what feeds
-`AutoscaleReconciler`'s CPU-utilization math with real, non-zero data.
+`AutoscaleReconciler`'s CPU-utilization math with real, non-zero data. That same periodic report
+also diffs `WorkerMetrics`' cumulative request/error counters against the previous tick to compute
+real request-rate/error-rate figures (not just CPU/memory), plus each module's current
+`BoundedModuleScheduler` queue depth — all three travel through `ControlMessage.MetricsReport` to
+the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
+already rides. The control plane exposes a `GET /metrics` per-deployment rollup (average request
+rate, average error rate, instance count) built from that same observation data. Not yet shipped:
+p99/latency-histogram data — `WorkerMetrics`' `Timer`s already record it, but percentile
+computation and shipping it off-worker is materially more plumbing than a counter delta and remains
+a future item.
 
 ## Tracing: `GimleTracing`
 

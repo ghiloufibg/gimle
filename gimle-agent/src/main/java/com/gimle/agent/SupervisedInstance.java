@@ -41,6 +41,18 @@ final class SupervisedInstance {
 
   volatile long memoryBytesUsed;
 
+  /**
+   * Same "zero until the first report arrives" posture as {@link #cpuMillicoresUsed} above -- the
+   * worker's own {@code metricsReportLoop} computes these as rates (requests/errors per second
+   * since its last tick) and a raw queue depth off its {@code BoundedModuleScheduler}, so this
+   * field is a direct copy of what the worker already computed, not derived here.
+   */
+  volatile double requestRatePerSecond;
+
+  volatile double errorRatePerSecond;
+
+  volatile int queueDepth;
+
   SupervisedInstance(
       AssignedInstance assigned,
       WorkerProcessSupervisor supervisor,

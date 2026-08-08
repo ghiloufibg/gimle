@@ -105,4 +105,26 @@ class AgentMainTest {
     assertEquals(250L, observation.get("cpuMillicoresUsed"));
     assertEquals(1_048_576L, observation.get("memoryBytesUsed"));
   }
+
+  @Test
+  void observation_json_reports_the_instances_real_self_reported_request_and_error_rate() {
+    // Regression test: requestRatePerSecond/errorRatePerSecond/queueDepth were previously never
+    // populated on the agent side either, so every consumer of a heartbeat's InstanceObservation
+    // always saw (0, 0, 0) even once the worker started computing real values.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+    instance.requestRatePerSecond = 12.5;
+    instance.errorRatePerSecond = 0.5;
+    instance.queueDepth = 3;
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals(12.5, observation.get("requestRatePerSecond"));
+    assertEquals(0.5, observation.get("errorRatePerSecond"));
+    assertEquals(3, observation.get("queueDepth"));
+  }
 }
