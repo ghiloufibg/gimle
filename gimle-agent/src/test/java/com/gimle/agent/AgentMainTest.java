@@ -13,6 +13,7 @@ import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -82,5 +83,26 @@ class AgentMainTest {
     assertTrue(
         command.stream().noneMatch(arg -> arg.equals("-Xmx" + requestBytes)),
         "command must not carry the request's -Xmx value; command=" + command);
+  }
+
+  @Test
+  void observation_json_reports_the_instances_real_self_reported_resource_usage() {
+    // Regression test: cpuMillicoresUsed/memoryBytesUsed were previously never populated at all,
+    // so AutoscaleReconciler's CPU-utilization math always saw zero. SupervisedInstance's
+    // supervisor/server fields are irrelevant to observationJson and left null rather than
+    // standing up a real process/socket for this test.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+    instance.cpuMillicoresUsed = 250L;
+    instance.memoryBytesUsed = 1_048_576L;
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals(250L, observation.get("cpuMillicoresUsed"));
+    assertEquals(1_048_576L, observation.get("memoryBytesUsed"));
   }
 }

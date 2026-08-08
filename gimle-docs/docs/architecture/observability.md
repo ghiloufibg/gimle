@@ -18,6 +18,10 @@ separate registry per module. Tracks request rate/latency/error counts
 module. Defaults to an in-memory `SimpleMeterRegistry` with no exporter wired up — the counters
 exist and are queryable today; which real exporter backend (Prometheus, OTLP, something else) a
 deployment wants is a separate, later decision, independent of the instrumentation itself.
+`FabricServer` records every real inbound call's latency/outcome here, not just synthetic test
+traffic. Separately, each worker JVM self-reports its own process CPU load and heap usage (portable
+`java.lang.management`, no cgroups) to its agent every few seconds, which is what feeds
+`AutoscaleReconciler`'s CPU-utilization math with real, non-zero data.
 
 ## Tracing: `GimleTracing`
 

@@ -19,7 +19,9 @@ import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.observability.GimleTracing;
+import com.gimle.observability.WorkerMetrics;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnixDomainSocketAddress;
@@ -29,6 +31,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -113,10 +117,19 @@ public final class WorkerMain {
             Duration.ofSeconds(5),
             tenantId);
 
+    // Every module this worker currently has ACTIVE -- fed to the metrics-reporter loop below,
+    // which has no other way to know which module ids to report against (ModuleRegistry exposes
+    // no "list everything" query, only lookups by a name/id it's told).
+    Set<ModuleId> activeModules = ConcurrentHashMap.newKeySet();
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
         event -> {
           runtimeRef.get().onLifecycleEvent(event);
+          if (event instanceof LifecycleEvent.Active active) {
+            activeModules.add(active.id());
+          } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
+            activeModules.remove(uninstalled.id());
+          }
           sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
         };
     ModuleController controller =
@@ -148,11 +161,15 @@ public final class WorkerMain {
     // actual invocation through the target module's own ModuleContext (drain-visible in-flight
     // count) and BoundedModuleScheduler (real concurrency bound, not just probe checks), both of
     // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
+    WorkerMetrics workerMetrics = new WorkerMetrics();
     FabricBinding fabricBinding =
-        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime);
+        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime, workerMetrics);
     FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
     FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
     tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
+    Thread.ofVirtual()
+        .name("gimle-metrics-reporter")
+        .start(() -> metricsReportLoop(channel, activeModules));
 
     channel.send(
         new ControlMessage.Hello(
@@ -169,19 +186,56 @@ public final class WorkerMain {
     log.info("control channel closed by agent; shutting down");
   }
 
+  private static final Duration METRICS_REPORT_INTERVAL = Duration.ofSeconds(5);
+
+  /**
+   * Self-reports this worker JVM's own process CPU and heap usage via portable {@code
+   * java.lang.management} APIs -- no cgroup reads, no FFM, identical on Linux/macOS/Windows,
+   * matching {@code PortableJvmFlagsResourceLimiter}'s own portability bar -- once per {@link
+   * #METRICS_REPORT_INTERVAL}, against every module currently ACTIVE in this worker. One JVM-wide
+   * figure reported per module rather than a true per-module breakdown: correct as long as this
+   * worker hosts at most one module (today's reality -- Tier 1 density packing isn't implemented
+   * anywhere in this codebase yet), a reasonable approximation once it is. Feeds {@code
+   * AutoscaleReconciler}'s CPU-utilization math, which previously always saw zero since nothing on
+   * this side ever sent a {@code MetricsReport} at all.
+   */
+  private static void metricsReportLoop(ControlChannelClient channel, Set<ModuleId> activeModules) {
+    com.sun.management.OperatingSystemMXBean osBean =
+        (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+    Runtime jvmRuntime = Runtime.getRuntime();
+    while (!Thread.currentThread().isInterrupted()) {
+      try {
+        Thread.sleep(METRICS_REPORT_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      double cpuLoad = osBean.getProcessCpuLoad();
+      long cpuMillicoresUsed =
+          cpuLoad < 0 ? 0 : Math.round(cpuLoad * osBean.getAvailableProcessors() * 1000);
+      long memoryBytesUsed = jvmRuntime.totalMemory() - jvmRuntime.freeMemory();
+      for (ModuleId id : activeModules) {
+        sendQuietly(
+            channel, new ControlMessage.MetricsReport(id, cpuMillicoresUsed, memoryBytesUsed));
+      }
+    }
+  }
+
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */
   private static FabricBinding bindFabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
       ModuleController controller,
-      WorkerRuntime runtime)
+      WorkerRuntime runtime,
+      WorkerMetrics metrics)
       throws IOException {
     FabricServer server =
         new FabricServer(
             localRegistry,
             interfaceLoader,
             controller::context,
-            id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit));
+            id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit),
+            Optional.of(metrics));
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));

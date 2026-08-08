@@ -6,6 +6,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ServiceRegistry;
+import com.gimle.observability.WorkerMetrics;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
@@ -28,6 +29,7 @@ import java.net.UnixDomainSocketAddress;
 import java.nio.channels.Channels;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -60,11 +62,17 @@ public final class FabricServer implements AutoCloseable {
   private final ClassLoader interfaceLoader;
   private final Function<ModuleId, Optional<ModuleContext>> contextLookup;
   private final Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup;
+  private final Optional<WorkerMetrics> metrics;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   private volatile boolean closed;
 
   public FabricServer(ServiceRegistry localRegistry, ClassLoader interfaceLoader) {
-    this(localRegistry, interfaceLoader, id -> Optional.empty(), id -> Optional.empty());
+    this(
+        localRegistry,
+        interfaceLoader,
+        id -> Optional.empty(),
+        id -> Optional.empty(),
+        Optional.empty());
   }
 
   /**
@@ -74,17 +82,28 @@ public final class FabricServer implements AutoCloseable {
    * code) and its concurrency-bounding scheduler (so a slow/hostile caller can't run more
    * concurrent invocations against one module than its own worker allows) -- both absent (the
    * default, single-arg constructor above) for a test or a module this worker isn't itself
-   * supervising, in which case a call is still served, just without either safeguard.
+   * supervising, in which case a call is still served, just without either safeguard. {@code
+   * metrics} absent has the same effect: real request latency/count/error recording, or none.
    */
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
       Function<ModuleId, Optional<ModuleContext>> contextLookup,
       Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup) {
+    this(localRegistry, interfaceLoader, contextLookup, executorLookup, Optional.empty());
+  }
+
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Optional<WorkerMetrics> metrics) {
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
     this.contextLookup = contextLookup;
     this.executorLookup = executorLookup;
+    this.metrics = metrics;
   }
 
   /**
@@ -278,6 +297,8 @@ public final class FabricServer implements AutoCloseable {
     ModuleId owner = owned.owner();
     Optional<ModuleContext> ctx = contextLookup.apply(owner);
     ctx.ifPresent(ModuleContext::beginRequest);
+    long startNanos = System.nanoTime();
+    boolean error = false;
     try {
       Optional<ModuleWorkExecutor> executor = executorLookup.apply(owner);
       if (executor.isEmpty()) {
@@ -288,8 +309,14 @@ public final class FabricServer implements AutoCloseable {
         return method.invoke(owned.instance(), args);
       }
       return invokeBounded(executor.get(), method, owned.instance(), args);
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      error = true;
+      throw e;
     } finally {
       ctx.ifPresent(ModuleContext::endRequest);
+      long elapsedNanos = System.nanoTime() - startNanos;
+      boolean recordedError = error;
+      metrics.ifPresent(m -> m.recordRequest(owner, Duration.ofNanos(elapsedNanos), recordedError));
     }
   }
 

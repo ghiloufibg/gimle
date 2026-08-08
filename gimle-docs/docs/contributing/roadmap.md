@@ -30,21 +30,24 @@ Nothing else matters until this exists.
 Instrumentation nobody consumes is decoration, not observability.
 
 3. **Real metrics/tracing export.** `WorkerMetrics` (see
-   [Observability](../architecture/observability.md)) defaults to an in-memory `SimpleMeterRegistry`
-   that nothing external reads; `GimleTracing` defaults to a `LoggingSpanExporter` — spans are real
-   and correctly parented, just logged rather than shipped anywhere. **Why it's worth building**:
-   the gap between "instrumented" and "observable" is exactly the gap between a demo and an
-   on-call-ready system.
+   [Observability](../architecture/observability.md)) now records every real inbound call
+   (`FabricServer`) and each worker's self-reported CPU/memory usage, not just synthetic test
+   traffic, but still defaults to an in-memory `SimpleMeterRegistry` that nothing external reads;
+   `GimleTracing` defaults to a `LoggingSpanExporter` — spans are real and correctly parented, just
+   logged rather than shipped anywhere. **Why it's worth building**: the gap between "instrumented"
+   and "observable" is exactly the gap between a demo and an on-call-ready system.
 4. **Centralized log aggregation.** Logs live per-node on local disk today; the
    [web console](../architecture/web-console.md) and CLI tail them live, but nothing searches a
    history once a node or instance is gone. **Why it's worth building**: "logs on disk" stops
    working somewhere between one machine and a hundred.
-5. **Multi-metric autoscaling.** The cheapest item on this list: `AutoscaleReconciler` already
-   computes real CPU utilization from live heartbeats and works correctly — it just needs
-   request-rate/latency/queue-depth signals folded in alongside CPU to match what this project's
-   own goals for scaling describe. **Why it's worth building**: reconciling several competing
-   signals into one scaling decision is a small, self-contained version of a genuinely hard
-   scheduling problem.
+5. ~~**Multi-metric autoscaling.**~~ **CPU-based autoscaling now works** — each worker JVM
+   self-reports its own process CPU load and heap usage (portable `java.lang.management`, no
+   cgroups) to its agent every few seconds, which is what `AutoscaleReconciler`'s CPU-utilization
+   math actually reads; previously the field it read was always zero, since nothing on the worker
+   side ever sent it. Still open: folding request-rate/latency/queue-depth signals in alongside
+   CPU to match what this project's own goals for scaling describe. **Why it's worth building**:
+   reconciling several competing signals into one scaling decision is a small, self-contained
+   version of a genuinely hard scheduling problem.
 
 ## Priority 3: workload diversity
 

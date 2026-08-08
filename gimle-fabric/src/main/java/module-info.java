@@ -1,6 +1,7 @@
 module com.gimle.fabric {
   requires com.gimle.core;
   requires com.gimle.module; // ServiceRegistry, ModuleId, ServiceExport
+  requires com.gimle.observability; // WorkerMetrics
   requires org.slf4j;
   requires io.opentelemetry.api;
   requires io.opentelemetry.context;

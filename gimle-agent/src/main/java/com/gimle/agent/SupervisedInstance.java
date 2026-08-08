@@ -31,6 +31,16 @@ final class SupervisedInstance {
   volatile String fabricUdsPath = "";
   volatile InetSocketAddress fabricTcpAddress;
 
+  /**
+   * The worker JVM's own self-reported resource usage, from its most recently received {@code
+   * MetricsReport} -- zero until the first report arrives, same "degrade, don't fail" posture as
+   * every other optional field here. Feeds {@code AutoscaleReconciler}'s CPU-utilization math,
+   * which previously always saw zero since nothing on the worker side ever sent this message.
+   */
+  volatile long cpuMillicoresUsed;
+
+  volatile long memoryBytesUsed;
+
   SupervisedInstance(
       AssignedInstance assigned,
       WorkerProcessSupervisor supervisor,

@@ -478,7 +478,7 @@ public final class AgentMain {
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
-  private static Map<String, Object> observationJson(SupervisedInstance instance) {
+  static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
     boolean alive = !"FAILED".equals(state);
     boolean ready = "ACTIVE".equals(state);
@@ -494,6 +494,8 @@ public final class AgentMain {
     observation.put("lifecycleState", state);
     observation.put("alive", alive);
     observation.put("ready", ready);
+    observation.put("cpuMillicoresUsed", instance.cpuMillicoresUsed);
+    observation.put("memoryBytesUsed", instance.memoryBytesUsed);
     return observation;
   }
 
@@ -799,6 +801,9 @@ public final class AgentMain {
               unregistered.moduleId(),
               unregistered.export(),
               false);
+        } else if (message instanceof ControlMessage.MetricsReport metrics) {
+          instance.cpuMillicoresUsed = metrics.cpuMillicoresUsed();
+          instance.memoryBytesUsed = metrics.memoryBytesUsed();
         }
       }
       log.info("instance {} control channel closed", key);

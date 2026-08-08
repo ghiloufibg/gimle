@@ -10,6 +10,8 @@ import com.gimle.fabric.trace.TraceContext;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
+import com.gimle.observability.WorkerMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
@@ -198,5 +200,50 @@ class FabricServerTest {
 
     assertTrue(allStarted.await(5, TimeUnit.SECONDS));
     assertEquals(1, maxObservedConcurrent.get());
+  }
+
+  @Test
+  @Timeout(10)
+  void real_calls_are_recorded_in_the_targets_worker_metrics_including_errors() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(
+        OWNER,
+        Greeter.class,
+        name -> {
+          if (name.equals("boom")) {
+            throw new IllegalStateException("boom");
+          }
+          return "hello:" + name;
+        });
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    WorkerMetrics workerMetrics = new WorkerMetrics(meterRegistry);
+    server =
+        new FabricServer(
+            registry,
+            Greeter.class.getClassLoader(),
+            id -> Optional.empty(),
+            id -> Optional.empty(),
+            Optional.of(workerMetrics));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricClient.call(address, invokeGreet("world"));
+    FabricClient.call(address, invokeGreet("boom"));
+
+    assertEquals(
+        2.0,
+        meterRegistry
+            .find("gimle.module.request.count")
+            .tag("module", OWNER.name())
+            .counter()
+            .count());
+    assertEquals(
+        1.0,
+        meterRegistry
+            .find("gimle.module.request.errors")
+            .tag("module", OWNER.name())
+            .counter()
+            .count());
   }
 }

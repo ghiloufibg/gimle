@@ -5,6 +5,7 @@ module com.gimle.worker {
   requires com.gimle.fabric;
   requires io.opentelemetry.context;
   requires java.management;
+  requires jdk.management; // com.sun.management.OperatingSystemMXBean#getProcessCpuLoad
   requires org.slf4j;
 
   exports com.gimle.worker;
