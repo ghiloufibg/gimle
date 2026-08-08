@@ -185,6 +185,54 @@ class StateStoreTest {
   }
 
   @Test
+  void node_cordon_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("cordon-roundtrip");
+    StateStore store = new StateStore(root);
+
+    store.putNodeCordon("node-1", true);
+    assertTrue(store.isNodeCordoned("node-1"));
+
+    StateStore reloaded = new StateStore(root);
+    assertTrue(reloaded.isNodeCordoned("node-1"));
+  }
+
+  @Test
+  void uncordoning_a_node_clears_it_and_is_gone_after_reload() {
+    Path root = tempDir.resolve("cordon-cleared");
+    StateStore store = new StateStore(root);
+    store.putNodeCordon("node-1", true);
+
+    store.putNodeCordon("node-1", false);
+    assertFalse(store.isNodeCordoned("node-1"));
+
+    StateStore reloaded = new StateStore(root);
+    assertFalse(reloaded.isNodeCordoned("node-1"));
+  }
+
+  @Test
+  void an_unknown_node_is_reported_as_not_cordoned() {
+    Path root = tempDir.resolve("cordon-unknown");
+    StateStore store = new StateStore(root);
+
+    assertFalse(store.isNodeCordoned("node-never-seen"));
+  }
+
+  @Test
+  void a_snapshot_carries_node_cordons_and_restores_them() {
+    Path root = tempDir.resolve("snapshot-cordon");
+    StateStore store = new StateStore(root);
+    store.putNodeCordon("node-1", true);
+
+    StateSnapshot snapshot = store.snapshot();
+    assertEquals(Set.of("node-1"), snapshot.cordonedNodes());
+
+    StateStore target = new StateStore(tempDir.resolve("snapshot-cordon-target"));
+    target.restoreFromSnapshot(snapshot);
+
+    assertTrue(target.isNodeCordoned("node-1"));
+  }
+
+  @Test
   void unknown_resources_return_empty_or_empty_collections() {
     Path root = tempDir.resolve("empty-store");
     StateStore store = new StateStore(root);

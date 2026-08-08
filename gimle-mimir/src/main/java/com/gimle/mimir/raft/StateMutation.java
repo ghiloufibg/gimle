@@ -99,6 +99,13 @@ public sealed interface StateMutation {
     }
   }
 
+  record PutNodeCordon(String nodeId, boolean cordoned) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putNodeCordon(nodeId, cordoned);
+    }
+  }
+
   record PutConfigEntry(ConfigEntry entry) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {

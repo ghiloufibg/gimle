@@ -60,6 +60,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_NODE_HEARTBEAT = 22;
   private static final byte TAG_GET_RECONCILER_INSTANCE_STATE = 43;
   private static final byte TAG_LIST_RECONCILER_INSTANCE_STATES = 45;
+  private static final byte TAG_IS_NODE_CORDONED = 47;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -160,6 +161,10 @@ public final class StoreCodec {
         case StoreRpc.IsQuotaViolating v -> {
           out.writeByte(TAG_IS_QUOTA_VIOLATING);
           out.writeUTF(v.deploymentName());
+        }
+        case StoreRpc.IsNodeCordoned v -> {
+          out.writeByte(TAG_IS_NODE_CORDONED);
+          out.writeUTF(v.nodeId());
         }
         case StoreRpc.ListAssignments v -> out.writeByte(TAG_LIST_ASSIGNMENTS);
         case StoreRpc.ListNodeRegistrations v -> out.writeByte(TAG_LIST_NODE_REGISTRATIONS);
@@ -368,6 +373,7 @@ public final class StoreCodec {
         case TAG_LIST_DEPLOYMENTS -> new StoreRpc.ListDeployments();
         case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
+        case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();

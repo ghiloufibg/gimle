@@ -566,6 +566,8 @@ public final class ApiServer implements AutoCloseable {
         case "register" -> handleRegister(exchange, nodeId);
         case "heartbeat" -> handleHeartbeat(exchange, nodeId);
         case "assignments" -> handleAssignments(exchange, nodeId);
+        case "cordon" -> handleCordon(exchange, nodeId, true);
+        case "uncordon" -> handleCordon(exchange, nodeId, false);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
     } catch (GimleRaftException e) {
@@ -660,6 +662,22 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, assigned);
   }
 
+  /**
+   * Sets or clears the operator cordon flag {@code Scheduler} excludes from future placement --
+   * never evicts an instance already running on {@code nodeId}, only keeps new ones off it (see
+   * {@code Scheduler}'s own javadoc). Idempotent: cordoning an already-cordoned node, or
+   * uncordoning an already-uncordoned one, is a no-op success.
+   */
+  private void handleCordon(HttpExchange exchange, String nodeId, boolean cordoned)
+      throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    storeClient.propose(new StateMutation.PutNodeCordon(nodeId, cordoned));
+    respond(exchange, 200, "ok");
+  }
+
   /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */
   private void handleNodesList(HttpExchange exchange) {
     try {
@@ -680,6 +698,7 @@ public final class ApiServer implements AutoCloseable {
             registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
         capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
         node.put("capabilities", capabilities);
+        node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
         storeClient
             .getNodeHeartbeat(registration.nodeId())
             .ifPresent(

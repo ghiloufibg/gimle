@@ -113,6 +113,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsQuotaViolating(deploymentName))).value();
   }
 
+  public boolean isNodeCordoned(String nodeId) {
+    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsNodeCordoned(nodeId))).value();
+  }
+
   public List<InstanceAssignment> listAssignments() {
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
   }

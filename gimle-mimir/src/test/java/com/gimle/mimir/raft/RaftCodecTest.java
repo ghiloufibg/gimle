@@ -233,7 +233,8 @@ class RaftCodecTest {
                         Permission.scoped(ResourceKind.CONFIG, Verb.READ, "tenant-1")))),
             List.of(new RoleBinding("b1", RoleBinding.groupSubject("gimle:operators"), "viewer")),
             List.of(new Account("admin", new byte[] {9, 8, 7, 6})),
-            List.of(new ReconcilerInstanceState("greeter", 0, 2, 100L, 200L, true, false, -1L)));
+            List.of(new ReconcilerInstanceState("greeter", 0, 2, 100L, 200L, true, false, -1L)),
+            Set.of("node-1"));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -258,6 +259,7 @@ class RaftCodecTest {
     assertArrayEquals(
         snapshot.accounts().get(0).passwordHash(), decoded.accounts().get(0).passwordHash());
     assertEquals(snapshot.reconcilerInstanceStates(), decoded.reconcilerInstanceStates());
+    assertEquals(snapshot.cordonedNodes(), decoded.cordonedNodes());
   }
 
   @Test

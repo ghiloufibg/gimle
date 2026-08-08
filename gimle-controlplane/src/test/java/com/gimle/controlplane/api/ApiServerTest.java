@@ -244,6 +244,53 @@ class ApiServerTest {
   }
 
   @Test
+  void cordon_endpoint_sets_the_cordon_flag_and_is_reflected_in_the_nodes_list() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> cordon =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/cordon"))
+                .POST(HttpRequest.BodyPublishers.ofString(""))
+                .build());
+
+    assertEquals(200, cordon.statusCode());
+    assertTrue(store.isNodeCordoned("node-a"));
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(Boolean.TRUE, body.get(0).get("cordoned"));
+  }
+
+  @Test
+  void uncordon_endpoint_clears_the_cordon_flag() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/cordon"))
+            .POST(HttpRequest.BodyPublishers.ofString(""))
+            .build());
+
+    HttpResponse<String> uncordon =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/uncordon"))
+                .POST(HttpRequest.BodyPublishers.ofString(""))
+                .build());
+
+    assertEquals(200, uncordon.statusCode());
+    assertFalse(store.isNodeCordoned("node-a"));
+  }
+
+  @Test
   void register_and_heartbeat_are_reflected_in_the_store() throws Exception {
     HttpResponse<String> register =
         send(

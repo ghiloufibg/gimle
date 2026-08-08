@@ -29,7 +29,8 @@ public record StateSnapshot(
     List<Role> roles,
     List<RoleBinding> roleBindings,
     List<Account> accounts,
-    List<ReconcilerInstanceState> reconcilerInstanceStates) {
+    List<ReconcilerInstanceState> reconcilerInstanceStates,
+    Set<String> cordonedNodes) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -44,5 +45,6 @@ public record StateSnapshot(
     roleBindings = List.copyOf(roleBindings);
     accounts = List.copyOf(accounts);
     reconcilerInstanceStates = List.copyOf(reconcilerInstanceStates);
+    cordonedNodes = Set.copyOf(cordonedNodes);
   }
 }

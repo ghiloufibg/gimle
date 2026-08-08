@@ -296,4 +296,59 @@ class SchedulerTest {
 
     assertEquals("node-no-labels", chosen);
   }
+
+  // ---- node cordon ----
+
+  private static NodeCandidate nodeWithCordon(
+      String id, long freeMemoryBytes, long freeCpuMillicores, boolean cordoned) {
+    return new NodeCandidate(
+        id,
+        TIER_1_AND_2,
+        new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
+        false,
+        Set.of(),
+        cordoned);
+  }
+
+  @Test
+  void cordon_excludes_a_cordoned_node_from_placement() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithCordon("node-cordoned", 800L * 1024 * 1024, 1000, true),
+            nodeWithCordon("node-free", 200L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-free", chosen);
+  }
+
+  @Test
+  void cordon_permits_placement_on_an_uncordoned_node() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithCordon("node-free", 800L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-free", chosen);
+  }
+
+  @Test
+  void cordon_fails_outright_when_every_capable_node_is_cordoned() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithCordon("node-cordoned", 800L * 1024 * 1024, 1000, true));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates));
+  }
+
+  @Test
+  void cordon_is_not_enforced_when_no_node_is_cordoned() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithCordon("node-free", 800L * 1024 * 1024, 1000, false));
+
+    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, candidates);
+
+    assertEquals("node-free", chosen);
+  }
 }

@@ -256,7 +256,8 @@ public final class DeploymentReconciler {
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisDeployment.contains(registration.nodeId()),
-              tenantsByNode.getOrDefault(registration.nodeId(), Set.of())));
+              tenantsByNode.getOrDefault(registration.nodeId(), Set.of()),
+              store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;
   }

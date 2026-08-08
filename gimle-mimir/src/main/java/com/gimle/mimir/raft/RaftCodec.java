@@ -71,6 +71,7 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_ACCOUNT = 18;
   private static final byte MUT_PUT_RECONCILER_INSTANCE_STATE = 19;
   private static final byte MUT_REMOVE_RECONCILER_INSTANCE_STATE = 20;
+  private static final byte MUT_PUT_NODE_CORDON = 21;
 
   /**
    * Generous upper bound for any single length-prefixed frame this codec ever produces (a {@link
@@ -359,6 +360,11 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
+      case StateMutation.PutNodeCordon m -> {
+        out.writeByte(MUT_PUT_NODE_CORDON);
+        out.writeUTF(m.nodeId());
+        out.writeBoolean(m.cordoned());
+      }
     }
   }
 
@@ -396,6 +402,7 @@ public final class RaftCodec {
           new StateMutation.PutReconcilerInstanceState(DomainCodec.readReconcilerInstanceState(in));
       case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
           new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
+      case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -455,6 +462,10 @@ public final class RaftCodec {
       out.writeInt(snapshot.reconcilerInstanceStates().size());
       for (ReconcilerInstanceState state : snapshot.reconcilerInstanceStates()) {
         DomainCodec.writeReconcilerInstanceState(out, state);
+      }
+      out.writeInt(snapshot.cordonedNodes().size());
+      for (String nodeId : snapshot.cordonedNodes()) {
+        out.writeUTF(nodeId);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -525,6 +536,11 @@ public final class RaftCodec {
       for (int i = 0; i < reconcilerInstanceStateCount; i++) {
         reconcilerInstanceStates.add(DomainCodec.readReconcilerInstanceState(in));
       }
+      Set<String> cordonedNodes = new LinkedHashSet<>();
+      int cordonedCount = in.readInt();
+      for (int i = 0; i < cordonedCount; i++) {
+        cordonedNodes.add(in.readUTF());
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -537,7 +553,8 @@ public final class RaftCodec {
           roles,
           roleBindings,
           accounts,
-          reconcilerInstanceStates);
+          reconcilerInstanceStates,
+          cordonedNodes);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

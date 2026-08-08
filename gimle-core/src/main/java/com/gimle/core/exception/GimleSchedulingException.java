@@ -69,4 +69,18 @@ public class GimleSchedulingException extends RuntimeException {
             + instanceIndex
             + " requires node labels that no node with capacity and tier support carries");
   }
+
+  /**
+   * Every node with capacity and tier support for this replica has been cordoned by an operator --
+   * cordoning never evicts what's already running, it only excludes a node from future placement,
+   * so this fires only when cordoning would leave an otherwise-nonempty candidate set empty.
+   */
+  public static GimleSchedulingException nodeCordoned(String deploymentName, int instanceIndex) {
+    return new GimleSchedulingException(
+        "deployment "
+            + deploymentName
+            + " instance "
+            + instanceIndex
+            + " cannot be placed because every node with capacity and tier support is cordoned");
+  }
 }

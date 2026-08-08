@@ -62,6 +62,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
+  private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
   private final Map<String, Role> roles = new ConcurrentHashMap<>();
   private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
@@ -79,6 +80,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(autoscaleDir());
       Files.createDirectories(tenantsDir());
       Files.createDirectories(quotaDir());
+      Files.createDirectories(cordonDir());
       Files.createDirectories(configDir());
       Files.createDirectories(rolesDir());
       Files.createDirectories(roleBindingsDir());
@@ -311,6 +313,28 @@ public final class StateStore implements StoreReader {
     return quotaViolations.getOrDefault(deploymentName, Boolean.FALSE);
   }
 
+  // ---- node cordon bookkeeping ----
+
+  /**
+   * Operator-set "don't place anything new here" flag, read by {@code Scheduler}'s cordon filter
+   * stage -- never evicts what's already running on {@code nodeId}, only excludes it from future
+   * placement. Same level-triggered, remove-the-file-when-false shape as {@link
+   * #putQuotaViolation}.
+   */
+  public void putNodeCordon(String nodeId, boolean cordoned) {
+    if (!cordoned) {
+      deleteQuietly(cordonFile(nodeId));
+      nodeCordons.remove(nodeId);
+      return;
+    }
+    writeAtomically(cordonFile(nodeId), "cordoned: true\n");
+    nodeCordons.put(nodeId, Boolean.TRUE);
+  }
+
+  public boolean isNodeCordoned(String nodeId) {
+    return nodeCordons.getOrDefault(nodeId, Boolean.FALSE);
+  }
+
   // ---- tenant-scoped config/secrets ----
 
   public void putConfigEntry(ConfigEntry entry) {
@@ -449,7 +473,11 @@ public final class StateStore implements StoreReader {
         List.copyOf(roles.values()),
         List.copyOf(roleBindings.values()),
         List.copyOf(accounts.values()),
-        List.copyOf(reconcilerInstanceStates.values()));
+        List.copyOf(reconcilerInstanceStates.values()),
+        nodeCordons.entrySet().stream()
+            .filter(Map.Entry::getValue)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toUnmodifiableSet()));
   }
 
   /**
@@ -464,6 +492,7 @@ public final class StateStore implements StoreReader {
     List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
+    List.copyOf(nodeCordons.keySet()).forEach(nodeId -> putNodeCordon(nodeId, false));
     List.copyOf(configEntries.values()).forEach(e -> removeConfigEntry(e.tenantId(), e.key()));
     List.copyOf(roles.keySet()).forEach(this::removeRole);
     List.copyOf(roleBindings.keySet()).forEach(this::removeRoleBinding);
@@ -478,6 +507,7 @@ public final class StateStore implements StoreReader {
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
+    snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
     snapshot.configEntries().forEach(this::putConfigEntry);
     snapshot.roles().forEach(this::putRole);
     snapshot.roleBindings().forEach(this::putRoleBinding);
@@ -549,6 +579,14 @@ public final class StateStore implements StoreReader {
 
   private Path quotaFile(String deploymentName) {
     return quotaDir().resolve(deploymentName + ".yaml");
+  }
+
+  private Path cordonDir() {
+    return root.resolve("cordon");
+  }
+
+  private Path cordonFile(String nodeId) {
+    return cordonDir().resolve(nodeId + ".yaml");
   }
 
   private Path configDir() {
@@ -668,6 +706,13 @@ public final class StateStore implements StoreReader {
         file -> {
           String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
           quotaViolations.put(deploymentName, Boolean.TRUE);
+        });
+    loadEach(
+        cordonDir(),
+        "*.yaml",
+        file -> {
+          String nodeId = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          nodeCordons.put(nodeId, Boolean.TRUE);
         });
     loadEach(
         configDir(),

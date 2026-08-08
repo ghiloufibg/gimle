@@ -2,7 +2,10 @@ package com.gimle.cli;
 
 import java.io.PrintStream;
 
-/** {@code get nodes}, {@code get node-assignments <nodeId>}. */
+/**
+ * {@code get nodes}, {@code get node-assignments <nodeId>}, {@code cordon <nodeId>}, {@code
+ * uncordon <nodeId>}.
+ */
 public final class NodesCommand {
 
   private final ControlPlaneClient client;
@@ -21,5 +24,15 @@ public final class NodesCommand {
 
   public void assignments(String nodeId) {
     OutputFormat.printList(output, client.getList("/nodes/" + nodeId + "/assignments"), out);
+  }
+
+  public void cordon(String nodeId) {
+    client.expectSuccess(client.post("/nodes/" + nodeId + "/cordon", ""));
+    out.println("node/" + nodeId + " cordoned");
+  }
+
+  public void uncordon(String nodeId) {
+    client.expectSuccess(client.post("/nodes/" + nodeId + "/uncordon", ""));
+    out.println("node/" + nodeId + " uncordoned");
   }
 }

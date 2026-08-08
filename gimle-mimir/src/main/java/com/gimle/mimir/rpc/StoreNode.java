@@ -46,6 +46,7 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.AssignmentListResult(store.listAssignmentsFor(r.deploymentName()));
       case StoreRpc.IsQuotaViolating r ->
           new StoreRpc.BoolResult(store.isQuotaViolating(r.deploymentName()));
+      case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());

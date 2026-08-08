@@ -46,6 +46,7 @@ public sealed interface StoreRpc {
           ListDeployments,
           ListAssignmentsFor,
           IsQuotaViolating,
+          IsNodeCordoned,
           ListAssignments,
           ListNodeRegistrations,
           ListTenants,
@@ -109,6 +110,8 @@ public sealed interface StoreRpc {
   record ListAssignmentsFor(String deploymentName) implements Request {}
 
   record IsQuotaViolating(String deploymentName) implements Request {}
+
+  record IsNodeCordoned(String nodeId) implements Request {}
 
   record ListAssignments() implements Request {}
 

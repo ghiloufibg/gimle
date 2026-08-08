@@ -36,6 +36,8 @@ public interface StoreReader {
 
   boolean isQuotaViolating(String deploymentName);
 
+  boolean isNodeCordoned(String nodeId);
+
   List<InstanceAssignment> listAssignments();
 
   List<NodeRegistration> listNodeRegistrations();

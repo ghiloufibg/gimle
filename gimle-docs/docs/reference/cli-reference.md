@@ -23,6 +23,8 @@ gimle apply -f <manifest.yaml>
 gimle delete deployment <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
+gimle cordon <nodeId>
+gimle uncordon <nodeId>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>
@@ -77,6 +79,10 @@ gimle logs greeter-consumer-deployment --follow --server 127.0.0.1:8080
 # Inspect which node an instance landed on, and what else is scheduled there
 gimle get nodes --server 127.0.0.1:8080
 gimle get node-assignments node-1 --server 127.0.0.1:8080
+
+# Exclude a node from future placement without evicting what's already running there
+gimle cordon node-1 --server 127.0.0.1:8080
+gimle uncordon node-1 --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

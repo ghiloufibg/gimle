@@ -104,6 +104,13 @@ label set on both sides, no key/value structure. A node's labels are set once at
 the `gimle.node.labels` system property (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and
 reported at registration alongside its isolation-tier support.
 
+An operator can also cordon a node (`gimle cordon <nodeId>` / `gimle uncordon <nodeId>`, or
+`POST /nodes/{id}/cordon`/`/uncordon`) to exclude it from future placement — evaluated as the
+scheduler's first filter stage, right after isolation-tier support and before anti-affinity,
+tenant isolation, and required labels. Cordoning is deliberately just a binary "don't schedule
+here" flag: it never evicts an instance already running on the node, and preemption and
+taint/toleration-style soft constraints remain out of scope.
+
 ## Reconcilers
 
 One control loop per resource kind, each comparing desired state to observed state and emitting

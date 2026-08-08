@@ -16,6 +16,8 @@ import java.util.List;
  *   gimle delete deployment &lt;name&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
+ *   gimle cordon &lt;nodeId&gt;
+ *   gimle uncordon &lt;nodeId&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
  *   gimle delete tenant &lt;id&gt;
@@ -104,6 +106,9 @@ public final class GimleCli {
       case "set" -> handleSet(rest, client, output, out);
       case "delete" -> handleDelete(rest, client, output, out);
       case "logs" -> new LogsCommand(client, out).run(rest);
+      case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
+      case "uncordon" ->
+          new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
       default -> throw new CliException(usage());
     }
   }
@@ -202,6 +207,8 @@ public final class GimleCli {
           delete deployment <name>
           get nodes
           get node-assignments <nodeId>
+          cordon <nodeId>
+          uncordon <nodeId>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
           delete tenant <id>

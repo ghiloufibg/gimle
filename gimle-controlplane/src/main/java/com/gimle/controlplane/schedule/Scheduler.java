@@ -10,10 +10,16 @@ import java.util.Set;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity: first-fit-decreasing over free
- * {@code (memory, cpu)}, filtered by isolation-tier support and, if requested, anti-affinity
- * against nodes already running another replica of the same deployment. A pure function of its
- * inputs -- it never reads the state store itself, so it's testable with synthetic candidates and
- * doesn't need a real module artifact to resolve a tier/resource request against.
+ * {@code (memory, cpu)}, filtered by isolation-tier support, an operator's node-cordon flag, and,
+ * if requested, anti-affinity against nodes already running another replica of the same deployment.
+ * A pure function of its inputs -- it never reads the state store itself, so it's testable with
+ * synthetic candidates and doesn't need a real module artifact to resolve a tier/resource request
+ * against.
+ *
+ * <p>Cordoning is deliberately just an exclusion filter, evaluated right after the tier filter and
+ * before every other constraint: it never evicts an instance already running on a cordoned node,
+ * only keeps new placements off it. Preemption and taint/toleration-style soft constraints are out
+ * of scope -- this is a binary "don't schedule here" flag, nothing more.
  */
 public final class Scheduler {
 
@@ -84,14 +90,21 @@ public final class Scheduler {
     List<NodeCandidate> tierEligible =
         candidates.stream().filter(c -> c.capabilities().supportedTiers().contains(tier)).toList();
 
+    List<NodeCandidate> uncordonedEligible =
+        tierEligible.stream().filter(c -> !c.cordoned()).toList();
+    if (uncordonedEligible.isEmpty() && !tierEligible.isEmpty()) {
+      throw GimleSchedulingException.nodeCordoned(deploymentName, instanceIndex);
+    }
+
     List<NodeCandidate> affinityEligible;
     if (antiAffinityAcrossNodes) {
-      affinityEligible = tierEligible.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
-      if (affinityEligible.isEmpty() && !tierEligible.isEmpty()) {
+      affinityEligible =
+          uncordonedEligible.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
+      if (affinityEligible.isEmpty() && !uncordonedEligible.isEmpty()) {
         throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
       }
     } else {
-      affinityEligible = tierEligible;
+      affinityEligible = uncordonedEligible;
     }
 
     List<NodeCandidate> tenantEligible;

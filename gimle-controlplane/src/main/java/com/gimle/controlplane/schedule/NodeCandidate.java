@@ -21,13 +21,19 @@ import java.util.Set;
  * than requiring every caller to reach through {@code capabilities()}) since the scheduler's
  * required-label filter reads it on every candidate, the same way {@code tenantsPresent} already
  * gets its own accessor instead of being read off the assignment set directly.
+ *
+ * <p>{@code cordoned} is an operator-set flag (unrelated to the latest-heartbeat capacity/labels
+ * above) meaning "don't place anything new here" -- it never evicts what's already running, only
+ * excludes the node from future placement, so {@code alreadyRunsThisDeployment}/{@code
+ * tenantsPresent} stay meaningful even for a cordoned node.
  */
 public record NodeCandidate(
     String nodeId,
     NodeCapabilities capabilities,
     ResourceUsageSnapshot capacity,
     boolean alreadyRunsThisDeployment,
-    Set<String> tenantsPresent) {
+    Set<String> tenantsPresent,
+    boolean cordoned) {
 
   public NodeCandidate {
     tenantsPresent = Set.copyOf(tenantsPresent);
@@ -38,7 +44,16 @@ public record NodeCandidate(
       NodeCapabilities capabilities,
       ResourceUsageSnapshot capacity,
       boolean alreadyRunsThisDeployment) {
-    this(nodeId, capabilities, capacity, alreadyRunsThisDeployment, Set.of());
+    this(nodeId, capabilities, capacity, alreadyRunsThisDeployment, Set.of(), false);
+  }
+
+  public NodeCandidate(
+      String nodeId,
+      NodeCapabilities capabilities,
+      ResourceUsageSnapshot capacity,
+      boolean alreadyRunsThisDeployment,
+      Set<String> tenantsPresent) {
+    this(nodeId, capabilities, capacity, alreadyRunsThisDeployment, tenantsPresent, false);
   }
 
   Set<String> labels() {
