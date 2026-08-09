@@ -1,6 +1,7 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,28 +47,79 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
         .map(entry -> new OwnedInstance(entry.owner(), entry.instance()));
   }
 
+  /**
+   * {@code entriesByInterface.keySet()} iteration order is unspecified ({@link ConcurrentHashMap}
+   * gives no ordering guarantee) -- with two owners registered under distinct {@link Class} objects
+   * for the "same" interface name (the case during a redeploy that reloads the interface class in a
+   * fresh {@code ModuleLayer}), returning the first match iterated was nondeterministic. Break ties
+   * by the highest {@link ModuleId#version()} among that {@link Class}'s registered owners,
+   * matching {@link #selectEntry}'s own highest-version-first preference below.
+   */
   private Optional<Class<?>> findInterface(String interfaceName) {
-    for (Class<?> iface : entriesByInterface.keySet()) {
-      if (iface.getName().equals(interfaceName)) {
-        return Optional.of(iface);
+    Class<?> best = null;
+    Version bestVersion = null;
+    for (Map.Entry<Class<?>, List<Entry>> candidate : entriesByInterface.entrySet()) {
+      Class<?> iface = candidate.getKey();
+      if (!iface.getName().equals(interfaceName)) {
+        continue;
+      }
+      Version highest = highestOwnerVersion(candidate.getValue());
+      if (best == null
+          || (highest != null && (bestVersion == null || highest.compareTo(bestVersion) > 0))) {
+        best = iface;
+        bestVersion = highest;
       }
     }
-    return Optional.empty();
+    return Optional.ofNullable(best);
+  }
+
+  private static Version highestOwnerVersion(List<Entry> entries) {
+    Version highest = null;
+    for (Entry entry : entries) {
+      Version candidate = entry.owner().version();
+      if (highest == null || candidate.compareTo(highest) > 0) {
+        highest = candidate;
+      }
+    }
+    return highest;
   }
 
   private Optional<Object> select(Class<?> iface) {
     return selectEntry(iface).map(Entry::instance);
   }
 
+  /**
+   * Hot redeploy (P2-5) can leave both the old and new version of a module registered under the
+   * same interface at once, deliberately -- see {@code HotRedeployTest}. A blended round-robin
+   * across both versions would send a fraction of fresh lookups to the version being drained.
+   * Instead, cutover is atomic per lookup: prefer the highest version that currently has at least
+   * one ready entry, round-robining only within that version's entries; fall back to the next
+   * highest version only when the top one has none ready (e.g. still starting up).
+   */
   private Optional<Entry> selectEntry(Class<?> iface) {
     List<Entry> entries = entriesByInterface.get(iface);
     if (entries == null || entries.isEmpty()) {
       return Optional.empty();
     }
-    List<Entry> ready = entries.stream().filter(entry -> entry.ready().get()).toList();
-    if (ready.isEmpty()) {
+    Version preferred = null;
+    for (Entry entry : entries) {
+      if (!entry.ready().get()) {
+        continue;
+      }
+      Version candidate = entry.owner().version();
+      if (preferred == null || candidate.compareTo(preferred) > 0) {
+        preferred = candidate;
+      }
+    }
+    if (preferred == null) {
       return Optional.empty();
     }
+    Version selectedVersion = preferred;
+    List<Entry> ready =
+        entries.stream()
+            .filter(entry -> entry.ready().get())
+            .filter(entry -> entry.owner().version().equals(selectedVersion))
+            .toList();
     AtomicInteger cursor = cursors.computeIfAbsent(iface, key -> new AtomicInteger());
     int index = Math.floorMod(cursor.getAndIncrement(), ready.size());
     return Optional.of(ready.get(index));
