@@ -388,6 +388,68 @@ class ApiServerAuthzTest {
     }
   }
 
+  /**
+   * P2-16 end to end: a secret written before rotation stays readable afterward (re-encrypted under
+   * the new key, transparently to the caller), and a secret written after rotation round- trips
+   * too.
+   */
+  @Test
+  void a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("admin", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "secret-admin",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.SECRET, Verb.READ),
+                Permission.unscoped(ResourceKind.SECRET, Verb.WRITE))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("admin"), "secret-admin"));
+    // The rotation walk only visits registered Tenants (see #rotateSecretsKey's own javadoc for
+    // why), so this tenant must actually be registered for the walk to reach its config entries.
+    store.putTenant(
+        new com.gimle.core.tenant.Tenant(
+            "tenant-1", new com.gimle.core.tenant.ResourceQuota(1024, 500, 10)));
+
+    try (inProcessStore;
+        ApiServer server =
+            new ApiServer(inProcessStore.client(), 0, tempDir.resolve("keys/secret.key"))) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "admin", "pw");
+
+      assertEquals(
+          200, putConfig(client, baseUrl, cookie, "tenant-1", "before", "value-before", true));
+
+      HttpRequest rotateRequest =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/rotate-key"))
+              .header("Cookie", cookie)
+              .POST(HttpRequest.BodyPublishers.noBody())
+              .build();
+      HttpResponse<String> rotateResponse =
+          client.send(rotateRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, rotateResponse.statusCode());
+      assertEquals(1L, Json.asObject(Json.parse(rotateResponse.body())).get("activeKeyId"));
+
+      assertEquals(
+          200, putConfig(client, baseUrl, cookie, "tenant-1", "after", "value-after", true));
+
+      List<Map<String, Object>> entries = listConfig(client, baseUrl, cookie, "tenant-1");
+      Map<String, Object> byKey = new LinkedHashMap<>();
+      for (Map<String, Object> entry : entries) {
+        byKey.put((String) entry.get("key"), entry.get("value"));
+      }
+      assertEquals("value-before", byKey.get("before"));
+      assertEquals("value-after", byKey.get("after"));
+    }
+  }
+
   private static String login(HttpClient client, String baseUrl, String username, String password)
       throws IOException, InterruptedException {
     HttpResponse<String> response =

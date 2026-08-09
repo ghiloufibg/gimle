@@ -6,6 +6,7 @@ import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.secret.KeyFileManager;
+import com.gimle.controlplane.secret.KeyRing;
 import com.gimle.controlplane.secret.LoginThrottle;
 import com.gimle.controlplane.secret.SecretCipher;
 import com.gimle.controlplane.secret.SessionTokens;
@@ -115,10 +116,18 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
   private final StoreClient storeClient;
-  private final SecretKey secretKey;
-  // Signs/verifies console session cookies -- deliberately a second key, not a reuse of
-  // secretKey's AES material, for key separation between two unrelated crypto purposes (see
-  // SessionTokens' own javadoc).
+  // Where #rotateSecretsKey (P2-16) writes a new key file -- real even for the ephemeral-key
+  // constructor (a fresh temp directory in that case), so rotation always has somewhere durable
+  // to write, never silently rotating only in memory.
+  private final Path secretKeyFilePath;
+  // Not final: #rotateSecretsKey (P2-16) replaces this with a new ring holding one more key.
+  // Every previously-issued ciphertext keeps decrypting since old keys are never dropped from the
+  // ring, only new ones added and activeKeyId repointed.
+  private volatile KeyRing secretKeyRing;
+  // Signs/verifies console session cookies -- deliberately a separate key, not a reuse of
+  // secretKeyRing's AES material, for key separation between two unrelated crypto purposes (see
+  // SessionTokens' own javadoc). Never rotated -- a session token's own short TTL already bounds
+  // its exposure window, unlike a secret's config-entry value which persists indefinitely.
   private final SecretKey sessionSigningKey;
   private final Authorizer authorizer;
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
@@ -170,15 +179,21 @@ public final class ApiServer implements AutoCloseable {
     this(
         storeClient,
         port,
-        KeyFileManager.loadOrCreate(secretKeyFilePath),
+        secretKeyFilePath,
+        KeyFileManager.loadAllOrCreate(secretKeyFilePath),
         KeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
   }
 
   private ApiServer(
-      StoreClient storeClient, int port, SecretKey secretKey, SecretKey sessionSigningKey)
+      StoreClient storeClient,
+      int port,
+      Path secretKeyFilePath,
+      KeyRing secretKeyRing,
+      SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
-    this.secretKey = secretKey;
+    this.secretKeyFilePath = secretKeyFilePath;
+    this.secretKeyRing = secretKeyRing;
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     this.server = createHttpServer(port);
@@ -204,6 +219,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/rolebindings", this::handleRoleBindingsList);
     target.createContext("/accounts/", this::handleAccount);
     target.createContext("/accounts", this::handleAccountsList);
+    target.createContext("/secrets/rotate-key", this::handleRotateSecretsKey);
     target.createContext("/auth/login", this::handleAuthLogin);
     target.createContext("/auth/logout", this::handleAuthLogout);
     target.createContext("/auth/session", this::handleAuthSession);
@@ -1150,9 +1166,11 @@ public final class ApiServer implements AutoCloseable {
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
+    KeyRing ring = secretKeyRing;
     byte[] stored =
         encrypted
-            ? SecretCipher.encrypt(value.getBytes(StandardCharsets.UTF_8), secretKey)
+            ? SecretCipher.encrypt(
+                value.getBytes(StandardCharsets.UTF_8), ring.activeKey(), ring.activeKeyId())
             : value.getBytes(StandardCharsets.UTF_8);
     storeClient.propose(
         new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted)));
@@ -1212,7 +1230,9 @@ public final class ApiServer implements AutoCloseable {
         continue;
       }
       byte[] plaintext =
-          entry.encrypted() ? SecretCipher.decrypt(entry.value(), secretKey) : entry.value();
+          entry.encrypted()
+              ? SecretCipher.decrypt(entry.value(), secretKeyRing.keysById())
+              : entry.value();
       Map<String, Object> m = new LinkedHashMap<>();
       m.put("key", entry.key());
       m.put("value", new String(plaintext, StandardCharsets.UTF_8));
@@ -1424,6 +1444,61 @@ public final class ApiServer implements AutoCloseable {
     map.put("subject", binding.subject());
     map.put("roleName", binding.roleName());
     return map;
+  }
+
+  // ---- /secrets/rotate-key ----
+
+  /**
+   * Generates a new secrets master key, makes it the active key for every future {@code
+   * SECRET}-encrypted config write, and re-encrypts every existing encrypted entry under it (P2-16)
+   * -- old keys are never deleted, so any entry this walk doesn't reach still decrypts correctly
+   * either way, just not yet re-encrypted under the newest key. That's true both of an entry
+   * written concurrently mid-rotation, and of {@code ConfigEntry.tenantId()}'s own looser-than-
+   * {@code Tenant} scoping: this walk only visits {@link StoreClient#listTenants} rather than every
+   * distinct tenant id any {@code ConfigEntry} happens to name, since there is no "every config
+   * entry regardless of tenant" store query today. A config entry filed under a tenant id that was
+   * never registered as a real {@code Tenant} keeps decrypting under its original key indefinitely
+   * -- correct, just not eagerly rotated. Gated on the same {@code SECRET:WRITE} permission a
+   * config write itself requires, unscoped since rotation is cluster-wide, not per-tenant.
+   */
+  private void handleRotateSecretsKey(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.SECRET, Verb.WRITE, Optional.empty())) {
+        return;
+      }
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      byte newKeyId = rotateSecretsKey();
+      respondJson(exchange, 200, Map.of("activeKeyId", Byte.toUnsignedInt(newKeyId)));
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("secrets key rotation failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private byte rotateSecretsKey() {
+    KeyRing newRing = KeyFileManager.rotate(secretKeyFilePath, secretKeyRing);
+    secretKeyRing = newRing; // every future write already uses the new active key from here on
+    for (Tenant tenant : storeClient.listTenants()) {
+      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
+        if (!entry.encrypted()) {
+          continue;
+        }
+        byte[] plaintext = SecretCipher.decrypt(entry.value(), newRing.keysById());
+        byte[] reencrypted =
+            SecretCipher.encrypt(plaintext, newRing.activeKey(), newRing.activeKeyId());
+        storeClient.propose(
+            new StateMutation.PutConfigEntry(
+                new ConfigEntry(entry.tenantId(), entry.key(), reencrypted, true)));
+      }
+    }
+    return newRing.activeKeyId();
   }
 
   // ---- /accounts and /accounts/{username} ----

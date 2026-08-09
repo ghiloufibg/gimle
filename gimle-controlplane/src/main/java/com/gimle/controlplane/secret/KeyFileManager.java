@@ -3,10 +3,14 @@ package com.gimle.controlplane.secret;
 import com.gimle.core.exception.GimleSecretsException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -52,6 +56,109 @@ public final class KeyFileManager {
     } catch (IOException e) {
       throw new UncheckedIOException(
           "failed to load or create secrets key file: " + keyFilePath, e);
+    }
+  }
+
+  /**
+   * Loads the full rotation history sharing {@code baseKeyFilePath} (P2-16): {@code
+   * baseKeyFilePath} itself is always key id 0 (created via {@link #loadOrCreate} if this is the
+   * first run, so a cluster that never rotates keeps today's exact single-key layout), plus any
+   * sibling {@code <baseFileName>.<id>} files a prior {@link #rotate} call wrote, plus whichever id
+   * a sibling {@code <baseFileName>.active} file names as current (defaulting to 0 if that sidecar
+   * is absent).
+   */
+  public static KeyRing loadAllOrCreate(Path baseKeyFilePath) {
+    SecretKey keyZero = loadOrCreate(baseKeyFilePath);
+    Map<Byte, SecretKey> keysById = new HashMap<>();
+    keysById.put((byte) 0, keyZero);
+    Path parent = baseKeyFilePath.getParent();
+    String baseFileName = baseKeyFilePath.getFileName().toString();
+    if (parent != null && Files.isDirectory(parent)) {
+      String prefix = baseFileName + ".";
+      try (DirectoryStream<Path> siblings = Files.newDirectoryStream(parent, prefix + "*")) {
+        for (Path sibling : siblings) {
+          String suffix = sibling.getFileName().toString().substring(prefix.length());
+          if (suffix.equals("active") || !suffix.chars().allMatch(Character::isDigit)) {
+            continue;
+          }
+          int id = Integer.parseInt(suffix);
+          if (id < 0 || id > 255) {
+            continue; // not a key file this class would ever have written itself
+          }
+          byte[] encoded = Files.readAllBytes(sibling);
+          if (!VALID_AES_KEY_LENGTHS.contains(encoded.length)) {
+            throw GimleSecretsException.invalidKeyFile(sibling, encoded.length);
+          }
+          keysById.put((byte) id, new SecretKeySpec(encoded, ALGORITHM));
+        }
+      } catch (IOException e) {
+        throw new UncheckedIOException(
+            "failed to scan for rotated secrets key files: " + parent, e);
+      }
+    }
+    byte activeKeyId = readActiveKeyId(activeKeyFile(baseKeyFilePath), keysById.keySet());
+    return new KeyRing(activeKeyId, keysById);
+  }
+
+  /**
+   * Generates a fresh key, adds it to {@code current} under the next unused id, and repoints the
+   * {@code <baseFileName>.active} sidecar at it -- every previously-loaded key stays in the
+   * returned ring (and its file untouched on disk), so ciphertext encrypted under any of them keeps
+   * decrypting.
+   */
+  public static KeyRing rotate(Path baseKeyFilePath, KeyRing current) {
+    int highestExisting = -1;
+    for (byte id : current.keysById().keySet()) {
+      highestExisting = Math.max(highestExisting, Byte.toUnsignedInt(id));
+    }
+    if (highestExisting >= 255) {
+      throw new IllegalStateException("secrets key ring already holds the maximum 256 key ids");
+    }
+    byte newId = (byte) (highestExisting + 1);
+    SecretKey newKey = generateKey();
+    try {
+      Path newKeyFile =
+          baseKeyFilePath.resolveSibling(
+              baseKeyFilePath.getFileName() + "." + Byte.toUnsignedInt(newId));
+      Files.write(newKeyFile, newKey.getEncoded());
+      restrictPermissions(newKeyFile);
+      Path activeFile = activeKeyFile(baseKeyFilePath);
+      Files.writeString(
+          activeFile, String.valueOf(Byte.toUnsignedInt(newId)), StandardCharsets.UTF_8);
+      restrictPermissions(activeFile);
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed to write rotated secrets key file", e);
+    }
+    Map<Byte, SecretKey> updated = new HashMap<>(current.keysById());
+    updated.put(newId, newKey);
+    return new KeyRing(newId, updated);
+  }
+
+  private static Path activeKeyFile(Path baseKeyFilePath) {
+    return baseKeyFilePath.resolveSibling(baseKeyFilePath.getFileName() + ".active");
+  }
+
+  private static byte readActiveKeyId(Path activeKeyFile, Set<Byte> knownIds) {
+    if (!Files.exists(activeKeyFile)) {
+      return 0;
+    }
+    try {
+      String text = Files.readString(activeKeyFile, StandardCharsets.UTF_8).strip();
+      int id = Integer.parseInt(text);
+      if (id < 0 || id > 255 || !knownIds.contains((byte) id)) {
+        log.warn(
+            "{} names key id {}, which has no corresponding key file; falling back to key id 0",
+            activeKeyFile,
+            text);
+        return 0;
+      }
+      return (byte) id;
+    } catch (IOException | NumberFormatException e) {
+      log.warn(
+          "failed to read active secrets key id from {}: {}; falling back to key id 0",
+          activeKeyFile,
+          e.getMessage());
+      return 0;
     }
   }
 
