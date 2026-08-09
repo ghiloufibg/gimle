@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Node topology
 
-Four Java process roles run across a cluster — no other runtime, no containers, no sidecars:
+Five Java process roles run across a cluster — no other runtime, no containers, no sidecars:
 
 ```mermaid
 graph TD
@@ -17,15 +17,20 @@ graph TD
     end
     CP["Control Plane<br/>(gimle-controlplane, N replicas)"]
     Store["Store<br/>(gimle-mimir, M replicas, Raft-replicated)"]
+    Fafnir["Fafnir<br/>(gimle-fafnir, K replicas)"]
     Agent -->|reports capacity/state, executes placement| CP
+    Agent -->|fetches secret values directly, mTLS| Fafnir
     CP <-->|StoreRpc, TCP| Store
+    CP -->|proxies /secrets/*, encrypt/decrypt/rotate-key, mTLS| Fafnir
+    Fafnir <-->|StoreRpc, TCP| Store
     Worker1 -.->|health/metrics over a local control channel| Agent
     Worker2 -.->|health/metrics over a local control channel| Agent
 ```
 
-The control plane and the store are two independently-scalable process kinds, not one — the same
-split Kubernetes draws between `kube-apiserver` and `etcd` (see
-[Control plane](./control-plane.md)); `N` and `M` above need not match.
+The control plane, the store, and Fafnir are three independently-scalable process kinds, not
+one — the same split Kubernetes draws between `kube-apiserver` and `etcd`, extended one step
+further for secret material specifically (see [Control plane](./control-plane.md)); `N`, `M`, and
+`K` above need not match.
 
 ## Node Agent
 
@@ -56,6 +61,23 @@ One or more JVMs, Raft-replicated for HA (`gimle-mimir`). The etcd-equivalent pi
 Raft-replicated `StateStore` and answers `StoreRpc` requests from every `gimle-controlplane`
 replica. Decoupled from the control plane's own replica count on purpose — a control-plane
 process can restart or scale independently of store/Raft membership, and vice versa.
+
+## Fafnir
+
+One or more stateless JVMs (`gimle-fafnir`) — the dedicated secrets service: owns the encryption
+key ring, performs every encrypt/decrypt/rotate-key operation, and answers the versioned
+`/secrets/*` API directly (see [Multi-tenancy](./multi-tenancy.md) for the tenant-scoped secret
+model). Talks to the same `gimle-mimir` store
+cluster over the network via its own `StoreClient`, exactly the way `gimle-controlplane` does — it
+persists nothing locally beyond its own key-ring file. `gimle-controlplane` never performs crypto
+itself; it proxies `/secrets/*` calls to Fafnir and forwards the calling principal's identity as
+an internal claim, but Fafnir still authorizes every request independently against RBAC data it
+reads itself, rather than trusting "this arrived from the control plane" as proof of
+authorization. `gimle-agent` fetches secret values needed by a deployed module directly from
+Fafnir over mTLS — not proxied through the control plane — authorized by the node's own
+certificate identity and its current tenant assignments. Fafnir gets its own distinct certificate
+identity minted at cluster-bootstrap time, not a borrowed one, so every action it takes is
+attributable to its own certificate Subject in the audit log.
 
 ## Multi-machine deployment
 

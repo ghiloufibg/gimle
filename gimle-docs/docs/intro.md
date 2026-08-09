@@ -37,8 +37,10 @@ graph TD
     Module --> Instance["Instance<br/>bounded virtual-thread scheduler"]
 ```
 
-Four Java process roles run across a cluster: the **Node Agent** (one per machine, owns worker
+Five Java process roles run across a cluster: the **Node Agent** (one per machine, owns worker
 process lifecycle), the **Worker JVM** (hosts module instances), the **Control Plane** (API
-server, scheduler, reconcilers), and the **Store** (Raft-replicated state, its own process —
-mirroring how Kubernetes separates `etcd` from `kube-apiserver`). See
+server, scheduler, reconcilers), the **Store** (Raft-replicated state, its own process —
+mirroring how Kubernetes separates `etcd` from `kube-apiserver`), and **Fafnir** (the secrets
+service, its own process — a dedicated encrypt/decrypt/rotate-key authority the control plane
+proxies to rather than performing crypto itself). See
 [Node topology](./architecture/node-topology.md) for how they relate.
