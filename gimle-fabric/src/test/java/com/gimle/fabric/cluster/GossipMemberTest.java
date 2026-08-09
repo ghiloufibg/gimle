@@ -26,6 +26,7 @@ class GossipMemberTest {
           Duration.ofMillis(200),
           2,
           6,
+          Duration.ofSeconds(30),
           Duration.ofSeconds(30));
 
   private final List<GossipMember> members = new ArrayList<>();
@@ -122,6 +123,39 @@ class GossipMemberTest {
   }
 
   @Test
+  @Timeout(15)
+  void a_long_dead_member_is_eventually_forgotten_not_kept_forever() throws IOException {
+    // Driven directly via mergeAll (same technique the self-refutation tests below use) rather
+    // than a real multi-node kill-and-detect scenario: with a second live peer still gossiping,
+    // an unchanging DEAD entry that's one of only a couple of members in a low-churn cluster stays
+    // pinned at the front of both sides' recentChangeOrder forever, so each side's own reap keeps
+    // getting undone by the other re-teaching it -- a real eventual-consistency property of SWIM
+    // (see reapExpiredDeadMembers' own javadoc: no cluster-wide coordination), not a bug this test
+    // needs to chase. Injecting the DEAD claim once, with nothing else re-asserting it, isolates
+    // exactly the mechanism this item adds: a node forgets an entry that's stayed DEAD long enough.
+    GossipConfig config =
+        new GossipConfig(
+            Duration.ofMillis(50),
+            Duration.ofMillis(40),
+            Duration.ofMillis(200),
+            2,
+            6,
+            Duration.ofSeconds(30),
+            Duration.ofMillis(150));
+    GossipMember a = newMember("node-a", config);
+    a.start();
+
+    MemberId longGoneNodeId = new MemberId("node-gone", new InetSocketAddress("127.0.0.1", 9));
+    a.mergeAll(List.of(new MemberState(longGoneNodeId, MemberStatus.DEAD, 0)));
+    assertEquals(MemberStatus.DEAD, a.memberState("node-gone").orElseThrow().status());
+
+    // Once reaped, the entry is gone entirely -- not merely relabeled DEAD forever -- so a
+    // long-running cluster's membership table doesn't grow unboundedly with node churn.
+    Await.until(() -> a.memberState("node-gone").isEmpty(), Duration.ofSeconds(5));
+    assertTrue(a.members().stream().noneMatch(s -> s.id().nodeId().equals("node-gone")));
+  }
+
+  @Test
   void a_member_refutes_a_suspicion_of_itself_by_bumping_incarnation() throws IOException {
     GossipMember b = newMember("node-b");
     b.start();
@@ -207,7 +241,8 @@ class GossipMemberTest {
             Duration.ofMillis(300),
             2,
             1,
-            Duration.ofMillis(150));
+            Duration.ofMillis(150),
+            Duration.ofSeconds(30));
     GossipMember a = newMember("node-a", config);
     GossipMember b = newMember("node-b", config);
     a.start();

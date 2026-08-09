@@ -78,6 +78,7 @@ public final class GossipMember implements AutoCloseable {
 
   private final Map<String, MemberState> members = new ConcurrentHashMap<>();
   private final Map<String, Instant> suspectedSince = new ConcurrentHashMap<>();
+  private final Map<String, Instant> deadSince = new ConcurrentHashMap<>();
   private final Deque<String> recentChangeOrder = new ArrayDeque<>();
   private final Deque<String> probeOrder = new ArrayDeque<>();
   private final Map<Long, PendingProbe> pendingProbes = new ConcurrentHashMap<>();
@@ -232,8 +233,34 @@ public final class GossipMember implements AutoCloseable {
       checkDtlsHandshakeTimeouts();
       pingRandomMember();
       maybeSyncWithRandomMember();
+      reapExpiredDeadMembers();
     } catch (RuntimeException e) {
       log.warn("{}: gossip protocol tick failed: {}", self.nodeId(), e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Forgets (P3) a member that has sat {@code DEAD} for longer than {@link
+   * GossipConfig#deadMemberReapAfter} -- without this, {@link #members} only ever grows across a
+   * long-running cluster's life as nodes churn, since {@link #markDead} alone never removes an
+   * entry, only relabels it. Purely a local decision with no cluster-wide coordination: each node
+   * reaps on its own timeline once it individually decides enough time has passed, the same way
+   * {@link #checkSuspectExpiry} promotes SUSPECT to DEAD independently on every node -- no "forget"
+   * message is broadcast, since a node that hasn't yet reaped simply keeps gossiping the DEAD state
+   * to whoever still asks.
+   */
+  private void reapExpiredDeadMembers() {
+    Instant now = Instant.now();
+    for (Map.Entry<String, Instant> entry : List.copyOf(deadSince.entrySet())) {
+      String nodeId = entry.getKey();
+      if (now.isAfter(entry.getValue().plus(config.deadMemberReapAfter()))) {
+        members.remove(nodeId);
+        deadSince.remove(nodeId);
+        synchronized (recentChangeOrder) {
+          recentChangeOrder.remove(nodeId);
+        }
+        log.debug("{}: reaped long-dead member {}", self.nodeId(), nodeId);
+      }
     }
   }
 
@@ -683,6 +710,7 @@ public final class GossipMember implements AutoCloseable {
     long incarnationToKeep = current == null ? 0 : current.incarnation();
     members.put(id.nodeId(), new MemberState(id, MemberStatus.ALIVE, incarnationToKeep));
     suspectedSince.remove(id.nodeId());
+    deadSince.remove(id.nodeId());
     markChanged(id.nodeId());
   }
 
@@ -704,6 +732,7 @@ public final class GossipMember implements AutoCloseable {
     }
     members.put(nodeId, new MemberState(current.id(), MemberStatus.DEAD, current.incarnation()));
     suspectedSince.remove(nodeId);
+    deadSince.putIfAbsent(nodeId, Instant.now());
     markChanged(nodeId);
     log.info("{}: member {} is now DEAD", self.nodeId(), nodeId);
   }
@@ -739,6 +768,11 @@ public final class GossipMember implements AutoCloseable {
     } else {
       suspectedSince.remove(incoming.id().nodeId());
     }
+    if (incoming.status() == MemberStatus.DEAD) {
+      deadSince.putIfAbsent(incoming.id().nodeId(), Instant.now());
+    } else {
+      deadSince.remove(incoming.id().nodeId());
+    }
     markChanged(incoming.id().nodeId());
   }
 
@@ -754,6 +788,8 @@ public final class GossipMember implements AutoCloseable {
     bumpLocalHealthMultiplier();
     long bumped = incarnation.updateAndGet(n -> Math.max(n, claimAboutSelf.incarnation()) + 1);
     members.put(self.nodeId(), new MemberState(self, MemberStatus.ALIVE, bumped));
+    suspectedSince.remove(self.nodeId());
+    deadSince.remove(self.nodeId());
     markChanged(self.nodeId());
     log.info(
         "{}: refuting a suspicion of itself, bumping incarnation to {}", self.nodeId(), bumped);

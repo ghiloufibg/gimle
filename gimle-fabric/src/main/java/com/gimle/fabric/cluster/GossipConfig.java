@@ -13,7 +13,8 @@ public record GossipConfig(
     Duration suspicionTimeout,
     int indirectFanout,
     int piggybackCount,
-    Duration antiEntropyInterval) {
+    Duration antiEntropyInterval,
+    Duration deadMemberReapAfter) {
 
   public GossipConfig {
     if (protocolPeriod == null || protocolPeriod.isNegative() || protocolPeriod.isZero()) {
@@ -36,6 +37,11 @@ public record GossipConfig(
         || antiEntropyInterval.isZero()) {
       throw new IllegalArgumentException("antiEntropyInterval must be positive");
     }
+    if (deadMemberReapAfter == null
+        || deadMemberReapAfter.isNegative()
+        || deadMemberReapAfter.isZero()) {
+      throw new IllegalArgumentException("deadMemberReapAfter must be positive");
+    }
   }
 
   public static GossipConfig defaults() {
@@ -45,6 +51,12 @@ public record GossipConfig(
         Duration.ofSeconds(3),
         3,
         6,
-        Duration.ofSeconds(30));
+        Duration.ofSeconds(30),
+        // Two anti-entropy cycles' worth of headroom: a DEAD status needs time to actually reach
+        // every node (piggyback alone caps at piggybackCount entries per message, so a fully
+        // partitioned/slow node relies on anti-entropy to ever see it at all) before this node
+        // forgets the entry itself -- reaping it any sooner risks a still-behind peer re-learning
+        // about a node this one has already erased, via a stale piggyback from a third node.
+        Duration.ofSeconds(60));
   }
 }

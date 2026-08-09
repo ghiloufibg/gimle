@@ -52,6 +52,7 @@ class GossipMemberDtlsTest {
           Duration.ofSeconds(2),
           2,
           6,
+          Duration.ofSeconds(30),
           Duration.ofSeconds(30));
 
   @TempDir private Path tempDir;
