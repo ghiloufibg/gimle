@@ -93,7 +93,7 @@ class FabricServiceRegistryTest {
 
   @Test
   @Timeout(10)
-  void same_machine_tier_wins_over_remote_even_under_heavier_load() throws IOException {
+  void same_machine_tier_wins_over_remote_when_both_are_idle() throws IOException {
     ServiceCatalog catalog = new ServiceCatalog();
     InetSocketAddress sameMachineAddress = startBackend(name -> "same-machine:" + name);
     InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
@@ -109,9 +109,60 @@ class FabricServiceRegistryTest {
 
     FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
 
+    // Each call here is synchronous and instant, so outstanding count is back to 0/0 (tied)
+    // before the next lookup -- this establishes the steady-state preference, not a claim that
+    // same-machine wins regardless of load (see the spillover test below for that case).
     for (int i = 0; i < 5; i++) {
       Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
-      assertEquals("same-machine:x", greeter.greet("x"), "same-machine tier must always win");
+      assertEquals("same-machine:x", greeter.greet("x"));
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void same_machine_tier_spills_over_to_remote_once_saturated() throws Exception {
+    CountDownLatch releaseSameMachineCall = new CountDownLatch(1);
+    CountDownLatch sameMachineCallStarted = new CountDownLatch(1);
+    InetSocketAddress sameMachineAddress =
+        startBackend(
+            name -> {
+              sameMachineCallStarted.countDown();
+              try {
+                releaseSameMachineCall.await(5, TimeUnit.SECONDS);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              return "same-machine:" + name;
+            });
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-other", OWNER, GREETER_EXPORT, Optional.empty(), sameMachineAddress);
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        remoteAddress);
+
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    Thread busySameMachineCaller =
+        Thread.ofVirtual()
+            .start(() -> registry.lookup(Greeter.class).orElseThrow().greet("blocked"));
+    sameMachineCallStarted.await(5, TimeUnit.SECONDS);
+
+    try {
+      // same-machine now has 1 outstanding call, remote has 0 -- a hard same-machine-only cutoff
+      // would keep routing every subsequent lookup onto the already-busy replica forever, even
+      // with an idle remote replica available; capacity-aware spillover must route here instead.
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertEquals("remote:x", greeter.greet("x"));
+    } finally {
+      releaseSameMachineCall.countDown();
+      busySameMachineCaller.join(5000);
     }
   }
 

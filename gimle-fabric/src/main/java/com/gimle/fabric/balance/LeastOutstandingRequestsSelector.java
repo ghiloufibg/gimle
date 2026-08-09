@@ -48,4 +48,16 @@ public final class LeastOutstandingRequestsSelector<E> {
       counter.updateAndGet(n -> Math.max(0, n - 1));
     }
   }
+
+  /**
+   * Current outstanding count for {@code candidate}, {@code 0} if it has none in flight (or has
+   * never been seen). Read-only -- doesn't call {@link #begin}, so it never creates an entry.
+   * Exists for capacity-aware locality decisions upstream of selection itself (P3: a caller
+   * comparing load across two candidate tiers before ever calling {@link #select}), not for
+   * anything inside this class.
+   */
+  public int outstandingCount(E candidate) {
+    AtomicInteger counter = outstanding.get(candidate);
+    return counter == null ? 0 : counter.get();
+  }
 }

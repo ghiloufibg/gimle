@@ -269,7 +269,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       (isSameMachine ? sameMachine : remote).add(endpoint);
     }
 
-    List<ServiceEndpoint> candidates = !sameMachine.isEmpty() ? sameMachine : remote;
+    List<ServiceEndpoint> candidates = localityAwareCandidates(sameMachine, remote);
     ServiceEndpoint chosen = selectAllowedCandidate(candidates);
     if (chosen == null) {
       return Optional.empty();
@@ -334,6 +334,35 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return exportsOf.apply(owner).stream()
         .filter(export -> export.interfaceName().equals(iface.getName()))
         .findFirst();
+  }
+
+  /**
+   * Prefers same-machine endpoints (this class's existing locality tier), but spills into the
+   * remote tier once every same-machine candidate is already busier than the least-loaded remote
+   * one -- otherwise a single lightly-loaded same-machine replica would absorb 100% of traffic
+   * forever, even while idle remote replicas sit unused, since the tier choice below used to be a
+   * hard cutoff (any same-machine candidate at all excluded every remote one outright). Envoy's own
+   * locality-aware load balancing avoids exactly this failure mode via a weighted overprovisioning
+   * factor across the full candidate set; this is a much smaller, single-signal version of the same
+   * idea, reusing the outstanding-request counts {@link #selector} already tracks for {@link
+   * LeastOutstandingRequestsSelector#select} rather than a new capacity model.
+   */
+  private List<ServiceEndpoint> localityAwareCandidates(
+      List<ServiceEndpoint> sameMachine, List<ServiceEndpoint> remote) {
+    if (sameMachine.isEmpty() || remote.isEmpty()) {
+      return sameMachine.isEmpty() ? remote : sameMachine;
+    }
+    int leastLoadedSameMachine =
+        sameMachine.stream().mapToInt(selector::outstandingCount).min().orElseThrow();
+    int leastLoadedRemote =
+        remote.stream().mapToInt(selector::outstandingCount).min().orElseThrow();
+    if (leastLoadedSameMachine <= leastLoadedRemote) {
+      return sameMachine;
+    }
+    List<ServiceEndpoint> spilled = new ArrayList<>(sameMachine.size() + remote.size());
+    spilled.addAll(sameMachine);
+    spilled.addAll(remote);
+    return spilled;
   }
 
   private ServiceEndpoint selectAllowedCandidate(List<ServiceEndpoint> candidates) {
