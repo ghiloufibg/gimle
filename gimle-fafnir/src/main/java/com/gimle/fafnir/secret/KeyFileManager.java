@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.fafnir.secret;
 
 import com.gimle.core.exception.GimleSecretsException;
 import java.io.IOException;
@@ -19,14 +19,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Loads the control plane's AES-256 secrets master key from {@code keyFilePath}, generating one on
- * first run if absent. A platform-generated local key file is self-contained, with no external KMS
+ * Loads Fafnir's AES-256 secrets master key from {@code keyFilePath}, generating one on first run
+ * if absent. A platform-generated local key file is self-contained, with no external KMS
  * dependency, consistent with this project's MVP-first/YAGNI posture. File permissions are
  * restricted to owner-read-only wherever the filesystem supports POSIX permissions (every real
  * deployment target -- Linux, macOS); on a filesystem that doesn't (Windows, common only in local
  * development), the key is still written but the restriction is skipped with a logged warning
  * rather than a hard failure, since {@code java.nio.file}'s own POSIX view is simply unavailable
  * there.
+ *
+ * <p>Every Fafnir replica must be started with the same {@code keyFilePath} pointing at
+ * identically-provisioned key material -- an operational precondition, not something this class
+ * enforces itself, matching a single-operator, no-external-KMS deployment's actual needs.
  */
 public final class KeyFileManager {
 

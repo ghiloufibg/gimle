@@ -3,6 +3,7 @@ package com.gimle.controlplane.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
@@ -41,6 +42,7 @@ class ApiServerConsoleContractTest {
   Path tempDir;
 
   private InProcessStore inProcessStore;
+  private InProcessFafnir inProcessFafnir;
   private ApiServer server;
   private HttpClient client;
   private String baseUrl;
@@ -48,7 +50,9 @@ class ApiServerConsoleContractTest {
   @BeforeEach
   void startServer() throws IOException {
     inProcessStore = InProcessStore.start(tempDir.resolve("store"));
-    server = new ApiServer(inProcessStore.client(), 0);
+    inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client());
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
@@ -57,6 +61,7 @@ class ApiServerConsoleContractTest {
   @AfterEach
   void stopServer() {
     server.close();
+    inProcessFafnir.close();
     inProcessStore.close();
   }
 

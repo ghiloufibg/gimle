@@ -80,5 +80,16 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-mimir</artifactId>
     </dependency>
+    <!-- Test-only: real gimle-fafnir crypto (SecretCipher/KeyFileManager/FafnirCrypto) plus its own
+         HTTP surface (FafnirServer) back the InProcessFafnir test fixture: a real, in-process,
+         same-JVM Fafnir replica for tests to exercise ApiServer's FafnirClient against, the same
+         "real but embedded" posture InProcessStore already established for gimle-mimir. Never a
+         main-scope dependency: production ApiServer only ever reaches Fafnir over the network,
+         through FafnirClient, exactly like ControlPlaneMain's real fafnir-endpoint flag wiring. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

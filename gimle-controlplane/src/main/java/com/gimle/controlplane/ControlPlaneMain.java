@@ -2,6 +2,7 @@ package com.gimle.controlplane;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
+import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
@@ -69,7 +70,8 @@ public final class ControlPlaneMain {
     if (args.length < 2) {
       System.err.println(
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
-              + "host1:clientPort1,host2:clientPort2,... [--host <hostname>]");
+              + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
+              + " [--host <hostname>]");
       System.exit(2);
       return;
     }
@@ -77,15 +79,23 @@ public final class ControlPlaneMain {
     Path secretKeyFilePath = Path.of(args[1]);
     String selfHost = "127.0.0.1";
     List<SocketAddress> storeEndpoints = List.of();
+    String fafnirEndpoint = null;
     for (int i = 2; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
       } else if ("--store-endpoints".equals(args[i]) && i + 1 < args.length) {
         storeEndpoints = parseStoreEndpoints(args[++i]);
+      } else if ("--fafnir-endpoint".equals(args[i]) && i + 1 < args.length) {
+        fafnirEndpoint = args[++i];
       }
     }
     if (storeEndpoints.isEmpty()) {
       System.err.println("--store-endpoints is required (at least one host:clientPort)");
+      System.exit(2);
+      return;
+    }
+    if (fafnirEndpoint == null || fafnirEndpoint.isBlank()) {
+      System.err.println("--fafnir-endpoint is required (host:port of a gimle-fafnir replica)");
       System.exit(2);
       return;
     }
@@ -107,6 +117,7 @@ public final class ControlPlaneMain {
     }
 
     StoreClient storeClient = new StoreClient(storeEndpoints);
+    FafnirClient fafnirClient = new FafnirClient(fafnirEndpoint);
 
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler =
@@ -125,7 +136,7 @@ public final class ControlPlaneMain {
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
     QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
 
-    ApiServer apiServer = new ApiServer(storeClient, port, secretKeyFilePath);
+    ApiServer apiServer = new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient);
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
 
@@ -179,10 +190,11 @@ public final class ControlPlaneMain {
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
     log.info(
-        "control plane listening on port {} (self: {}, store endpoints: {})",
+        "control plane listening on port {} (self: {}, store endpoints: {}, fafnir: {})",
         apiServer.port(),
         selfApiAddress,
-        storeEndpoints);
+        storeEndpoints,
+        fafnirEndpoint);
 
     Optional<Path> consoleRoot = BundledConsole.resolve(ControlPlaneMain.class.getClassLoader());
     if (consoleRoot.isPresent()) {
@@ -200,6 +212,7 @@ public final class ControlPlaneMain {
                       apiServer.close();
                       ticker.shutdownNow();
                       storeClient.close();
+                      fafnirClient.close();
                     }));
   }
 

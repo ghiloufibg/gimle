@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.PasswordHashes;
@@ -89,7 +90,9 @@ class ApiServerAuthzTest {
     configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -131,7 +134,9 @@ class ApiServerAuthzTest {
     configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -187,8 +192,11 @@ class ApiServerAuthzTest {
         new com.gimle.core.authz.RoleBinding(
             "b1", com.gimle.core.authz.RoleBinding.userSubject("admin"), "tenant-reader"));
 
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     try (inProcessStore;
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
       // No cookieHandler: java.net.http.HttpClient's built-in CookieManager doesn't reliably
@@ -279,8 +287,11 @@ class ApiServerAuthzTest {
     StateStore store = inProcessStore.store();
     store.putAccount(new Account("admin", PasswordHashes.hash("s3cret-password".toCharArray())));
 
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     try (inProcessStore;
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
       HttpClient client =
@@ -343,8 +354,11 @@ class ApiServerAuthzTest {
     store.putRoleBinding(
         new RoleBinding("b2", RoleBinding.userSubject("secret-user"), "secret-only"));
 
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     try (inProcessStore;
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
       HttpClient client =
@@ -415,9 +429,16 @@ class ApiServerAuthzTest {
         new com.gimle.core.tenant.Tenant(
             "tenant-1", new com.gimle.core.tenant.ResourceQuota(1024, 500, 10)));
 
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/fafnir-secret.key"));
     try (inProcessStore;
+        inProcessFafnir;
         ApiServer server =
-            new ApiServer(inProcessStore.client(), 0, tempDir.resolve("keys/secret.key"))) {
+            new ApiServer(
+                inProcessStore.client(),
+                0,
+                tempDir.resolve("keys/session-secret.key"),
+                inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
       HttpClient client =

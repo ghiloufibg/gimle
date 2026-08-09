@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-fafnir</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Fafnir</name>
+  <description>
+    The secrets service as its own process: owns the master key ring, all secret-value
+    encrypt/decrypt/rotate operations, and secret-specific RBAC -- the only place plaintext
+    secret material exists outside a worker's own memory. Extracted from gimle-controlplane
+    the same way gimle-mimir was, so a compromise of the general-purpose API tier doesn't
+    also compromise the crypto boundary.
+  </description>
+
+  <properties>
+    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.fafnir.FafnirMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.logging,java.xml,java.naming</gimle.runtimeImage.jdkModules>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+</project>

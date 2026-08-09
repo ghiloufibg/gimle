@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.gimle.controlplane.api.ApiServer;
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
@@ -78,8 +79,11 @@ class NodeBootstrapCsrTest {
     configureServerTls(ca);
 
     InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     try (inProcessStore;
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 
@@ -132,8 +136,11 @@ class NodeBootstrapCsrTest {
     configureServerTls(ca);
 
     InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     try (inProcessStore;
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       String baseUrl = "https://localhost:" + server.port();
 

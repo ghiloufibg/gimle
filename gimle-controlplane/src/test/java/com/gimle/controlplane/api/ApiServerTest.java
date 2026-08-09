@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
@@ -56,6 +57,7 @@ class ApiServerTest {
   Path tempDir;
 
   private InProcessStore inProcessStore;
+  private InProcessFafnir inProcessFafnir;
   private StateStore store;
   private ApiServer server;
   private HttpClient client;
@@ -65,7 +67,9 @@ class ApiServerTest {
   void startServer() throws IOException {
     inProcessStore = InProcessStore.start(tempDir.resolve("store"));
     store = inProcessStore.store();
-    server = new ApiServer(inProcessStore.client(), 0);
+    inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client());
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
@@ -74,6 +78,7 @@ class ApiServerTest {
   @AfterEach
   void stopServer() {
     server.close();
+    inProcessFafnir.close();
     inProcessStore.close();
   }
 

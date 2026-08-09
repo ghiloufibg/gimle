@@ -1,12 +1,11 @@
 package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.authz.BootstrapAccountFile;
+import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
-import com.gimle.controlplane.secret.KeyFileManager;
-import com.gimle.controlplane.secret.KeyRing;
-import com.gimle.controlplane.secret.SecretCipher;
+import com.gimle.controlplane.secret.SessionKeyFileManager;
 import com.gimle.controlplane.secret.SessionTokens;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
@@ -80,6 +79,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -116,18 +116,15 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
   private final StoreClient storeClient;
-  // Where #rotateSecretsKey (P2-16) writes a new key file -- real even for the ephemeral-key
-  // constructor (a fresh temp directory in that case), so rotation always has somewhere durable
-  // to write, never silently rotating only in memory.
-  private final Path secretKeyFilePath;
-  // Not final: #rotateSecretsKey (P2-16) replaces this with a new ring holding one more key.
-  // Every previously-issued ciphertext keeps decrypting since old keys are never dropped from the
-  // ring, only new ones added and activeKeyId repointed.
-  private volatile KeyRing secretKeyRing;
-  // Signs/verifies console session cookies -- deliberately a separate key, not a reuse of
-  // secretKeyRing's AES material, for key separation between two unrelated crypto purposes (see
-  // SessionTokens' own javadoc). Never rotated -- a session token's own short TTL already bounds
-  // its exposure window, unlike a secret's config-entry value which persists indefinitely.
+  // gimle-fafnir owns the master key ring and every encrypt/decrypt/rotate operation now -- this
+  // client is a thin, pure-HTTP caller against it (design doc Phase A), replacing the in-process
+  // SecretCipher/KeyFileManager/KeyRing calls this field's predecessor made directly.
+  private final FafnirClient fafnirClient;
+  // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
+  // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
+  // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
+  // unlike a secret's config-entry value which persists indefinitely. Stays local to ApiServer
+  // precisely because it's not secret-value material Fafnir's own security boundary is about.
   private final SecretKey sessionSigningKey;
   private final Authorizer authorizer;
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
@@ -159,41 +156,41 @@ public final class ApiServer implements AutoCloseable {
   private volatile Optional<Path> consoleStaticRoot = Optional.empty();
 
   /**
-   * Ephemeral in-memory key, never persisted -- fine for tests and any caller that doesn't need
-   * secrets to survive a restart, but not real deployments (see the two-argument constructor).
+   * Ephemeral session-signing key, never persisted -- fine for tests and any caller that doesn't
+   * need session cookies to survive a restart, but not real deployments (see the four-argument
+   * constructor). {@code fafnirClient} is still real either way -- it's Fafnir, not this
+   * constructor's own key handling, that owns whether secret-value material persists.
    */
-  public ApiServer(StoreClient storeClient, int port) throws IOException {
-    this(storeClient, port, ephemeralKeyPath());
+  public ApiServer(StoreClient storeClient, int port, FafnirClient fafnirClient)
+      throws IOException {
+    this(storeClient, port, ephemeralKeyPath(), fafnirClient);
   }
 
   /**
-   * {@code secretKeyFilePath} is the control plane's persistent AES-256 secrets master key,
-   * generated on first run if absent. {@code storeClient} is this replica's already-constructed
-   * client against the store cluster (etcd-store-extraction design doc) -- unlike the pre-split
-   * {@code RaftNode}-based constructors this replaces, there is no "auto-build a trivial single-
-   * node store" convenience here: standing up even a single {@code StoreNode} requires a real
-   * listener, which is the caller's job (production: {@code ControlPlaneMain}; tests: a small
-   * in-process fixture spinning up exactly one).
+   * {@code secretKeyFilePath} is only this replica's own persistent AES-256 session-signing key
+   * anymore (generated on first run if absent) -- the secrets master key ring it used to also name
+   * now lives entirely in Fafnir, reached through {@code fafnirClient}. {@code storeClient} is this
+   * replica's already-constructed client against the store cluster (etcd-store-extraction design
+   * doc) -- unlike the pre-split {@code RaftNode}-based constructors this replaces, there is no
+   * "auto-build a trivial single-node store" convenience here: standing up even a single {@code
+   * StoreNode} requires a real listener, which is the caller's job (production: {@code
+   * ControlPlaneMain}; tests: a small in-process fixture spinning up exactly one).
    */
-  public ApiServer(StoreClient storeClient, int port, Path secretKeyFilePath) throws IOException {
+  public ApiServer(
+      StoreClient storeClient, int port, Path secretKeyFilePath, FafnirClient fafnirClient)
+      throws IOException {
     this(
         storeClient,
         port,
-        secretKeyFilePath,
-        KeyFileManager.loadAllOrCreate(secretKeyFilePath),
-        KeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
+        fafnirClient,
+        SessionKeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
   }
 
   private ApiServer(
-      StoreClient storeClient,
-      int port,
-      Path secretKeyFilePath,
-      KeyRing secretKeyRing,
-      SecretKey sessionSigningKey)
+      StoreClient storeClient, int port, FafnirClient fafnirClient, SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
-    this.secretKeyFilePath = secretKeyFilePath;
-    this.secretKeyRing = secretKeyRing;
+    this.fafnirClient = fafnirClient;
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     this.server = createHttpServer(port);
@@ -1166,11 +1163,9 @@ public final class ApiServer implements AutoCloseable {
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
-    KeyRing ring = secretKeyRing;
     byte[] stored =
         encrypted
-            ? SecretCipher.encrypt(
-                value.getBytes(StandardCharsets.UTF_8), ring.activeKey(), ring.activeKeyId())
+            ? fafnirClient.encrypt(value.getBytes(StandardCharsets.UTF_8))
             : value.getBytes(StandardCharsets.UTF_8);
     storeClient.propose(
         new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted)));
@@ -1224,15 +1219,22 @@ public final class ApiServer implements AutoCloseable {
       canReadConfig = true;
       canReadSecrets = true;
     }
-    List<Map<String, Object>> list = new ArrayList<>();
+    List<ConfigEntry> visible = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
-      if (entry.encrypted() ? !canReadSecrets : !canReadConfig) {
-        continue;
+      if (entry.encrypted() ? canReadSecrets : canReadConfig) {
+        visible.add(entry);
       }
-      byte[] plaintext =
-          entry.encrypted()
-              ? SecretCipher.decrypt(entry.value(), secretKeyRing.keysById())
-              : entry.value();
+    }
+    // One batched round trip to Fafnir for every encrypted entry, not one per entry -- keeps this
+    // list call to a single network hop regardless of how many secrets a tenant holds.
+    List<byte[]> ciphertexts =
+        visible.stream().filter(ConfigEntry::encrypted).map(ConfigEntry::value).toList();
+    Iterator<byte[]> decrypted =
+        (ciphertexts.isEmpty() ? List.<byte[]>of() : fafnirClient.decryptBatch(ciphertexts))
+            .iterator();
+    List<Map<String, Object>> list = new ArrayList<>();
+    for (ConfigEntry entry : visible) {
+      byte[] plaintext = entry.encrypted() ? decrypted.next() : entry.value();
       Map<String, Object> m = new LinkedHashMap<>();
       m.put("key", entry.key());
       m.put("value", new String(plaintext, StandardCharsets.UTF_8));
@@ -1449,17 +1451,12 @@ public final class ApiServer implements AutoCloseable {
   // ---- /secrets/rotate-key ----
 
   /**
-   * Generates a new secrets master key, makes it the active key for every future {@code
-   * SECRET}-encrypted config write, and re-encrypts every existing encrypted entry under it (P2-16)
-   * -- old keys are never deleted, so any entry this walk doesn't reach still decrypts correctly
-   * either way, just not yet re-encrypted under the newest key. That's true both of an entry
-   * written concurrently mid-rotation, and of {@code ConfigEntry.tenantId()}'s own looser-than-
-   * {@code Tenant} scoping: this walk only visits {@link StoreClient#listTenants} rather than every
-   * distinct tenant id any {@code ConfigEntry} happens to name, since there is no "every config
-   * entry regardless of tenant" store query today. A config entry filed under a tenant id that was
-   * never registered as a real {@code Tenant} keeps decrypting under its original key indefinitely
-   * -- correct, just not eagerly rotated. Gated on the same {@code SECRET:WRITE} permission a
-   * config write itself requires, unscoped since rotation is cluster-wide, not per-tenant.
+   * Proxies to Fafnir's own {@code /secrets/rotate-key} (moved there verbatim from this method's
+   * pre-extraction body -- see {@code FafnirCrypto.rotate}'s javadoc for the re-encryption walk's
+   * exact semantics, unchanged by the move). Gated on the same {@code SECRET:WRITE} permission a
+   * config write itself requires, unscoped since rotation is cluster-wide, not per-tenant -- this
+   * process's own authorization check, not yet Fafnir's own independent one (design doc §9's
+   * corrected defense-in-depth mechanism is a later addition, not this phase's scope).
    */
   private void handleRotateSecretsKey(HttpExchange exchange) {
     try {
@@ -1470,7 +1467,7 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      byte newKeyId = rotateSecretsKey();
+      byte newKeyId = fafnirClient.rotateKey();
       respondJson(exchange, 200, Map.of("activeKeyId", Byte.toUnsignedInt(newKeyId)));
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);
@@ -1480,25 +1477,6 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
-  }
-
-  private byte rotateSecretsKey() {
-    KeyRing newRing = KeyFileManager.rotate(secretKeyFilePath, secretKeyRing);
-    secretKeyRing = newRing; // every future write already uses the new active key from here on
-    for (Tenant tenant : storeClient.listTenants()) {
-      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
-        if (!entry.encrypted()) {
-          continue;
-        }
-        byte[] plaintext = SecretCipher.decrypt(entry.value(), newRing.keysById());
-        byte[] reencrypted =
-            SecretCipher.encrypt(plaintext, newRing.activeKey(), newRing.activeKeyId());
-        storeClient.propose(
-            new StateMutation.PutConfigEntry(
-                new ConfigEntry(entry.tenantId(), entry.key(), reencrypted, true)));
-      }
-    }
-    return newRing.activeKeyId();
   }
 
   // ---- /accounts and /accounts/{username} ----

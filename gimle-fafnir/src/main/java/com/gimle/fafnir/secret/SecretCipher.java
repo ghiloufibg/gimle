@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.fafnir.secret;
 
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
@@ -9,7 +9,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * AES-256-GCM encrypt/decrypt for {@code ConfigEntry} values -- the JDK's own {@code Cipher}/{@code
+ * AES-256-GCM encrypt/decrypt for secret values -- the JDK's own {@code Cipher}/{@code
  * SecretKeySpec}, no external crypto library, matching this project's "prefer what the JDK already
  * provides" posture (AppCDS/JFR/{@code ModuleLayer} are all stock-JDK mechanisms too).
  *

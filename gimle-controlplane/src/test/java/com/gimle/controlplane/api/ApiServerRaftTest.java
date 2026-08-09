@@ -3,6 +3,7 @@ package com.gimle.controlplane.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.mimir.raft.PeerConnection;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
@@ -67,6 +68,12 @@ class ApiServerRaftTest {
   private final List<ApiServer> apiServers = new ArrayList<>();
   private final HttpClient client = HttpClient.newHttpClient();
   private int clusterCounter;
+  // One shared Fafnir replica for every ApiServer replica this class builds -- mirrors how a real
+  // deployment points every control-plane replica at the same Fafnir replica set, rather than each
+  // ApiServer replica getting its own isolated Fafnir (which would repeat exactly the per-replica
+  // key-file mismatch bug this whole extraction exists to fix). Lazily started on first use since
+  // not every test method in this class calls buildApiServers.
+  private InProcessFafnir inProcessFafnir;
 
   private record StoreClusterNode(
       String raftId,
@@ -87,6 +94,9 @@ class ApiServerRaftTest {
   void tearDown() {
     for (ApiServer server : apiServers) {
       server.close();
+    }
+    if (inProcessFafnir != null) {
+      inProcessFafnir.close();
     }
     for (StoreClient storeClient : storeClients) {
       storeClient.close();
@@ -167,11 +177,19 @@ class ApiServerRaftTest {
       throws IOException {
     List<SocketAddress> storeEndpoints =
         storeCluster.stream().map(StoreClusterNode::clientAddress).toList();
+    if (inProcessFafnir == null) {
+      StoreClient fafnirStoreClient = new StoreClient(storeEndpoints);
+      storeClients.add(fafnirStoreClient);
+      inProcessFafnir =
+          InProcessFafnir.start(fafnirStoreClient, tempDir.resolve("fafnir-secret.key"));
+    }
     List<ApiServer> servers = new ArrayList<>();
     for (int i = 0; i < n; i++) {
       StoreClient storeClient = new StoreClient(storeEndpoints);
       storeClients.add(storeClient);
-      ApiServer apiServer = new ApiServer(storeClient, 0, tempDir.resolve("secret-" + i + ".key"));
+      ApiServer apiServer =
+          new ApiServer(
+              storeClient, 0, tempDir.resolve("secret-" + i + ".key"), inProcessFafnir.client());
       apiServer.start();
       apiServers.add(apiServer);
       servers.add(apiServer);

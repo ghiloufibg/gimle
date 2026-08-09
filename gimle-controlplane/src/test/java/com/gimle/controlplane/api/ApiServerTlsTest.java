@@ -2,6 +2,7 @@ package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -72,7 +73,9 @@ class ApiServerTlsTest {
     TlsSettings clientSettings = issueLeaf(ca, "operator");
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
       HttpClient client = HttpClient.newBuilder().sslContext(clientContext).build();
@@ -95,7 +98,9 @@ class ApiServerTlsTest {
     configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
-        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
       // A client that trusts the CA (so it accepts the server's own cert) but presents no client
       // certificate of its own. The server sets wantClientAuth, not needClientAuth (see
