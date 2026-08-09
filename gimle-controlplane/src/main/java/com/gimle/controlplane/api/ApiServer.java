@@ -1,6 +1,5 @@
 package com.gimle.controlplane.api;
 
-import com.gimle.controlplane.authz.Authorizer;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
@@ -46,6 +45,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.StateMutation;

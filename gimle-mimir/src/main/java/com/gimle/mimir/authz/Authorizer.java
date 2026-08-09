@@ -1,4 +1,4 @@
-package com.gimle.controlplane.authz;
+package com.gimle.mimir.authz;
 
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Permission;
@@ -13,14 +13,20 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Resolves whether {@code principal} may perform {@code verb} on {@code resource} -- {@code
- * claudedocs/authn-authz-design.md} §3a. Reads the store directly rather than caching: every
- * existing reconciler in this codebase already re-derives its decision from the store on every tick
- * rather than tracking deltas (the same level-triggered posture), and an authorization check
- * happens once per request, not in a hot loop, so there is no performance reason to diverge from
- * that pattern here. Takes {@link StoreReader} rather than a concrete {@code StateStore} so
- * production code can pass a {@code StoreClient} (etcd-store-extraction design doc) while tests
- * keep constructing a plain, network-free {@code StateStore}.
+ * Resolves whether {@code principal} may perform {@code verb} on {@code resource}. Reads the store
+ * directly rather than caching: every existing reconciler in this codebase already re-derives its
+ * decision from the store on every tick rather than tracking deltas (the same level-triggered
+ * posture), and an authorization check happens once per request, not in a hot loop, so there is no
+ * performance reason to diverge from that pattern here. Takes {@link StoreReader} rather than a
+ * concrete {@code StateStore} so any store-backed process can pass its own {@code StoreClient}
+ * while tests keep constructing a plain, network-free {@code StateStore}.
+ *
+ * <p>Lives in {@code gimle-mimir} rather than {@code gimle-core} because it depends on {@link
+ * StoreReader}, which itself belongs in {@code gimle-mimir} (tightly coupled to {@code
+ * StateStore}). Every process that needs its own authorization decision -- {@code
+ * gimle-controlplane} today, {@code gimle-fafnir} independently re-checking a forwarded request
+ * rather than trusting the proxy alone -- already depends on {@code gimle-mimir} for {@code
+ * StoreClient}, so this adds no new coupling in either direction.
  */
 public final class Authorizer {
 

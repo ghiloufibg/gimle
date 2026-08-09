@@ -1,4 +1,4 @@
-package com.gimle.controlplane.authz;
+package com.gimle.mimir.authz;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
