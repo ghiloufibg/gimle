@@ -127,7 +127,7 @@ class FabricServerTest {
   }
 
   @Test
-  void hasRemoteSpan_distinguishes_a_real_caller_span_from_the_no_active_span_marker() {
+  void has_remote_span_distinguishes_a_real_caller_span_from_the_no_active_span_marker() {
     // FabricServiceRegistry#captureTrace's own "no active span at call time" wire representation:
     // all-zero trace/span IDs, the W3C spec's own reserved invalid values.
     assertFalse(FabricServer.hasRemoteSpan(new TraceContext(0L, 0L, 0L, (byte) 0)));

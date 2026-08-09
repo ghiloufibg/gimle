@@ -243,14 +243,14 @@ see "Shipped scope notes" immediately below the table.
 
 ## P3 — Backlog / optional (low value, large effort, or narrow payoff)
 
-These are real, verified findings — just not worth prioritizing given the project's educational scope and the effort required relative to payoff. Revisit only if nothing in P0–P2 remains.
+These are real, verified findings — just not worth prioritizing given the project's educational scope and the effort required relative to payoff. Revisit only if nothing in P0–P2 remains. The five "Yes"-fit items have since landed (one commit each, same rhythm as P0–P2); the "Partial"/"No"-fit items below remain deliberately unaddressed, pending a dedicated pass.
 
-- **InstallSnapshot sends the whole snapshot in one RPC, no chunking** (Raft paper's Figure 13 has `offset`/`done` fields for this; fine at this project's data scale) — `gimle-mimir`. Low/Medium/Yes.
-- **`GossipMember` never reaps `DEAD` members** — membership table grows unboundedly with node churn over a long-running cluster's life — `gimle-fabric`. Low-Medium/Small/Yes.
-- **Locality-tier load balancing is a hard cutoff** — a single lightly-loaded same-machine replica absorbs 100% of traffic even with idle remote replicas, no capacity-aware spillover like Envoy's overprovisioning factor — `gimle-fabric`. Low/Medium/Yes.
-- **Invalid all-zero `SpanContext`** constructed when no active span exists at call time — harmless under the current no-op exporter, will misbehave the moment a real OTLP backend is wired in — `gimle-fabric`. Low/Small/Yes.
+- ~~**InstallSnapshot sends the whole snapshot in one RPC, no chunking**~~ (Raft paper's Figure 13 has `offset`/`done` fields for this; fine at this project's data scale) — `gimle-mimir`. Low/Medium/Done.
+- ~~**`GossipMember` never reaps `DEAD` members**~~ — membership table grows unboundedly with node churn over a long-running cluster's life — `gimle-fabric`. Low-Medium/Small/Done.
+- ~~**Locality-tier load balancing is a hard cutoff**~~ — a single lightly-loaded same-machine replica absorbs 100% of traffic even with idle remote replicas, no capacity-aware spillover like Envoy's overprovisioning factor — `gimle-fabric`. Low/Medium/Done.
+- ~~**Invalid all-zero `SpanContext`** constructed when no active span exists at call time~~ — harmless under the current no-op exporter, will misbehave the moment a real OTLP backend is wired in — `gimle-fabric`. Low/Small/Done.
 - **No request rate limiting/throttling on the control-plane API**, even in authenticated/TLS mode — `gimle-controlplane`. Low/Medium/Partial.
-- **No startup log banner for the no-auth-by-default posture** — the PLAINTEXT default itself is intentional (see Not gaps), but a loud, explicit "running with no authentication" line at boot would make the tradeoff visible instead of silent — `gimle-controlplane`. Low/Small/Yes.
+- ~~**No startup log banner for the no-auth-by-default posture**~~ — the PLAINTEXT default itself is intentional (see Not gaps), but a loud, explicit "running with no authentication" line at boot would make the tradeoff visible instead of silent — `gimle-controlplane`. Low/Small/Done.
 - **Two independent, unsynchronized failure detectors** (SWIM gossip vs. the control plane's own 15s heartbeat-dark timeout) can disagree about node liveness — matches CLAUDE.md's stated design ("gossip off the control plane's critical path") so this is intentional, but worth documenting as a known inconsistency rather than rediscovering it as a bug — `gimle-fabric`, `gimle-controlplane`. Medium/Large/No.
 - **No linearizable/quorum read path** in the store's read API — every read can observe stale/partitioned-minority data with no opt-in for a fresher read, a documented simplification already — `gimle-mimir`. Medium/Medium/Partial.
 - **Raft chaos testing is real but scripted, not randomized/Jepsen-style** — six well-chosen scenarios exist (`RaftClusterTest.java:211-334`) but no randomized nemesis + linearizability checker — `gimle-mimir`. Medium/Large/No.

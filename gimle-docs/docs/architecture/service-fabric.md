@@ -39,7 +39,10 @@ the same-worker shortcut — it genuinely goes over the wire.
 - `ServiceCatalog`/`ServiceCatalogCodec`/`CatalogDelta`/`ServiceEndpoint` track which service
   instances exist where, propagated incrementally (deltas, not full-catalog resends).
 - The load balancer prefers locality — healthy same-worker instance first, then same-machine, then
-  remote by least-outstanding-requests (`LeastOutstandingRequestsSelector`).
+  remote by least-outstanding-requests (`LeastOutstandingRequestsSelector`). Same-machine isn't a
+  hard cutoff: once every same-machine candidate is busier (by outstanding-request count) than the
+  least-loaded remote one, the remote tier is admitted into selection too, so a single saturated
+  same-machine replica spills traffic to idle remote replicas instead of absorbing 100% of it.
 - `CircuitBreaker` handles outlier ejection at the registry level, so an unhealthy instance stops
   receiving traffic before a health probe would even declare it dead -- keyed off `FabricClient`
   throwing an `IOException`, which now also covers a peer that accepted the connection and then

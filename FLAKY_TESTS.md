@@ -61,6 +61,16 @@ re-diagnosed every time:
 - Failure: same proposal-timeout shape as the other Raft entries above (`GimleRaftException: node
   node-0's proposal did not commit within PT5S`).
 - Passed cleanly on an isolated re-run with no code change.
+- Observed again: 2026-08-09, during the P3 (InstallSnapshot chunking, etc.) final full-reactor
+  `mvn verify`, this time as `assertTrue` failing on `snapshotLastIncludedIndex() >= lastIndex`
+  immediately after the preceding `awaitTrue`'s tenant-visibility condition already succeeded.
+  Consistent with a genuine, pre-existing (not introduced by the P3-1 chunking change --
+  `RaftClusterTest.java` itself wasn't touched by that commit) memory-visibility race in the test
+  itself: `store.getTenant(...)` (a `ConcurrentHashMap` read) and `raftLog.snapshotLastIncludedIndex()`
+  (a plain field read) are two separately-synchronized reads from a different thread than the
+  writer, with no ordering guarantee between them absent additional synchronization -- more likely
+  to manifest under this sandbox's heavier full-reactor CPU contention. Passed cleanly on three
+  consecutive isolated re-runs with no code change.
 
 ### `StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower`
 

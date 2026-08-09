@@ -83,7 +83,7 @@ Node/worker/module failure are distinct events with distinct recovery costs (sec
 
 - Modules publish/consume services via a registry keyed by interface + version.
 - Same-worker calls are direct in-JVM invocations (no serialization/network/proxy). Cross-worker-same-machine uses a Unix domain socket with a compact binary codec. Cross-machine uses the same codec over TCP with virtual-thread-per-connection.
-- Load balancing prefers locality: same-worker → same-machine → remote (least-outstanding-requests), with circuit breaking/outlier ejection at the registry level.
+- Load balancing prefers locality: same-worker → same-machine → remote (least-outstanding-requests), with circuit breaking/outlier ejection at the registry level. Same-machine isn't a hard cutoff: once every same-machine candidate is busier than the least-loaded remote one, the remote tier is admitted into selection too, so a single saturated same-machine replica spills over instead of absorbing all traffic while remote replicas sit idle.
 
 ## Health, scaling, self-healing
 
