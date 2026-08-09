@@ -85,6 +85,17 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   @Override
+  public synchronized void markReady(ModuleId owner) {
+    for (List<Entry> entries : entriesByInterface.values()) {
+      for (Entry entry : entries) {
+        if (entry.owner().equals(owner)) {
+          entry.ready().set(true);
+        }
+      }
+    }
+  }
+
+  @Override
   public synchronized void remove(ModuleId owner) {
     for (List<Entry> entries : entriesByInterface.values()) {
       entries.removeIf(entry -> entry.owner().equals(owner));

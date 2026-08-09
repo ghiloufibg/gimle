@@ -93,6 +93,28 @@ class SimpleServiceRegistryTest {
   }
 
   @Test
+  void mark_ready_reverses_mark_unready_and_re_enters_the_round_robin() {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    ModuleId owner = id("com.gimle.a");
+    Greeter instance = () -> "hello";
+    registry.register(owner, Greeter.class, instance);
+
+    registry.markUnready(owner);
+    assertEquals(Optional.empty(), registry.lookup(Greeter.class));
+
+    registry.markReady(owner);
+    assertEquals(Optional.of(instance), registry.lookup(Greeter.class));
+  }
+
+  @Test
+  void mark_ready_on_an_unknown_owner_is_a_no_op() {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    // Never registered anything -- must not throw, and must not conjure a lookupable entry.
+    registry.markReady(id("com.gimle.never-registered"));
+    assertEquals(Optional.empty(), registry.lookup(Greeter.class));
+  }
+
+  @Test
   void remove_excludes_entirely() {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     ModuleId owner = id("com.gimle.a");

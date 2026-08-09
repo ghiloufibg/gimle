@@ -204,15 +204,11 @@ public final class WorkerRuntime {
   }
 
   private void onReadinessResult(ModuleId id, boolean ready) {
-    if (!ready) {
+    if (ready) {
+      serviceRegistry.markReady(id);
+    } else {
       serviceRegistry.markUnready(id);
     }
-    // Becoming ready again is re-established the next time the module registers a service
-    // (onStart/onInstall) or is naturally re-marked by a caller with fresher state; readiness
-    // probes here only ever demote, matching the design's "readiness failures... just flip the
-    // module's tracked readiness state" — there is deliberately no separate "mark ready" call
-    // wired through this loop, since ServiceRegistry has no ambiguity to resolve by re-adding
-    // an already-registered, already-ready entry.
   }
 
   private void onLivenessResult(ModuleId id, boolean alive) {

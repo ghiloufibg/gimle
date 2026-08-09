@@ -252,6 +252,13 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
+  public void markReady(ModuleId owner) {
+    localRegistry.markReady(owner);
+    // Same local-only posture as markUnready above: no catalog/wire effect needed for the
+    // reciprocal transition either.
+  }
+
+  @Override
   public void remove(ModuleId owner) {
     localRegistry.remove(owner);
     Set<ServiceExport> exports = registeredExportsByOwner.remove(owner);

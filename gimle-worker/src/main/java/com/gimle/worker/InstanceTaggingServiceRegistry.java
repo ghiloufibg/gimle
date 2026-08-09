@@ -69,6 +69,11 @@ public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
   }
 
   @Override
+  public void markReady(ModuleId owner) {
+    delegate.markReady(owner);
+  }
+
+  @Override
   public void remove(ModuleId owner) {
     delegate.remove(owner);
     identities.remove(owner);

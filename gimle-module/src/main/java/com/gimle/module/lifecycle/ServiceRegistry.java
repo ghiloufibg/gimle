@@ -55,6 +55,14 @@ public interface ServiceRegistry {
    */
   void markUnready(ModuleId owner);
 
+  /**
+   * Reverses {@link #markUnready}: {@code owner}'s services become eligible for {@link #lookup}
+   * again. A no-op for an {@code owner} that never registered anything (or was already removed) --
+   * the readiness probe loop keeps ticking after a module's own teardown starts, and a late
+   * in-flight tick calling this on a gone owner must not resurrect a phantom entry.
+   */
+  void markReady(ModuleId owner);
+
   /** Removes everything {@code owner} registered. */
   void remove(ModuleId owner);
 }

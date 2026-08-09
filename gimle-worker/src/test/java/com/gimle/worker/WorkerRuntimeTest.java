@@ -292,6 +292,23 @@ class WorkerRuntimeTest {
   }
 
   @Test
+  void a_module_becomes_lookupable_again_when_its_readiness_probe_recovers() {
+    Fixture f = startFixture("com.gimle.fixture.readiness.recovery", 99);
+
+    ControllableReadinessProbe.READY.set(false);
+    Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
+
+    ControllableReadinessProbe.READY.set(true);
+    Await.atLeast(
+        () -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
+
+    assertEquals(
+        Optional.of("hello from provider"),
+        f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));
+    assertTrue(f.registry().contains(f.id()));
+  }
+
+  @Test
   void stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry() {
     Fixture f = startFixture("com.gimle.fixture.stopping", 99);
     assertEquals(
