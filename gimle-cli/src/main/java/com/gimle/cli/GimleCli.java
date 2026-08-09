@@ -25,6 +25,12 @@ import java.util.List;
  *   gimle get config &lt;tenantId&gt;
  *   gimle set config &lt;tenantId&gt; &lt;key&gt; &lt;value&gt; [--encrypted]
  *   gimle delete config &lt;tenantId&gt; &lt;key&gt;
+ *   gimle secret list &lt;tenantId&gt;
+ *   gimle secret get &lt;tenantId&gt; &lt;key&gt; [--version N]
+ *   gimle secret set &lt;tenantId&gt; &lt;key&gt; --value &lt;v&gt;
+ *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
+ *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
+ *   gimle secret rotate-key
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  *   gimle get roles [name]
  *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;] [--permission ...]
@@ -111,6 +117,7 @@ public final class GimleCli {
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
       case "events" -> handleEvents(rest, client, output, out);
+      case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -226,6 +233,12 @@ public final class GimleCli {
           get config <tenantId>
           set config <tenantId> <key> <value> [--encrypted]
           delete config <tenantId> <key>
+          secret list <tenantId>
+          secret get <tenantId> <key> [--version N]
+          secret set <tenantId> <key> --value <v>
+          secret delete <tenantId> <key> [--destroy]
+          secret versions <tenantId> <key>
+          secret rotate-key
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
           get roles [name]
           set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]

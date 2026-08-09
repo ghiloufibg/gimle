@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
+import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.core.protocol.Json;
+import com.gimle.fafnir.FafnirCrypto;
+import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.rpc.StoreClient;
@@ -46,6 +49,8 @@ class GimleCliTest {
   private RaftNode storeRaftNode;
   private StoreTransport storeTransport;
   private StoreClient storeClient;
+  private FafnirServer fafnirServer;
+  private FafnirClient fafnirClient;
   private ApiServer server;
   private String serverAddress;
   private ByteArrayOutputStream outBuffer;
@@ -67,7 +72,15 @@ class GimleCliTest {
     SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
     storeClient = new StoreClient(List.of(storeAddress));
 
-    server = new ApiServer(storeClient, 0);
+    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process (design
+    // doc Phase A), so every config/secrets round trip below now needs a genuine encrypt/decrypt/
+    // versioned-store hop, not a mock.
+    FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
+    fafnirServer = new FafnirServer(fafnirCrypto, 0);
+    fafnirServer.start();
+    fafnirClient = new FafnirClient("localhost:" + fafnirServer.port());
+
+    server = new ApiServer(storeClient, 0, fafnirClient);
     server.start();
     serverAddress = "localhost:" + server.port();
     outBuffer = new ByteArrayOutputStream();
@@ -79,6 +92,8 @@ class GimleCliTest {
   @AfterEach
   void stopServer() {
     server.close();
+    fafnirClient.close();
+    fafnirServer.close();
     storeClient.close();
     storeTransport.close();
     storeRaftNode.close();
@@ -210,6 +225,77 @@ class GimleCliTest {
 
     int deleteExit = run("delete", "config", "acme", "greeting");
     assertEquals(0, deleteExit);
+  }
+
+  @Test
+  void secret_set_then_get_round_trips_the_plaintext_value() throws Exception {
+    int setExit = run("secret", "set", "acme", "db-password", "--value", "hunter2");
+    assertEquals(0, setExit, stderr());
+    assertTrue(stdout().contains("secrets/acme/db-password set (version 1)"));
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "db-password");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("hunter2"));
+  }
+
+  @Test
+  void secret_list_shows_the_key_without_ever_printing_a_value() throws Exception {
+    run("secret", "set", "acme", "db-password", "--value", "hunter2");
+
+    outBuffer.reset();
+    int listExit = run("secret", "list", "acme");
+    assertEquals(0, listExit, stderr());
+    assertTrue(stdout().contains("db-password"));
+    assertFalse(stdout().contains("hunter2"));
+  }
+
+  @Test
+  void secret_versions_lists_every_claimed_version_after_two_writes() throws Exception {
+    run("secret", "set", "acme", "db-password", "--value", "v1");
+    run("secret", "set", "acme", "db-password", "--value", "v2");
+
+    outBuffer.reset();
+    int versionsExit = run("secret", "versions", "acme", "db-password");
+    assertEquals(0, versionsExit, stderr());
+    assertTrue(stdout().contains("1"));
+    assertTrue(stdout().contains("2"));
+  }
+
+  @Test
+  void secret_get_with_an_explicit_version_reads_the_historical_value() throws Exception {
+    run("secret", "set", "acme", "db-password", "--value", "v1");
+    run("secret", "set", "acme", "db-password", "--value", "v2");
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "db-password", "--version", "1");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("v1"));
+  }
+
+  @Test
+  void secret_delete_then_get_returns_not_found() throws Exception {
+    run("secret", "set", "acme", "temp", "--value", "x");
+
+    int deleteExit = run("secret", "delete", "acme", "temp");
+    assertEquals(0, deleteExit, stderr());
+
+    int getAfterDeleteExit = run("secret", "get", "acme", "temp");
+    assertEquals(1, getAfterDeleteExit);
+  }
+
+  @Test
+  void secret_rotate_key_returns_an_incrementing_active_key_id() throws Exception {
+    int firstExit = run("-o", "json", "secret", "rotate-key");
+    assertEquals(0, firstExit, stderr());
+    Map<String, Object> first = Json.asObject(Json.parse(stdout()));
+    assertEquals(1L, first.get("activeKeyId"));
+
+    outBuffer.reset();
+    int secondExit = run("-o", "json", "secret", "rotate-key");
+    assertEquals(0, secondExit, stderr());
+    Map<String, Object> second = Json.asObject(Json.parse(stdout()));
+    assertEquals(2L, second.get("activeKeyId"));
   }
 
   @Test

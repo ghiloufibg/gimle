@@ -45,5 +45,14 @@
       <artifactId>gimle-controlplane</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- ApiServer no longer performs crypto in-process (design doc Phase A): GimleCliTest needs
+         a real, in-process FafnirServer/FafnirClient pair backing it, the same "small enough to
+         duplicate rather than a new coupling" InProcessFafnir fixture shape gimle-controlplane's
+         own tests already use. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
