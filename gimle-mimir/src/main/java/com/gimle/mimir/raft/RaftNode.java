@@ -7,11 +7,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -20,6 +20,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,10 +53,31 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final long SNAPSHOT_THRESHOLD = 10_000;
 
   private final String selfId;
-  private final Map<String, RaftPeerClient> peers;
+  private Map<String, RaftPeerClient> peers;
   private final RaftLog raftLog;
   private final StateStore store;
   private final Duration proposeTimeout;
+
+  /**
+   * This node's live view of every peer's Raft/client network address, keyed the same as {@link
+   * #peers} -- guarded by {@link #lock}, mutated only by {@link #reconfigurePeersLocked}. A node
+   * built via the legacy {@code Map<String, RaftPeerClient>} constructor (every test that doesn't
+   * exercise live membership changes) leaves this empty forever: it has no addresses to record, and
+   * {@link #addServer}/{@link #removeServer} are simply never called on it.
+   */
+  private final Map<String, PeerAddress> peerAddresses = new HashMap<>();
+
+  /**
+   * The address-aware constructor's initial peer set, kept as the fallback {@link
+   * #effectivePeerConfigLocked} falls back to once the log no longer has any {@link
+   * MembershipChange} entry left to scan (either none was ever proposed, or the log has been
+   * compacted past the last one -- see that method's own javadoc for the one narrow case this
+   * doesn't cover). Empty for a legacy-constructed node.
+   */
+  private final Map<String, PeerAddress> bootstrapPeerAddresses;
+
+  private final RaftPeerClientFactory peerClientFactory;
+  private final Consumer<Map<String, PeerAddress>> membershipListener;
 
   private final ReentrantLock lock = new ReentrantLock();
   private final Condition commitAdvanced = lock.newCondition();
@@ -68,7 +91,17 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final Map<String, Long> nextIndex = new HashMap<>();
   private final Map<String, Long> matchIndex = new HashMap<>();
   private final Map<String, Semaphore> peerWake = new ConcurrentHashMap<>();
-  private final List<Thread> peerSenderThreads = new CopyOnWriteArrayList<>();
+  private final Map<String, Thread> peerSenderThreads = new ConcurrentHashMap<>();
+
+  /**
+   * This node's own outstanding self-proposed {@link MembershipChange} log index, if any -- guarded
+   * by {@link #lock}. The etcd-style safety rule this codebase ships in place of full joint
+   * consensus: {@link #addServer}/{@link #removeServer} refuse to start a second one while this is
+   * non-null, so at most one configuration is ever in flight. Recomputed from a log scan in {@link
+   * #becomeLeaderLocked} (a newly-elected leader may inherit an uncommitted one from a previous
+   * term) and cleared once that index is applied or truncated away.
+   */
+  private Long pendingMembershipChangeIndex;
 
   private final ScheduledExecutorService scheduler;
   private ScheduledFuture<?> electionTimeoutFuture;
@@ -90,16 +123,74 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       StateStore store,
       Duration proposeTimeout) {
     this.selfId = selfId;
-    this.peers = Map.copyOf(peers);
+    this.peers = new HashMap<>(peers);
+    this.bootstrapPeerAddresses = Map.of();
+    this.peerClientFactory =
+        address -> {
+          throw new UnsupportedOperationException(
+              "this RaftNode was constructed without peer addresses/a client factory; live "
+                  + "membership changes (addServer/removeServer) are unsupported on it");
+        };
+    this.membershipListener = ignored -> {};
     this.raftLog = raftLog;
     this.store = store;
     this.proposeTimeout = proposeTimeout;
-    this.scheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> Thread.ofVirtual().name("gimle-controlplane-raft-tick-" + selfId).unstarted(r));
+    this.scheduler = newTickScheduler(selfId);
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
+  }
+
+  /**
+   * The address-aware constructor: supports live membership changes ({@link #addServer}/{@link
+   * #removeServer}). {@code peerClientFactory} builds a {@link RaftPeerClient} for any peer this
+   * node doesn't already have a connection to -- both the {@code peers} bootstrap set given here
+   * and any peer learned about later, either self-proposed or replicated from the current leader.
+   * {@code membershipListener} is invoked with the complete new peer-address map every time
+   * membership changes, under this node's own internal lock -- it must be fast and non-blocking
+   * (updating a concurrent map, never real I/O); {@code StoreMain} wires this to keep {@code
+   * StoreNode}'s client-redirect address book current.
+   */
+  public RaftNode(
+      String selfId,
+      Map<String, PeerAddress> peers,
+      RaftPeerClientFactory peerClientFactory,
+      RaftLog raftLog,
+      StateStore store,
+      Consumer<Map<String, PeerAddress>> membershipListener) {
+    this(selfId, peers, peerClientFactory, raftLog, store, membershipListener, PROPOSE_TIMEOUT);
+  }
+
+  /** Test-only short-{@code proposeTimeout} counterpart to the address-aware constructor above. */
+  RaftNode(
+      String selfId,
+      Map<String, PeerAddress> peers,
+      RaftPeerClientFactory peerClientFactory,
+      RaftLog raftLog,
+      StateStore store,
+      Consumer<Map<String, PeerAddress>> membershipListener,
+      Duration proposeTimeout) {
+    this.selfId = selfId;
+    this.peerClientFactory = peerClientFactory;
+    this.membershipListener = membershipListener;
+    this.bootstrapPeerAddresses = Map.copyOf(peers);
+    this.peers = new HashMap<>();
+    for (Map.Entry<String, PeerAddress> e : peers.entrySet()) {
+      this.peers.put(e.getKey(), peerClientFactory.connect(e.getValue()));
+    }
+    this.peerAddresses.putAll(peers);
+    this.raftLog = raftLog;
+    this.store = store;
+    this.proposeTimeout = proposeTimeout;
+    this.scheduler = newTickScheduler(selfId);
+    for (String peerId : this.peers.keySet()) {
+      peerWake.put(peerId, new Semaphore(0));
+    }
+  }
+
+  private static ScheduledExecutorService newTickScheduler(String selfId) {
+    return Executors.newSingleThreadScheduledExecutor(
+        r -> Thread.ofVirtual().name("gimle-controlplane-raft-tick-" + selfId).unstarted(r));
   }
 
   public void start() {
@@ -134,7 +225,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       lock.unlock();
     }
     scheduler.shutdownNow();
-    for (Thread t : peerSenderThreads) {
+    for (Thread t : peerSenderThreads.values()) {
       t.interrupt();
     }
   }
@@ -178,6 +269,135 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     awaitAppliedThrowing(index);
   }
 
+  // ---- membership changes: etcd-style, one at a time, not full joint consensus ----
+
+  /**
+   * Adds {@code peerId} to the cluster's configuration, blocking until this node has applied the
+   * resulting {@link MembershipChange} entry. Throws {@link GimleRaftException#notLeader} if this
+   * node isn't currently leader, and {@link GimleRaftException#membershipChangeInFlight} if an
+   * earlier {@link #addServer}/{@link #removeServer} on this node hasn't committed yet -- the one
+   * safety rule this reduction needs in place of full joint consensus's dual-majority machinery.
+   */
+  public void addServer(String peerId, PeerAddress address) {
+    proposeMembershipChange(
+        current -> {
+          if (current.containsKey(peerId) || peerId.equals(selfId)) {
+            throw GimleRaftException.alreadyAMember(selfId, peerId);
+          }
+          Map<String, PeerAddress> updated = new LinkedHashMap<>(current);
+          updated.put(peerId, address);
+          return updated;
+        });
+  }
+
+  /** The symmetric removal counterpart to {@link #addServer}. */
+  public void removeServer(String peerId) {
+    proposeMembershipChange(
+        current -> {
+          if (!current.containsKey(peerId)) {
+            throw GimleRaftException.notAMember(selfId, peerId);
+          }
+          Map<String, PeerAddress> updated = new LinkedHashMap<>(current);
+          updated.remove(peerId);
+          return updated;
+        });
+  }
+
+  private void proposeMembershipChange(UnaryOperator<Map<String, PeerAddress>> transform) {
+    long index;
+    lock.lock();
+    try {
+      if (role != Role.LEADER) {
+        throw GimleRaftException.notLeader(selfId, leaderHint());
+      }
+      if (pendingMembershipChangeIndex != null) {
+        throw GimleRaftException.membershipChangeInFlight(selfId);
+      }
+      Map<String, PeerAddress> updated = transform.apply(Map.copyOf(peerAddresses));
+      long term = raftLog.currentTerm();
+      index = raftLog.lastIndex() + 1;
+      raftLog.append(new LogEntry(term, index, new MembershipChange(updated)));
+      // Effective on append, not on commit -- the one genuinely new Raft rule single-server
+      // membership changes require; see RaftLogPayload's own javadoc.
+      reconfigurePeersLocked(updated);
+      pendingMembershipChangeIndex = index;
+      advanceCommitIndexLocked();
+    } finally {
+      lock.unlock();
+    }
+    wakePeerSenders();
+    awaitAppliedThrowing(index);
+  }
+
+  private void applyIfMembershipChangeLocked(LogEntry entry) {
+    if (entry.payload() instanceof MembershipChange change) {
+      reconfigurePeersLocked(change.peers());
+    }
+  }
+
+  /**
+   * Reconciles every mutable piece of per-peer state ({@link #peers}, {@link #nextIndex}, {@link
+   * #matchIndex}, {@link #peerWake}, {@link #peerSenderThreads}) against {@code newPeerAddresses},
+   * the cluster's new complete configuration -- called the instant a {@link MembershipChange} is
+   * appended (leader, self-proposed) or replicated in (follower), never waiting for it to commit. A
+   * brand-new peer's {@code nextIndex} starts at the snapshot floor rather than this node's log tip
+   * (unlike {@link #becomeLeaderLocked}'s reset for already-known peers): it has seen none of the
+   * log yet and must either replay it from there or catch up via {@code InstallSnapshot}. {@link
+   * #membershipListener} is notified last, still under {@link #lock} -- it must stay fast and
+   * non-blocking, per its own constructor-parameter javadoc.
+   */
+  private void reconfigurePeersLocked(Map<String, PeerAddress> newPeerAddresses) {
+    for (Map.Entry<String, PeerAddress> e : newPeerAddresses.entrySet()) {
+      String peerId = e.getKey();
+      if (peerAddresses.containsKey(peerId)) {
+        continue; // already a known peer; its address never changes once a member
+      }
+      RaftPeerClient client = peerClientFactory.connect(e.getValue());
+      peers.put(peerId, client);
+      nextIndex.put(peerId, raftLog.snapshotLastIncludedIndex() + 1);
+      matchIndex.put(peerId, 0L);
+      peerWake.put(peerId, new Semaphore(0));
+      if (role == Role.LEADER) {
+        startPeerSenderThreadLocked(peerId, client);
+      }
+    }
+    for (String peerId : new ArrayList<>(peerAddresses.keySet())) {
+      if (newPeerAddresses.containsKey(peerId)) {
+        continue;
+      }
+      Thread sender = peerSenderThreads.remove(peerId);
+      if (sender != null) {
+        sender.interrupt();
+      }
+      peers.remove(peerId);
+      nextIndex.remove(peerId);
+      matchIndex.remove(peerId);
+      peerWake.remove(peerId);
+    }
+    peerAddresses.clear();
+    peerAddresses.putAll(newPeerAddresses);
+    membershipListener.accept(Map.copyOf(peerAddresses));
+  }
+
+  /**
+   * Recomputes "what the peer configuration would be right now" by scanning the log's tail backward
+   * for the most recent {@link MembershipChange} still present, falling back to {@link
+   * #bootstrapPeerAddresses} if none is found -- used by {@link #truncateFromLocked} to roll live
+   * peer state back after removing an entry that changed it. Never needs to look below the snapshot
+   * floor: a truncation only ever removes an uncommitted (hence unapplied, hence never yet
+   * compacted) entry, by Raft's own safety guarantee that a leader never overwrites a committed
+   * one.
+   */
+  private Map<String, PeerAddress> effectivePeerConfigLocked() {
+    for (long i = raftLog.lastIndex(); i > raftLog.snapshotLastIncludedIndex(); i--) {
+      Optional<LogEntry> entry = raftLog.get(i);
+      if (entry.isPresent() && entry.get().payload() instanceof MembershipChange change) {
+        return change.peers();
+      }
+    }
+    return bootstrapPeerAddresses;
+  }
+
   private void awaitAppliedThrowing(long index) {
     lock.lock();
     try {
@@ -215,8 +435,36 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * than silently inheriting this one's fate.
    */
   private GimleRaftException giveUpAndTruncateLocked(long index) {
-    raftLog.truncateFrom(index);
+    truncateFromLocked(index);
     return GimleRaftException.proposalTimedOut(selfId, proposeTimeout);
+  }
+
+  /**
+   * Wraps {@link RaftLog#truncateFrom} with membership-change awareness: {@link
+   * #reconfigurePeersLocked} already applied any {@link MembershipChange} entry the moment it was
+   * appended, so removing that entry (a proposal that timed out before committing, or a
+   * conflicting-entry truncation on a follower) must also roll the *live* peer state back --
+   * otherwise a node's actual peer set would stay permanently changed even after the log entry that
+   * changed it was undone. Recomputes from {@link #effectivePeerConfigLocked} rather than tracking
+   * a single before/after snapshot, since a follower's conflicting-entry truncation can remove a
+   * membership change this node never itself proposed.
+   */
+  private void truncateFromLocked(long index) {
+    boolean membershipAffected = false;
+    for (long i = index; i <= raftLog.lastIndex(); i++) {
+      Optional<LogEntry> entry = raftLog.get(i);
+      if (entry.isPresent() && entry.get().payload() instanceof MembershipChange) {
+        membershipAffected = true;
+        break;
+      }
+    }
+    raftLog.truncateFrom(index);
+    if (pendingMembershipChangeIndex != null && pendingMembershipChangeIndex >= index) {
+      pendingMembershipChangeIndex = null;
+    }
+    if (membershipAffected) {
+      reconfigurePeersLocked(effectivePeerConfigLocked());
+    }
   }
 
   // ---- election ----
@@ -311,16 +559,32 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       nextIndex.put(peerId, nextIdx);
       matchIndex.put(peerId, 0L);
     }
+    // A newly-elected leader may inherit an uncommitted MembershipChange its predecessor proposed
+    // in an earlier term -- rediscovered here by scanning the tail of the log, so addServer/
+    // removeServer correctly refuse a second one until this one actually commits.
+    pendingMembershipChangeIndex = findUncommittedMembershipChangeIndexLocked();
     advanceCommitIndexLocked(); // a single-node cluster commits its own writes immediately
     for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
-      String peerId = peerEntry.getKey();
-      RaftPeerClient client = peerEntry.getValue();
-      Thread t =
-          Thread.ofVirtual()
-              .name("gimle-raft-peer-" + selfId + "-to-" + peerId)
-              .start(() -> peerSenderLoop(peerId, client));
-      peerSenderThreads.add(t);
+      startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());
     }
+  }
+
+  private void startPeerSenderThreadLocked(String peerId, RaftPeerClient client) {
+    Thread t =
+        Thread.ofVirtual()
+            .name("gimle-raft-peer-" + selfId + "-to-" + peerId)
+            .start(() -> peerSenderLoop(peerId, client));
+    peerSenderThreads.put(peerId, t);
+  }
+
+  private Long findUncommittedMembershipChangeIndexLocked() {
+    for (long i = raftLog.lastIndex(); i > commitIndex; i--) {
+      Optional<LogEntry> entry = raftLog.get(i);
+      if (entry.isPresent() && entry.get().payload() instanceof MembershipChange) {
+        return i;
+      }
+    }
+    return null;
   }
 
   private void stepDownLocked(long newTerm) {
@@ -328,9 +592,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     boolean wasLeader = role == Role.LEADER;
     role = Role.FOLLOWER;
     leaderHint = null;
+    pendingMembershipChangeIndex = null;
     resetElectionTimerLocked();
     if (wasLeader) {
-      for (Thread t : peerSenderThreads) {
+      for (Thread t : peerSenderThreads.values()) {
         t.interrupt();
       }
       peerSenderThreads.clear();
@@ -542,7 +807,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   /**
    * Applies every entry from {@code lastApplied + 1} through {@code commitIndex}, strictly in
    * order, never skipping ahead -- {@code commitIndex} and {@code lastApplied} are two separate
-   * fields for exactly this reason, never collapsed into one.
+   * fields for exactly this reason, never collapsed into one. A {@link StateMutation} payload is
+   * applied to {@link StateStore} here as always; a {@link MembershipChange} payload has nothing
+   * further to do here -- {@link #reconfigurePeersLocked} already took effect the moment it was
+   * appended, so committing it only needs to advance {@code lastApplied} past it and clear {@link
+   * #pendingMembershipChangeIndex} if this was the one this node itself was waiting on.
    */
   private void applyCommittedLocked() {
     while (lastApplied < commitIndex) {
@@ -552,7 +821,12 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
               .get(nextApply)
               .orElseThrow(
                   () -> new IllegalStateException("missing committed entry at index " + nextApply));
-      entry.mutation().applyTo(store);
+      if (entry.payload() instanceof StateMutation mutation) {
+        mutation.applyTo(store);
+      }
+      if (pendingMembershipChangeIndex != null && pendingMembershipChangeIndex == nextApply) {
+        pendingMembershipChangeIndex = null;
+      }
       lastApplied = nextApply;
     }
     commitAdvanced.signalAll();
@@ -567,6 +841,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     long newFloor = lastApplied;
     long newFloorTerm = raftLog.termAt(newFloor);
     StateSnapshot snapshot = store.snapshot();
+    // Deliberately does not carry the current peer configuration into the snapshot itself (a
+    // genuine, narrower scope reduction, not an oversight): a peer added via addServer catches up
+    // through normal AppendEntries replication of its own MembershipChange entry (initialized to
+    // start replicating from the snapshot floor, not the leader's current tip -- see
+    // reconfigurePeersLocked), which only races this compaction past that entry once the log
+    // exceeds SNAPSHOT_THRESHOLD entries during the catch-up window -- not a concern for the small,
+    // operator-driven clusters this reduction targets. A subsequent membership change re-syncs any
+    // node whose view was left stale by that race.
     raftLog.installSnapshot(newFloor, newFloorTerm, RaftCodec.encodeSnapshot(snapshot));
   }
 
@@ -636,10 +918,12 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         if (existing.isPresent() && existing.get().term() != entry.term()) {
           // conflicting-entry truncation: delete it and everything after before appending the
           // leader's version -- never a mix of old and new at overlapping indices.
-          raftLog.truncateFrom(entry.index());
+          truncateFromLocked(entry.index());
           raftLog.append(entry);
+          applyIfMembershipChangeLocked(entry);
         } else if (existing.isEmpty()) {
           raftLog.append(entry);
+          applyIfMembershipChangeLocked(entry);
         }
       }
 

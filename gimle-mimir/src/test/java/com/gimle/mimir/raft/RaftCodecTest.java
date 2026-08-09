@@ -55,8 +55,8 @@ class RaftCodecTest {
         Optional.of("tenant-1"));
   }
 
-  private static LogEntry logEntry(long index, StateMutation mutation) {
-    return new LogEntry(7L, index, mutation);
+  private static LogEntry logEntry(long index, RaftLogPayload payload) {
+    return new LogEntry(7L, index, payload);
   }
 
   static Stream<RaftRpc> simpleRpcVariants() {
@@ -134,7 +134,7 @@ class RaftCodecTest {
         (AppendEntries) RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray()));
 
     StateMutation.PutConfigEntry decodedMutation =
-        (StateMutation.PutConfigEntry) decoded.entries().get(0).mutation();
+        (StateMutation.PutConfigEntry) decoded.entries().get(0).payload();
     assertEquals(entry.tenantId(), decodedMutation.entry().tenantId());
     assertEquals(entry.key(), decodedMutation.entry().key());
     assertEquals(entry.encrypted(), decodedMutation.entry().encrypted());
@@ -317,8 +317,22 @@ class RaftCodecTest {
 
     LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
 
-    StateMutation.PutAccount decodedMutation = (StateMutation.PutAccount) decoded.mutation();
+    StateMutation.PutAccount decodedMutation = (StateMutation.PutAccount) decoded.payload();
     assertEquals(account.username(), decodedMutation.account().username());
     assertArrayEquals(account.passwordHash(), decodedMutation.account().passwordHash());
+  }
+
+  @Test
+  void round_trips_a_log_entry_carrying_a_membership_change() {
+    Map<String, PeerAddress> peers =
+        Map.of(
+            "node-2", new PeerAddress("10.0.0.2", 7100, 7200),
+            "node-3", new PeerAddress("10.0.0.3", 7100, 7200));
+    LogEntry original = logEntry(9L, new MembershipChange(peers));
+
+    LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
+
+    assertEquals(original, decoded);
+    assertEquals(peers, ((MembershipChange) decoded.payload()).peers());
   }
 }

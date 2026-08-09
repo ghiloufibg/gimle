@@ -19,7 +19,7 @@ import com.gimle.mimir.store.StateStore;
  * would make the log's write rate scale with cluster size for no correctness benefit -- only the
  * leader's own {@code StateStore} ever receives them, outside the log entirely.
  */
-public sealed interface StateMutation {
+public sealed interface StateMutation extends RaftLogPayload {
 
   void applyTo(StateStore store);
 

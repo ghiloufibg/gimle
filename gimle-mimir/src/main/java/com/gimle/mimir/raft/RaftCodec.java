@@ -75,6 +75,9 @@ public final class RaftCodec {
   private static final byte MUT_PUT_NODE_CORDON = 21;
   private static final byte MUT_APPEND_INSTANCE_EVENT = 22;
 
+  private static final byte PAYLOAD_STATE_MUTATION = 0;
+  private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
+
   /**
    * Generous upper bound for any single length-prefixed frame this codec ever produces (a {@link
    * StateSnapshot} is the largest payload in practice) -- far below what a corrupted or adversarial
@@ -217,14 +220,55 @@ public final class RaftCodec {
   static void writeLogEntry(DataOutputStream out, LogEntry entry) throws IOException {
     out.writeLong(entry.term());
     out.writeLong(entry.index());
-    writeStateMutation(out, entry.mutation());
+    switch (entry.payload()) {
+      case StateMutation mutation -> {
+        out.writeByte(PAYLOAD_STATE_MUTATION);
+        writeStateMutation(out, mutation);
+      }
+      case MembershipChange change -> {
+        out.writeByte(PAYLOAD_MEMBERSHIP_CHANGE);
+        writeMembershipChange(out, change);
+      }
+    }
   }
 
   static LogEntry readLogEntry(DataInputStream in) throws IOException {
     long term = in.readLong();
     long index = in.readLong();
-    StateMutation mutation = readStateMutation(in);
-    return new LogEntry(term, index, mutation);
+    byte payloadKind = in.readByte();
+    RaftLogPayload payload =
+        switch (payloadKind) {
+          case PAYLOAD_STATE_MUTATION -> readStateMutation(in);
+          case PAYLOAD_MEMBERSHIP_CHANGE -> readMembershipChange(in);
+          default ->
+              throw new IllegalArgumentException("unknown Raft log payload kind: " + payloadKind);
+        };
+    return new LogEntry(term, index, payload);
+  }
+
+  private static void writeMembershipChange(DataOutputStream out, MembershipChange change)
+      throws IOException {
+    out.writeInt(change.peers().size());
+    for (Map.Entry<String, PeerAddress> e : change.peers().entrySet()) {
+      out.writeUTF(e.getKey());
+      PeerAddress address = e.getValue();
+      out.writeUTF(address.host());
+      out.writeInt(address.raftPort());
+      out.writeInt(address.clientPort());
+    }
+  }
+
+  private static MembershipChange readMembershipChange(DataInputStream in) throws IOException {
+    int count = in.readInt();
+    Map<String, PeerAddress> peers = new LinkedHashMap<>();
+    for (int i = 0; i < count; i++) {
+      String id = in.readUTF();
+      String host = in.readUTF();
+      int raftPort = in.readInt();
+      int clientPort = in.readInt();
+      peers.put(id, new PeerAddress(host, raftPort, clientPort));
+    }
+    return new MembershipChange(peers);
   }
 
   /** Encodes a single {@link LogEntry} standalone -- what {@code RaftLog} persists per index. */

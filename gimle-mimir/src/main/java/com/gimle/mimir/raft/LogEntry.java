@@ -1,10 +1,11 @@
 package com.gimle.mimir.raft;
 
 /**
- * One entry in a {@link RaftLog}: the term it was created in, its 1-based index, and the mutation
- * it carries.
+ * One entry in a {@link RaftLog}: the term it was created in, its 1-based index, and the {@link
+ * RaftLogPayload} it carries -- a {@link StateMutation} bound for {@code StateStore} once
+ * committed, or a {@link MembershipChange} to this cluster's own peer set, applied on append.
  */
-public record LogEntry(long term, long index, StateMutation mutation) {
+public record LogEntry(long term, long index, RaftLogPayload payload) {
 
   public LogEntry {
     if (term < 0) {
@@ -13,8 +14,8 @@ public record LogEntry(long term, long index, StateMutation mutation) {
     if (index < 1) {
       throw new IllegalArgumentException("index must be >= 1: " + index);
     }
-    if (mutation == null) {
-      throw new IllegalArgumentException("mutation must not be null");
+    if (payload == null) {
+      throw new IllegalArgumentException("payload must not be null");
     }
   }
 }

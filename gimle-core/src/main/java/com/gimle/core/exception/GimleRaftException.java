@@ -48,4 +48,25 @@ public class GimleRaftException extends RuntimeException {
     return new GimleRaftException(
         "no reachable store leader could serve " + operation + " after retrying every endpoint");
   }
+
+  /**
+   * The etcd-style membership-change safety rule this codebase ships in place of full joint
+   * consensus: a leader rejects a new {@code AddServer}/{@code RemoveServer} while an earlier one
+   * it proposed is still uncommitted, rather than allowing two configurations to ever be in flight
+   * at once.
+   */
+  public static GimleRaftException membershipChangeInFlight(String nodeId) {
+    return new GimleRaftException(
+        "node " + nodeId + " already has an uncommitted membership change in flight");
+  }
+
+  public static GimleRaftException alreadyAMember(String nodeId, String peerId) {
+    return new GimleRaftException(
+        "node " + nodeId + " cannot add " + peerId + ": already a cluster member");
+  }
+
+  public static GimleRaftException notAMember(String nodeId, String peerId) {
+    return new GimleRaftException(
+        "node " + nodeId + " cannot remove " + peerId + ": not a cluster member");
+  }
 }
