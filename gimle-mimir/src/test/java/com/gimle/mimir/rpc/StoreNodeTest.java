@@ -246,4 +246,30 @@ class StoreNodeTest {
 
     assertEquals(new StoreRpc.NotLeader(""), response);
   }
+
+  @Test
+  void a_leader_removes_a_server_it_previously_added() {
+    Path dir = tempDir.resolve("remove-server-leader");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode raftNode =
+        new RaftNode("leader", Map.of(), addr -> echoAckingPeer(), log, store, ignored -> {});
+    raftNode.start();
+    StoreNode node = new StoreNode(raftNode, store, new ConcurrentHashMap<>(Map.of("leader", "x")));
+    assertEquals(
+        new StoreRpc.Ok(), node.handle(new StoreRpc.AddServer("node-2", "10.0.0.2", 7100, 7200)));
+
+    StoreRpc.Response response = node.handle(new StoreRpc.RemoveServer("node-2"));
+
+    assertEquals(new StoreRpc.Ok(), response);
+  }
+
+  @Test
+  void a_non_leader_rejects_a_remove_server_request_with_not_leader() {
+    StoreNode node = neverElectedNode("follower-remove-server");
+
+    StoreRpc.Response response = node.handle(new StoreRpc.RemoveServer("node-2"));
+
+    assertEquals(new StoreRpc.NotLeader(""), response);
+  }
 }

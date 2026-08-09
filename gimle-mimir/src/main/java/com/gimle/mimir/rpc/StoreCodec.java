@@ -64,6 +64,7 @@ public final class StoreCodec {
   private static final byte TAG_IS_NODE_CORDONED = 47;
   private static final byte TAG_LIST_INSTANCE_EVENTS = 48;
   private static final byte TAG_ADD_SERVER = 50;
+  private static final byte TAG_REMOVE_SERVER = 51;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -225,6 +226,10 @@ public final class StoreCodec {
           out.writeUTF(v.host());
           out.writeInt(v.raftPort());
           out.writeInt(v.clientPort());
+        }
+        case StoreRpc.RemoveServer v -> {
+          out.writeByte(TAG_REMOVE_SERVER);
+          out.writeUTF(v.peerId());
         }
         case StoreRpc.Ok v -> out.writeByte(TAG_OK);
         case StoreRpc.NotLeader v -> {
@@ -415,6 +420,7 @@ public final class StoreCodec {
         case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();
         case TAG_ADD_SERVER ->
             new StoreRpc.AddServer(in.readUTF(), in.readUTF(), in.readInt(), in.readInt());
+        case TAG_REMOVE_SERVER -> new StoreRpc.RemoveServer(in.readUTF());
         case TAG_LIST_INSTANCE_EVENTS ->
             new StoreRpc.ListInstanceEvents(in.readUTF(), in.readInt());
         case TAG_OK -> new StoreRpc.Ok();

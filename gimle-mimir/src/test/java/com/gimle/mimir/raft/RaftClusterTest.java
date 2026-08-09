@@ -31,7 +31,10 @@ import org.junit.jupiter.api.parallel.Isolated;
  * Real loopback TCP, modeled on {@code gimle-fabric}'s {@code FabricServiceRegistryTest} pattern
  * (bind several real servers on {@code 127.0.0.1:0}, track for teardown, drive real calls). Each
  * peer-to-peer edge is wrapped in a {@link ToggleablePeerClient} so a test can simulate a network
- * partition without tearing down and rebuilding the whole cluster.
+ * partition without tearing down and rebuilding the whole cluster. Every node -- including the ones
+ * a cluster starts with -- is built through the address-aware {@link RaftNode} constructor (design
+ * plan P1-5), so any node, once elected leader, can call {@link RaftNode#addServer}/{@link
+ * RaftNode#removeServer} the same way a real {@code StoreMain} process would.
  */
 // Real multi-node in-process Raft cluster with real heartbeat/election-timeout-driven timing
 // (awaitLeader/awaitTrue polling against wall-clock @Timeout budgets). Unlike a ResourceLock
@@ -47,7 +50,16 @@ class RaftClusterTest {
   private final List<RaftNode> nodes = new ArrayList<>();
   private final List<RaftTransport> transports = new ArrayList<>();
   private final Map<Edge, ToggleablePeerClient> edges = new HashMap<>();
+
+  /**
+   * Reverse lookup from a {@link PeerAddress} back to the symbolic "node-N" id it belongs to --
+   * shared across every node's {@link RaftPeerClientFactory} closure, and grown (not just built
+   * once) by {@link #addNewNode} so a dynamically-added server's address resolves too.
+   */
+  private final Map<PeerAddress, String> addressToId = new HashMap<>();
+
   private int clusterCounter;
+  private int nodeIdCounter;
 
   @AfterEach
   void tearDown() {
@@ -132,6 +144,47 @@ class RaftClusterTest {
     }
   }
 
+  /** {@code clientPort} is unused by anything this test exercises -- a fixed placeholder. */
+  private static PeerAddress peerAddressOf(InetSocketAddress socketAddress) {
+    return new PeerAddress(socketAddress.getHostString(), socketAddress.getPort(), 0);
+  }
+
+  /**
+   * Builds a {@link RaftPeerClientFactory} for node {@code selfId}: resolves the target {@link
+   * PeerAddress} back to a symbolic id via {@link #addressToId}, dials a real {@link
+   * PeerConnection}, and registers the resulting {@link ToggleablePeerClient} into {@link #edges}
+   * so {@link #partition} keeps working for both originally-wired and later dynamically-added edges
+   * alike.
+   */
+  private RaftPeerClientFactory factoryFor(String selfId) {
+    return address -> {
+      String peerId = addressToId.get(address);
+      if (peerId == null) {
+        throw new IllegalStateException("unknown peer address in test fixture: " + address);
+      }
+      ToggleablePeerClient toggleable =
+          new ToggleablePeerClient(
+              new PeerConnection(new InetSocketAddress(address.host(), address.raftPort())));
+      edges.put(new Edge(selfId, peerId), toggleable);
+      return toggleable;
+    };
+  }
+
+  private ClusterNode buildNode(
+      String id, InetSocketAddress address, Map<String, PeerAddress> initialPeers) {
+    HandlerRef ref = new HandlerRef();
+    RaftTransport transport = new RaftTransport(ref);
+    transports.add(transport);
+
+    Path dir = tempDir.resolve("cluster-" + (clusterCounter++) + "-" + id);
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog raftLog = new RaftLog(dir.resolve("raft"));
+    RaftNode node = new RaftNode(id, initialPeers, factoryFor(id), raftLog, store, ignored -> {});
+    ref.delegate = node;
+    nodes.add(node);
+    return new ClusterNode(id, node, transport, address, store, raftLog);
+  }
+
   /**
    * Builds {@code n} fully-wired cluster nodes (every peer edge reachable in principle) but only
    * binds a real listener and starts Raft's own timers for {@code indicesOnlineNow} -- the rest
@@ -142,35 +195,22 @@ class RaftClusterTest {
     List<String> ids = new ArrayList<>();
     List<InetSocketAddress> addresses = new ArrayList<>();
     for (int i = 0; i < n; i++) {
-      ids.add("node-" + i);
+      ids.add("node-" + (nodeIdCounter++));
       addresses.add(reserveAddress());
+    }
+    for (int i = 0; i < n; i++) {
+      addressToId.put(peerAddressOf(addresses.get(i)), ids.get(i));
     }
 
     List<ClusterNode> clusterNodes = new ArrayList<>();
     for (int i = 0; i < n; i++) {
-      HandlerRef ref = new HandlerRef();
-      RaftTransport transport = new RaftTransport(ref);
-      transports.add(transport);
-
-      Map<String, RaftPeerClient> peers = new HashMap<>();
+      Map<String, PeerAddress> initialPeers = new HashMap<>();
       for (int j = 0; j < n; j++) {
-        if (j == i) {
-          continue;
+        if (j != i) {
+          initialPeers.put(ids.get(j), peerAddressOf(addresses.get(j)));
         }
-        ToggleablePeerClient toggleable =
-            new ToggleablePeerClient(new PeerConnection(addresses.get(j)));
-        edges.put(new Edge(ids.get(i), ids.get(j)), toggleable);
-        peers.put(ids.get(j), toggleable);
       }
-
-      Path dir = tempDir.resolve("cluster-" + (clusterCounter++) + "-node-" + i);
-      StateStore store = new StateStore(dir.resolve("store"));
-      RaftLog raftLog = new RaftLog(dir.resolve("raft"));
-      RaftNode node = new RaftNode(ids.get(i), peers, raftLog, store);
-      ref.delegate = node;
-      nodes.add(node);
-      clusterNodes.add(
-          new ClusterNode(ids.get(i), node, transport, addresses.get(i), store, raftLog));
+      clusterNodes.add(buildNode(ids.get(i), addresses.get(i), initialPeers));
     }
 
     for (int i = 0; i < n; i++) {
@@ -184,6 +224,28 @@ class RaftClusterTest {
   private void bringOnline(ClusterNode node) throws IOException {
     node.transport().listen(node.address());
     node.raftNode().start();
+  }
+
+  /**
+   * Adds a brand-new node to the cluster live, via {@code leader}'s own {@link RaftNode#addServer},
+   * matching P1-5's etcd-style one-at-a-time membership change. Deliberately never calls {@link
+   * RaftNode#start} on the new node: with an empty initial peer set, {@code start()} would elect it
+   * leader of its own one-node "cluster" immediately (see that method's own javadoc) -- exactly
+   * wrong for a node about to join as a follower. Its RPC handlers work regardless of whether
+   * {@code start()} was ever called (neither {@code onAppendEntries} nor {@code onInstallSnapshot}
+   * checks {@code running}), so it still correctly catches up once the leader begins replicating to
+   * it; it simply never arms its own election timer, which every test using this helper is fine
+   * with.
+   */
+  private ClusterNode addNewNode(ClusterNode leader) throws IOException {
+    String id = "node-" + (nodeIdCounter++);
+    InetSocketAddress address = reserveAddress();
+    PeerAddress peerAddress = peerAddressOf(address);
+    addressToId.put(peerAddress, id);
+    ClusterNode node = buildNode(id, address, Map.of());
+    node.transport().listen(node.address());
+    leader.raftNode().addServer(id, peerAddress);
+    return node;
   }
 
   private void partition(String nodeIdA, String nodeIdB) {
@@ -301,7 +363,9 @@ class RaftClusterTest {
                     .raftNode()
                     .propose(
                         new StateMutation.PutTenant(new Tenant("t5", new ResourceQuota(1, 1, 1)))));
-    assertTrue(thrown.getMessage().contains(leader.id()));
+    assertTrue(
+        thrown.getMessage().contains(leader.id()),
+        "leader=" + leader.id() + " follower=" + follower.id() + " message=" + thrown.getMessage());
   }
 
   @Test
@@ -330,5 +394,61 @@ class RaftClusterTest {
                 && farBehind.store().getTenant("t").get().quota().maxMemoryBytes() == 4,
         Duration.ofSeconds(10));
     assertTrue(farBehind.raftLog().snapshotLastIncludedIndex() >= lastIndex);
+  }
+
+  // ---- P1-5: etcd-style live membership change ----
+
+  @Test
+  @Timeout(20)
+  void a_three_node_cluster_grows_to_five_live_and_writes_continue_succeeding() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode leader = awaitLeader(cluster);
+
+    ClusterNode fourth = addNewNode(leader);
+    ClusterNode fifth = addNewNode(leader);
+
+    leader
+        .raftNode()
+        .propose(new StateMutation.PutTenant(new Tenant("grown", new ResourceQuota(5, 5, 5))));
+
+    awaitTrue(
+        () ->
+            cluster.stream().allMatch(c -> c.store().getTenant("grown").isPresent())
+                && fourth.store().getTenant("grown").isPresent()
+                && fifth.store().getTenant("grown").isPresent(),
+        Duration.ofSeconds(10));
+  }
+
+  @Test
+  @Timeout(20)
+  void
+      removing_a_server_shrinks_the_quorum_requirement_so_writes_still_succeed_after_losing_a_node()
+          throws Exception {
+    List<ClusterNode> cluster = buildCluster(4, Set.of(0, 1, 2, 3));
+    ClusterNode leader = awaitLeader(cluster);
+    List<ClusterNode> followers = cluster.stream().filter(c -> c != leader).toList();
+
+    // Down to a 3-member cluster: majority becomes 2 (of leader + 2 remaining followers), not 3.
+    leader.raftNode().removeServer(followers.get(0).id());
+    // The removed node itself doesn't learn it was removed (a known, deliberate limitation of
+    // this etcd-style reduction, not full joint consensus's disruption-mitigation machinery --
+    // see RaftLogPayload's own javadoc) -- closed here purely so it can't keep calling
+    // RequestVote against the survivors and disrupt this test's own timing.
+    followers.get(0).transport().close();
+    followers.get(0).raftNode().close();
+
+    // Kill one more of the now-3-member configuration's REAL remaining members: only the leader
+    // and one follower are left standing. If quorum math hadn't actually shrunk (still requiring
+    // 3 acks out of a stale 4-member view), this write could never commit with just 2 nodes alive.
+    ClusterNode killed = followers.get(1);
+    killed.transport().close();
+    killed.raftNode().close();
+
+    leader
+        .raftNode()
+        .propose(new StateMutation.PutTenant(new Tenant("shrunk", new ResourceQuota(3, 3, 3))));
+
+    ClusterNode survivor = followers.get(2);
+    awaitTrue(() -> survivor.store().getTenant("shrunk").isPresent(), Duration.ofSeconds(5));
   }
 }

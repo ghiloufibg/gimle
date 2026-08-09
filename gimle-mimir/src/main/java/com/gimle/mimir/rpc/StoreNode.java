@@ -41,6 +41,7 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.AcquireOrRenewLease r -> handleAcquireOrRenewLease(r);
       case StoreRpc.ReleaseLease r -> handleReleaseLease(r);
       case StoreRpc.AddServer r -> handleAddServer(r);
+      case StoreRpc.RemoveServer r -> handleRemoveServer(r);
       case StoreRpc.ListAccounts r -> new StoreRpc.AccountListResult(store.listAccounts());
       case StoreRpc.GetTenant r -> tenantResult(store.getTenant(r.id()));
       case StoreRpc.GetDeployment r -> deploymentResult(store.getDeployment(r.name()));
@@ -128,6 +129,16 @@ public final class StoreNode implements StoreRpcHandler {
       raftNode.addServer(
           request.peerId(),
           new PeerAddress(request.host(), request.raftPort(), request.clientPort()));
+      return new StoreRpc.Ok();
+    } catch (GimleRaftException e) {
+      return notLeaderResponse();
+    }
+  }
+
+  /** The symmetric removal counterpart to {@link #handleAddServer}, same rejection mapping. */
+  private StoreRpc.Response handleRemoveServer(StoreRpc.RemoveServer request) {
+    try {
+      raftNode.removeServer(request.peerId());
       return new StoreRpc.Ok();
     } catch (GimleRaftException e) {
       return notLeaderResponse();

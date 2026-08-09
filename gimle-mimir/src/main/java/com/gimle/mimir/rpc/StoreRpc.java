@@ -42,6 +42,7 @@ public sealed interface StoreRpc {
           AcquireOrRenewLease,
           ReleaseLease,
           AddServer,
+          RemoveServer,
           ListAccounts,
           GetTenant,
           GetDeployment,
@@ -110,6 +111,9 @@ public sealed interface StoreRpc {
    * a new response shape per rejection reason.
    */
   record AddServer(String peerId, String host, int raftPort, int clientPort) implements Request {}
+
+  /** The symmetric removal counterpart to {@link AddServer}. */
+  record RemoveServer(String peerId) implements Request {}
 
   // ---- reads: served by any StoreNode ----
 

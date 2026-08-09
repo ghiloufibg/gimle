@@ -98,6 +98,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         new StoreRpc.AddServer(peerId, address.host(), address.raftPort(), address.clientPort()));
   }
 
+  /** The symmetric removal counterpart to {@link #addServer}. */
+  public void removeServer(String peerId) {
+    sendLeaderOnly("removeServer", new StoreRpc.RemoveServer(peerId));
+  }
+
   // ---- reads: same names/signatures as StateStore ----
 
   public List<Account> listAccounts() {
