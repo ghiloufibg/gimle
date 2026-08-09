@@ -4,6 +4,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.fabric.trace.TraceContext;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.observability.WorkerMetrics;
@@ -385,14 +386,15 @@ public final class FabricServer implements AutoCloseable {
    */
   private Context startChildSpanContext(FabricFrame.InvokeRequest request) {
     var trace = request.trace();
-    SpanContext remoteParent =
-        SpanContext.createFromRemoteParent(
-            traceIdHex(trace.traceIdHigh(), trace.traceIdLow()),
-            spanIdHex(trace.spanId()),
-            (trace.flags() & 1) != 0 ? TraceFlags.getSampled() : TraceFlags.getDefault(),
-            decodeTraceState(trace.tracestate()));
+    // hasRemoteSpan(trace) == false is FabricServiceRegistry#captureTrace's own "no active span
+    // at call time" marker (all-zero trace/span IDs, the W3C spec's own reserved invalid values) --
+    // skip ever constructing a SpanContext for it at all, rather than building one from literal
+    // zeros and relying on OTel's own isValid()-gated invalid-parent handling (which does happen
+    // to treat it as "start a fresh root," but only as an implementation detail of setParent, not
+    // a documented contract this code should lean on for correctness).
+    Context baseContext = decodeBaggage(trace.baggage()).storeInContext(Context.root());
     Context parentContext =
-        decodeBaggage(trace.baggage()).storeInContext(Context.root().with(Span.wrap(remoteParent)));
+        hasRemoteSpan(trace) ? baseContext.with(Span.wrap(remoteSpanContext(trace))) : baseContext;
     Span span =
         GlobalOpenTelemetry.getTracer("com.gimle.fabric")
             .spanBuilder(request.interfaceName() + "#" + request.methodName())
@@ -400,6 +402,20 @@ public final class FabricServer implements AutoCloseable {
             .setParent(parentContext)
             .startSpan();
     return parentContext.with(span);
+  }
+
+  // Package-visible for FabricServerTest's direct unit-level assertion, alongside
+  // startChildSpanContext's own end-to-end test against a real installed SDK.
+  static boolean hasRemoteSpan(TraceContext trace) {
+    return trace.traceIdHigh() != 0 || trace.traceIdLow() != 0 || trace.spanId() != 0;
+  }
+
+  private static SpanContext remoteSpanContext(TraceContext trace) {
+    return SpanContext.createFromRemoteParent(
+        traceIdHex(trace.traceIdHigh(), trace.traceIdLow()),
+        spanIdHex(trace.spanId()),
+        (trace.flags() & 1) != 0 ? TraceFlags.getSampled() : TraceFlags.getDefault(),
+        decodeTraceState(trace.tracestate()));
   }
 
   /** Inverse of {@code FabricServiceRegistry#encodeTraceState} -- see that method's own javadoc. */

@@ -1,6 +1,7 @@
 package com.gimle.fabric.transport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
@@ -123,6 +124,17 @@ class FabricServerTest {
     clientThreads.submit(() -> FabricClient.call(address, request)).get(5, TimeUnit.SECONDS);
 
     assertEquals("alice", observedUserId.get());
+  }
+
+  @Test
+  void hasRemoteSpan_distinguishes_a_real_caller_span_from_the_no_active_span_marker() {
+    // FabricServiceRegistry#captureTrace's own "no active span at call time" wire representation:
+    // all-zero trace/span IDs, the W3C spec's own reserved invalid values.
+    assertFalse(FabricServer.hasRemoteSpan(new TraceContext(0L, 0L, 0L, (byte) 0)));
+    assertTrue(FabricServer.hasRemoteSpan(TRACE));
+    // Any one non-zero field is enough to mean "a real span was captured".
+    assertTrue(FabricServer.hasRemoteSpan(new TraceContext(1L, 0L, 0L, (byte) 0)));
+    assertTrue(FabricServer.hasRemoteSpan(new TraceContext(0L, 0L, 1L, (byte) 0)));
   }
 
   @Test
