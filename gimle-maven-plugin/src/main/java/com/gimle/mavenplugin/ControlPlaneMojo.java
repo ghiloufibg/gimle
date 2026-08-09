@@ -11,8 +11,9 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * {@code mvn gimle:controlplane} -- launches a real {@code ControlPlaneMain} process using {@code
  * gimle-controlplane}'s own resolved runtime classpath. Talks to a {@code gimle-mimir} store
  * cluster over the network rather than embedding one (etcd-store-extraction design doc) -- {@code
- * gimle.controlplane.storeEndpoints} defaults to {@code gimle:store}'s own default client port, so
- * the two goals keep working together with zero extra flags for single-node local dev. No-ops in
+ * gimle.controlplane.storeEndpoints} defaults to {@code gimle:store}'s own default client port, and
+ * {@code gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, so
+ * the three goals keep working together with zero extra flags for single-node local dev. No-ops in
  * every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(
@@ -33,6 +34,10 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   // why 9091, not 9090.
   @Parameter(property = "gimle.controlplane.storeEndpoints", defaultValue = "127.0.0.1:9091")
   private String storeEndpoints;
+
+  // Matches FafnirMojo's own gimle.fafnir.port default (9092).
+  @Parameter(property = "gimle.controlplane.fafnirEndpoint", defaultValue = "127.0.0.1:9092")
+  private String fafnirEndpoint;
 
   /**
    * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
@@ -66,6 +71,8 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     command.add(secretKeyPath);
     command.add("--store-endpoints");
     command.add(storeEndpoints);
+    command.add("--fafnir-endpoint");
+    command.add(fafnirEndpoint);
     return command;
   }
 }

@@ -18,12 +18,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Real inbound HTTP traffic against a real {@link FafnirServer} -- the internal encrypt/decrypt/
  * rotate-key surface {@code gimle-controlplane}'s own {@code FafnirClient} calls, per the design
- * doc's Phase A scope.
+ * doc's Phase A scope. Same {@link ResourceLock} pair as {@code FafnirServerTlsTest} -- both
+ * classes drive real HTTP servers over real loopback sockets, and running them concurrently
+ * corrupts each other's traffic (the same JDK HttpClient parser-state hazard {@code ApiServerTest}
+ * documents for {@code gimle-controlplane}).
  */
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
+@ResourceLock("gimle-fafnir-server-http")
 class FafnirServerTest {
 
   @TempDir Path tempDir;

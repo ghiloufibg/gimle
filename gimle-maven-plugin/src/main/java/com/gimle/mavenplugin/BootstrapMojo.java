@@ -33,34 +33,40 @@ import org.eclipse.aether.repository.RemoteRepository;
  * every {@code gimle-examples} module once the cluster is ready, prints a summary, then blocks
  * until interrupted and tears the whole cluster back down.
  *
- * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs six modules'
- * runtime classpaths (store, control plane, agent, worker, pki, cli), not one, and supervises three
- * long-running processes together rather than one. So it self-filters to the root aggregator
- * project (artifactId {@code "gimle"}, guaranteed present regardless of {@code -pl}), the same
- * pattern {@link DocsMojo} already uses, instead of extending {@link AbstractGimleMojo}.
+ * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs seven modules'
+ * runtime classpaths (store, fafnir, control plane, agent, worker, pki, cli), not one, and
+ * supervises four long-running processes together rather than one. So it self-filters to the root
+ * aggregator project (artifactId {@code "gimle"}, guaranteed present regardless of {@code -pl}),
+ * the same pattern {@link DocsMojo} already uses, instead of extending {@link AbstractGimleMojo}.
  *
- * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link ControlPlaneMojo}/{@link
- * AgentMojo} already use, deliberately: this goal and "those three goals run by hand in separate
- * terminals" are meant to be the same cluster, not two topologies to keep in sync -- which also
- * means this goal isn't meant to run alongside an already-running manual session of any of them.
+ * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link FafnirMojo}/{@link
+ * ControlPlaneMojo}/{@link AgentMojo} already use, deliberately: this goal and "those goals run by
+ * hand in separate terminals" are meant to be the same cluster, not two topologies to keep in sync
+ * -- which also means this goal isn't meant to run alongside an already-running manual session of
+ * any of them.
  *
  * <p>TLS-mode caveat, worth recording rather than hiding: {@code gimle-pki}'s {@code
- * PkiBootstrapMain} only mints a {@code controlplane} leaf certificate and an {@code operator} one
- * -- there is no dedicated {@code store} identity. The store node here is given the same {@code
- * controlplane} leaf certificate as its own TLS identity; safe because the store's own transports
- * (Raft peer RPC, the client-facing store RPC) are raw {@code SSLSocket}s verified only against the
- * shared CA, not hostname/SAN-checked the way {@code ApiServer}'s HTTPS surface is, and because a
- * single-node bootstrap never opens a Raft peer connection at all (zero peers). A real multi-node
- * TLS deployment would need {@code gimle-pki} to mint a real per-store-node identity instead -- out
- * of scope here. Also out of scope: propagating {@code gimle.tls.*} into the worker JVM this goal's
- * agent spawns, needed only for genuine cross-machine fabric TLS (same-machine fabric is a Unix
- * domain socket, never TLS'd), which a single-machine bootstrap never exercises.
+ * PkiBootstrapMain} mints {@code controlplane}, {@code fafnir}, and {@code operator} leaf
+ * certificates -- there is no dedicated {@code store} identity. The store node here is given the
+ * same {@code controlplane} leaf certificate as its own TLS identity; safe because the store's own
+ * transports (Raft peer RPC, the client-facing store RPC) are raw {@code SSLSocket}s verified only
+ * against the shared CA, not hostname/SAN-checked the way {@code ApiServer}'s HTTPS surface is, and
+ * because a single-node bootstrap never opens a Raft peer connection at all (zero peers). Fafnir
+ * does *not* share this stand-in -- it gets its own distinct {@code fafnir} leaf, since every
+ * action it takes being attributable to its own certificate Subject is directly load-bearing for
+ * its audit story (design doc §6f), unlike the store's own Raft/client RPC transports. A real
+ * multi-node TLS deployment would need {@code gimle-pki} to mint a real per-store-node identity too
+ * -- out of scope here. Also out of scope: propagating {@code gimle.tls.*} into the worker JVM this
+ * goal's agent spawns, needed only for genuine cross-machine fabric TLS (same-machine fabric is a
+ * Unix domain socket, never TLS'd), which a single-machine bootstrap never exercises.
  */
 @Mojo(name = "bootstrap", threadSafe = true)
 public final class BootstrapMojo extends AbstractMojo {
 
   private static final int STORE_RAFT_PORT = 9080;
   private static final int STORE_CLIENT_PORT = 9091;
+  // Matches FafnirMojo's own gimle.fafnir.port default.
+  private static final int FAFNIR_PORT = 9092;
   private static final int CONTROLPLANE_PORT = 8080;
   private static final String AGENT_NODE_ID = "node-1";
   private static final String GOSSIP_BIND_ADDRESS = "127.0.0.1:9090";
@@ -152,6 +158,12 @@ public final class BootstrapMojo extends AbstractMojo {
           () -> isPortOpen(STORE_CLIENT_PORT),
           readyTimeout,
           "store client port " + STORE_CLIENT_PORT + " should start listening");
+
+      spawned.add(spawnFafnir(base, tls, tlsDir, logsDir));
+      awaitTrue(
+          () -> isPortOpen(FAFNIR_PORT),
+          readyTimeout,
+          "fafnir port " + FAFNIR_PORT + " should start listening");
 
       spawned.add(spawnControlPlane(base, tls, tlsDir, logsDir));
       awaitTrue(
@@ -263,6 +275,31 @@ public final class BootstrapMojo extends AbstractMojo {
     return spawnLongRunning(command, logsDir.resolve("store.log"));
   }
 
+  private Process spawnFafnir(Path base, boolean tls, Path tlsDir, Path logsDir)
+      throws MojoExecutionException {
+    List<String> command = new ArrayList<>();
+    command.add(GimleProcesses.javaExecutable());
+    if (tls) {
+      // Unlike the store above, Fafnir gets its own distinct leaf identity from cluster-bootstrap
+      // time -- see the class javadoc for why sharing the control plane's borrowed identity, the
+      // store's own stand-in, isn't an option here.
+      addTlsFlags(
+          command,
+          tlsDir.resolve("fafnir.crt"),
+          tlsDir.resolve("fafnir.key"),
+          tlsDir.resolve("ca.crt"));
+    }
+    command.add("-cp");
+    command.add(resolveClasspath("gimle-fafnir"));
+    command.add("com.gimle.fafnir.FafnirMain");
+    command.add(String.valueOf(FAFNIR_PORT));
+    command.add(base.resolve("fafnir-secret.key").toString());
+    command.add("--store-endpoints");
+    command.add("127.0.0.1:" + STORE_CLIENT_PORT);
+    getLog().info("starting fafnir on port " + FAFNIR_PORT);
+    return spawnLongRunning(command, logsDir.resolve("fafnir.log"));
+  }
+
   private Process spawnControlPlane(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
     List<String> command = new ArrayList<>();
@@ -287,6 +324,8 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add(base.resolve("controlplane-secret.key").toString());
     command.add("--store-endpoints");
     command.add("127.0.0.1:" + STORE_CLIENT_PORT);
+    command.add("--fafnir-endpoint");
+    command.add("127.0.0.1:" + FAFNIR_PORT);
     getLog().info("starting control plane on port " + CONTROLPLANE_PORT);
     return spawnLongRunning(command, logsDir.resolve("controlplane.log"));
   }

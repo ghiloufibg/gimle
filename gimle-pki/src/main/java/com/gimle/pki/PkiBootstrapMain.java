@@ -57,6 +57,13 @@ public final class PkiBootstrapMain {
     writeCa(outputDir, ca);
 
     issueLeaf(outputDir, ca, "controlplane", "CN=" + hostname, List.of(hostname, "localhost"));
+    // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
+    // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
+    // local dev, per that class's own code comment) -- see PROJECT design doc §6f: every action
+    // Fafnir takes being attributable to its own certificate Subject, not a borrowed one, is
+    // directly load-bearing for its audit story, since it's the one component whose entire job is
+    // being the trust boundary for secret material.
+    issueLeaf(outputDir, ca, "fafnir", "CN=" + hostname, List.of(hostname, "localhost"));
     issueLeaf(
         outputDir,
         ca,
@@ -66,7 +73,7 @@ public final class PkiBootstrapMain {
     String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     System.out.println(
-        "wrote cluster CA, control-plane, and initial-operator material to " + outputDir);
+        "wrote cluster CA, control-plane, fafnir, and initial-operator material to " + outputDir);
     System.out.println();
     System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);
     System.out.println(
