@@ -16,8 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -54,11 +56,20 @@ class GreeterSmokeTestIT {
 
   private static final int STORE_COUNT = 3;
   private static final int CONTROLPLANE_COUNT = 2;
+  private static final int FAFNIR_COUNT = 2;
   private static final int STORE_RAFT_PORT_BASE = 19080;
   private static final int STORE_CLIENT_PORT_BASE = 19091;
   private static final int CONTROLPLANE_PORT_BASE = 18080;
+  private static final int FAFNIR_PORT_BASE = 19060;
   private static final String GOSSIP_ADDRESS = "127.0.0.1:19090";
   private static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
+  // The one tenant this suite exercises the real secret round trip for: an untenanted deployment
+  // never has config/secrets delivered at all (AgentMain#deliverConfig returns immediately when
+  // AssignedInstance#tenantId is empty), so a real end-to-end check needs a genuine registered
+  // Tenant, not just a bare deployment.
+  private static final String SECRET_TENANT_ID = "smoke-tenant";
+  private static final String SECRET_KEY = "some-secret-key";
+  private static final String SECRET_VALUE = "smoke-test-secret-value";
   // Matches gimle-console/e2e/greeter-smoke.spec.ts's own login credentials -- that suite logs in
   // as this account before touching any /console page (RBAC/session auth, commit 05af65d, gates
   // every console route client-side regardless of transport). Created via an unauthenticated PUT
@@ -115,11 +126,17 @@ class GreeterSmokeTestIT {
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
     assertTrue(Files.isRegularFile(consumerJar), "expected a built jar at " + consumerJar);
 
+    // Must exist before the tenant-scoped deployment below is admitted (DeploymentSpec's own
+    // javadoc: a tenantId must already name a registered Tenant), and before it, so the secret is
+    // already readable the moment the agent delivers config at install time.
+    provisionTenantAndSecret(writeUrl);
+
     submitDeployment(
         writeUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
-        providerJar);
+        providerJar,
+        Optional.of(SECRET_TENANT_ID));
     submitDeployment(
         writeUrl,
         "greeter-consumer-deployment",
@@ -144,6 +161,17 @@ class GreeterSmokeTestIT {
         () -> consumerLogShowsAGreeting(readUrl),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment's own log should show a real reply from greeter-provider");
+
+    // The real secret round trip (design doc §9/§11 Phase C): written via the API above, fetched
+    // by the agent straight from Fafnir, delivered to the worker, and read back by the module's
+    // own onStart hook -- logged there, asserted here. onStart already ran by the time the
+    // ACTIVE await above passed, so this should already be true; the await is headroom for log
+    // flush/propagation latency, not for the secret fetch itself.
+    await(
+        () -> providerLogShowsTheSecret(readUrl),
+        Duration.ofSeconds(30),
+        "greeter-provider-deployment's own log should show the real secret value fetched from"
+            + " Fafnir");
 
     // Playwright targets readUrl, not writeUrl: readUrl is the replica the awaits above already
     // polled until it showed fresh ACTIVE state. Store reads are deliberately loose across the
@@ -229,16 +257,46 @@ class GreeterSmokeTestIT {
     }
     String storeEndpointsSpec = String.join(",", storeClientEndpoints);
 
+    // A single key file shared across every Fafnir replica -- the design doc §8 multi-replica
+    // provisioning requirement -- unlike spawnControlPlane's own controlplane-secret-<port>.key
+    // below, which is deliberately still per-replica-distinct (that key only ever guards plain,
+    // legacy /config/* entries this suite doesn't exercise, so its own multi-replica-consistency
+    // gap is a separate, already-flagged issue outside this item's scope).
+    Path fafnirSecretKeyPath = tempDir.resolve("fafnir-secret.key");
+    List<String> fafnirEndpoints = new ArrayList<>();
+    for (int i = 0; i < FAFNIR_COUNT; i++) {
+      int port = FAFNIR_PORT_BASE + i;
+      processes.add(
+          spawnFafnir(
+              javaExecutable,
+              classpath,
+              port,
+              storeEndpointsSpec,
+              fafnirSecretKeyPath,
+              tempDir.resolve("fafnir-" + i + ".log")));
+      fafnirEndpoints.add("127.0.0.1:" + port);
+    }
+    for (String fafnirEndpoint : fafnirEndpoints) {
+      String[] hostPort = fafnirEndpoint.split(":");
+      awaitPortOpen(hostPort[0], Integer.parseInt(hostPort[1]), Duration.ofSeconds(30));
+    }
+
     List<String> controlPlaneBaseUrls = new ArrayList<>();
     for (int i = 0; i < CONTROLPLANE_COUNT; i++) {
       int port = CONTROLPLANE_PORT_BASE + i;
       String baseUrl = "http://127.0.0.1:" + port;
+      // Round-robin across the Fafnir replicas -- FafnirClient talks to exactly one address, so
+      // this is what proves every replica is independently usable (not just replica #0), matching
+      // the store cluster's own "read through a different replica than you wrote through" proof
+      // pattern above.
+      String fafnirEndpoint = fafnirEndpoints.get(i % fafnirEndpoints.size());
       processes.add(
           spawnControlPlane(
               javaExecutable,
               classpath,
               port,
               storeEndpointsSpec,
+              fafnirEndpoint,
               tempDir.resolve("controlplane-" + i + ".log")));
       final String awaitUrl = baseUrl;
       final int replicaIndex = i;
@@ -255,6 +313,7 @@ class GreeterSmokeTestIT {
             classpath,
             GOSSIP_ADDRESS,
             controlPlaneBaseUrls.get(0),
+            fafnirEndpoints.get(0),
             tempDir.resolve("agent.log")));
 
     return new SmokeCluster(storeProcesses, controlPlaneBaseUrls);
@@ -329,8 +388,36 @@ class GreeterSmokeTestIT {
     return pb.start();
   }
 
+  private Process spawnFafnir(
+      String javaExecutable,
+      String classpath,
+      int port,
+      String storeEndpointsSpec,
+      Path secretKeyPath,
+      Path logFile)
+      throws IOException {
+    ProcessBuilder pb =
+        new ProcessBuilder(
+            javaExecutable,
+            "-cp",
+            classpath,
+            "com.gimle.fafnir.FafnirMain",
+            String.valueOf(port),
+            secretKeyPath.toString(),
+            "--store-endpoints",
+            storeEndpointsSpec);
+    pb.redirectErrorStream(true);
+    pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
+    return pb.start();
+  }
+
   private Process spawnControlPlane(
-      String javaExecutable, String classpath, int port, String storeEndpointsSpec, Path logFile)
+      String javaExecutable,
+      String classpath,
+      int port,
+      String storeEndpointsSpec,
+      String fafnirEndpoint,
+      Path logFile)
       throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
@@ -341,7 +428,9 @@ class GreeterSmokeTestIT {
             String.valueOf(port),
             tempDir.resolve("controlplane-secret-" + port + ".key").toString(),
             "--store-endpoints",
-            storeEndpointsSpec);
+            storeEndpointsSpec,
+            "--fafnir-endpoint",
+            fafnirEndpoint);
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
@@ -352,11 +441,13 @@ class GreeterSmokeTestIT {
       String classpath,
       String gossipAddress,
       String controlPlaneBaseUrl,
+      String fafnirEndpoint,
       Path logFile)
       throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
             javaExecutable,
+            "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-cp",
             classpath,
             "com.gimle.agent.AgentMain",
@@ -375,6 +466,12 @@ class GreeterSmokeTestIT {
 
   private void submitDeployment(String baseUrl, String deploymentName, String moduleName, Path jar)
       throws Exception {
+    submitDeployment(baseUrl, deploymentName, moduleName, jar, Optional.empty());
+  }
+
+  private void submitDeployment(
+      String baseUrl, String deploymentName, String moduleName, Path jar, Optional<String> tenantId)
+      throws Exception {
     String manifest =
         """
         name: %s
@@ -383,8 +480,13 @@ class GreeterSmokeTestIT {
           version: 1.0.0
         artifactPath: %s
         replicas: 1
+        %s
         """
-            .formatted(deploymentName, moduleName, jar.toAbsolutePath());
+            .formatted(
+                deploymentName,
+                moduleName,
+                jar.toAbsolutePath(),
+                tenantId.map(id -> "tenantId: " + id).orElse(""));
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
@@ -393,6 +495,53 @@ class GreeterSmokeTestIT {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (response.statusCode() != 200) {
       fail("deployment submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * Registers {@link #SECRET_TENANT_ID} with a generous quota -- large enough that {@code
+   * greeter-provider}'s own {@code 64Mi}/{@code 100m} limit (see its {@code gimle-module.yaml})
+   * never brushes it -- and writes {@link #SECRET_KEY} through the real {@code /secrets/*} proxy
+   * (design doc §6e) before any deployment references the tenant. A deployment's {@code tenantId}
+   * must already name a registered {@code Tenant} at admission time (see {@code DeploymentSpec}'s
+   * own javadoc), so this must run before {@link #submitDeployment}.
+   */
+  private void provisionTenantAndSecret(String baseUrl) throws Exception {
+    String quotaBody =
+        Json.write(
+            Map.of(
+                "quota",
+                Map.of(
+                    "maxMemoryBytes",
+                    256L * 1024 * 1024,
+                    "maxCpuMillicores",
+                    1000L,
+                    "maxInstances",
+                    10)));
+    HttpResponse<String> tenantResponse =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + SECRET_TENANT_ID))
+                .PUT(HttpRequest.BodyPublishers.ofString(quotaBody, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (tenantResponse.statusCode() != 200) {
+      fail("tenant creation failed: " + tenantResponse.statusCode() + " " + tenantResponse.body());
+    }
+
+    String secretBody =
+        Json.write(
+            Map.of(
+                "value",
+                Base64.getEncoder().encodeToString(SECRET_VALUE.getBytes(StandardCharsets.UTF_8))));
+    HttpResponse<String> secretResponse =
+        httpClient.send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/secrets/" + SECRET_TENANT_ID + "/" + SECRET_KEY))
+                .PUT(HttpRequest.BodyPublishers.ofString(secretBody, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (secretResponse.statusCode() != 200) {
+      fail("secret write failed: " + secretResponse.statusCode() + " " + secretResponse.body());
     }
   }
 
@@ -474,6 +623,32 @@ class GreeterSmokeTestIT {
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       return response.statusCode() == 200 && response.body().contains("Hello, Gimlé!");
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * The real secret round trip's own assertion point: {@link #SECRET_VALUE} written through the API
+   * in {@link #provisionTenantAndSecret}, fetched by the real node agent straight from a real
+   * Fafnir replica (design doc §9/§11 Phase C), delivered down to the worker, and read back out by
+   * {@code GreeterProviderHooks#onStart}'s own {@code ctx.config(...)} call -- observed here purely
+   * through this instance's own application log, the same way {@link #consumerLogShowsAGreeting}
+   * observes the cross-worker fabric call.
+   */
+  private boolean providerLogShowsTheSecret(String baseUrl) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create(
+                          baseUrl
+                              + "/logs/instances/greeter-provider-deployment/0"
+                              + "?category=APPLICATION"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 && response.body().contains(SECRET_VALUE);
     } catch (Exception e) {
       return false;
     }

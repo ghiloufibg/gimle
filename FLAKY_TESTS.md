@@ -129,6 +129,32 @@ re-diagnosed every time:
   filter) with no code change, and on three consecutive isolated (`-Dtest=SecretStoreTest`) re-runs
   before that.
 
+### `GreeterSmokeTestIT`'s Playwright leg fails on a sandbox chromium-version mismatch
+
+- Observed: 2026-08-09, during F-12 (Fafnir topology + secret round trip) on
+  `secrets-vault-implementation`, running
+  `mvn -pl gimle-smoke-tests verify -Psmoke -Dtest=GreeterSmokeTestIT#greeter_modules_deploy_...`.
+- Failure: `runPlaywrightSuite` fails with exit code 1 on both Surefire retries; the underlying
+  Playwright error is `browserType.launch: Executable doesn't exist at
+  /opt/pw-browsers/chromium_headless_shell-1234/...` -- this sandbox's pre-installed browser is
+  `chromium_headless_shell-1194` (see `/opt/pw-browsers/`), a version mismatch against whatever
+  `@playwright/test` version `gimle-console/package.json` currently pins, not something either
+  `GreeterSmokeTestIT` or `gimle-console`'s own `playwright.config.ts` controls.
+- Not a regression from F-12's own change: every await *before* `runPlaywrightSuite` in the same
+  run -- both deployments reaching `ACTIVE`, the consumer's real fabric-call log line, and the new
+  secret round trip (`providerLogShowsTheSecret`, the real write-via-API -> fetch-via-agent-from-a-
+  real-multi-replica-Fafnir-cluster -> observed-in-the-module's-own-log path) -- all passed on both
+  attempts; only the Playwright leg, launched as a separate `bun run test:e2e` subprocess against a
+  pre-installed browser this sandbox doesn't have at the exact path Playwright expects, failed.
+  Confirmed via the agent/fafnir-0/fafnir-1/controlplane-0/controlplane-1 log files from the same
+  run: two Fafnir replicas came up sharing one `fafnir-secret.key`, both worker subprocesses
+  spawned, and the run only reached `runPlaywrightSuite` (a later step) because everything before
+  it already returned true.
+- Not re-run further in isolation: the failure is deterministic (a missing file at a fixed path),
+  not timing-dependent, so a re-run would reproduce identically without a version-matched browser
+  or an `executablePath` override in `gimle-console`'s own Playwright config -- a fix belongs to
+  that mismatch, not to this test.
+
 ## Process
 
 When a test fails that looks unrelated to the diff being verified: re-run it in isolation

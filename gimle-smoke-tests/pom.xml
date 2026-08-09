@@ -52,6 +52,16 @@
       <artifactId>gimle-worker</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      gimle-controlplane's own gimle-fafnir dependency is test-scoped and therefore not
+      transitive, so this module needs its own dependency to get FafnirMain onto the fork
+      classpath the real Fafnir replica subprocesses below are launched against.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <profiles>
