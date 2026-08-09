@@ -290,7 +290,11 @@ public final class FabricServiceRegistry implements ServiceRegistry {
           yield ObjectMarshalling.deserialize(resp.serializedReturn());
         }
         case FabricFrame.InvokeError err -> {
-          breaker.recordFailure();
+          // The remote method itself threw -- proof the endpoint was reachable and answered, not a
+          // transport failure. Scoring this against the breaker would open it on a validation
+          // exception exactly as readily as on a dead socket; only the IOException branch above
+          // (a genuine dispatch failure) should count against it.
+          breaker.recordSuccess();
           Object deserialized = ObjectMarshalling.deserialize(err.serializedThrowable());
           if (deserialized instanceof Throwable throwable) {
             throw throwable;

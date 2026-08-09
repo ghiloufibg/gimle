@@ -198,6 +198,33 @@ class FabricServiceRegistryTest {
   }
 
   @Test
+  @Timeout(15)
+  void an_endpoint_whose_method_throws_an_application_exception_does_not_open_its_breaker()
+      throws Exception {
+    // The sole endpoint's own implementation always throws -- a real answer from a reachable
+    // service, not a transport failure. If the breaker mis-scored this as recordFailure() (as it
+    // did before this fix), 4 calls (windowSize) at a 0.5 threshold would open it and every
+    // further lookup would throw GimleClusterException("no known exporter") instead of relaying
+    // the application exception.
+    InetSocketAddress address =
+        startBackend(
+            name -> {
+              throw new IllegalStateException("boom: " + name);
+            });
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-throwing", OWNER, GREETER_EXPORT, Optional.empty(), address);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    for (int i = 0; i < 10; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      RuntimeException thrown = assertThrows(RuntimeException.class, () -> greeter.greet("x"));
+      assertTrue(
+          thrown.getMessage().contains("boom: x"), "expected the relayed application exception");
+    }
+  }
+
+  @Test
   void no_known_exporter_anywhere_throws_gimle_cluster_exception() {
     FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), new ServiceCatalog());
     assertThrows(GimleClusterException.class, () -> registry.lookup(Greeter.class));
