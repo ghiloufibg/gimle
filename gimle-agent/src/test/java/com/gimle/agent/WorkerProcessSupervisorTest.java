@@ -1,5 +1,7 @@
 package com.gimle.agent;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -11,7 +13,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
@@ -146,6 +150,105 @@ class WorkerProcessSupervisorTest {
     }
   }
 
+  @Test
+  @Timeout(value = 20, unit = TimeUnit.SECONDS)
+  void an_exit_code_3_is_classified_as_oom() throws Exception {
+    Path counterFile = tempDir.resolve("counter-oom");
+    Path socketPath = tempDir.resolve("socket-oom");
+    Path workerLogRoot = tempDir.resolve("logs-oom");
+    List<String> command =
+        crashingCommand(counterFile, Integer.MAX_VALUE, 0, WorkerProcessSupervisor.OOM_EXIT_CODE);
+    RestartTracker tracker =
+        new RestartTracker(
+            Duration.ofMillis(200), 2.0, Duration.ofSeconds(5), 10, Duration.ofMinutes(10));
+    BlockingQueue<CrashInfo> crashes = new LinkedBlockingQueue<>();
+
+    try (WorkerProcessSupervisor supervisor =
+        new WorkerProcessSupervisor(
+            "oom",
+            command,
+            socketPath,
+            tracker,
+            id -> {},
+            Optional.empty(),
+            Duration.ofSeconds(30),
+            Optional.of(workerLogRoot),
+            crashes::add)) {
+      supervisor.start();
+
+      CrashInfo crash = crashes.poll(10, TimeUnit.SECONDS);
+      assertNotNull(crash, "expected a crash classification to be reported");
+      assertEquals(CrashInfo.Cause.OOM, crash.cause());
+      assertEquals(WorkerProcessSupervisor.OOM_EXIT_CODE, crash.exitCode());
+    }
+  }
+
+  @Test
+  @Timeout(value = 20, unit = TimeUnit.SECONDS)
+  void an_exit_with_a_fresh_crash_dump_is_classified_as_native_crash() throws Exception {
+    Path counterFile = tempDir.resolve("counter-native");
+    Path socketPath = tempDir.resolve("socket-native");
+    Path workerLogRoot = tempDir.resolve("logs-native");
+    List<String> command =
+        crashingCommandWithHsErr(counterFile, Integer.MAX_VALUE, 0, 134, workerLogRoot);
+    RestartTracker tracker =
+        new RestartTracker(
+            Duration.ofMillis(200), 2.0, Duration.ofSeconds(5), 10, Duration.ofMinutes(10));
+    BlockingQueue<CrashInfo> crashes = new LinkedBlockingQueue<>();
+
+    try (WorkerProcessSupervisor supervisor =
+        new WorkerProcessSupervisor(
+            "native",
+            command,
+            socketPath,
+            tracker,
+            id -> {},
+            Optional.empty(),
+            Duration.ofSeconds(30),
+            Optional.of(workerLogRoot),
+            crashes::add)) {
+      supervisor.start();
+
+      CrashInfo crash = crashes.poll(10, TimeUnit.SECONDS);
+      assertNotNull(crash, "expected a crash classification to be reported");
+      assertEquals(CrashInfo.Cause.NATIVE_CRASH, crash.cause());
+      assertTrue(crash.hsErrLog().isPresent());
+      assertTrue(Files.exists(crash.hsErrLog().orElseThrow()));
+    }
+  }
+
+  @Test
+  @Timeout(value = 20, unit = TimeUnit.SECONDS)
+  void a_plain_exit_with_no_crash_dump_is_classified_as_unknown() throws Exception {
+    Path counterFile = tempDir.resolve("counter-unknown");
+    Path socketPath = tempDir.resolve("socket-unknown");
+    Path workerLogRoot = tempDir.resolve("logs-unknown");
+    List<String> command = crashingCommand(counterFile, Integer.MAX_VALUE, 0, 1);
+    RestartTracker tracker =
+        new RestartTracker(
+            Duration.ofMillis(200), 2.0, Duration.ofSeconds(5), 10, Duration.ofMinutes(10));
+    BlockingQueue<CrashInfo> crashes = new LinkedBlockingQueue<>();
+
+    try (WorkerProcessSupervisor supervisor =
+        new WorkerProcessSupervisor(
+            "unknown",
+            command,
+            socketPath,
+            tracker,
+            id -> {},
+            Optional.empty(),
+            Duration.ofSeconds(30),
+            Optional.of(workerLogRoot),
+            crashes::add)) {
+      supervisor.start();
+
+      CrashInfo crash = crashes.poll(10, TimeUnit.SECONDS);
+      assertNotNull(crash, "expected a crash classification to be reported");
+      assertEquals(CrashInfo.Cause.UNKNOWN, crash.cause());
+      assertTrue(crash.hsErrLog().isEmpty());
+    }
+  }
+
   private List<String> crashingCommand(
       Path counterFile, int immediateCrashCount, long stableSleepMillis, int exitCode) {
     String javaExecutable = javaExecutable();
@@ -159,6 +262,19 @@ class WorkerProcessSupervisorTest {
         Integer.toString(immediateCrashCount),
         Long.toString(stableSleepMillis),
         Integer.toString(exitCode));
+  }
+
+  private List<String> crashingCommandWithHsErr(
+      Path counterFile,
+      int immediateCrashCount,
+      long stableSleepMillis,
+      int exitCode,
+      Path hsErrDir) {
+    List<String> command =
+        new ArrayList<>(
+            crashingCommand(counterFile, immediateCrashCount, stableSleepMillis, exitCode));
+    command.add(hsErrDir.toAbsolutePath().toString());
+    return command;
   }
 
   /**

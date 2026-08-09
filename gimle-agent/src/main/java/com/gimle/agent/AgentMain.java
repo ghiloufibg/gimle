@@ -14,6 +14,7 @@ import com.gimle.core.protocol.CsrRequestStatus;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
 import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.tls.SslContexts;
@@ -54,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.net.ssl.SSLContext;
@@ -783,7 +785,10 @@ public final class AgentMain {
               capacityTracker.release(exhaustedKey);
               supervised.remove(exhaustedKey);
             },
-            Optional.of(systemLogFile));
+            Optional.of(systemLogFile),
+            WorkerProcessSupervisor.DEFAULT_STABLE_UPTIME_THRESHOLD,
+            Optional.of(workerLogRoot),
+            crash -> onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId));
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
@@ -796,6 +801,48 @@ public final class AgentMain {
             () ->
                 driveInstanceUp(
                     instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId, supervised));
+  }
+
+  /**
+   * Relays a {@link CrashInfo} classification to every {@code SupervisedInstance} the crashed
+   * worker hosted -- under Tier 1 density (P1-5) that can be more than one, all sharing the same
+   * {@link WorkerProcessSupervisor}, so this can't just look up {@code spawnedWorkerId} alone.
+   * Reuses {@link InstanceEventKind#TRANSITION_FAILED} rather than a new kind: adding {@code
+   * CRASHED} would break the documented 1:1 mirror with {@code gimle-module}'s own {@code
+   * LifecycleEvent} variants for no benefit a {@code causeSummary} doesn't already give a reader.
+   */
+  private static void onWorkerCrash(
+      CrashInfo crash,
+      String spawnedWorkerId,
+      Map<String, SupervisedInstance> supervised,
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId) {
+    String causeSummary =
+        switch (crash.cause()) {
+          case OOM -> "worker OOM (exit code " + crash.exitCode() + ")";
+          case NATIVE_CRASH ->
+              "worker native crash (exit code "
+                  + crash.exitCode()
+                  + "), dump at "
+                  + crash.hsErrLog().orElseThrow();
+          case UNKNOWN -> "worker exited unexpectedly (exit code " + crash.exitCode() + ")";
+        };
+    for (SupervisedInstance instance : supervised.values()) {
+      if (!instance.supervisor.workerId().equals(spawnedWorkerId)) {
+        continue;
+      }
+      InstanceEvent event =
+          new InstanceEvent(
+              UUID.randomUUID().toString(),
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex(),
+              InstanceEventKind.TRANSITION_FAILED,
+              "worker crashed",
+              Optional.of(causeSummary),
+              Instant.now().toEpochMilli());
+      postInstanceEvent(httpClient, baseUrl, nodeId, event);
+    }
   }
 
   /**
@@ -840,6 +887,10 @@ public final class AgentMain {
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
     baseCommand.add(LEAK_DETECTION_JFR_FLAG);
+    // P2-3: makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather
+    // than indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
+    // classification depends on this being set on every worker, unconditionally.
+    baseCommand.add("-XX:+ExitOnOutOfMemoryError");
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));

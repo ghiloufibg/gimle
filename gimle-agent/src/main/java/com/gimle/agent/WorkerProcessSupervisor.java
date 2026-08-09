@@ -47,7 +47,12 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    * immediately on every launch, so that loop would retry forever at the initial delay instead of
    * ever reaching the design's documented "give up after N attempts in the window" outcome.
    */
-  private static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
+  static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
+
+  /** HotSpot's exit code for {@code -XX:+ExitOnOutOfMemoryError} -- see {@link CrashInfo.Cause}. */
+  static final int OOM_EXIT_CODE = 3;
+
+  private static final Consumer<CrashInfo> NO_OP_ON_CRASH = info -> {};
 
   private final String workerId;
   private final List<String> baseCommand;
@@ -56,10 +61,13 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   private final Consumer<String> onRestartBudgetExhausted;
   private final Optional<Path> systemLogFile;
   private final Duration stableUptimeThreshold;
+  private final Optional<Path> workerLogRoot;
+  private final Consumer<CrashInfo> onCrash;
 
   private volatile Process process;
   private volatile boolean closed;
   private volatile OutputStream systemLogStream;
+  private volatile long lastPid;
 
   public WorkerProcessSupervisor(
       String workerId,
@@ -74,7 +82,9 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
         restartTracker,
         onRestartBudgetExhausted,
         Optional.empty(),
-        DEFAULT_STABLE_UPTIME_THRESHOLD);
+        DEFAULT_STABLE_UPTIME_THRESHOLD,
+        Optional.empty(),
+        NO_OP_ON_CRASH);
   }
 
   /**
@@ -98,7 +108,9 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
         restartTracker,
         onRestartBudgetExhausted,
         systemLogFile,
-        DEFAULT_STABLE_UPTIME_THRESHOLD);
+        DEFAULT_STABLE_UPTIME_THRESHOLD,
+        Optional.empty(),
+        NO_OP_ON_CRASH);
   }
 
   /**
@@ -115,6 +127,36 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       Consumer<String> onRestartBudgetExhausted,
       Optional<Path> systemLogFile,
       Duration stableUptimeThreshold) {
+    this(
+        workerId,
+        baseCommand,
+        controlSocketPath,
+        restartTracker,
+        onRestartBudgetExhausted,
+        systemLogFile,
+        stableUptimeThreshold,
+        Optional.empty(),
+        NO_OP_ON_CRASH);
+  }
+
+  /**
+   * {@code workerLogRoot} (P2-3) is where {@code -XX:ErrorFile=<workerLogRoot>/hs_err_pid%p.log}
+   * (see {@link AgentMain#buildWorkerCommand}) writes a native crash dump -- {@code empty} means no
+   * crash-dump correlation, matching every shorter overload above. {@code onCrash} is called from
+   * {@link #onExit} with a best-effort {@link CrashInfo} classification of every unexpected exit,
+   * before the respawn decision is made; the default no-op matches this class's pre-P2-3 behavior
+   * of only ever logging the raw exit code.
+   */
+  public WorkerProcessSupervisor(
+      String workerId,
+      List<String> baseCommand,
+      Path controlSocketPath,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Optional<Path> systemLogFile,
+      Duration stableUptimeThreshold,
+      Optional<Path> workerLogRoot,
+      Consumer<CrashInfo> onCrash) {
     this.workerId = workerId;
     this.baseCommand = List.copyOf(baseCommand);
     this.controlSocketPath = controlSocketPath;
@@ -122,6 +164,8 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     this.onRestartBudgetExhausted = onRestartBudgetExhausted;
     this.systemLogFile = systemLogFile;
     this.stableUptimeThreshold = stableUptimeThreshold;
+    this.workerLogRoot = workerLogRoot;
+    this.onCrash = onCrash;
   }
 
   public synchronized void start() throws IOException {
@@ -139,6 +183,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     ProcessBuilder pb = new ProcessBuilder(command);
     pb.redirectErrorStream(true);
     process = pb.start();
+    lastPid = process.pid();
     log.info("spawned worker {} as pid {}", workerId, process.pid());
     String pid = String.valueOf(process.pid());
     Thread.ofVirtual()
@@ -225,7 +270,9 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     if (closed) {
       return; // a deliberate stop(), not a crash -- no respawn.
     }
-    log.warn("worker {} exited unexpectedly (code {})", workerId, process.exitValue());
+    int exitCode = process.exitValue();
+    log.warn("worker {} exited unexpectedly (code {})", workerId, exitCode);
+    onCrash.accept(classifyCrash(exitCode));
 
     Instant now = Instant.now();
     if (!restartTracker.recordFailureAndCheckShouldRetry(now)) {
@@ -257,6 +304,29 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
                 }
               }
             });
+  }
+
+  /**
+   * Best-effort classification of the exit just observed -- exit code {@value #OOM_EXIT_CODE}
+   * (HotSpot's own {@code -XX:+ExitOnOutOfMemoryError} code, unambiguous and portable) is {@code
+   * OOM}; anything else with a fresh {@code hs_err_pid<pid>.log} on disk is {@code NATIVE_CRASH}
+   * (that file is only ever written for a genuine native-level fault); everything else is {@code
+   * UNKNOWN}. Uses {@link #lastPid}, captured at spawn time, rather than {@code process.pid()} --
+   * safer to rely on than re-querying a {@link Process} handle after it has already exited.
+   */
+  private CrashInfo classifyCrash(int exitCode) {
+    if (exitCode == OOM_EXIT_CODE) {
+      return new CrashInfo(CrashInfo.Cause.OOM, exitCode, hsErrLogPath());
+    }
+    Optional<Path> hsErr = hsErrLogPath().filter(Files::exists);
+    if (hsErr.isPresent()) {
+      return new CrashInfo(CrashInfo.Cause.NATIVE_CRASH, exitCode, hsErr);
+    }
+    return new CrashInfo(CrashInfo.Cause.UNKNOWN, exitCode, Optional.empty());
+  }
+
+  private Optional<Path> hsErrLogPath() {
+    return workerLogRoot.map(root -> root.resolve("hs_err_pid" + lastPid + ".log"));
   }
 
   /**
@@ -301,5 +371,15 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   /** For tests/inspection only -- supervision itself never reads this back. */
   Process process() {
     return process;
+  }
+
+  /**
+   * The worker id this supervisor was constructed with -- fixed for its lifetime, including across
+   * every respawn. Under Tier 1 density (P1-5), several {@code SupervisedInstance}s can share one
+   * supervisor; {@link AgentMain}'s crash-callback wiring uses this to find every instance a
+   * crashed worker hosted, not just the one that happened to spawn it first.
+   */
+  String workerId() {
+    return workerId;
   }
 }

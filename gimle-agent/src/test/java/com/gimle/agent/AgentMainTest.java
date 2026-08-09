@@ -91,6 +91,34 @@ class AgentMainTest {
   }
 
   @Test
+  void the_spawned_command_always_carries_exit_on_out_of_memory_error() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+
+    List<String> command =
+        AgentMain.buildWorkerCommand(
+            "java",
+            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+            resourceLimiter,
+            handle,
+            Path.of("gimle-logs", "workers", "hello-deployment#0"),
+            "node-1",
+            assigned);
+
+    // WorkerProcessSupervisor's OOM crash classification (P2-3) depends on this flag being set on
+    // every worker, unconditionally -- without it, an OOM exit is indistinguishable from any
+    // other unexpected exit code.
+    assertTrue(
+        command.contains("-XX:+ExitOnOutOfMemoryError"),
+        "expected -XX:+ExitOnOutOfMemoryError in the spawned command; command=" + command);
+  }
+
+  @Test
   void observation_json_reports_the_instances_real_self_reported_resource_usage() {
     // Regression test: cpuMillicoresUsed/memoryBytesUsed were previously never populated at all,
     // so AutoscaleReconciler's CPU-utilization math always saw zero. SupervisedInstance's
