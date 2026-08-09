@@ -892,6 +892,13 @@ public final class AgentMain {
     // classification depends on this being set on every worker, unconditionally.
     baseCommand.add("-XX:+ExitOnOutOfMemoryError");
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
+    // P2-17: forwarded unconditionally (defaulting to this agent's own unset-property "false")
+    // rather than only when explicitly set, so every worker this agent spawns gets an explicit,
+    // consistent value instead of silently inheriting whatever WorkerMain's own default happens
+    // to be.
+    baseCommand.add(
+        "-Dgimle.fabric.defaultDenyCrossTenant="
+            + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);

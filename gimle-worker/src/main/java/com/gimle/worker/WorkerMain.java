@@ -105,6 +105,11 @@ public final class WorkerMain {
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
+    // P2-17: forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker
+    // it spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
+    // launched by hand outside the agent.
+    boolean defaultDenyCrossTenant =
+        Boolean.parseBoolean(System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
     FabricServiceRegistry fabricRegistry =
         new FabricServiceRegistry(
             selfNode,
@@ -117,7 +122,9 @@ public final class WorkerMain {
             5,
             0.5,
             Duration.ofSeconds(5),
-            tenantId);
+            tenantId,
+            0.5,
+            defaultDenyCrossTenant);
 
     // Every module this worker currently has ACTIVE -- fed to the metrics-reporter loop below,
     // which has no other way to know which module ids to report against (ModuleRegistry exposes

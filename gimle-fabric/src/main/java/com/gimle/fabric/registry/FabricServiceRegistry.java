@@ -77,6 +77,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final Duration breakerCooldown;
   private final Optional<String> selfTenantId;
   private final double maxEjectionPercent;
+  private final boolean defaultDenyCrossTenant;
 
   private final Map<ServiceEndpoint, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final LeastOutstandingRequestsSelector<ServiceEndpoint> selector =
@@ -162,6 +163,50 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       Duration breakerCooldown,
       Optional<String> selfTenantId,
       double maxEjectionPercent) {
+    this(
+        selfNode,
+        workerId,
+        localRegistry,
+        catalog,
+        exportsOf,
+        controlChannel,
+        interfaceLoader,
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        selfTenantId,
+        maxEjectionPercent,
+        false);
+  }
+
+  /**
+   * {@code defaultDenyCrossTenant} (P2-17) flips {@link ServiceExport#permitsTenant}'s own
+   * safe-by-default semantics for an export that doesn't declare {@code allowedTenantIds} at all:
+   * normally that means "any tenant may consume this," which silently makes an unscoped export
+   * public cluster-wide the moment tenancy is turned on, whether or not the module author meant it.
+   * When {@code true}, this registry additionally requires such an unscoped export's caller to be
+   * untenanted too -- {@code ServiceExport}/{@code ServiceEndpoint} don't track the exporting
+   * module's own tenant, so "the same tenant as the exporter" (the ideal, narrowest rule) isn't
+   * representable without a wire-format change; "untenanted-only" is the narrowest rule expressible
+   * with today's data, and a strictly safer default than "any tenant" either way. A tenant that
+   * genuinely needs cross-tenant access to a specific export still gets it by being named in that
+   * export's own {@code allowedTenantIds} -- this flag only changes what happens when a manifest is
+   * silent. Default {@code false}: nothing existing changes behavior.
+   */
+  public FabricServiceRegistry(
+      MemberId selfNode,
+      String workerId,
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Consumer<ControlMessage> controlChannel,
+      ClassLoader interfaceLoader,
+      int breakerWindowSize,
+      double breakerErrorRateThreshold,
+      Duration breakerCooldown,
+      Optional<String> selfTenantId,
+      double maxEjectionPercent,
+      boolean defaultDenyCrossTenant) {
     this.selfNode = selfNode;
     this.workerId = workerId;
     this.localRegistry = localRegistry;
@@ -174,6 +219,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     this.breakerCooldown = breakerCooldown;
     this.selfTenantId = selfTenantId;
     this.maxEjectionPercent = maxEjectionPercent;
+    this.defaultDenyCrossTenant = defaultDenyCrossTenant;
   }
 
   @Override
@@ -214,7 +260,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       if (isSameMachine && endpoint.workerId().equals(workerId)) {
         continue; // this worker's own entry: already covered by the local-registry tier above
       }
-      if (!endpoint.export().permitsTenant(selfTenantId)) {
+      if (!permitsUnderTenantPolicy(endpoint.export())) {
         continue; // this tenant isn't on the export's allow-list
       }
       // Breaker state is deliberately not filtered here -- selectAllowedCandidate applies it
@@ -271,6 +317,17 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     for (ServiceExport export : exports) {
       controlChannel.accept(new ControlMessage.ServiceUnregistered(owner, export));
     }
+  }
+
+  /**
+   * See {@link #defaultDenyCrossTenant}'s own javadoc for the policy this layers on top of {@link
+   * ServiceExport#permitsTenant}.
+   */
+  private boolean permitsUnderTenantPolicy(ServiceExport export) {
+    if (!defaultDenyCrossTenant || export.allowedTenantIds().isPresent()) {
+      return export.permitsTenant(selfTenantId);
+    }
+    return selfTenantId.isEmpty();
   }
 
   private Optional<ServiceExport> exportFor(ModuleId owner, Class<?> iface) {

@@ -119,6 +119,56 @@ class AgentMainTest {
   }
 
   @Test
+  void the_spawned_command_forwards_the_default_deny_cross_tenant_flag() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    String property = "gimle.fabric.defaultDenyCrossTenant";
+    String previous = System.getProperty(property);
+    try {
+      // Absent -> forwarded as "false", not simply omitted -- every worker gets an explicit
+      // value rather than silently inheriting whatever WorkerMain's own default happens to be.
+      System.clearProperty(property);
+      List<String> withoutProperty =
+          AgentMain.buildWorkerCommand(
+              "java",
+              List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+              resourceLimiter,
+              handle,
+              Path.of("gimle-logs", "workers", "hello-deployment#0"),
+              "node-1",
+              assigned);
+      assertTrue(
+          withoutProperty.contains("-Dgimle.fabric.defaultDenyCrossTenant=false"),
+          "expected the flag forwarded as false by default; command=" + withoutProperty);
+
+      System.setProperty(property, "true");
+      List<String> withProperty =
+          AgentMain.buildWorkerCommand(
+              "java",
+              List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+              resourceLimiter,
+              handle,
+              Path.of("gimle-logs", "workers", "hello-deployment#0"),
+              "node-1",
+              assigned);
+      assertTrue(
+          withProperty.contains("-Dgimle.fabric.defaultDenyCrossTenant=true"),
+          "expected the agent's own property value forwarded; command=" + withProperty);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(property);
+      } else {
+        System.setProperty(property, previous);
+      }
+    }
+  }
+
+  @Test
   void observation_json_reports_the_instances_real_self_reported_resource_usage() {
     // Regression test: cpuMillicoresUsed/memoryBytesUsed were previously never populated at all,
     // so AutoscaleReconciler's CPU-utilization math always saw zero. SupervisedInstance's

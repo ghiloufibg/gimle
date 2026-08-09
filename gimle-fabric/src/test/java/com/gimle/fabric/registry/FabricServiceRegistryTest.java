@@ -287,6 +287,28 @@ class FabricServiceRegistryTest {
         selfTenantId);
   }
 
+  private FabricServiceRegistry newRegistryForTenant(
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      ServiceExport export,
+      Optional<String> selfTenantId,
+      boolean defaultDenyCrossTenant) {
+    return new FabricServiceRegistry(
+        selfNode,
+        "worker-self",
+        localRegistry,
+        catalog,
+        owner -> List.of(export),
+        message -> {},
+        Greeter.class.getClassLoader(),
+        4,
+        0.5,
+        Duration.ofMillis(200),
+        selfTenantId,
+        0.5,
+        defaultDenyCrossTenant);
+  }
+
   @Test
   @Timeout(10)
   void a_caller_belonging_to_an_allowed_tenant_reaches_a_restricted_export() throws IOException {
@@ -368,6 +390,76 @@ class FabricServiceRegistryTest {
     FabricServiceRegistry registry =
         newRegistryForTenant(
             new SimpleServiceRegistry(), catalog, GREETER_EXPORT, Optional.of("any-tenant"));
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    assertEquals("remote:x", greeter.greet("x"));
+  }
+
+  // ---- P2-17: defaultDenyCrossTenant flips an unscoped export's default from public to
+  // untenanted-only; a restricted export's own allow-list is unaffected either way ----
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_caller_still_reaches_an_unrestricted_export_with_default_deny_cross_tenant_on()
+      throws IOException {
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, GREETER_EXPORT, Optional.empty(), true);
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    assertEquals("remote:x", greeter.greet("x"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_tenanted_caller_cannot_reach_an_unrestricted_export_with_default_deny_cross_tenant_on()
+      throws IOException {
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, GREETER_EXPORT, Optional.of("tenant-a"), true);
+
+    assertEquals(Optional.empty(), registry.lookup(Greeter.class));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_allow_listed_export_still_permits_its_named_tenant_with_default_deny_cross_tenant_on()
+      throws IOException {
+    // The flag only changes what happens when a manifest is silent about allowedTenantIds; an
+    // export that already declares its own allow-list is unaffected either way.
+    ServiceExport restricted =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+    InetSocketAddress remoteAddress = startBackend(name -> "remote:" + name);
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        restricted,
+        Optional.empty(),
+        remoteAddress);
+    FabricServiceRegistry registry =
+        newRegistryForTenant(
+            new SimpleServiceRegistry(), catalog, restricted, Optional.of("tenant-a"), true);
 
     Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
     assertEquals("remote:x", greeter.greet("x"));
