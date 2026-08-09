@@ -336,6 +336,27 @@
             <release>25</release>
           </configuration>
         </plugin>
+        <!--
+          P2-13: CycloneDX SBOM generation, offline only: reads the reactor's already-resolved
+          dependency graph and writes a manifest, no vulnerability-database lookup. Live CVE
+          scanning (e.g. OWASP dependency-check) is a deliberate, documented deferral, not an
+          oversight: this sandbox's network policy blocks both services.nvd.nist.gov and
+          ossindex.sonatype.org, and a tool that can't run here would need to work identically in
+          CI anyway, so building against one that can't be exercised locally is the wrong call.
+          makeAggregateBom needs the full reactor project list, which only a build against this
+          root aggregator gets automatically; bound with inherited=false below so it runs exactly
+          once (for this root project itself), not once per child module.
+        -->
+        <plugin>
+          <groupId>org.cyclonedx</groupId>
+          <artifactId>cyclonedx-maven-plugin</artifactId>
+          <version>2.9.3</version>
+          <configuration>
+            <outputFormat>json</outputFormat>
+            <schemaVersion>1.5</schemaVersion>
+            <outputName>bom</outputName>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
     <plugins>
@@ -376,6 +397,19 @@
           <execution>
             <goals>
               <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>makeAggregateBom</goal>
             </goals>
           </execution>
         </executions>
