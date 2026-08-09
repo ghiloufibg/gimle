@@ -25,14 +25,17 @@ import java.util.List;
  * variants (StoreRpc's surface is larger than Raft's own three-RPC-kind shape), StateMutation's
  * single-file precedent is the better fit.
  *
- * <p>{@link Propose}, {@link PutHeartbeat}, {@link AcquireOrRenewLease}, and {@link ReleaseLease}
- * are the only requests that must land on the current Raft leader specifically; every other request
- * may be served by any {@code StoreNode} (design doc §4.5 -- reads stay exactly as loose as today,
- * no linearizability requirement). All four of the leader-only requests share one {@link NotLeader}
- * response for the same reason {@link com.gimle.mimir.raft.RaftNode#propose} already rejects a
- * non-leader immediately rather than silently forwarding (design doc §4.6): {@code StoreClient}
- * follows the returned leader address and retries once, rather than a {@code StoreNode} proxying
- * the write internally.
+ * <p>{@link Propose}, {@link PutHeartbeat}, {@link AcquireOrRenewLease}, {@link ReleaseLease},
+ * {@link AddServer}, and {@link RemoveServer} are writes that must land on the current Raft leader
+ * specifically; {@link GetNodeHeartbeat} is a leader-only *read* for a different reason (P2-14) --
+ * node heartbeats are deliberately never replicated through the log, so a follower's local copy is
+ * never anything but empty, and answering from it the way every other read here does would be
+ * silently wrong, not just stale. Every other request may be served by any {@code StoreNode}
+ * (design doc §4.5 -- reads stay exactly as loose as today, no linearizability requirement). Every
+ * leader-only request shares one {@link NotLeader} response for the same reason {@link
+ * com.gimle.mimir.raft.RaftNode#propose} already rejects a non-leader immediately rather than
+ * silently forwarding (design doc §4.6): {@code StoreClient} follows the returned leader address
+ * and retries once, rather than a {@code StoreNode} proxying the write internally.
  */
 public sealed interface StoreRpc {
 
@@ -92,7 +95,7 @@ public sealed interface StoreRpc {
           ReconcilerInstanceStateListResult,
           InstanceEventListResult {}
 
-  // ---- leader-only writes ----
+  // ---- leader-only requests (writes, plus the one leader-local read) ----
 
   record Propose(StateMutation mutation) implements Request {}
 
@@ -114,6 +117,15 @@ public sealed interface StoreRpc {
 
   /** The symmetric removal counterpart to {@link AddServer}. */
   record RemoveServer(String peerId) implements Request {}
+
+  /**
+   * The one leader-only *read* in this group (P2-14): node heartbeats are deliberately never
+   * replicated through the Raft log (too high-frequency, tolerant of a brief gap after a leader
+   * change -- see {@code StateStore.putNodeHeartbeat}'s own javadoc), so a follower's local copy is
+   * never anything but empty. Routing this through the leader the same way a write would be is what
+   * makes the answer actually correct instead of merely available.
+   */
+  record GetNodeHeartbeat(String nodeId) implements Request {}
 
   // ---- reads: served by any StoreNode ----
 
@@ -154,8 +166,6 @@ public sealed interface StoreRpc {
   record GetEffectiveReplicas(String deploymentName) implements Request {}
 
   record GetRollingIndex(String deploymentName) implements Request {}
-
-  record GetNodeHeartbeat(String nodeId) implements Request {}
 
   record GetReconcilerInstanceState(String deploymentName, int instanceIndex) implements Request {}
 

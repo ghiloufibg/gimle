@@ -63,6 +63,11 @@ public interface StoreReader {
 
   Optional<Integer> getRollingIndex(String deploymentName);
 
+  /**
+   * Leader-local; a {@code StoreClient} implementation routes this through the current leader
+   * specifically, unlike every other read here (P2-14) -- see {@code StateStore.putNodeHeartbeat}'s
+   * own javadoc.
+   */
   Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId);
 
   Optional<ReconcilerInstanceState> getReconcilerInstanceState(

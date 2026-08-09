@@ -224,12 +224,21 @@ public final class StateStore implements StoreReader {
 
   // ---- node heartbeats ----
 
+  /**
+   * Leader-local only -- heartbeats never enter the replicated Raft log (too high-frequency, and
+   * tolerant of a brief gap after a leader change), so only whichever replica is currently leader
+   * ever has a given node's heartbeat in its own {@code nodeHeartbeats} map. {@link
+   * com.gimle.mimir.rpc.StoreNode}/{@code StoreClient} route both {@code PutHeartbeat} and {@code
+   * GetNodeHeartbeat} through the current leader specifically for this reason (P2-14) -- a
+   * follower's own copy here is never anything but empty, not merely stale.
+   */
   public void putNodeHeartbeat(NodeHeartbeat heartbeat) {
     Instant receivedAt = Instant.now();
     writeAtomically(heartbeatFile(heartbeat.nodeId()), heartbeatToYaml(heartbeat, receivedAt));
     nodeHeartbeats.put(heartbeat.nodeId(), new ObservedHeartbeat(heartbeat, receivedAt));
   }
 
+  /** See {@link #putNodeHeartbeat}'s own javadoc for why this is leader-local. */
   public Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId) {
     return Optional.ofNullable(nodeHeartbeats.get(nodeId));
   }

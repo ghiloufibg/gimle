@@ -3,6 +3,8 @@ package com.gimle.mimir.rpc;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.raft.AppendEntries;
@@ -19,6 +21,7 @@ import com.gimle.mimir.raft.RequestVote;
 import com.gimle.mimir.raft.RequestVoteResponse;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -238,6 +241,28 @@ class StoreClientClusterTest {
     LeaseGrant grantedAfterRelease =
         client.tryAcquireOrRenewLease("reconciler-leader", "api-2", Duration.ofSeconds(10));
     assertTrue(grantedAfterRelease.granted());
+  }
+
+  @Test
+  @Timeout(15)
+  void heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    client.putHeartbeat(
+        new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1024, 512, 4000, 1000), List.of()));
+
+    // Heartbeats are deliberately leader-local, never replicated (P2-14) -- every one of these
+    // reads must come back present. Before the fix, getNodeHeartbeat round-robinned across all
+    // three endpoints via sendRead, so roughly 2 of every 3 calls landed on a follower whose local
+    // map never had this heartbeat at all and answered empty forever, not just occasionally.
+    for (int i = 0; i < 9; i++) {
+      Optional<ObservedHeartbeat> observed = client.getNodeHeartbeat("node-a");
+      assertTrue(observed.isPresent(), "call " + i + " returned empty");
+      assertEquals("node-a", observed.get().heartbeat().nodeId());
+    }
   }
 
   @Test

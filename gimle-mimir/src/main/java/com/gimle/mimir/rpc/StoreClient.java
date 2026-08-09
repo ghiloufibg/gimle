@@ -103,6 +103,24 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     sendLeaderOnly("removeServer", new StoreRpc.RemoveServer(peerId));
   }
 
+  /**
+   * Leader-routed, unlike every other read below (P2-14): node heartbeats are deliberately never
+   * replicated through the Raft log, so a follower's local copy is never anything but empty --
+   * round-robining this the way every other read here does would silently answer "no heartbeat"
+   * from a replica that never held leadership, forever, not just return a stale-but-eventually-
+   * correct answer. Reuses {@link #sendLeaderOnly}'s existing preferred-leader cache and {@code
+   * NotLeader}-hint-follow machinery; callers already handle a {@link
+   * com.gimle.core.exception.GimleRaftException#storeUnreachable} from every other leader-only call
+   * on this client (a reconciler tick's own {@code propose} can already throw the same way during a
+   * leader-election gap), so this needs no new caller-side handling.
+   */
+  public Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId) {
+    StoreRpc.HeartbeatResult r =
+        (StoreRpc.HeartbeatResult)
+            sendLeaderOnly("getNodeHeartbeat", new StoreRpc.GetNodeHeartbeat(nodeId));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
   // ---- reads: same names/signatures as StateStore ----
 
   public List<Account> listAccounts() {
@@ -195,12 +213,6 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public Optional<Integer> getRollingIndex(String deploymentName) {
     StoreRpc.IntResult r =
         (StoreRpc.IntResult) sendRead(new StoreRpc.GetRollingIndex(deploymentName));
-    return r.present() ? Optional.of(r.value()) : Optional.empty();
-  }
-
-  public Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId) {
-    StoreRpc.HeartbeatResult r =
-        (StoreRpc.HeartbeatResult) sendRead(new StoreRpc.GetNodeHeartbeat(nodeId));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 

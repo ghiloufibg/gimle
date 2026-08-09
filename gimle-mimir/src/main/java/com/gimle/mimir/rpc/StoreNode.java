@@ -14,12 +14,19 @@ import java.util.Optional;
  * StateStore}, dispatching every request either straight to a {@code StateStore} getter (any node
  * may answer -- design doc §4.5) or, for {@link StoreRpc.Propose}/{@link
  * StoreRpc.PutHeartbeat}/{@link StoreRpc.AcquireOrRenewLease}/{@link StoreRpc.ReleaseLease}/{@link
- * StoreRpc.AddServer}, through a leader check first, translating a non-leader into {@link
- * StoreRpc.NotLeader} carrying the leader's *client* address rather than its Raft ID -- resolved
- * via {@code raftIdToClientAddress}. Unlike every other field here, that map is a *live* reference
- * the caller ({@code StoreMain}) keeps mutating as membership changes -- {@code StoreNode} takes no
- * defensive copy of it on purpose, so a peer added after this node was constructed still resolves
- * correctly (design doc §4.6).
+ * StoreRpc.AddServer}/{@link StoreRpc.RemoveServer}/{@link StoreRpc.GetNodeHeartbeat}, through a
+ * leader check first, translating a non-leader into {@link StoreRpc.NotLeader} carrying the
+ * leader's *client* address rather than its Raft ID -- resolved via {@code raftIdToClientAddress}.
+ * {@link StoreRpc.GetNodeHeartbeat} is the one *read* in this leader-only group: node heartbeats
+ * are deliberately never replicated through the Raft log (too high-frequency, and tolerant of a
+ * brief gap after a leader change -- see {@code StateStore.putNodeHeartbeat}'s own javadoc), so a
+ * follower's local copy is never anything but empty. Treating it like every other any-node read
+ * would silently answer "no heartbeat" from a replica that never held leadership, forever -- this
+ * routes it the same leader-only way as everything else that's leader-local state (P2-14). Unlike
+ * every other field here, {@code raftIdToClientAddress} is a *live* reference the caller ({@code
+ * StoreMain}) keeps mutating as membership changes -- {@code StoreNode} takes no defensive copy of
+ * it on purpose, so a peer added after this node was constructed still resolves correctly (design
+ * doc §4.6).
  */
 public final class StoreNode implements StoreRpcHandler {
 
@@ -68,7 +75,7 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetEffectiveReplicas r ->
           intResult(store.getEffectiveReplicas(r.deploymentName()));
       case StoreRpc.GetRollingIndex r -> intResult(store.getRollingIndex(r.deploymentName()));
-      case StoreRpc.GetNodeHeartbeat r -> heartbeatResult(store.getNodeHeartbeat(r.nodeId()));
+      case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
               store.getReconcilerInstanceState(r.deploymentName(), r.instanceIndex()));
@@ -114,6 +121,18 @@ public final class StoreNode implements StoreRpcHandler {
     }
     store.releaseLease(request.name(), request.holderId());
     return new StoreRpc.Ok();
+  }
+
+  /**
+   * Leader-only, per this class's own javadoc (P2-14): a follower's local heartbeat map is never
+   * anything but empty, so answering from it (as every other read here does) would be silently
+   * wrong rather than merely stale.
+   */
+  private StoreRpc.Response handleGetNodeHeartbeat(StoreRpc.GetNodeHeartbeat request) {
+    if (!raftNode.isLeader()) {
+      return notLeaderResponse();
+    }
+    return heartbeatResult(store.getNodeHeartbeat(request.nodeId()));
   }
 
   /**

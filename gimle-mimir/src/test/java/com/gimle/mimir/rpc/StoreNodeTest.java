@@ -155,6 +155,23 @@ class StoreNodeTest {
     assertEquals(
         new StoreRpc.NotLeader(""),
         node.handle(new StoreRpc.ReleaseLease("reconciler-leader", "node-a")));
+    // GetNodeHeartbeat is the one leader-only *read* in this group (P2-14) -- a non-leader must
+    // reject it the same way, not answer from its own always-empty local heartbeat map.
+    assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.GetNodeHeartbeat("node-a")));
+  }
+
+  @Test
+  void a_leader_reads_back_a_heartbeat_it_just_accepted() {
+    StoreNode node = leaderNode("heartbeat-read-leader");
+    NodeHeartbeat heartbeat =
+        new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1024, 512, 4000, 1000), List.of());
+    assertEquals(new StoreRpc.Ok(), node.handle(new StoreRpc.PutHeartbeat(heartbeat)));
+
+    StoreRpc.HeartbeatResult result =
+        (StoreRpc.HeartbeatResult) node.handle(new StoreRpc.GetNodeHeartbeat("node-a"));
+
+    assertTrue(result.present());
+    assertEquals("node-a", result.value().heartbeat().nodeId());
   }
 
   @Test
