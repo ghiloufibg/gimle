@@ -46,7 +46,13 @@ class GossipMemberDtlsTest {
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
 
   private static final GossipConfig FAST_CONFIG =
-      new GossipConfig(Duration.ofMillis(100), Duration.ofMillis(80), Duration.ofSeconds(2), 2, 6);
+      new GossipConfig(
+          Duration.ofMillis(100),
+          Duration.ofMillis(80),
+          Duration.ofSeconds(2),
+          2,
+          6,
+          Duration.ofSeconds(30));
 
   @TempDir private Path tempDir;
 

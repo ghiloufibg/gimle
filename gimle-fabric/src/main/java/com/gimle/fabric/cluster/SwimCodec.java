@@ -31,6 +31,8 @@ final class SwimCodec {
   private static final byte TAG_PING_REQ = 1;
   private static final byte TAG_ACK = 2;
   private static final byte TAG_INDIRECT_ACK = 3;
+  private static final byte TAG_SYNC_REQUEST = 4;
+  private static final byte TAG_SYNC_RESPONSE = 5;
 
   /**
    * Max UDP payload size -- {@link GossipMember}'s receive buffer is itself capped at 65535 bytes,
@@ -74,6 +76,18 @@ final class SwimCodec {
           writePiggyback(out, m.piggyback());
           writeCatalogPayload(out, m.catalogPayload());
         }
+        case SwimMessage.SyncRequest m -> {
+          out.writeByte(TAG_SYNC_REQUEST);
+          out.writeLong(m.seq());
+          writePiggyback(out, m.piggyback());
+          writeCatalogPayload(out, m.catalogPayload());
+        }
+        case SwimMessage.SyncResponse m -> {
+          out.writeByte(TAG_SYNC_RESPONSE);
+          out.writeLong(m.seq());
+          writePiggyback(out, m.piggyback());
+          writeCatalogPayload(out, m.catalogPayload());
+        }
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -107,6 +121,14 @@ final class SwimCodec {
           MemberId originalTarget = readMemberId(in);
           List<MemberState> piggyback = readPiggyback(in);
           yield new SwimMessage.IndirectAck(seq, originalTarget, piggyback, readCatalogPayload(in));
+        }
+        case TAG_SYNC_REQUEST -> {
+          List<MemberState> piggyback = readPiggyback(in);
+          yield new SwimMessage.SyncRequest(seq, piggyback, readCatalogPayload(in));
+        }
+        case TAG_SYNC_RESPONSE -> {
+          List<MemberState> piggyback = readPiggyback(in);
+          yield new SwimMessage.SyncResponse(seq, piggyback, readCatalogPayload(in));
         }
         default -> throw new IllegalArgumentException("unknown SWIM message tag: " + tag);
       };

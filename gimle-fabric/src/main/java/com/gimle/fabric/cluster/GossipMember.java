@@ -87,6 +87,11 @@ public final class GossipMember implements AutoCloseable {
   private final AtomicLong incarnation = new AtomicLong();
   private final AtomicLong seqCounter = new AtomicLong();
   private final AtomicInteger localHealthMultiplier = new AtomicInteger();
+  private final AtomicReference<Instant> lastAntiEntropySync = new AtomicReference<>(Instant.now());
+  private final AtomicInteger fullStateOffset = new AtomicInteger();
+
+  /** See {@link #currentFullState}. */
+  private static final int MAX_FULL_STATE_PAGE = 128;
 
   /**
    * Clamp on {@link #localHealthMultiplier} (P2-9, a simplified Lifeguard-style local-health
@@ -226,6 +231,7 @@ public final class GossipMember implements AutoCloseable {
       checkProbeTimeouts();
       checkDtlsHandshakeTimeouts();
       pingRandomMember();
+      maybeSyncWithRandomMember();
     } catch (RuntimeException e) {
       log.warn("{}: gossip protocol tick failed: {}", self.nodeId(), e.getMessage(), e);
     }
@@ -259,6 +265,62 @@ public final class GossipMember implements AutoCloseable {
             entry.getKey());
       }
     }
+  }
+
+  /**
+   * Periodic full-state push-pull (P2-8): fires roughly every {@link
+   * GossipConfig#antiEntropyInterval} to one random peer, using the same round-robin target
+   * selection {@link #pingRandomMember} uses. Piggyback alone can't guarantee eventual convergence
+   * -- it carries at most {@link GossipConfig#piggybackCount} entries per message, and only the 64
+   * most-recently-changed members are ever eligible ({@link #markChanged}) -- so a node partitioned
+   * or slow long enough to miss enough gossip rounds would otherwise diverge permanently. Tracked
+   * by wall-clock elapsed time rather than a tick counter so it stays correct regardless of {@code
+   * protocolPeriod}.
+   */
+  private void maybeSyncWithRandomMember() {
+    Instant now = Instant.now();
+    Instant last = lastAntiEntropySync.get();
+    if (now.isBefore(last.plus(config.antiEntropyInterval()))) {
+      return;
+    }
+    if (!lastAntiEntropySync.compareAndSet(last, now)) {
+      return; // another thread already claimed this cycle
+    }
+    MemberState target = nextProbeTarget();
+    if (target == null) {
+      return;
+    }
+    try {
+      send(
+          target.id().gossipAddress(),
+          new SwimMessage.SyncRequest(nextSeq(), currentFullState(), catalogPayload()));
+    } catch (IOException e) {
+      log.warn(
+          "{}: failed to send anti-entropy sync to {}: {}",
+          self.nodeId(),
+          target.id().nodeId(),
+          e.getMessage());
+    }
+  }
+
+  /**
+   * The full membership table, capped to {@link #MAX_FULL_STATE_PAGE} entries per exchange --
+   * {@link #receiveLoop}'s fixed 65535-byte UDP buffer makes an unbounded table a real
+   * fragmentation/drop risk at cluster scale. A cluster larger than one page rotates which slice it
+   * sends on successive syncs (via {@link #fullStateOffset}) so the whole table still gets
+   * exchanged over a handful of anti-entropy rounds rather than the same head slice forever.
+   */
+  private List<MemberState> currentFullState() {
+    List<MemberState> all = List.copyOf(members.values());
+    if (all.size() <= MAX_FULL_STATE_PAGE) {
+      return all;
+    }
+    int start = Math.floorMod(fullStateOffset.getAndAdd(MAX_FULL_STATE_PAGE), all.size());
+    List<MemberState> page = new ArrayList<>(MAX_FULL_STATE_PAGE);
+    for (int i = 0; i < MAX_FULL_STATE_PAGE; i++) {
+      page.add(all.get((start + i) % all.size()));
+    }
+    return List.copyOf(page);
   }
 
   private void pingRandomMember() {
@@ -558,6 +620,25 @@ public final class GossipMember implements AutoCloseable {
         if (pending != null) {
           onProbeResolved(pending, indirectAck.originalTarget());
         }
+      }
+      case SwimMessage.SyncRequest req -> {
+        // The push half already happened: mergeAll(message.piggyback()) above just merged the
+        // requester's full table into ours. The pull half is replying with ours in turn.
+        try {
+          send(
+              source,
+              new SwimMessage.SyncResponse(req.seq(), currentFullState(), catalogPayload()));
+        } catch (IOException e) {
+          log.warn(
+              "{}: failed to reply to an anti-entropy sync from {}: {}",
+              self.nodeId(),
+              source,
+              e.getMessage());
+        }
+      }
+      case SwimMessage.SyncResponse ignored -> {
+        // Nothing beyond the mergeAll(message.piggyback()) already done above -- this case exists
+        // only so the switch stays exhaustive over the sealed SwimMessage interface.
       }
     }
   }

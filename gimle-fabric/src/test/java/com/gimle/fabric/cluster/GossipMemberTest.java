@@ -20,7 +20,13 @@ import org.junit.jupiter.api.Timeout;
 class GossipMemberTest {
 
   private static final GossipConfig FAST_CONFIG =
-      new GossipConfig(Duration.ofMillis(80), Duration.ofMillis(40), Duration.ofMillis(200), 2, 6);
+      new GossipConfig(
+          Duration.ofMillis(80),
+          Duration.ofMillis(40),
+          Duration.ofMillis(200),
+          2,
+          6,
+          Duration.ofSeconds(30));
 
   private final List<GossipMember> members = new ArrayList<>();
 
@@ -30,8 +36,12 @@ class GossipMemberTest {
   }
 
   private GossipMember newMember(String nodeId) throws IOException {
+    return newMember(nodeId, FAST_CONFIG);
+  }
+
+  private GossipMember newMember(String nodeId, GossipConfig config) throws IOException {
     MemberId id = new MemberId(nodeId, new InetSocketAddress("127.0.0.1", 0));
-    GossipMember member = new GossipMember(id, FAST_CONFIG);
+    GossipMember member = new GossipMember(id, config);
     members.add(member);
     return member;
   }
@@ -182,6 +192,35 @@ class GossipMemberTest {
 
     assertEquals(incarnationAfterFirstRefutation, b.incarnation());
     assertEquals(MemberStatus.ALIVE, b.memberState("node-b").orElseThrow().status());
+  }
+
+  @Test
+  @Timeout(20)
+  void anti_entropy_sync_delivers_a_change_piggyback_alone_cannot_carry() throws Exception {
+    // piggybackCount=1 means currentPiggyback() has room only for the sender's own state -- no
+    // other member's change can ever ride the regular Ping/Ack piggyback channel under this
+    // config, so node-c's arrival can *only* reach node-a through the periodic full-state sync.
+    GossipConfig config =
+        new GossipConfig(
+            Duration.ofMillis(50),
+            Duration.ofMillis(40),
+            Duration.ofMillis(300),
+            2,
+            1,
+            Duration.ofMillis(150));
+    GossipMember a = newMember("node-a", config);
+    GossipMember b = newMember("node-b", config);
+    a.start();
+    b.start();
+    b.join(List.of(a.self().gossipAddress()));
+    Await.until(() -> isAlive(a, "node-b") && isAlive(b, "node-a"), Duration.ofSeconds(5));
+
+    // Injected directly into b's local table, with no network traffic of its own -- a can only
+    // learn of it via a full-state exchange b initiates.
+    MemberId c = new MemberId("node-c", new InetSocketAddress("127.0.0.1", 9));
+    b.mergeAll(List.of(new MemberState(c, MemberStatus.ALIVE, 0)));
+
+    Await.until(() -> a.memberState("node-c").isPresent(), Duration.ofSeconds(10));
   }
 
   private static boolean isAlive(GossipMember member, String nodeId) {

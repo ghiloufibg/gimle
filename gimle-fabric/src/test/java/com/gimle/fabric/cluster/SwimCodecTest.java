@@ -36,7 +36,9 @@ class SwimCodecTest {
         new SwimMessage.Ping(1L, piggyback(), catalogPayload),
         new SwimMessage.PingReq(2L, MEMBER_A, piggyback(), catalogPayload),
         new SwimMessage.Ack(3L, MEMBER_B, piggyback(), catalogPayload),
-        new SwimMessage.IndirectAck(4L, MEMBER_A, piggyback(), catalogPayload));
+        new SwimMessage.IndirectAck(4L, MEMBER_A, piggyback(), catalogPayload),
+        new SwimMessage.SyncRequest(5L, piggyback(), catalogPayload),
+        new SwimMessage.SyncResponse(6L, piggyback(), catalogPayload));
   }
 
   @ParameterizedTest

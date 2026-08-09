@@ -12,7 +12,8 @@ public record GossipConfig(
     Duration pingTimeout,
     Duration suspicionTimeout,
     int indirectFanout,
-    int piggybackCount) {
+    int piggybackCount,
+    Duration antiEntropyInterval) {
 
   public GossipConfig {
     if (protocolPeriod == null || protocolPeriod.isNegative() || protocolPeriod.isZero()) {
@@ -30,10 +31,20 @@ public record GossipConfig(
     if (piggybackCount < 1) {
       throw new IllegalArgumentException("piggybackCount must be at least 1");
     }
+    if (antiEntropyInterval == null
+        || antiEntropyInterval.isNegative()
+        || antiEntropyInterval.isZero()) {
+      throw new IllegalArgumentException("antiEntropyInterval must be positive");
+    }
   }
 
   public static GossipConfig defaults() {
     return new GossipConfig(
-        Duration.ofSeconds(1), Duration.ofMillis(500), Duration.ofSeconds(3), 3, 6);
+        Duration.ofSeconds(1),
+        Duration.ofMillis(500),
+        Duration.ofSeconds(3),
+        3,
+        6,
+        Duration.ofSeconds(30));
   }
 }

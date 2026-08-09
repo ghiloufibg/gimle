@@ -50,4 +50,22 @@ public sealed interface SwimMessage {
   record IndirectAck(
       long seq, MemberId originalTarget, List<MemberState> piggyback, byte[] catalogPayload)
       implements SwimMessage {}
+
+  /**
+   * Periodic anti-entropy push (P2-8): unlike every other message type here, {@code piggyback}
+   * carries the sender's <em>entire</em> known membership table (bounded to one page -- see {@code
+   * GossipMember#currentFullState}), not the usual handful of most-recently-changed entries. Exists
+   * because piggyback alone (bounded to {@code GossipConfig#piggybackCount} entries per message,
+   * with only the 64 most-recently-changed members ever eligible to ride it) can permanently
+   * diverge a node that's missed enough gossip rounds -- a full-state exchange is the eventual-
+   * consistency backstop the bounded piggyback channel can't provide on its own.
+   */
+  record SyncRequest(long seq, List<MemberState> piggyback, byte[] catalogPayload)
+      implements SwimMessage {}
+
+  /**
+   * The receiving side's own full membership table, sent back in reply to a {@link SyncRequest}.
+   */
+  record SyncResponse(long seq, List<MemberState> piggyback, byte[] catalogPayload)
+      implements SwimMessage {}
 }
