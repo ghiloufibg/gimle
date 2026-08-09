@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLContext;
@@ -77,12 +79,24 @@ public final class GossipMember implements AutoCloseable {
   private final Map<String, MemberState> members = new ConcurrentHashMap<>();
   private final Map<String, Instant> suspectedSince = new ConcurrentHashMap<>();
   private final Deque<String> recentChangeOrder = new ArrayDeque<>();
+  private final Deque<String> probeOrder = new ArrayDeque<>();
   private final Map<Long, PendingProbe> pendingProbes = new ConcurrentHashMap<>();
   private final Map<Long, CompletableFuture<MemberId>> joinWaiters = new ConcurrentHashMap<>();
   private final Map<InetSocketAddress, DtlsPeerSession> dtlsSessions = new ConcurrentHashMap<>();
   private final Map<InetSocketAddress, byte[]> pendingSecureOutbound = new ConcurrentHashMap<>();
   private final AtomicLong incarnation = new AtomicLong();
   private final AtomicLong seqCounter = new AtomicLong();
+  private final AtomicInteger localHealthMultiplier = new AtomicInteger();
+
+  /**
+   * Clamp on {@link #localHealthMultiplier} (P2-9, a simplified Lifeguard-style local-health
+   * adaptation -- not the full paper: no buddy-system suspicion, no k-independent-confirmation
+   * decay, just the multiplier itself). A node whose own probes keep timing out, or that keeps
+   * getting suspected by others, is more likely sitting on a slow/overloaded host or link than
+   * every peer it's probing is actually down -- scaling this node's own timeouts up avoids it
+   * flooding the cluster with false suspicions of everyone else.
+   */
+  private static final int MAX_LOCAL_HEALTH_MULTIPLIER = 8;
 
   private volatile boolean running;
   private volatile PiggybackExtension catalogExtension = PiggybackExtension.NONE;
@@ -248,21 +262,15 @@ public final class GossipMember implements AutoCloseable {
   }
 
   private void pingRandomMember() {
-    List<MemberState> candidates =
-        members.values().stream()
-            .filter(state -> !state.id().nodeId().equals(self.nodeId()))
-            .filter(state -> state.status() != MemberStatus.DEAD)
-            .toList();
-    if (candidates.isEmpty()) {
+    MemberState target = nextProbeTarget();
+    if (target == null) {
       return;
     }
-    MemberState target = candidates.get(ThreadLocalRandom.current().nextInt(candidates.size()));
     long seq = nextSeq();
     Instant now = Instant.now();
+    Duration timeout = scaledPingTimeout();
     pendingProbes.put(
-        seq,
-        new PendingProbe(
-            target.id(), null, 0, now.plus(config.pingTimeout()), now.plus(config.pingTimeout())));
+        seq, new PendingProbe(target.id(), null, 0, now.plus(timeout), now.plus(timeout)));
     try {
       send(
           target.id().gossipAddress(),
@@ -270,6 +278,65 @@ public final class GossipMember implements AutoCloseable {
     } catch (IOException e) {
       log.warn("{}: failed to ping {}: {}", self.nodeId(), target.id().nodeId(), e.getMessage());
     }
+  }
+
+  /**
+   * Round-robins over a shuffled copy of the current membership rather than picking uniformly at
+   * random each tick -- SWIM's own paper specifies this for a bounded worst-case failure-detection
+   * time: pure independent random sampling gives no per-cycle coverage guarantee, so an unlucky
+   * member could in principle go unprobed for arbitrarily many ticks. Reshuffled once exhausted;
+   * membership changes mid-cycle are tolerated by simply skipping any queued id that's gone stale
+   * (removed, or since marked {@code DEAD}) rather than rebuilding the queue eagerly.
+   *
+   * <p>Package-visible, same rationale as {@link #mergeAll} -- lets {@code GossipMemberTest} assert
+   * per-cycle coverage directly, without needing real network probe traffic to drive it.
+   */
+  MemberState nextProbeTarget() {
+    synchronized (probeOrder) {
+      while (true) {
+        if (probeOrder.isEmpty()) {
+          List<String> candidates =
+              new ArrayList<>(
+                  members.values().stream()
+                      .filter(state -> !state.id().nodeId().equals(self.nodeId()))
+                      .filter(state -> state.status() != MemberStatus.DEAD)
+                      .map(state -> state.id().nodeId())
+                      .toList());
+          if (candidates.isEmpty()) {
+            return null;
+          }
+          Collections.shuffle(candidates, ThreadLocalRandom.current());
+          probeOrder.addAll(candidates);
+        }
+        String nodeId = probeOrder.pollFirst();
+        MemberState state = members.get(nodeId);
+        if (state != null && !nodeId.equals(self.nodeId()) && state.status() != MemberStatus.DEAD) {
+          return state;
+        }
+        // Stale queued id (removed, or turned DEAD since it was queued) -- try the next one.
+      }
+    }
+  }
+
+  private Duration scaledPingTimeout() {
+    return config.pingTimeout().multipliedBy(1 + localHealthMultiplier.get());
+  }
+
+  private Duration scaledSuspicionTimeout() {
+    return config.suspicionTimeout().multipliedBy(1 + localHealthMultiplier.get());
+  }
+
+  private void bumpLocalHealthMultiplier() {
+    localHealthMultiplier.updateAndGet(n -> Math.min(n + 1, MAX_LOCAL_HEALTH_MULTIPLIER));
+  }
+
+  private void decayLocalHealthMultiplier() {
+    localHealthMultiplier.updateAndGet(n -> Math.max(n - 1, 0));
+  }
+
+  /** Package-visible for {@code GossipMemberTest} to assert the multiplier's clamped movement. */
+  int localHealthMultiplier() {
+    return localHealthMultiplier.get();
   }
 
   private void checkProbeTimeouts() {
@@ -284,6 +351,18 @@ public final class GossipMember implements AutoCloseable {
       PendingProbe pending = entry.getValue();
       if (now.isAfter(pending.overallDeadline) && pendingProbes.remove(entry.getKey()) != null) {
         if (pending.onBehalfOf == null) {
+          // Bump only on a fresh ALIVE -> SUSPECT transition, not on every subsequent tick's
+          // repeated timeout against a target that's already SUSPECT (SWIM keeps re-probing
+          // SUSPECT members while they wait out the suspicion grace period): once a target is
+          // down, continuing to fail to reach it is confirming *its* state, not this node's own
+          // health, and re-bumping on every one of those ticks would clamp the multiplier at its
+          // ceiling for as long as the dead member sits in the table -- inflating this node's own
+          // suspicionTimeout for every *other* member too, well past what the actual signal
+          // warrants.
+          MemberState current = members.get(pending.target.nodeId());
+          if (current != null && current.status() == MemberStatus.ALIVE) {
+            bumpLocalHealthMultiplier();
+          }
           markSuspect(pending.target);
         }
       }
@@ -314,13 +393,13 @@ public final class GossipMember implements AutoCloseable {
             e.getMessage());
       }
     }
-    pending.overallDeadline = Instant.now().plus(config.pingTimeout());
+    pending.overallDeadline = Instant.now().plus(scaledPingTimeout());
   }
 
   private void checkSuspectExpiry() {
     Instant now = Instant.now();
     for (Map.Entry<String, Instant> entry : List.copyOf(suspectedSince.entrySet())) {
-      if (now.isAfter(entry.getValue().plus(config.suspicionTimeout()))) {
+      if (now.isAfter(entry.getValue().plus(scaledSuspicionTimeout()))) {
         markDead(entry.getKey());
       }
     }
@@ -485,6 +564,11 @@ public final class GossipMember implements AutoCloseable {
 
   private void onProbeResolved(PendingProbe pending, MemberId responder) {
     markAliveDirect(responder);
+    if (pending.onBehalfOf == null) {
+      // A self-originated probe (not a PingReq relayed on someone else's behalf) got answered --
+      // this node's own view of the cluster is keeping up, so ease the multiplier back down.
+      decayLocalHealthMultiplier();
+    }
     if (pending.onBehalfOf != null) {
       try {
         send(
@@ -584,6 +668,9 @@ public final class GossipMember implements AutoCloseable {
     if (claimAboutSelf.incarnation() < incarnation.get()) {
       return; // stale claim; our current incarnation already outranks it
     }
+    // Someone out there suspects this node -- another local-health signal alongside a
+    // self-originated probe timing out, since both suggest this node itself may be running slow.
+    bumpLocalHealthMultiplier();
     long bumped = incarnation.updateAndGet(n -> Math.max(n, claimAboutSelf.incarnation()) + 1);
     members.put(self.nodeId(), new MemberState(self, MemberStatus.ALIVE, bumped));
     markChanged(self.nodeId());

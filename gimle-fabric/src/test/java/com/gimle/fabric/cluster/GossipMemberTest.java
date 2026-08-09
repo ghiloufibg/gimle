@@ -10,7 +10,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -124,6 +126,48 @@ class GossipMemberTest {
 
     assertTrue(b.incarnation() > incarnationBefore);
     assertEquals(MemberStatus.ALIVE, b.memberState("node-b").orElseThrow().status());
+    // P2-9: being suspected is a local-health signal too, alongside a self-originated probe
+    // timing out -- both suggest this node itself may be running slow, not just its peers.
+    assertTrue(b.localHealthMultiplier() > 0);
+  }
+
+  @Test
+  void the_local_health_multiplier_clamps_rather_than_growing_unbounded() throws IOException {
+    GossipMember b = newMember("node-b");
+    b.start();
+
+    for (int i = 0; i < 20; i++) {
+      // Each call bumps the incarnation past the last claim, so every one is a fresh, non-stale
+      // suspicion to refute -- otherwise refuteIfNeeded's own staleness check would no-op most of
+      // these and the multiplier would never climb past one bump.
+      b.mergeAll(List.of(new MemberState(b.self(), MemberStatus.SUSPECT, b.incarnation())));
+    }
+
+    assertEquals(8, b.localHealthMultiplier());
+  }
+
+  @Test
+  void probe_target_selection_visits_every_live_member_within_one_cycle() throws IOException {
+    // Round-robin coverage (P2-9): a pure-random pick gives no such guarantee, so this would be
+    // flaky under the old implementation but must hold deterministically under the new one.
+    GossipMember a = newMember("node-a");
+    a.start();
+    List<String> peers = List.of("node-b", "node-c", "node-d", "node-e");
+    for (String peer : peers) {
+      a.mergeAll(
+          List.of(
+              new MemberState(
+                  new MemberId(peer, new InetSocketAddress("127.0.0.1", 0)),
+                  MemberStatus.ALIVE,
+                  0)));
+    }
+
+    Set<String> visited = new HashSet<>();
+    for (int i = 0; i < peers.size(); i++) {
+      visited.add(a.nextProbeTarget().id().nodeId());
+    }
+
+    assertEquals(Set.copyOf(peers), visited);
   }
 
   @Test
