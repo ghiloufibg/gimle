@@ -102,7 +102,8 @@ class RaftCodecTest {
     for (int i = 0; i < 256; i++) {
       everyByteValue[i] = (byte) i;
     }
-    InstallSnapshot original = new InstallSnapshot(6L, "node-2", 100L, 5L, everyByteValue);
+    InstallSnapshot original =
+        new InstallSnapshot(6L, "node-2", 100L, 5L, 128L, everyByteValue, true);
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     RaftCodec.write(buffer, original);
@@ -113,7 +114,9 @@ class RaftCodecTest {
     assertEquals(original.leaderId(), decoded.leaderId());
     assertEquals(original.lastIncludedIndex(), decoded.lastIncludedIndex());
     assertEquals(original.lastIncludedTerm(), decoded.lastIncludedTerm());
-    assertArrayEquals(original.snapshotBytes(), decoded.snapshotBytes());
+    assertEquals(original.offset(), decoded.offset());
+    assertEquals(original.done(), decoded.done());
+    assertArrayEquals(original.data(), decoded.data());
   }
 
   @Test

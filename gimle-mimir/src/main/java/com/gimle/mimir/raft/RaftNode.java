@@ -3,13 +3,16 @@ package com.gimle.mimir.raft;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
+import java.io.ByteArrayOutputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -51,6 +54,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   /** A concrete, tunable threshold for triggering log compaction, not left open-ended. */
   private static final long SNAPSHOT_THRESHOLD = 10_000;
+
+  /**
+   * {@link InstallSnapshot} chunk size (Raft paper Figure 13). Not tuned against a real network MTU
+   * -- this project has no cross-datacenter link to size against -- just kept well under {@link
+   * RaftCodec}'s {@code MAX_FRAME_LENGTH} so a chunk is a small fraction of that ceiling, not a
+   * value that could itself approach it for an unusually large snapshot.
+   */
+  private static final int SNAPSHOT_CHUNK_BYTES = 512 * 1024;
 
   private final String selfId;
   private Map<String, RaftPeerClient> peers;
@@ -102,6 +113,20 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * term) and cleared once that index is applied or truncated away.
    */
   private Long pendingMembershipChangeIndex;
+
+  /**
+   * As-follower accumulator for an in-progress chunked {@link InstallSnapshot} transfer (Raft paper
+   * Figure 13) -- guarded by {@link #lock}, all four reset together whenever an {@code offset == 0}
+   * chunk arrives (a genuinely new transfer, or the leader restarting the send loop after a
+   * mid-transfer failure; {@link #sendInstallSnapshot} always restarts from byte 0, never resumes).
+   * {@code null}/{@code -1} when no transfer is in flight.
+   */
+  private String pendingSnapshotLeaderId;
+
+  private long pendingSnapshotTerm = -1;
+  private long pendingSnapshotLastIncludedIndex;
+  private long pendingSnapshotLastIncludedTerm;
+  private ByteArrayOutputStream pendingSnapshotBuffer;
 
   private final ScheduledExecutorService scheduler;
   private ScheduledFuture<?> electionTimeoutFuture;
@@ -725,22 +750,43 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       lock.unlock();
     }
 
+    // Sent as a sequence of offset/done chunks (Raft paper Figure 13), always restarting from
+    // byte 0 on this call: a mid-transfer failure below just returns, and the next tick calls
+    // this method again from scratch rather than trying to resume a partial transfer -- simplest
+    // correct recovery, matching sendAppendEntries' own "the next tick retries" posture for a
+    // bounded-gap failure.
+    long offset = 0;
+    boolean done;
     InstallSnapshotResponse response;
-    try {
-      response =
-          client.installSnapshot(
-              new InstallSnapshot(
-                  term, selfId, lastIncludedIndex, lastIncludedTerm, snapshotBytes));
-    } catch (RuntimeException e) {
-      return;
-    }
+    do {
+      int end = (int) Math.min(offset + SNAPSHOT_CHUNK_BYTES, snapshotBytes.length);
+      byte[] chunk = Arrays.copyOfRange(snapshotBytes, (int) offset, end);
+      done = end == snapshotBytes.length;
+      try {
+        response =
+            client.installSnapshot(
+                new InstallSnapshot(
+                    term, selfId, lastIncludedIndex, lastIncludedTerm, offset, chunk, done));
+      } catch (RuntimeException e) {
+        return;
+      }
+      lock.lock();
+      try {
+        if (response.term() > raftLog.currentTerm()) {
+          stepDownLocked(response.term());
+          return;
+        }
+        if (role != Role.LEADER || raftLog.currentTerm() != term) {
+          return; // stale response from a previous term/role
+        }
+      } finally {
+        lock.unlock();
+      }
+      offset = end;
+    } while (!done);
 
     lock.lock();
     try {
-      if (response.term() > raftLog.currentTerm()) {
-        stepDownLocked(response.term());
-        return;
-      }
       if (role != Role.LEADER || raftLog.currentTerm() != term) {
         return;
       }
@@ -960,14 +1006,46 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       resetElectionTimerLocked();
 
       if (request.lastIncludedIndex() <= raftLog.snapshotLastIncludedIndex()) {
-        return new InstallSnapshotResponse(
-            raftLog.currentTerm()); // already have an equal/newer one
+        // Already have an equal/newer one: drop any in-flight chunked transfer for this snapshot
+        // and decline to buffer further chunks of it. The leader still learns this node is caught
+        // up from its next AppendEntries probe regardless of what this reply carries.
+        pendingSnapshotBuffer = null;
+        return new InstallSnapshotResponse(raftLog.currentTerm());
       }
 
-      StateSnapshot decoded = RaftCodec.decodeSnapshot(request.snapshotBytes());
+      if (request.offset() == 0) {
+        // A fresh transfer -- either genuinely the first chunk, or the leader restarting its send
+        // loop after a mid-transfer failure (sendInstallSnapshot always restarts from byte 0,
+        // never resumes) -- so anything buffered from a prior attempt is now stale.
+        pendingSnapshotLeaderId = request.leaderId();
+        pendingSnapshotTerm = request.term();
+        pendingSnapshotLastIncludedIndex = request.lastIncludedIndex();
+        pendingSnapshotLastIncludedTerm = request.lastIncludedTerm();
+        pendingSnapshotBuffer = new ByteArrayOutputStream();
+      }
+      if (pendingSnapshotBuffer == null
+          || !Objects.equals(pendingSnapshotLeaderId, request.leaderId())
+          || pendingSnapshotTerm != request.term()
+          || pendingSnapshotLastIncludedIndex != request.lastIncludedIndex()
+          || pendingSnapshotBuffer.size() != request.offset()) {
+        // Out-of-order, duplicate, or a chunk for a transfer this node never started buffering
+        // (e.g. it missed the offset == 0 chunk) -- the leader's own restart-from-offset-0
+        // recovery handles this on its next attempt; just acknowledge without accepting data this
+        // node can't place correctly.
+        return new InstallSnapshotResponse(raftLog.currentTerm());
+      }
+      pendingSnapshotBuffer.writeBytes(request.data());
+
+      if (!request.done()) {
+        return new InstallSnapshotResponse(raftLog.currentTerm());
+      }
+
+      byte[] snapshotBytes = pendingSnapshotBuffer.toByteArray();
+      pendingSnapshotBuffer = null;
+      StateSnapshot decoded = RaftCodec.decodeSnapshot(snapshotBytes);
       store.restoreFromSnapshot(decoded);
       raftLog.installSnapshot(
-          request.lastIncludedIndex(), request.lastIncludedTerm(), request.snapshotBytes());
+          request.lastIncludedIndex(), request.lastIncludedTerm(), snapshotBytes);
       commitIndex = Math.max(commitIndex, request.lastIncludedIndex());
       lastApplied = Math.max(lastApplied, request.lastIncludedIndex());
       commitAdvanced.signalAll();

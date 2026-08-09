@@ -8,12 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -242,5 +245,123 @@ class RaftNodeSafetyMechanicsTest {
     assertEquals(1L, leader.lastAppliedForTest());
     assertTrue(raftLog.get(1).isPresent(), "a proposal that legitimately committed must survive");
     assertTrue(store.getTenant("late-but-real").isPresent());
+  }
+
+  private static byte[] encodedSnapshotWithOneTenant(String tenantId) {
+    return RaftCodec.encodeSnapshot(
+        new StateSnapshot(
+            List.of(),
+            List.of(),
+            List.of(),
+            Map.of(),
+            Map.of(),
+            List.of(new Tenant(tenantId, new ResourceQuota(1, 1, 1))),
+            Set.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            Set.of(),
+            List.of()));
+  }
+
+  @Test
+  void an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives() {
+    Path dir = tempDir.resolve("chunked-install-snapshot");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode follower = new RaftNode("follower", Map.of(), log, store);
+
+    byte[] encoded = encodedSnapshotWithOneTenant("chunked-tenant");
+    int splitAt = encoded.length / 2;
+    byte[] firstHalf = Arrays.copyOfRange(encoded, 0, splitAt);
+    byte[] secondHalf = Arrays.copyOfRange(encoded, splitAt, encoded.length);
+
+    InstallSnapshotResponse afterFirstChunk =
+        follower.onInstallSnapshot(new InstallSnapshot(1L, "leader", 5L, 1L, 0L, firstHalf, false));
+    assertEquals(1L, afterFirstChunk.term());
+    // Mid-transfer: not yet decoded/applied, and the compaction floor hasn't moved.
+    assertTrue(store.getTenant("chunked-tenant").isEmpty());
+    assertEquals(0L, log.snapshotLastIncludedIndex());
+
+    InstallSnapshotResponse afterFinalChunk =
+        follower.onInstallSnapshot(
+            new InstallSnapshot(1L, "leader", 5L, 1L, splitAt, secondHalf, true));
+    assertEquals(1L, afterFinalChunk.term());
+    assertTrue(store.getTenant("chunked-tenant").isPresent());
+    assertEquals(5L, log.snapshotLastIncludedIndex());
+    assertEquals(1L, log.snapshotLastIncludedTerm());
+    assertEquals(5L, follower.lastAppliedForTest());
+  }
+
+  @Test
+  void a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered() {
+    Path dir = tempDir.resolve("chunked-install-snapshot-bad-offset");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode follower = new RaftNode("follower", Map.of(), log, store);
+
+    byte[] encoded = encodedSnapshotWithOneTenant("offset-tenant");
+    follower.onInstallSnapshot(new InstallSnapshot(1L, "leader", 5L, 1L, 0L, encoded, false));
+
+    // A chunk claiming the wrong offset -- e.g. a duplicate/out-of-order delivery -- must not be
+    // appended into the middle of what's already buffered, and must not be treated as complete.
+    InstallSnapshotResponse response =
+        follower.onInstallSnapshot(
+            new InstallSnapshot(1L, "leader", 5L, 1L, 999L, new byte[] {1, 2, 3}, true));
+    assertEquals(1L, response.term());
+    assertTrue(store.getTenant("offset-tenant").isEmpty());
+    assertEquals(0L, log.snapshotLastIncludedIndex());
+  }
+
+  @Test
+  void an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one() {
+    Path dir = tempDir.resolve("chunked-install-snapshot-restart");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode follower = new RaftNode("follower", Map.of(), log, store);
+
+    byte[] abandoned = encodedSnapshotWithOneTenant("abandoned-tenant");
+    follower.onInstallSnapshot(new InstallSnapshot(1L, "leader", 5L, 1L, 0L, abandoned, false));
+
+    // The leader restarting its send loop from byte 0 (e.g. after a mid-transfer failure) --
+    // sendInstallSnapshot never resumes a partial transfer, always restarts -- must discard the
+    // first attempt's half-buffered bytes rather than concatenating the two attempts together.
+    byte[] restarted = encodedSnapshotWithOneTenant("restarted-tenant");
+    follower.onInstallSnapshot(new InstallSnapshot(1L, "leader", 7L, 1L, 0L, restarted, true));
+
+    assertTrue(store.getTenant("abandoned-tenant").isEmpty());
+    assertTrue(store.getTenant("restarted-tenant").isPresent());
+    assertEquals(7L, log.snapshotLastIncludedIndex());
+  }
+
+  @Test
+  void an_install_snapshot_for_an_already_superseded_index_drops_any_in_flight_transfer() {
+    Path dir = tempDir.resolve("chunked-install-snapshot-superseded");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode follower = new RaftNode("follower", Map.of(), log, store);
+
+    // This node already has a snapshot at least as new as lastIncludedIndex 5 -- both the log's
+    // own compaction floor and the store content it corresponds to, the way a real prior
+    // onInstallSnapshot call (or local compaction) would have left them.
+    byte[] alreadyCaughtUp = encodedSnapshotWithOneTenant("already-caught-up");
+    log.installSnapshot(5L, 1L, alreadyCaughtUp);
+    store.restoreFromSnapshot(RaftCodec.decodeSnapshot(alreadyCaughtUp));
+
+    byte[] stale = encodedSnapshotWithOneTenant("should-never-apply");
+    InstallSnapshotResponse afterFirstChunk =
+        follower.onInstallSnapshot(new InstallSnapshot(1L, "leader", 5L, 1L, 0L, stale, false));
+    assertEquals(1L, afterFirstChunk.term());
+
+    // A late-arriving "final" chunk for that same stale transfer must not resurrect it: the first
+    // chunk's early return already dropped the in-flight buffer, so this can't complete anything.
+    InstallSnapshotResponse afterSecondChunk =
+        follower.onInstallSnapshot(
+            new InstallSnapshot(1L, "leader", 5L, 1L, stale.length, new byte[0], true));
+    assertEquals(1L, afterSecondChunk.term());
+    assertTrue(store.getTenant("should-never-apply").isEmpty());
+    assertTrue(store.getTenant("already-caught-up").isPresent());
   }
 }

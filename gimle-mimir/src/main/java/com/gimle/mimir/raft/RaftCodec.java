@@ -159,7 +159,9 @@ public final class RaftCodec {
           out.writeUTF(v.leaderId());
           out.writeLong(v.lastIncludedIndex());
           out.writeLong(v.lastIncludedTerm());
-          DomainCodec.writeBytes(out, v.snapshotBytes());
+          out.writeLong(v.offset());
+          DomainCodec.writeBytes(out, v.data());
+          out.writeBoolean(v.done());
         }
         case InstallSnapshotResponse v -> {
           out.writeByte(TAG_INSTALL_SNAPSHOT_RESPONSE);
@@ -203,9 +205,11 @@ public final class RaftCodec {
           String leaderId = in.readUTF();
           long lastIncludedIndex = in.readLong();
           long lastIncludedTerm = in.readLong();
-          byte[] snapshotBytes = DomainCodec.readBytes(in);
+          long offset = in.readLong();
+          byte[] data = DomainCodec.readBytes(in);
+          boolean done = in.readBoolean();
           yield new InstallSnapshot(
-              term, leaderId, lastIncludedIndex, lastIncludedTerm, snapshotBytes);
+              term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done);
         }
         case TAG_INSTALL_SNAPSHOT_RESPONSE -> new InstallSnapshotResponse(in.readLong());
         default -> throw new IllegalArgumentException("unknown Raft RPC tag: " + tag);
