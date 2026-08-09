@@ -6,6 +6,7 @@ import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.secret.KeyFileManager;
+import com.gimle.controlplane.secret.LoginThrottle;
 import com.gimle.controlplane.secret.SecretCipher;
 import com.gimle.controlplane.secret.SessionTokens;
 import com.gimle.controlplane.tenant.TenantUsage;
@@ -76,6 +77,7 @@ import java.nio.file.Path;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -124,6 +126,9 @@ public final class ApiServer implements AutoCloseable {
   private final HttpClient agentHttpClient =
       HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
   private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
+  // P2-11: throttles /auth/login by username and by remote address independently -- see the
+  // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
+  private final LoginThrottle loginThrottle = new LoginThrottle();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   // Absent in plaintext mode, or in TLS mode when gimle.pki.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
@@ -1536,19 +1541,39 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
+      String addressKey = "addr:" + remoteAddressKey(exchange);
+      Optional<Instant> addressThrottled = loginThrottle.throttledUntil(addressKey);
+      if (addressThrottled.isPresent()) {
+        respondThrottled(exchange, addressThrottled.get());
+        return;
+      }
+
       Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
       String username = (String) body.get("username");
       String password = (String) body.get("password");
+      // Deliberately keyed even for a blank/absent username, rather than skipped -- an attacker
+      // probing with no username at all still consumes this key's own backoff, same as a real one.
+      String usernameKey = "user:" + (username == null ? "" : username);
+      Optional<Instant> usernameThrottled = loginThrottle.throttledUntil(usernameKey);
+      if (usernameThrottled.isPresent()) {
+        respondThrottled(exchange, usernameThrottled.get());
+        return;
+      }
+
       Optional<Account> account =
           username == null ? Optional.empty() : storeClient.getAccount(username);
       if (account.isEmpty()
           || password == null
           || !PasswordHashes.verify(password.toCharArray(), account.get().passwordHash())) {
+        loginThrottle.recordFailure(usernameKey);
+        loginThrottle.recordFailure(addressKey);
         // Deliberately the same message either way -- distinguishing "unknown username" from
         // "wrong password" would let this endpoint enumerate valid usernames.
         respondQuietly(exchange, 401, "invalid username or password");
         return;
       }
+      loginThrottle.recordSuccess(usernameKey);
+      loginThrottle.recordSuccess(addressKey);
       String token = SessionTokens.issue(username, sessionSigningKey, SESSION_TTL);
       exchange
           .getResponseHeaders()
@@ -1560,6 +1585,33 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The connection's own remote address, never a client-supplied header like {@code
+   * X-Forwarded-For} -- this class has no configured notion of a trusted reverse proxy, so honoring
+   * a client-set header here would let an attacker defeat the address-keyed throttle entirely by
+   * sending a different forged value on every request. Falls back to a fixed placeholder if
+   * unavailable (never null, so it's always safe to use as a map key), which under-differentiates
+   * callers in that rare case rather than throwing.
+   */
+  private static String remoteAddressKey(HttpExchange exchange) {
+    InetSocketAddress remote = exchange.getRemoteAddress();
+    return remote == null ? "unknown" : remote.getAddress().getHostAddress();
+  }
+
+  /**
+   * {@code 429}, same generic body as an ordinary failed login -- must not let a caller distinguish
+   * "you're throttled" from "wrong credentials" by body content, only by status code and the
+   * standard {@code Retry-After} header (seconds), which reveals no more than "come back later"
+   * either way.
+   */
+  private static void respondThrottled(HttpExchange exchange, Instant nextAllowedAttempt)
+      throws IOException {
+    long retryAfterSeconds =
+        Math.max(1, Duration.between(Instant.now(), nextAllowedAttempt).toSeconds());
+    exchange.getResponseHeaders().add("Retry-After", String.valueOf(retryAfterSeconds));
+    respondQuietly(exchange, 429, "too many attempts; try again later");
   }
 
   private void handleAuthLogout(HttpExchange exchange) {

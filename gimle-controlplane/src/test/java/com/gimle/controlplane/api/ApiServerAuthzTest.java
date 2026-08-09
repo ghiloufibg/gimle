@@ -265,6 +265,50 @@ class ApiServerAuthzTest {
   }
 
   /**
+   * P2-11: repeated failed logins against the same username eventually get throttled to a 429 with
+   * a {@code Retry-After} header -- even a subsequently-correct password doesn't bypass it, since
+   * the point is slowing down a guessing attempt, not just rejecting wrong guesses.
+   */
+  @Test
+  void repeated_failed_logins_are_throttled_with_429_and_a_retry_after_header() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("admin", PasswordHashes.hash("s3cret-password".toCharArray())));
+
+    try (inProcessStore;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0)) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      // LoginThrottle's default failureThreshold is 3: the first two failures are recorded but
+      // impose no delay; the third crosses the threshold and starts throttling.
+      for (int i = 0; i < 3; i++) {
+        HttpResponse<String> response =
+            client.send(
+                loginRequest(baseUrl, "admin", "wrong-password"),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(401, response.statusCode());
+      }
+
+      HttpResponse<String> throttled =
+          client.send(
+              loginRequest(baseUrl, "admin", "s3cret-password"),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(429, throttled.statusCode());
+      assertTrue(throttled.headers().firstValue("Retry-After").isPresent());
+      // Same generic body as an ordinary failed login -- must not let a caller distinguish
+      // "throttled" from "wrong credentials" by response content.
+      assertEquals("too many attempts; try again later", throttled.body());
+    }
+  }
+
+  /**
    * {@code CONFIG} and {@code SECRET} are enforced as fully independent permissions: a role holding
    * only one must be denied write/delete on the other kind of entry, and {@code
    * /config/{tenantId}}'s list response must be filtered per-entry rather than gated uniformly.
