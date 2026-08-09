@@ -11,6 +11,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.LeaseGrant;
@@ -81,6 +82,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public void releaseLease(String name, String holderId) {
     sendLeaderOnly("releaseLease", new StoreRpc.ReleaseLease(name, holderId));
+  }
+
+  /**
+   * Adds {@code peerId} to the cluster's Raft membership -- etcd-style, one server at a time
+   * (P1-5). Leader-only, same redirect-and-retry posture as {@link #propose}: a rejection for any
+   * reason (already a member, another change still in flight, or a genuine non-leader) surfaces as
+   * {@link com.gimle.core.exception.GimleRaftException#storeUnreachable} once every endpoint --
+   * including the leader hint -- has been tried, matching {@link #sendLeaderOnly}'s existing
+   * behavior for every other leader-only write.
+   */
+  public void addServer(String peerId, PeerAddress address) {
+    sendLeaderOnly(
+        "addServer",
+        new StoreRpc.AddServer(peerId, address.host(), address.raftPort(), address.clientPort()));
   }
 
   // ---- reads: same names/signatures as StateStore ----

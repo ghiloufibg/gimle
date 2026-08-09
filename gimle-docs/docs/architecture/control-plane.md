@@ -91,6 +91,21 @@ walkthrough (`gimle-console/LOCAL_DEV.md`) only ever runs one store node and one
 replica in practice, but the clustering mechanics underneath it are exercised by tests, not just
 present in the source tree.
 
+### Dynamic membership
+
+`gimle-mimir`'s Raft membership is dynamically reconfigurable at runtime, etcd-style: `StoreMain`'s
+own `--peers` flag is bootstrap configuration for a brand-new cluster only, not a fixed
+configuration for its lifetime. `StoreClient#addServer` (backed by `StoreRpc.AddServer`,
+leader-only, same `NotLeader`-redirect-and-retry posture as every other write here) adds one server
+at a time; `RaftNode` applies the resulting membership-change log entry the instant it's appended
+— leader or follower — rather than waiting for it to commit, and refuses to start a second change
+while an earlier one it proposed is still uncommitted. This is deliberately **not** full joint
+consensus: only one configuration is ever in flight, replacing the old one outright, rather than a
+`C_old,new` overlap window with a dual-majority commit rule — a materially smaller, lower-risk
+surface for the small, operator-driven clusters this control plane targets. Removing a server, and
+a CLI surface for both operations, are tracked as a near-term follow-up rather than blocking this
+capability's initial landing.
+
 ## Scheduler
 
 Places module instances given resource requests, isolation tier, anti-affinity

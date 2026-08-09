@@ -13,13 +13,21 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.raft.AppendEntries;
+import com.gimle.mimir.raft.AppendEntriesResponse;
+import com.gimle.mimir.raft.InstallSnapshot;
+import com.gimle.mimir.raft.InstallSnapshotResponse;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.raft.RaftPeerClient;
+import com.gimle.mimir.raft.RequestVote;
+import com.gimle.mimir.raft.RequestVoteResponse;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -176,5 +184,66 @@ class StoreNodeTest {
     assertEquals(
         new StoreRpc.InstanceEventListResult(List.of()),
         node.handle(new StoreRpc.ListInstanceEvents("never-deployed", 0)));
+  }
+
+  // ---- AddServer: etcd-style membership change (P1-5) ----
+
+  /** Always acks immediately, as if the peer had a real, always-caught-up log of its own. */
+  private static RaftPeerClient echoAckingPeer() {
+    return new RaftPeerClient() {
+      @Override
+      public RequestVoteResponse requestVote(RequestVote request) {
+        return new RequestVoteResponse(request.term(), true);
+      }
+
+      @Override
+      public AppendEntriesResponse appendEntries(AppendEntries request) {
+        long matchIndex = request.prevLogIndex() + request.entries().size();
+        return new AppendEntriesResponse(request.term(), true, matchIndex);
+      }
+
+      @Override
+      public InstallSnapshotResponse installSnapshot(InstallSnapshot request) {
+        return new InstallSnapshotResponse(request.term());
+      }
+    };
+  }
+
+  @Test
+  void a_leader_adds_a_server_and_the_client_address_book_learns_its_address() {
+    Path dir = tempDir.resolve("add-server-leader");
+    StateStore store = new StateStore(dir.resolve("store"));
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    Map<String, String> raftIdToClientAddress = new ConcurrentHashMap<>();
+    raftIdToClientAddress.put("leader", "leader-client:9090");
+    RaftNode raftNode =
+        new RaftNode(
+            "leader",
+            Map.of(),
+            addr -> echoAckingPeer(),
+            log,
+            store,
+            peers ->
+                peers.forEach(
+                    (peerId, address) ->
+                        raftIdToClientAddress.put(peerId, address.clientAddress())));
+    raftNode.start(); // an empty peer set becomes its own leader immediately
+    StoreNode node = new StoreNode(raftNode, store, raftIdToClientAddress);
+
+    StoreRpc.Response response =
+        node.handle(new StoreRpc.AddServer("node-2", "10.0.0.2", 7100, 7200));
+
+    assertEquals(new StoreRpc.Ok(), response);
+    assertEquals("10.0.0.2:7200", raftIdToClientAddress.get("node-2"));
+  }
+
+  @Test
+  void a_non_leader_rejects_an_add_server_request_with_not_leader() {
+    StoreNode node = neverElectedNode("follower-add-server");
+
+    StoreRpc.Response response =
+        node.handle(new StoreRpc.AddServer("node-2", "10.0.0.2", 7100, 7200));
+
+    assertEquals(new StoreRpc.NotLeader(""), response);
   }
 }

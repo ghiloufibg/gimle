@@ -1,6 +1,7 @@
 package com.gimle.mimir.rpc;
 
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.StateStore;
@@ -12,12 +13,13 @@ import java.util.Optional;
  * The server side of {@link StoreRpc}: wraps an already-constructed {@link RaftNode} + {@link
  * StateStore}, dispatching every request either straight to a {@code StateStore} getter (any node
  * may answer -- design doc §4.5) or, for {@link StoreRpc.Propose}/{@link
- * StoreRpc.PutHeartbeat}/{@link StoreRpc.AcquireOrRenewLease}/{@link StoreRpc.ReleaseLease},
- * through a leader check first, translating a non-leader into {@link StoreRpc.NotLeader} carrying
- * the leader's *client* address rather than its Raft ID -- resolved via {@code
- * raftIdToClientAddress}, built at construction time from {@code --peers host:raftPort:clientPort}
- * the same way {@code ControlPlaneMain} builds its own {@code peerApiAddresses} map today (design
- * doc §4.6).
+ * StoreRpc.PutHeartbeat}/{@link StoreRpc.AcquireOrRenewLease}/{@link StoreRpc.ReleaseLease}/{@link
+ * StoreRpc.AddServer}, through a leader check first, translating a non-leader into {@link
+ * StoreRpc.NotLeader} carrying the leader's *client* address rather than its Raft ID -- resolved
+ * via {@code raftIdToClientAddress}. Unlike every other field here, that map is a *live* reference
+ * the caller ({@code StoreMain}) keeps mutating as membership changes -- {@code StoreNode} takes no
+ * defensive copy of it on purpose, so a peer added after this node was constructed still resolves
+ * correctly (design doc §4.6).
  */
 public final class StoreNode implements StoreRpcHandler {
 
@@ -28,7 +30,7 @@ public final class StoreNode implements StoreRpcHandler {
   public StoreNode(RaftNode raftNode, StateStore store, Map<String, String> raftIdToClientAddress) {
     this.raftNode = raftNode;
     this.store = store;
-    this.raftIdToClientAddress = Map.copyOf(raftIdToClientAddress);
+    this.raftIdToClientAddress = raftIdToClientAddress;
   }
 
   @Override
@@ -38,6 +40,7 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.PutHeartbeat r -> handlePutHeartbeat(r);
       case StoreRpc.AcquireOrRenewLease r -> handleAcquireOrRenewLease(r);
       case StoreRpc.ReleaseLease r -> handleReleaseLease(r);
+      case StoreRpc.AddServer r -> handleAddServer(r);
       case StoreRpc.ListAccounts r -> new StoreRpc.AccountListResult(store.listAccounts());
       case StoreRpc.GetTenant r -> tenantResult(store.getTenant(r.id()));
       case StoreRpc.GetDeployment r -> deploymentResult(store.getDeployment(r.name()));
@@ -110,6 +113,25 @@ public final class StoreNode implements StoreRpcHandler {
     }
     store.releaseLease(request.name(), request.holderId());
     return new StoreRpc.Ok();
+  }
+
+  /**
+   * Maps every rejection reason ({@link GimleRaftException#alreadyAMember}, {@link
+   * GimleRaftException#membershipChangeInFlight}, a genuine non-leader, or a proposal that timed
+   * out) onto the same {@link StoreRpc.NotLeader} redirect-and-retry response {@link
+   * #handlePropose} already uses for every {@code StateMutation} rejection -- deliberately not a
+   * dedicated response per rejection reason, matching that existing precedent rather than inventing
+   * a new one here.
+   */
+  private StoreRpc.Response handleAddServer(StoreRpc.AddServer request) {
+    try {
+      raftNode.addServer(
+          request.peerId(),
+          new PeerAddress(request.host(), request.raftPort(), request.clientPort()));
+      return new StoreRpc.Ok();
+    } catch (GimleRaftException e) {
+      return notLeaderResponse();
+    }
   }
 
   private StoreRpc.NotLeader notLeaderResponse() {

@@ -41,6 +41,7 @@ public sealed interface StoreRpc {
           PutHeartbeat,
           AcquireOrRenewLease,
           ReleaseLease,
+          AddServer,
           ListAccounts,
           GetTenant,
           GetDeployment,
@@ -99,6 +100,16 @@ public sealed interface StoreRpc {
   record AcquireOrRenewLease(String name, String holderId, long ttlMillis) implements Request {}
 
   record ReleaseLease(String name, String holderId) implements Request {}
+
+  /**
+   * Adds {@code peerId} (reachable at {@code host}/{@code raftPort}/{@code clientPort}) to the
+   * cluster's Raft membership -- etcd-style, one server at a time (design doc: production-hardening
+   * backlog P1-5). Leader-only, same {@link NotLeader}-redirect posture as {@link Propose}; {@code
+   * StoreClient} maps any rejection (already a member, another change still in flight, or a genuine
+   * non-leader) onto the same retry-the-leader-hint path {@link Propose} already uses, rather than
+   * a new response shape per rejection reason.
+   */
+  record AddServer(String peerId, String host, int raftPort, int clientPort) implements Request {}
 
   // ---- reads: served by any StoreNode ----
 

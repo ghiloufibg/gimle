@@ -116,6 +116,7 @@ class StoreCodecTest {
         new StoreRpc.PutHeartbeat(nodeHeartbeat()),
         new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-a:8080", 15_000L),
         new StoreRpc.ReleaseLease("reconciler-leader", "node-a:8080"),
+        new StoreRpc.AddServer("10.0.0.4:7100", "10.0.0.4", 7100, 7200),
         // reads
         new StoreRpc.ListAccounts(),
         new StoreRpc.GetTenant("tenant-1"),

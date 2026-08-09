@@ -2,10 +2,11 @@ package com.gimle.mimir;
 
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.PeerConnection;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
-import com.gimle.mimir.raft.RaftPeerClient;
+import com.gimle.mimir.raft.RaftPeerClientFactory;
 import com.gimle.mimir.raft.RaftTransport;
 import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -79,17 +81,33 @@ public final class StoreMain {
     StateStore store = new StateStore(stateDir);
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
 
-    Map<String, RaftPeerClient> raftPeers = new LinkedHashMap<>();
-    Map<String, String> raftIdToClientAddress = new LinkedHashMap<>();
+    // Bootstrap configuration only, per P1-5's etcd-style membership change: peers is where a
+    // brand-new cluster starts, not a fixed configuration for its lifetime -- `gimle-cli`'s
+    // add-peer/remove-peer surface (StoreClient#addServer) grows or shrinks it afterward. Both
+    // maps are mutable and live: RaftNode's membershipListener keeps raftIdToClientAddress current
+    // as membership changes, and StoreNode holds the same reference rather than a defensive copy.
+    Map<String, PeerAddress> raftPeers = new LinkedHashMap<>();
+    Map<String, String> raftIdToClientAddress = new ConcurrentHashMap<>();
     for (PeerSpec peer : peerSpecs) {
-      String peerRaftId = peer.host() + ":" + peer.raftPort();
       raftPeers.put(
-          peerRaftId, new PeerConnection(new InetSocketAddress(peer.host(), peer.raftPort())));
-      raftIdToClientAddress.put(peerRaftId, peer.host() + ":" + peer.clientPort());
+          peer.host() + ":" + peer.raftPort(),
+          new PeerAddress(peer.host(), peer.raftPort(), peer.clientPort()));
     }
     raftIdToClientAddress.put(selfRaftId, selfHost + ":" + clientPort);
 
-    RaftNode raftNode = new RaftNode(selfRaftId, raftPeers, raftLog, store);
+    RaftPeerClientFactory peerClientFactory =
+        address -> new PeerConnection(new InetSocketAddress(address.host(), address.raftPort()));
+    RaftNode raftNode =
+        new RaftNode(
+            selfRaftId,
+            raftPeers,
+            peerClientFactory,
+            raftLog,
+            store,
+            peers ->
+                peers.forEach(
+                    (peerId, address) ->
+                        raftIdToClientAddress.put(peerId, address.clientAddress())));
     RaftTransport raftTransport = new RaftTransport(raftNode);
     raftTransport.listen(new InetSocketAddress(raftPort));
     raftNode.start();
