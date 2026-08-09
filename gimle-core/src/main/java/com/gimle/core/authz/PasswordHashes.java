@@ -24,13 +24,17 @@ public final class PasswordHashes {
   private static final int SALT_BYTES = 16;
   private static final int HASH_BITS = 256;
   private static final int ITERATIONS = 210_000; // OWASP-recommended floor for PBKDF2-HMAC-SHA256
+  // Shared, not one `new SecureRandom()` per call: a fresh instance's own self-seeding cost
+  // dominates the actual nextBytes() work for a value this small, and SecureRandom is safe for
+  // concurrent use by design (its own contract, unlike java.util.Random).
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   private PasswordHashes() {}
 
   /** Produces a fresh {@code salt || hash} for {@code password} -- never two identical outputs. */
   public static byte[] hash(char[] password) {
     byte[] salt = new byte[SALT_BYTES];
-    new SecureRandom().nextBytes(salt);
+    RANDOM.nextBytes(salt);
     byte[] derived = derive(password, salt);
     byte[] output = new byte[salt.length + derived.length];
     System.arraycopy(salt, 0, output, 0, salt.length);

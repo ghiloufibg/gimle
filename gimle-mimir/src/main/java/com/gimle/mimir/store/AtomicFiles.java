@@ -23,8 +23,15 @@ public final class AtomicFiles {
 
   public static void writeAtomically(Path target, byte[] content) {
     try {
-      Files.createDirectories(target.getParent());
-      Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
+      Path parent = target.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
+      Path targetFileName = target.getFileName();
+      if (targetFileName == null) {
+        throw new IllegalArgumentException("target must have a file name: " + target);
+      }
+      Path tmp = target.resolveSibling(targetFileName.toString() + ".tmp");
       // fsync the tmp file's own content before it's ever visible under its final name: Raft
       // (and every StateStore mutation) treats this call's return as "durable", so the bytes
       // must actually be on stable storage, not just handed to the OS page cache, before that
@@ -45,7 +52,9 @@ public final class AtomicFiles {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
       }
-      fsyncDirectoryBestEffort(target.getParent());
+      if (parent != null) {
+        fsyncDirectoryBestEffort(parent);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

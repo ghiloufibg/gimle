@@ -270,10 +270,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     SocketAddress cached = preferredLeader.get();
     if (cached != null) {
       StoreRpc.Response response = tryOnce(cached, request);
-      if (response != null && !(response instanceof StoreRpc.NotLeader)) {
-        return response;
-      }
-      if (response instanceof StoreRpc.NotLeader notLeader) {
+      if (response != null) {
+        if (!(response instanceof StoreRpc.NotLeader notLeader)) {
+          return response;
+        }
         StoreRpc.Response followed = followLeaderHint(notLeader, request);
         if (followed != null) {
           return followed;

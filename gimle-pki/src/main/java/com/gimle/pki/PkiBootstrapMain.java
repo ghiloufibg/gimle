@@ -37,6 +37,7 @@ public final class PkiBootstrapMain {
   private static final Duration CA_VALIDITY = Duration.ofDays(3650);
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   private static final int KEY_SIZE_BITS = 2048;
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   private PkiBootstrapMain() {}
 
@@ -87,7 +88,7 @@ public final class PkiBootstrapMain {
    */
   private static String writeBootstrapAccount(Path outputDir) throws IOException {
     byte[] passwordBytes = new byte[24];
-    new SecureRandom().nextBytes(passwordBytes);
+    RANDOM.nextBytes(passwordBytes);
     String password = Base64.getUrlEncoder().withoutPadding().encodeToString(passwordBytes);
     byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
     String yaml =

@@ -41,11 +41,12 @@ final class RollingFileAppenders {
   }
 
   static Handle open(Context context, Path file) {
-    if (file.getParent() != null) {
+    Path parent = file.getParent();
+    if (parent != null) {
       try {
-        Files.createDirectories(file.getParent());
+        Files.createDirectories(parent);
       } catch (IOException e) {
-        throw new UncheckedIOException("failed to create log directory " + file.getParent(), e);
+        throw new UncheckedIOException("failed to create log directory " + parent, e);
       }
     }
     long maxFileSize = Long.getLong("gimle.log.maxFileSizeBytes", DEFAULT_MAX_FILE_SIZE_BYTES);

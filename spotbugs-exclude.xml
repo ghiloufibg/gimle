@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs (P2-12) baseline exclusions. Each entry documents *why* the pattern is a false
+  positive here, not just what it silences, matching this repo's own convention for
+  checkstyle-suppressions.xml. Keep this file the narrowest set that gets a clean `mvn verify`;
+  a new exclusion added later needs the same "why," not just "make the build pass."
+-->
+<FindBugsFilter>
+  <!--
+    EI_EXPOSE_REP / EI_EXPOSE_REP2: SpotBugs flags a record accessor returning, or a record
+    constructor storing, a mutable-looking reference type (List, Map, byte[], any non-record
+    class) without a defensive copy. This codebase's records are the wire/domain model
+    throughout; CLAUDE.md's own "immutability preferred everywhere feasible" convention means
+    every collection field is already List.of()/Map.of()/Set.of() (structurally immutable) by
+    the time it reaches a record constructor, and every array field (raw crypto/wire bytes:
+    ciphertext, IVs, tokens) is deliberately never defensively copied because the copy would
+    just be more bytes doing nothing a change-detecting test would ever catch; these are
+    write-once, read-once wire values, not long-lived mutable state a caller could corrupt out
+    from under this object. Scoped project-wide rather than to individual classes: the pattern
+    is structural (every record here has this shape), not a handful of one-off cases.
+  -->
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!--
+    Reflection-heavy classes: ModuleLayerFactory/PlatformLayer construct and inspect JPMS
+    ModuleLayers via reflection by design (that *is* the module system's job here, not a code
+    smell), and FabricServer's inbound dispatch resolves and invokes a hosted module's own
+    service methods reflectively for the same reason a dynamic RPC framework always does.
+    Findings SpotBugs raises specifically because of that reflective dispatch are expected
+    consequences of the architecture (CLAUDE.md's own "JPMS ModuleLayer instead of OSGi
+    classloading" load-bearing decision), not oversights.
+  -->
+  <Match>
+    <Or>
+      <Class name="com.gimle.module.layer.ModuleLayerFactory"/>
+      <Class name="com.gimle.module.layer.PlatformLayer"/>
+      <Class name="com.gimle.fabric.transport.FabricServer"/>
+    </Or>
+  </Match>
+
+  <!--
+    The four typesafe-heterogeneous-container sites CLAUDE.md's own @SuppressWarnings guidance
+    names as the one structurally-unavoidable case for an unchecked cast (a Class<T> witness
+    token keying a container of mixed element types): SimpleServiceRegistry, FabricServiceRegistry,
+    and Json's own two helpers. SpotBugs' unchecked-cast-adjacent findings here are the same
+    already-reviewed, already-justified pattern, not a new risk.
+  -->
+  <Match>
+    <Or>
+      <Class name="com.gimle.module.lifecycle.SimpleServiceRegistry"/>
+      <Class name="com.gimle.fabric.registry.FabricServiceRegistry"/>
+      <Class name="com.gimle.core.protocol.Json"/>
+    </Or>
+    <Bug pattern="BC_UNCONFIRMED_CAST,BC_UNCONFIRMED_CAST_OF_RETURN_VALUE"/>
+  </Match>
+
+  <!--
+    StoreClient's deliberate swallow-and-rotate-to-the-next-endpoint catches: a single store
+    endpoint being unreachable is expected/routine (that's the entire reason there's more than
+    one endpoint to rotate through), not an error condition worth logging or rethrowing at each
+    individual attempt; only exhausting every endpoint is.
+  -->
+  <Match>
+    <Class name="com.gimle.mimir.rpc.StoreClient"/>
+    <Bug pattern="REC_CATCH_EXCEPTION,DE_MIGHT_IGNORE"/>
+  </Match>
+
+  <!--
+    LeakTracker.sweep() forcing a GC is the entire point of the class, not a stray call left over
+    from debugging: classloader leak detection (CLAUDE.md's own "first-class" requirement) needs a
+    collection cycle to run before a PhantomReference can be observed as enqueued, and there is no
+    other portable way to request one.
+  -->
+  <Match>
+    <Class name="com.gimle.module.leak.LeakTracker"/>
+    <Bug pattern="DM_GC"/>
+  </Match>
+</FindBugsFilter>

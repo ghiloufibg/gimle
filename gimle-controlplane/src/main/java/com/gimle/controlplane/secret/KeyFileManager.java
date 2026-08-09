@@ -47,8 +47,9 @@ public final class KeyFileManager {
         return new SecretKeySpec(encoded, ALGORITHM);
       }
       SecretKey key = generateKey();
-      if (keyFilePath.getParent() != null) {
-        Files.createDirectories(keyFilePath.getParent());
+      Path parent = keyFilePath.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
       }
       Files.write(keyFilePath, key.getEncoded());
       restrictPermissions(keyFilePath);
@@ -72,12 +73,12 @@ public final class KeyFileManager {
     Map<Byte, SecretKey> keysById = new HashMap<>();
     keysById.put((byte) 0, keyZero);
     Path parent = baseKeyFilePath.getParent();
-    String baseFileName = baseKeyFilePath.getFileName().toString();
+    String baseFileName = fileNameString(baseKeyFilePath);
     if (parent != null && Files.isDirectory(parent)) {
       String prefix = baseFileName + ".";
       try (DirectoryStream<Path> siblings = Files.newDirectoryStream(parent, prefix + "*")) {
         for (Path sibling : siblings) {
-          String suffix = sibling.getFileName().toString().substring(prefix.length());
+          String suffix = fileNameString(sibling).substring(prefix.length());
           if (suffix.equals("active") || !suffix.chars().allMatch(Character::isDigit)) {
             continue;
           }
@@ -160,6 +161,17 @@ public final class KeyFileManager {
           e.getMessage());
       return 0;
     }
+  }
+
+  // getFileName() can only return null for a zero-element path, which never happens for either
+  // caller here (a configured key-file path, or a Path yielded by a directory-stream walk) --
+  // centralizing the null-guard rather than repeating it at each call site is what satisfies it.
+  private static String fileNameString(Path path) {
+    Path fileName = path.getFileName();
+    if (fileName == null) {
+      throw new IllegalStateException("expected a regular file, got " + path);
+    }
+    return fileName.toString();
   }
 
   private static SecretKey generateKey() {

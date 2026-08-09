@@ -77,9 +77,9 @@ public final class LogsCommand {
     if (since != null) {
       query.append("&cursor=").append(since);
     }
-    try (InputStream body = client.openStream(path + query)) {
-      BufferedReader reader =
-          new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8));
+    try (InputStream body = client.openStream(path + query);
+        BufferedReader reader =
+            new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
         if (line.isBlank()) {

@@ -36,6 +36,10 @@ public final class SecretCipher {
   private static final byte CURRENT_VERSION = 1;
   private static final byte LEGACY_KEY_ID = 0;
   private static final int PREFIX_LENGTH = 2; // version + keyId
+  // Shared, not one `new SecureRandom()` per encrypt call: a fresh instance's own self-seeding
+  // cost dominates the actual nextBytes() work for a value this small, and SecureRandom is safe
+  // for concurrent use by design (its own contract, unlike java.util.Random).
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   private SecretCipher() {}
 
@@ -99,7 +103,7 @@ public final class SecretCipher {
 
   private static byte[] randomIv() {
     byte[] iv = new byte[GCM_IV_LENGTH_BYTES];
-    new SecureRandom().nextBytes(iv);
+    RANDOM.nextBytes(iv);
     return iv;
   }
 

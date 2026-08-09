@@ -132,7 +132,7 @@ final class DtlsPeerSession {
   synchronized List<byte[]> wrap(byte[] payload) throws SSLException {
     ByteBuffer appIn = ByteBuffer.wrap(payload);
     ByteBuffer netOut = ByteBuffer.allocate(engine.getSession().getPacketBufferSize());
-    SSLEngineResult result = engine.wrap(appIn, netOut);
+    engine.wrap(appIn, netOut);
     if (appIn.hasRemaining()) {
       // A gossip message that doesn't fit in a single DTLS record -- SwimCodec already bounds
       // datagram size to 65535 bytes, but a single TLS record is capped well below that; rather

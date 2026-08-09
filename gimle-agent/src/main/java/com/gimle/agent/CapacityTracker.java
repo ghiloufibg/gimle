@@ -16,6 +16,11 @@ public final class CapacityTracker {
   private final long totalMemoryBytes;
   private final long totalCpuMillicores;
   private final Map<String, ResourceSpec> assigned = new ConcurrentHashMap<>();
+  // A private lock object, not `synchronized` on `this`: this instance is reachable from outside
+  // the class (returned by the public static ofThisMachine() factory and held by callers such as
+  // the control-plane API-server integration), so locking on `this` would let any of that external
+  // code synchronize on the same monitor and stall assignment/release.
+  private final Object lock = new Object();
 
   public CapacityTracker(long totalMemoryBytes, long totalCpuMillicores) {
     if (totalMemoryBytes <= 0) {
@@ -43,30 +48,36 @@ public final class CapacityTracker {
   }
 
   /** Assigns {@code limit} to {@code workerId} if doing so would not exceed total capacity. */
-  public synchronized boolean tryAssign(String workerId, ResourceSpec limit) {
-    if (assigned.containsKey(workerId)) {
-      throw new IllegalStateException("worker " + workerId + " already has an assignment");
+  public boolean tryAssign(String workerId, ResourceSpec limit) {
+    synchronized (lock) {
+      if (assigned.containsKey(workerId)) {
+        throw new IllegalStateException("worker " + workerId + " already has an assignment");
+      }
+      long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
+      long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
+      if (assignedMemory + limit.memoryBytes() > totalMemoryBytes) {
+        return false;
+      }
+      if (assignedCpu + limit.cpuMillicores() > totalCpuMillicores) {
+        return false;
+      }
+      assigned.put(workerId, limit);
+      return true;
     }
-    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
-    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
-    if (assignedMemory + limit.memoryBytes() > totalMemoryBytes) {
-      return false;
-    }
-    if (assignedCpu + limit.cpuMillicores() > totalCpuMillicores) {
-      return false;
-    }
-    assigned.put(workerId, limit);
-    return true;
   }
 
-  public synchronized void release(String workerId) {
-    assigned.remove(workerId);
+  public void release(String workerId) {
+    synchronized (lock) {
+      assigned.remove(workerId);
+    }
   }
 
-  public synchronized Snapshot snapshot() {
-    long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
-    long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
-    return new Snapshot(totalMemoryBytes, assignedMemory, totalCpuMillicores, assignedCpu);
+  public Snapshot snapshot() {
+    synchronized (lock) {
+      long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();
+      long assignedCpu = assigned.values().stream().mapToLong(ResourceSpec::cpuMillicores).sum();
+      return new Snapshot(totalMemoryBytes, assignedMemory, totalCpuMillicores, assignedCpu);
+    }
   }
 
   public record Snapshot(

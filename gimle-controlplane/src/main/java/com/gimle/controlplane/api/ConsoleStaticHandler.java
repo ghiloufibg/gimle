@@ -94,7 +94,8 @@ final class ConsoleStaticHandler implements HttpHandler {
   }
 
   private static String contentTypeFor(Path file) {
-    String name = file.getFileName().toString();
+    Path fileName = file.getFileName();
+    String name = fileName == null ? "" : fileName.toString();
     int dot = name.lastIndexOf('.');
     String extension = dot >= 0 ? name.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
     return CONTENT_TYPES.getOrDefault(extension, "application/octet-stream");

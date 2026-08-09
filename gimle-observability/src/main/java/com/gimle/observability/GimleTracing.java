@@ -19,6 +19,10 @@ import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
  */
 public final class GimleTracing {
 
+  // A private lock object, not `synchronized` on the class itself: locking on GimleTracing.class
+  // would let any other code -- including untrusted code sharing this JVM -- synchronize on the
+  // same intrinsic lock and stall this class's own initialization.
+  private static final Object LOCK = new Object();
   private static volatile boolean installed;
 
   private GimleTracing() {}
@@ -27,16 +31,18 @@ public final class GimleTracing {
    * Idempotent: a worker process that's already installed a tracer provider (or a test that
    * pre-configured one) is left alone rather than double-registering.
    */
-  public static synchronized void installDefault() {
-    if (installed) {
-      return;
+  public static void installDefault() {
+    synchronized (LOCK) {
+      if (installed) {
+        return;
+      }
+      SdkTracerProvider tracerProvider =
+          SdkTracerProvider.builder()
+              .addSpanProcessor(SimpleSpanProcessor.create(LoggingSpanExporter.create()))
+              .build();
+      OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
+      GlobalOpenTelemetry.set(sdk);
+      installed = true;
     }
-    SdkTracerProvider tracerProvider =
-        SdkTracerProvider.builder()
-            .addSpanProcessor(SimpleSpanProcessor.create(LoggingSpanExporter.create()))
-            .build();
-    OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
-    GlobalOpenTelemetry.set(sdk);
-    installed = true;
   }
 }

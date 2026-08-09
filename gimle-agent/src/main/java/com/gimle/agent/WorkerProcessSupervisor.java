@@ -245,8 +245,9 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   private synchronized OutputStream systemLogStreamOrOpen() throws IOException {
     if (systemLogStream == null) {
       Path file = systemLogFile.orElseThrow();
-      if (file.getParent() != null) {
-        Files.createDirectories(file.getParent());
+      Path parent = file.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
       }
       systemLogStream =
           Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.APPEND);

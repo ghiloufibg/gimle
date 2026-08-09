@@ -781,7 +781,7 @@ public final class StateStore implements StoreReader {
         rollingDir(),
         "*.yaml",
         file -> {
-          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          String deploymentName = fileNameWithoutYamlSuffix(file);
           Map<?, ?> map = loadMap(file);
           rollingIndices.put(deploymentName, ((Number) map.get("instanceIndex")).intValue());
         });
@@ -789,7 +789,7 @@ public final class StateStore implements StoreReader {
         autoscaleDir(),
         "*.yaml",
         file -> {
-          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          String deploymentName = fileNameWithoutYamlSuffix(file);
           Map<?, ?> map = loadMap(file);
           effectiveReplicas.put(deploymentName, ((Number) map.get("replicas")).intValue());
         });
@@ -804,14 +804,14 @@ public final class StateStore implements StoreReader {
         quotaDir(),
         "*.yaml",
         file -> {
-          String deploymentName = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          String deploymentName = fileNameWithoutYamlSuffix(file);
           quotaViolations.put(deploymentName, Boolean.TRUE);
         });
     loadEach(
         cordonDir(),
         "*.yaml",
         file -> {
-          String nodeId = file.getFileName().toString().replaceFirst("\\.yaml$", "");
+          String nodeId = fileNameWithoutYamlSuffix(file);
           nodeCordons.put(nodeId, Boolean.TRUE);
         });
     loadEach(
@@ -910,6 +910,19 @@ public final class StateStore implements StoreReader {
       throw new IllegalStateException("expected a YAML mapping in " + file);
     }
     return map;
+  }
+
+  // Every loadEach caller below keys its in-memory map by the file's own basename (minus the
+  // .yaml suffix) rather than by a field inside the YAML content -- getFileName() can only return
+  // null for a zero-element path, which never happens for a Path yielded by a directory-stream
+  // walk, but centralizing the null-guard here (rather than repeating it at each of the four
+  // call sites) is what actually satisfies that in one place.
+  private static String fileNameWithoutYamlSuffix(Path file) {
+    Path fileName = file.getFileName();
+    if (fileName == null) {
+      throw new IllegalStateException("expected a regular file, got " + file);
+    }
+    return fileName.toString().replaceFirst("\\.yaml$", "");
   }
 
   private static byte[] read(Path file) {

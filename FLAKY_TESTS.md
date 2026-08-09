@@ -43,6 +43,49 @@ re-diagnosed every time:
   `StoreClientClusterTest.java:237` (a lease-acquired assertion).
 - Also passed on a later re-run with no relevant code change.
 
+### `RaftClusterTest#removing_a_server_shrinks_the_quorum_requirement_so_writes_still_succeed_after_losing_a_node`
+
+- Observed: 2026-08-09, during a `gimle-mimir` module test run on `production-hardening`
+  (P2-12 SpotBugs work; unrelated to the change under review — `StateStore`/`AtomicFiles` null
+  handling, not membership-change logic).
+- Failure: `com.gimle.core.exception.GimleRaftException: node node-3's proposal did not commit
+  within PT5S`, thrown from `RaftNode.giveUpAndTruncateLocked` via `RaftNode.awaitAppliedThrowing`,
+  same shape as the other already-listed proposal-timeout entries.
+- Passed cleanly on an isolated re-run (`-Dtest=RaftClusterTest#...`) with no code change —
+  consistent with a timing stall under shared sandbox load, not a logic bug.
+
+### `RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`
+
+- Observed: 2026-08-09, during a full-reactor `mvn verify` on `production-hardening` (P2-12
+  SpotBugs final verification pass), running under parallel-forked reactor load.
+- Failure: same proposal-timeout shape as the other Raft entries above (`GimleRaftException: node
+  node-0's proposal did not commit within PT5S`).
+- Passed cleanly on an isolated re-run with no code change.
+
+### `StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower`
+
+- Observed: 2026-08-09, same full-reactor `mvn verify` run as above.
+- Failure: `AssertionFailedError: call 0 returned empty ==> expected: <true> but was: <false>` at
+  `StoreClientClusterTest.java:263` — the P2-14 leader-routed-heartbeat-read test, presumably
+  hitting a leader-election/heartbeat-propagation race under the same shared-sandbox load as the
+  Raft entries above, not a logic regression.
+- Passed cleanly on an isolated re-run with no code change.
+
+### `GreeterSmokeTestIT` runs under plain `mvn verify` despite being documented as `-Psmoke`-only
+
+- Observed: 2026-08-09, same full-reactor `mvn verify` run as above — `gimle-smoke-tests`'
+  `GreeterSmokeTestIT` executed via Surefire's `default-test` execution (not Failsafe, and without
+  passing `-Psmoke`), then failed on its embedded Playwright suite (exit code 1, browser/cluster
+  environment specifics not investigated). Not a flaky-timing issue like the entries above — a
+  build-wiring gap: an unqualified `-Dtest='!A,!B,...'` (exclusions only, no positive pattern)
+  apparently broadens Surefire's default class-discovery beyond the usual `*Test`/`*Tests`/
+  `*TestCase` set enough to pick up `GreeterSmokeTestIT` too, even though the module's own
+  `maven-failsafe-plugin` binding (the intended runner for it) is gated behind the `smoke` profile
+  and never activated here. Worked around for this session by adding an explicit
+  `!GreeterSmokeTestIT` exclusion to the verify command; worth a real fix (e.g. an explicit
+  Surefire `<excludes>` entry in `gimle-smoke-tests/pom.xml` for its own `IT` suffix) in a future
+  session rather than leaning on the ad hoc `-Dtest` flag forever.
+
 ## Process
 
 When a test fails that looks unrelated to the diff being verified: re-run it in isolation

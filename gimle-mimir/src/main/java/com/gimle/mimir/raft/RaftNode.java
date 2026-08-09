@@ -620,8 +620,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         log.debug("Raft replication to {} failed: {}", peerId, e.getMessage());
       }
       try {
-        wake.tryAcquire(HEARTBEAT_INTERVAL.toMillis(), TimeUnit.MILLISECONDS);
-        wake.drainPermits();
+        // Whether this returns true (a permit arrived) or false (the timeout elapsed) doesn't
+        // change what happens next either way: the loop re-checks role/running and calls
+        // sendOnce again regardless, so the result is deliberately unused -- only the wait
+        // itself (early wake vs. heartbeat-interval fallback) matters.
+        boolean woken = wake.tryAcquire(HEARTBEAT_INTERVAL.toMillis(), TimeUnit.MILLISECONDS);
+        if (woken) {
+          wake.drainPermits();
+        }
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;

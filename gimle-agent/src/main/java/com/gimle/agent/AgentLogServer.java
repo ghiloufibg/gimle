@@ -126,8 +126,7 @@ final class AgentLogServer implements AutoCloseable {
     List<Map<String, Object>> merged = new ArrayList<>();
     if (Files.isDirectory(workersDir)) {
       try (var files = Files.list(workersDir)) {
-        for (Path file :
-            files.filter(p -> p.getFileName().toString().endsWith("-system.log")).toList()) {
+        for (Path file : files.filter(p -> fileNameString(p).endsWith("-system.log")).toList()) {
           // These raw-capture files aren't rotated (WorkerProcessSupervisor writes them directly,
           // not through RollingFileAppenders), so there's exactly one file per instance --
           // maxFiles=1.
@@ -267,6 +266,18 @@ final class AgentLogServer implements AutoCloseable {
    */
   private static final Pattern CRASH_DUMP_FILENAME = Pattern.compile("hs_err_pid\\d+\\.log");
 
+  // getFileName() can only return null for a zero-element path, which never happens for a Path
+  // yielded by Files.list() on a real directory -- centralizing the null-guard here, rather than
+  // repeating it at each of this class's several getFileName().toString() call sites, is what
+  // actually satisfies it.
+  private static String fileNameString(Path path) {
+    Path fileName = path.getFileName();
+    if (fileName == null) {
+      throw new IllegalStateException("expected a regular file, got " + path);
+    }
+    return fileName.toString();
+  }
+
   private void handleCrashDumps(HttpExchange exchange, Path workerLogRoot, String subPath)
       throws IOException {
     if (subPath.equals("crashdumps")) {
@@ -286,11 +297,11 @@ final class AgentLogServer implements AutoCloseable {
       try (var files = Files.list(workerLogRoot)) {
         for (Path file :
             files
-                .filter(p -> CRASH_DUMP_FILENAME.matcher(p.getFileName().toString()).matches())
+                .filter(p -> CRASH_DUMP_FILENAME.matcher(fileNameString(p)).matches())
                 .sorted()
                 .toList()) {
           Map<String, Object> entry = new LinkedHashMap<>();
-          entry.put("name", file.getFileName().toString());
+          entry.put("name", fileNameString(file));
           entry.put("sizeBytes", Files.size(file));
           entry.put("lastModified", Files.getLastModifiedTime(file).toInstant().toString());
           dumps.add(entry);
