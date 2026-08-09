@@ -49,6 +49,11 @@ Each is a fully-qualified class name, implementing `ModuleLifecycleHooks` and
 calls them directly, no HTTP, no sidecar. `GreeterProviderHooks.onStart` is where this module
 registers its exported service with the fabric (see the next section).
 
+A module whose post-start warmup takes a moment (lazy init, a cache fill, JIT) can add
+`health.initialDelaySeconds` alongside `liveness`/`readiness` to delay the *first* probe tick
+without slowing down every tick after it — otherwise an eager first tick can fail and get the
+module torn down within seconds of reaching `ACTIVE`.
+
 ## Export a service
 
 For another module to call this one over the fabric, declare what it exports:

@@ -153,6 +153,11 @@ public final class WorkerRuntime {
     }
     ModuleLayerHandle handle = handleOpt.get();
 
+    // Absent means the pre-P2-4 default: first tick fires one probeInterval after ACTIVE, same as
+    // every interval after it -- ProbeLoop's own back-compat overload handles that when passed
+    // probeInterval unchanged here.
+    Duration initialDelay = descriptor.healthProbes().initialDelay().orElse(probeInterval);
+
     descriptor
         .healthProbes()
         .livenessClass()
@@ -165,6 +170,7 @@ public final class WorkerRuntime {
                   probe::isAlive,
                   probeInterval,
                   probeTimeout,
+                  initialDelay,
                   alive -> onLivenessResult(id, alive));
             });
 
@@ -180,6 +186,7 @@ public final class WorkerRuntime {
                   probe::isReady,
                   probeInterval,
                   probeTimeout,
+                  initialDelay,
                   ready -> onReadinessResult(id, ready));
             });
   }

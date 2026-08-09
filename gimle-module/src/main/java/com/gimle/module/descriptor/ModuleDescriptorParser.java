@@ -10,6 +10,7 @@ import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.module.VersionRange;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -165,11 +166,29 @@ public final class ModuleDescriptorParser {
     }
     Optional<String> liveness = className(health, "liveness");
     Optional<String> readiness = className(health, "readiness");
+    Optional<Duration> initialDelay = parseInitialDelay(health);
     try {
-      return new HealthProbes(liveness, readiness);
+      return new HealthProbes(liveness, readiness, initialDelay);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid health probes: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code initialDelaySeconds} (P2-4): how long after ACTIVE before the first probe tick, so a
+   * module's own post-start warmup (lazy init, cache fill, JIT) doesn't get torn down by an eager
+   * first tick.
+   */
+  private static Optional<Duration> parseInitialDelay(Map<?, ?> health) {
+    Object value = health.get("initialDelaySeconds");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Number number) || number.longValue() < 0) {
+      throw new GimleManifestException(
+          "'health.initialDelaySeconds' must be a non-negative number");
+    }
+    return Optional.of(Duration.ofSeconds(number.longValue()));
   }
 
   private static Optional<String> parseLifecycleHooks(Map<?, ?> root) {

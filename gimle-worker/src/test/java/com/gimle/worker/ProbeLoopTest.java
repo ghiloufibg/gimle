@@ -2,6 +2,7 @@ package com.gimle.worker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -115,6 +116,32 @@ class ProbeLoopTest {
     assertTrue(
         invocationCount.get() <= countAtStop + 1,
         "no more than one in-flight tick should complete after stop()");
+  }
+
+  @Test
+  void no_tick_fires_before_the_initial_delay_elapses() {
+    List<Boolean> results = new CopyOnWriteArrayList<>();
+    probeLoop.start(
+        "liveness",
+        scheduler,
+        () -> true,
+        Duration.ofMillis(20),
+        Duration.ofSeconds(1),
+        Duration.ofMillis(300),
+        results::add);
+
+    // Deliberately shorter than the initial delay: if it fired at the ordinary interval instead,
+    // several results would already be here.
+    try {
+      Thread.sleep(150);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      fail("interrupted while waiting");
+    }
+    assertTrue(results.isEmpty(), "no tick should fire before the initial delay elapses");
+
+    Await.atLeast(() -> !results.isEmpty(), Duration.ofSeconds(2));
+    assertTrue(results.get(0));
   }
 
   @Test
