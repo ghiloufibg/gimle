@@ -1,5 +1,6 @@
 package com.gimle.fafnir;
 
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
@@ -9,6 +10,7 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.observability.FafnirMetrics;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
@@ -430,8 +432,14 @@ public final class FafnirServer implements AutoCloseable {
       return false;
     }
     boolean allowed =
-        authorizer.authorize(
-            principal.get(), ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty());
+        principal.get().groups().contains(BuiltinRoles.GROUP_NODES)
+            ? verb == Verb.READ && isTenantAssignedToNode(principal.get().name(), tenantId)
+            : authorizer.authorize(
+                principal.get(),
+                ResourceKind.SECRET,
+                verb,
+                Optional.of(tenantId),
+                Optional.empty());
     auditLog.info(
         "principal={} tenant={} key={} verb={} allow={}",
         principal.get().name(),
@@ -447,6 +455,35 @@ public final class FafnirServer implements AutoCloseable {
     }
     authzThrottle.recordSuccess(throttleKey);
     return true;
+  }
+
+  /**
+   * §9's node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
+   * {@code gimle:nodes} principal (a node agent's own certificate identity, {@code CN=nodeId}) may
+   * read a tenant's secrets only if that node currently has at least one active instance assignment
+   * for that tenant -- read-only, never write/delete, and never the ordinary RBAC path (a node
+   * certificate has no {@code Role}/{@code RoleBinding} of its own to check against).
+   *
+   * <p>Design-doc correction: the original text cited {@code
+   * StoreClient.listAssignmentsFor(nodeId)} as the primitive for this, but that method is
+   * deployment-scoped ({@code listAssignmentsFor(String deploymentName)}), not node-scoped -- there
+   * is no direct "assignments for this node" query. This walks every assignment via {@link
+   * StoreClient#listAssignments()}, filters to this node, and joins each surviving assignment's
+   * {@code deploymentName} back to its {@code DeploymentSpec} to read that deployment's own {@code
+   * tenantId}.
+   *
+   * <p>Honest limitation, stated rather than hidden (§9's own caveat): this is tenant-scoped, not
+   * per-key-scoped -- a node with any assignment for a tenant can read every secret that tenant
+   * owns, not just the ones its own deployed modules actually declared a dependency on, since the
+   * module manifest has no per-key secret-dependency declaration today.
+   */
+  private boolean isTenantAssignedToNode(String nodeId, String tenantId) {
+    StoreClient storeClient = crypto.storeClient();
+    return storeClient.listAssignments().stream()
+        .filter(a -> a.nodeId().equals(nodeId))
+        .map(a -> storeClient.getDeployment(a.deploymentName()))
+        .flatMap(Optional::stream)
+        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }
 
   /**

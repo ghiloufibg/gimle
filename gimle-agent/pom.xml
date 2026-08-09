@@ -76,5 +76,16 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
+    <!--
+      gimle-controlplane's own ApiServer talks to Fafnir purely over HTTP (FafnirClient), so it
+      carries no compile-scope dependency on gimle-fafnir itself. These integration tests need a
+      real, in-process FafnirServer standing behind that ApiServer, so this module needs the
+      dependency explicitly, test-scoped.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

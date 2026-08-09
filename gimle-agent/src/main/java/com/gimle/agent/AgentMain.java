@@ -49,6 +49,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -122,6 +123,14 @@ public final class AgentMain {
     List<InetSocketAddress> seeds = parseSeeds(args[3]);
     String javaExecutable = args[4];
     List<String> commandTail = List.of(args).subList(5, args.length);
+    // A system property, not a positional arg: commandTail above is already fully variadic
+    // (everything from index 5 on), so a new required positional arg has nowhere to go without
+    // breaking that convention -- matches gimle.node.labels/gimle.tls.* already using this same
+    // mechanism for agent-side configuration. Null (unset) is a legitimate, supported state: an
+    // agent with no tenant ever using secrets never needs Fafnir configured at all.
+    String fafnirEndpoint = System.getProperty("gimle.agent.fafnirEndpoint");
+    URI fafnirBaseUrl =
+        fafnirEndpoint == null ? null : URI.create((baseUrl.getScheme()) + "://" + fafnirEndpoint);
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
@@ -156,6 +165,7 @@ public final class AgentMain {
         reconcileAssignments(
             httpClient,
             baseUrl,
+            fafnirBaseUrl,
             nodeId,
             supervised,
             javaExecutable,
@@ -573,9 +583,12 @@ public final class AgentMain {
   }
 
   /**
-   * Fetches this tenant's entire tenant-scoped config/secret set, already decrypted server-side:
-   * {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for that tenant as plaintext,
-   * since the control plane alone holds the secrets key file.
+   * Fetches this tenant's plain (non-Fafnir-managed) config entries, already decrypted server-side
+   * by {@code ApiServer}: {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for that
+   * tenant, both plaintext and any legacy {@code encrypted=true} entry (unchanged from before
+   * Fafnir's own extraction). Fafnir's own synthetic {@code key@meta}/{@code key@N}
+   * secret-versioning entries are filtered out of this endpoint's response server-side (design doc
+   * §6e) -- {@link #fetchSecretsForTenant} is the only path that ever returns them.
    */
   private static List<ConfigValue> fetchConfigForTenant(
       HttpClient httpClient, URI baseUrl, String tenantId)
@@ -597,6 +610,44 @@ public final class AgentMain {
     return result;
   }
 
+  /**
+   * Fetches this tenant's Fafnir-native secrets (design doc §9, §11 Phase C) -- talked to directly,
+   * over this agent's own mTLS node identity, never relayed through the control plane: Fafnir
+   * authorizes the request itself, scoped to tenants this node actually has an active assignment
+   * for ({@code FafnirServer}'s own node-tenant-scoping check), rather than trusting anything the
+   * control plane might have forwarded. Soft-deleted secrets are skipped (§7d: a soft-deleted
+   * secret's latest-version read returns 404, exactly the shape a real deletion should have from a
+   * consuming instance's point of view).
+   */
+  private static List<ConfigValue> fetchSecretsForTenant(
+      HttpClient httpClient, URI fafnirBaseUrl, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest listRequest =
+        HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId)).GET().build();
+    HttpResponse<String> listResponse =
+        httpClient.send(listRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    Map<String, Object> listBody = Json.asObject(Json.parse(listResponse.body()));
+    List<Object> secrets = Json.asArray(listBody.get("secrets"));
+    List<ConfigValue> result = new ArrayList<>();
+    for (Object entry : secrets) {
+      Map<String, Object> map = Json.asObject(entry);
+      if (Boolean.TRUE.equals(map.get("deleted"))) {
+        continue;
+      }
+      String key = (String) map.get("key");
+      HttpRequest valueRequest =
+          HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId + "/" + key))
+              .GET()
+              .build();
+      HttpResponse<String> valueResponse =
+          httpClient.send(valueRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      Map<String, Object> valueBody = Json.asObject(Json.parse(valueResponse.body()));
+      byte[] decoded = Base64.getDecoder().decode((String) valueBody.get("value"));
+      result.add(new ConfigValue(key, new String(decoded, StandardCharsets.UTF_8), true));
+    }
+    return result;
+  }
+
   private record ConfigValue(String key, String value, boolean wasEncrypted) {}
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
@@ -604,6 +655,7 @@ public final class AgentMain {
   private static void reconcileAssignments(
       HttpClient httpClient,
       URI baseUrl,
+      URI fafnirBaseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       String javaExecutable,
@@ -638,7 +690,8 @@ public final class AgentMain {
                 supervised,
                 capacityTracker,
                 httpClient,
-                baseUrl);
+                baseUrl,
+                fafnirBaseUrl);
           } else {
             startInstance(
                 assigned,
@@ -654,6 +707,7 @@ public final class AgentMain {
                 catalog,
                 httpClient,
                 baseUrl,
+                fafnirBaseUrl,
                 logRoot);
           }
         } catch (IOException | RuntimeException e) {
@@ -725,7 +779,8 @@ public final class AgentMain {
       Map<String, SupervisedInstance> supervised,
       CapacityTracker capacityTracker,
       HttpClient httpClient,
-      URI baseUrl) {
+      URI baseUrl,
+      URI fafnirBaseUrl) {
     SupervisedInstance instance =
         new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
     instance.connection = existing.connection;
@@ -735,7 +790,7 @@ public final class AgentMain {
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
     try {
-      sendInstallStartSequence(instance, instance.connection, httpClient, baseUrl);
+      sendInstallStartSequence(instance, instance.connection, httpClient, baseUrl, fafnirBaseUrl);
     } catch (IOException e) {
       log.error("failed to install {} into shared worker: {}", key, e.getMessage());
       supervised.remove(key);
@@ -757,6 +812,7 @@ public final class AgentMain {
       ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
+      URI fafnirBaseUrl,
       Path logRoot)
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
@@ -800,7 +856,15 @@ public final class AgentMain {
         .start(
             () ->
                 driveInstanceUp(
-                    instance, key, gossipMember, catalog, httpClient, baseUrl, nodeId, supervised));
+                    instance,
+                    key,
+                    gossipMember,
+                    catalog,
+                    httpClient,
+                    baseUrl,
+                    fafnirBaseUrl,
+                    nodeId,
+                    supervised));
   }
 
   /**
@@ -914,6 +978,7 @@ public final class AgentMain {
       ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
+      URI fafnirBaseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised) {
     try {
@@ -932,7 +997,7 @@ public final class AgentMain {
                       baseUrl,
                       nodeId,
                       supervised));
-      sendInstallStartSequence(instance, connection, httpClient, baseUrl);
+      sendInstallStartSequence(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
     }
@@ -945,7 +1010,11 @@ public final class AgentMain {
    * only difference is whether the connection was just accepted or already open.
    */
   private static void sendInstallStartSequence(
-      SupervisedInstance instance, WorkerConnection connection, HttpClient httpClient, URI baseUrl)
+      SupervisedInstance instance,
+      WorkerConnection connection,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl)
       throws IOException {
     connection.send(
         new ControlMessage.InstallModule(
@@ -958,21 +1027,35 @@ public final class AgentMain {
     // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
     // Start, over this same ordered channel, so every module hook's config(key) lookups are
     // already backed by real values from the moment it starts.
-    deliverConfig(instance, connection, httpClient, baseUrl);
+    deliverConfig(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
     connection.send(
         new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
   }
 
+  /**
+   * Plain config still comes from {@code ApiServer}'s own {@code /config/{tenantId}}, decrypted
+   * server-side exactly as before (design doc §11, Phase C: "only where decryption happens
+   * changes") -- unaffected by this split. Secret values, by contrast, are fetched directly from
+   * Fafnir, authorized by this agent's own node identity certificate rather than relayed through
+   * the control plane, so a compromised or buggy control-plane replica is never in a position to
+   * see a decrypted secret value pass through it. {@code fafnirBaseUrl} is {@code null} when {@code
+   * -Dgimle.agent.fafnirEndpoint} was never configured -- instances still start, simply without any
+   * secret values delivered, exactly like a tenant that never uses secrets.
+   */
   private static void deliverConfig(
-      SupervisedInstance instance, WorkerConnection connection, HttpClient httpClient, URI baseUrl)
+      SupervisedInstance instance,
+      WorkerConnection connection,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl)
       throws IOException {
     Optional<String> tenantId = instance.assigned.tenantId();
     if (tenantId.isEmpty()) {
       return;
     }
-    List<ConfigValue> entries;
+    List<ConfigValue> entries = new ArrayList<>();
     try {
-      entries = fetchConfigForTenant(httpClient, baseUrl, tenantId.get());
+      entries.addAll(fetchConfigForTenant(httpClient, baseUrl, tenantId.get()));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return;
@@ -982,6 +1065,19 @@ public final class AgentMain {
           tenantId.get(),
           e.getMessage());
       return;
+    }
+    if (fafnirBaseUrl != null) {
+      try {
+        entries.addAll(fetchSecretsForTenant(httpClient, fafnirBaseUrl, tenantId.get()));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      } catch (RuntimeException e) {
+        log.warn(
+            "failed to fetch secrets for tenant {}: {}; instance will start without them",
+            tenantId.get(),
+            e.getMessage());
+      }
     }
     for (ConfigValue entry : entries) {
       connection.send(

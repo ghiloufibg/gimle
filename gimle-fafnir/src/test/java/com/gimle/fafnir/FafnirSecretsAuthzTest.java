@@ -7,9 +7,14 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.fafnir.testsupport.InProcessStore;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
@@ -25,6 +30,7 @@ import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -212,6 +218,112 @@ class FafnirSecretsAuthzTest {
     }
   }
 
+  @Test
+  @Timeout(10)
+  void a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      assignDeploymentToNode(inProcessStore.store(), "node-1", "acme");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // "node-1" is assigned to a deployment for a different tenant -- proves this is a genuine
+      // per-tenant check, not merely "does this node have any assignment at all."
+      assignDeploymentToNode(inProcessStore.store(), "node-1", "other-tenant");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_node_may_never_write_a_secret_even_with_an_active_assignment() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      assignDeploymentToNode(inProcessStore.store(), "node-1", "acme");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:" + server.port() + "/secrets/acme/db-password"))
+                    .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"aGVsbG8=\"}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * A single-replica deployment placed on {@code nodeId} for {@code tenantId} -- the minimal
+   * scheduler-decision shape {@link FafnirServer#isTenantAssignedToNode} joins against, mirroring
+   * exactly what a real {@code DeploymentReconciler} placement would have written.
+   */
+  private static void assignDeploymentToNode(StateStore store, String nodeId, String tenantId) {
+    ModuleId moduleId = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+    store.putDeployment(
+        new DeploymentSpec(
+            "dep-" + tenantId,
+            moduleId,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of(tenantId)));
+    store.putAssignment(new InstanceAssignment("dep-" + tenantId, 0, nodeId));
+  }
+
   private static void grantSecretReadAndWrite(StateStore store, String username) {
     store.putRole(
         new Role(
@@ -249,6 +361,26 @@ class FafnirSecretsAuthzTest {
     Path keyFile =
         writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
     Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+
+    SSLContext sslContext = SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile));
+    return HttpClient.newBuilder().sslContext(sslContext).build();
+  }
+
+  /**
+   * A leaf certificate stamped {@code O=gimle:nodes} (the server-side-only stamp real CSR issuance
+   * applies, see {@code Subjects.withOrganization}) -- exercises §9's node-authorization path
+   * rather than {@link #clientWithLeaf}'s ordinary-RBAC one.
+   */
+  private HttpClient nodeClientWithLeaf(CertificateAuthority ca, String nodeId) throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + nodeId));
+    X509Certificate leaf =
+        ca.signCertificateRequest(
+            csr, new X500Name("O=gimle:nodes,CN=" + nodeId), Duration.ofDays(1));
+    Path certFile = writePem(nodeId + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
+    Path keyFile = writePem(nodeId + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
+    Path caFile = writePem(nodeId + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
 
     SSLContext sslContext = SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile));
     return HttpClient.newBuilder().sslContext(sslContext).build();

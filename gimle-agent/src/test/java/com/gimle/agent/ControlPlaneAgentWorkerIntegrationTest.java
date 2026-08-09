@@ -3,11 +3,14 @@ package com.gimle.agent;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.controlplane.api.ApiServer;
+import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.protocol.Json;
+import com.gimle.fafnir.FafnirCrypto;
+import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.rpc.StoreClient;
@@ -64,6 +67,8 @@ class ControlPlaneAgentWorkerIntegrationTest {
   private RaftNode storeRaftNode;
   private StoreTransport storeTransport;
   private StoreClient storeClient;
+  private FafnirServer fafnirServer;
+  private FafnirClient fafnirClient;
   private ApiServer apiServer;
   private Thread reconcileLoop;
   private volatile boolean stopReconcileLoop;
@@ -79,6 +84,12 @@ class ControlPlaneAgentWorkerIntegrationTest {
     }
     if (apiServer != null) {
       apiServer.close();
+    }
+    if (fafnirClient != null) {
+      fafnirClient.close();
+    }
+    if (fafnirServer != null) {
+      fafnirServer.close();
     }
     if (storeClient != null) {
       storeClient.close();
@@ -140,7 +151,14 @@ class ControlPlaneAgentWorkerIntegrationTest {
     SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
     storeClient = new StoreClient(List.of(storeAddress));
 
-    apiServer = new ApiServer(storeClient, 0);
+    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process (design
+    // doc Phase A), so standing up ApiServer at all now needs a genuine FafnirClient to talk to.
+    FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
+    fafnirServer = new FafnirServer(fafnirCrypto, 0);
+    fafnirServer.start();
+    fafnirClient = new FafnirClient("localhost:" + fafnirServer.port());
+
+    apiServer = new ApiServer(storeClient, 0, fafnirClient);
     apiServer.start();
     String baseUrl = "http://localhost:" + apiServer.port();
 

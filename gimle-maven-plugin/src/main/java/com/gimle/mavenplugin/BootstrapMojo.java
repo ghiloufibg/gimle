@@ -347,6 +347,11 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("ca.crt"));
       command.add("-Dgimle.tls.bootstrapToken=" + bootstrapToken);
     }
+    // Lets this agent fetch secret values straight from Fafnir (design doc §9/§11 Phase C)
+    // instead of relying on the control plane to have already decrypted them -- see AgentMain's
+    // own javadoc on gimle.agent.fafnirEndpoint for why this is a system property rather than a
+    // new positional arg.
+    command.add("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + FAFNIR_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-agent"));
     command.add("com.gimle.agent.AgentMain");

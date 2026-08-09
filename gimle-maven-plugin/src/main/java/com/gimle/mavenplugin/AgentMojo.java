@@ -34,6 +34,12 @@ public final class AgentMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.agent.gossipAddress", defaultValue = "127.0.0.1:9090")
   private String gossipAddress;
 
+  // Matches FafnirMojo's own gimle.fafnir.port default (9092), same convention as
+  // ControlPlaneMojo#fafnirEndpoint. Never null here (unlike AgentMain's own optional system
+  // property) since this convenience goal always has a sensible local-dev default to fall back on.
+  @Parameter(property = "gimle.agent.fafnirEndpoint", defaultValue = "127.0.0.1:9092")
+  private String fafnirEndpoint;
+
   /**
    * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
    * claudedocs/tls-transport-security-design.md} §1 -- same shape as {@code
@@ -79,6 +85,7 @@ public final class AgentMojo extends AbstractGimleMojo {
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
     }
+    command.add("-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint);
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));
     command.add("com.gimle.agent.AgentMain");
