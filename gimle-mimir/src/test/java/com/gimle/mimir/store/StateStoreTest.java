@@ -71,6 +71,30 @@ class StateStoreTest {
   }
 
   @Test
+  void deployment_artifact_sha256_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("deployment-sha256-roundtrip");
+    StateStore store = new StateStore(root);
+    DeploymentSpec spec =
+        new DeploymentSpec(
+            "orders-service",
+            ORDERS,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            3,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of("a".repeat(64)));
+
+    store.putDeployment(spec);
+    assertEquals(Optional.of(spec), store.getDeployment("orders-service"));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(
+        Optional.of("a".repeat(64)),
+        reloaded.getDeployment("orders-service").orElseThrow().artifactSha256());
+  }
+
+  @Test
   void removed_deployment_is_gone_after_reload() {
     Path root = tempDir.resolve("deployment-remove");
     StateStore store = new StateStore(root);

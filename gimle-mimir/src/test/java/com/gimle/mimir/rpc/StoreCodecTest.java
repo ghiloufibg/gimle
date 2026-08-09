@@ -60,6 +60,18 @@ class StoreCodecTest {
         3,
         new PlacementConstraints(Optional.of(Set.of("zone-a")), true),
         Optional.of(new AutoscalePolicy(1, 5, 80)),
+        Optional.of("tenant-1"),
+        Optional.of("a".repeat(64)));
+  }
+
+  private static DeploymentSpec deploymentSpecWithoutArtifactSha256() {
+    return new DeploymentSpec(
+        "greeter",
+        MODULE_ID,
+        "/artifacts/greeter.jar",
+        3,
+        new PlacementConstraints(Optional.of(Set.of("zone-a")), true),
+        Optional.of(new AutoscalePolicy(1, 5, 80)),
         Optional.of("tenant-1"));
   }
 
@@ -113,6 +125,8 @@ class StoreCodecTest {
     return Stream.of(
         // leader-only writes
         new StoreRpc.Propose(new StateMutation.PutDeployment(deploymentSpec())),
+        new StoreRpc.Propose(
+            new StateMutation.PutDeployment(deploymentSpecWithoutArtifactSha256())),
         new StoreRpc.PutHeartbeat(nodeHeartbeat()),
         new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-a:8080", 15_000L),
         new StoreRpc.ReleaseLease("reconciler-leader", "node-a:8080"),

@@ -74,6 +74,7 @@ public final class DomainCodec {
     writePlacementConstraints(out, spec.placement());
     writeOptionalAutoscalePolicy(out, spec.autoscale());
     writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
   }
 
   public static DeploymentSpec readDeploymentSpec(DataInputStream in) throws IOException {
@@ -84,8 +85,9 @@ public final class DomainCodec {
     PlacementConstraints placement = readPlacementConstraints(in);
     Optional<AutoscalePolicy> autoscale = readOptionalAutoscalePolicy(in);
     Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
     return new DeploymentSpec(
-        name, moduleId, artifactPath, replicas, placement, autoscale, tenantId);
+        name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, artifactSha256);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)

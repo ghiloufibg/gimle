@@ -22,6 +22,15 @@ import java.util.Optional;
  * com.gimle.core.tenant.Tenant} already registered with the control plane -- checked by the API
  * server at admission, not by this record's own compact constructor, which has no {@code
  * StateStore} to check against.
+ *
+ * <p>{@code artifactSha256} (P2-18) is the SHA-256 {@code ApiServer} computed from the artifact at
+ * {@code artifactPath} when this spec was admitted -- {@code Optional.empty()} means either the
+ * spec was admitted before this field existed, or the artifact was unreadable at that moment (the
+ * same tolerant posture {@code tenantId}'s own back-compat constructors already establish for a
+ * field added after specs already existed). {@code DeploymentReconciler} re-reads the artifact
+ * every tick and refuses to place new instances if the bytes on disk no longer match -- ties a spec
+ * to the specific artifact it was admitted against, not just whatever currently happens to be at
+ * that path.
  */
 public record DeploymentSpec(
     String name,
@@ -30,7 +39,8 @@ public record DeploymentSpec(
     int replicas,
     PlacementConstraints placement,
     Optional<AutoscalePolicy> autoscale,
-    Optional<String> tenantId) {
+    Optional<String> tenantId,
+    Optional<String> artifactSha256) {
 
   public DeploymentSpec {
     if (name == null || name.isBlank()) {
@@ -54,8 +64,14 @@ public record DeploymentSpec(
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
     }
+    if (artifactSha256 == null) {
+      throw new IllegalArgumentException("artifactSha256 must be Optional.empty(), not null");
+    }
   }
 
+  /**
+   * Back-compat: defaults {@code tenantId} and {@code artifactSha256} to {@code Optional.empty()}.
+   */
   public DeploymentSpec(
       String name,
       ModuleId moduleId,
@@ -64,6 +80,18 @@ public record DeploymentSpec(
       PlacementConstraints placement,
       Optional<AutoscalePolicy> autoscale) {
     this(name, moduleId, artifactPath, replicas, placement, autoscale, Optional.empty());
+  }
+
+  /** Back-compat: defaults {@code artifactSha256} to {@code Optional.empty()}. */
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale,
+      Optional<String> tenantId) {
+    this(name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, Optional.empty());
   }
 
   public DeploymentSpec(

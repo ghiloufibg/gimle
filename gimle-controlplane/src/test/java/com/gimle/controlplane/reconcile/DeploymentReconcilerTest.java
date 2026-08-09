@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -15,6 +16,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.util.List;
@@ -46,6 +48,19 @@ class DeploymentReconcilerTest {
         jar.toAbsolutePath().toString(),
         replicas,
         placement);
+  }
+
+  private DeploymentSpec deploymentWithArtifactSha256(
+      String name, int replicas, Path jar, PlacementConstraints placement, String artifactSha256) {
+    return new DeploymentSpec(
+        name,
+        new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+        jar.toAbsolutePath().toString(),
+        replicas,
+        placement,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(artifactSha256));
   }
 
   private static void registerNode(
@@ -166,5 +181,39 @@ class DeploymentReconcilerTest {
     assertEquals(
         Set.of(0, 1), Set.copyOf(orders.stream().map(InstanceAssignment::instanceIndex).toList()));
     assertTrue(store.listAssignmentsFor("ghost-deployment").isEmpty());
+  }
+
+  @Test
+  void places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk() {
+    StateStore store = new StateStore(tempDir.resolve("store-hash-match"));
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    store.putDeployment(
+        deploymentWithArtifactSha256(
+            "orders-service", 2, jar, PlacementConstraints.NONE, artifact.sha256()));
+
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
+
+    assertEquals(2, store.listAssignmentsFor("orders-service").size());
+  }
+
+  @Test
+  void refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash() {
+    // Simulates the artifact having been silently swapped out from under a deployment name after
+    // admission: the spec still names the recorded hash of the *original* jar, but the file at
+    // artifactPath now has different bytes (and therefore a different real hash).
+    StateStore store = new StateStore(tempDir.resolve("store-hash-mismatch"));
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    store.putDeployment(
+        deploymentWithArtifactSha256(
+            "orders-service", 2, jar, PlacementConstraints.NONE, "f".repeat(64)));
+
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
+
+    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
   }
 }

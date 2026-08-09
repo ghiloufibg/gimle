@@ -39,6 +39,45 @@ class DeploymentManifestParserTest {
     assertEquals("/var/gimle/artifacts/orders-1.2.0.jar", spec.artifactPath());
     assertEquals(3, spec.replicas());
     assertEquals(PlacementConstraints.NONE, spec.placement());
+    assertTrue(spec.artifactSha256().isEmpty());
+  }
+
+  @Test
+  void parses_an_artifact_sha256_when_present() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                artifactSha256: %s
+                """
+                    .formatted("a".repeat(64))));
+
+    assertEquals(Set.of(), spec.placement().requiredNodeLabels().orElse(Set.of()));
+    assertEquals("a".repeat(64), spec.artifactSha256().orElseThrow());
+  }
+
+  @Test
+  void blank_artifact_sha256_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    artifactSha256: "   "
+                    """)));
   }
 
   @Test

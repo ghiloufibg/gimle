@@ -23,6 +23,7 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -406,15 +407,24 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
-    DeploymentSpec spec = DeploymentManifestParser.parse(exchange.getRequestBody());
-    if (!spec.name().equals(name)) {
+    DeploymentSpec parsedSpec = DeploymentManifestParser.parse(exchange.getRequestBody());
+    if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
           400,
-          "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    Optional<String> quotaRejection = checkTenantQuota(spec);
+    // P2-18: computed here, once, regardless of tenancy -- never trusted from the submitted
+    // manifest itself (DeploymentManifestParser only parses artifactSha256 back out of StateStore's
+    // own previously-written YAML on reload, never treats a caller-supplied value as
+    // authoritative).
+    // Optional.empty() if the artifact is unreadable at admission time, the same tolerant posture
+    // untenanted deployments already had before this field existed -- DeploymentReconciler still
+    // catches an unreadable artifact every tick regardless.
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    DeploymentSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    Optional<String> quotaRejection = checkTenantQuota(spec, artifact);
     if (quotaRejection.isPresent()) {
       respond(exchange, 409, quotaRejection.get());
       return;
@@ -423,16 +433,38 @@ public final class ApiServer implements AutoCloseable {
     respond(exchange, 200, "ok");
   }
 
+  private static Optional<ModuleArtifact> readArtifactIfPossible(String artifactPath) {
+    try {
+      return Optional.of(ModuleArtifactReader.read(Path.of(artifactPath)));
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static DeploymentSpec withArtifactSha256(DeploymentSpec spec, Optional<String> sha256) {
+    return new DeploymentSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.replicas(),
+        spec.placement(),
+        spec.autoscale(),
+        spec.tenantId(),
+        sha256);
+  }
+
   /**
    * Admission-time quota check: absent if the deployment is untenanted (no check to run) or would
-   * keep the tenant within quota; present with a rejection reason otherwise. Reads the module
-   * descriptor control-plane-side, the same way {@code DeploymentReconciler} already does to learn
-   * a resource request before any node has resolved anything -- an unreadable artifact rejects the
-   * submission outright here (unlike {@code DeploymentReconciler}, which just retries next tick
-   * with nothing yet at stake), since admission can't safely let through a submission it has no way
-   * to verify against the tenant's quota.
+   * keep the tenant within quota; present with a rejection reason otherwise. {@code artifact} is
+   * already read by the caller (once, for every deployment regardless of tenancy, to compute {@link
+   * DeploymentSpec#artifactSha256}) -- reused here rather than reading the same jar a second time.
+   * An unreadable artifact rejects the submission outright for a *tenanted* deployment specifically
+   * (unlike {@code DeploymentReconciler}, which just retries next tick with nothing yet at stake),
+   * since admission can't safely let a submission through it has no way to verify against the
+   * tenant's quota.
    */
-  private Optional<String> checkTenantQuota(DeploymentSpec spec) {
+  private Optional<String> checkTenantQuota(
+      DeploymentSpec spec, Optional<ModuleArtifact> artifact) {
     if (spec.tenantId().isEmpty()) {
       return Optional.empty();
     }
@@ -441,13 +473,11 @@ public final class ApiServer implements AutoCloseable {
     if (tenant.isEmpty()) {
       return Optional.of("unknown tenantId: " + tenantId);
     }
-    ModuleDescriptor descriptor;
-    try {
-      descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
-    } catch (RuntimeException e) {
+    if (artifact.isEmpty()) {
       return Optional.of(
           "cannot verify tenant quota: artifact unreadable at " + spec.artifactPath());
     }
+    ModuleDescriptor descriptor = artifact.get().descriptor();
     TenantUsage.Usage existing = TenantUsage.currentlyAssigned(storeClient, tenantId, spec.name());
     TenantUsage.Usage withThisSubmission =
         existing.plus(

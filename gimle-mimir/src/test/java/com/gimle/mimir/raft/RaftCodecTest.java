@@ -52,7 +52,8 @@ class RaftCodecTest {
         3,
         new PlacementConstraints(Optional.of(Set.of("zone-a")), true),
         Optional.of(new AutoscalePolicy(1, 5, 80)),
-        Optional.of("tenant-1"));
+        Optional.of("tenant-1"),
+        Optional.of("b".repeat(64)));
   }
 
   private static LogEntry logEntry(long index, RaftLogPayload payload) {

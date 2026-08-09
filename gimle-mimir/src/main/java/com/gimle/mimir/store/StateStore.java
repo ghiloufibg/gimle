@@ -957,6 +957,7 @@ public final class StateStore implements StoreReader {
               root.put("autoscale", autoscale);
             });
     spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
     return new Yaml().dump(root);
   }
 

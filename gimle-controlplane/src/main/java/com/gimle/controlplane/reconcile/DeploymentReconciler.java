@@ -3,6 +3,7 @@ package com.gimle.controlplane.reconcile;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -114,9 +115,9 @@ public final class DeploymentReconciler {
       return;
     }
 
-    ModuleDescriptor descriptor;
+    ModuleArtifact artifact;
     try {
-      descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
+      artifact = ModuleArtifactReader.read(Path.of(spec.artifactPath()));
     } catch (RuntimeException e) {
       log.warn(
           "deployment {} references an unreadable artifact {}: {}",
@@ -125,6 +126,23 @@ public final class DeploymentReconciler {
           e.getMessage());
       return;
     }
+    // P2-18: a spec admitted with a recorded hash (Optional.empty() means admitted before this
+    // field existed, or the artifact was unreadable at admission time -- both skip the check) must
+    // still match the bytes on disk at every tick, not just at admission -- an artifact silently
+    // swapped out from under a running deployment name is exactly what this guards against.
+    if (spec.artifactSha256().isPresent()
+        && !spec.artifactSha256().get().equals(artifact.sha256())) {
+      log.warn(
+          "deployment {} artifact at {} no longer matches the hash recorded at admission"
+              + " (expected {}, found {}) -- refusing to place new instances until the spec is"
+              + " resubmitted",
+          spec.name(),
+          spec.artifactPath(),
+          spec.artifactSha256().get(),
+          artifact.sha256());
+      return;
+    }
+    ModuleDescriptor descriptor = artifact.descriptor();
 
     for (int index : missingIndices(replicas, existingIndices)) {
       try {

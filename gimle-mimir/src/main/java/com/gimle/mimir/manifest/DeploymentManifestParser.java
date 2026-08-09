@@ -47,10 +47,11 @@ public final class DeploymentManifestParser {
     PlacementConstraints placement = parsePlacement(root);
     Optional<AutoscalePolicy> autoscale = parseAutoscale(root);
     Optional<String> tenantId = parseTenantId(root);
+    Optional<String> artifactSha256 = parseArtifactSha256(root);
 
     try {
       return new DeploymentSpec(
-          name, moduleId, artifactPath, replicas, placement, autoscale, tenantId);
+          name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, artifactSha256);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);
@@ -84,6 +85,24 @@ public final class DeploymentManifestParser {
     }
     if (!(value instanceof String s) || s.isBlank()) {
       throw new GimleManifestException("'tenantId' must be a non-blank string if present");
+    }
+    return Optional.of(s);
+  }
+
+  /**
+   * {@code artifactSha256} (P2-18) is never trusted from an operator-submitted manifest -- {@code
+   * ApiServer} always overwrites whatever this parses with its own freshly-computed hash at
+   * admission. Parsing it here exists solely so {@code StateStore.loadAll}'s reload path (which
+   * reuses this same parser against its own previously-written YAML, not user input) round-trips
+   * the hash it wrote rather than losing it on every restart.
+   */
+  private static Optional<String> parseArtifactSha256(Map<?, ?> root) {
+    Object value = root.get("artifactSha256");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException("'artifactSha256' must be a non-blank string if present");
     }
     return Optional.of(s);
   }
