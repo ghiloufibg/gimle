@@ -169,4 +169,166 @@ class FafnirServerTest {
 
     assertEquals(405, response.statusCode());
   }
+
+  // ---- /secrets/{tenantId}/... (design doc §6e/§7) ----
+
+  @Test
+  @Timeout(10)
+  void a_put_then_get_round_trips_the_secret_value_and_reports_version_1() throws Exception {
+    HttpResponse<String> putResponse = putSecret("acme", "db-password", "hunter2");
+    assertEquals(200, putResponse.statusCode());
+    assertEquals(1L, Json.asObject(Json.parse(putResponse.body())).get("version"));
+
+    HttpResponse<String> getResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, getResponse.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(getResponse.body()));
+    assertEquals(1L, body.get("version"));
+    assertEquals("hunter2", new String(decode((String) body.get("value")), StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @Timeout(10)
+  void getting_an_unknown_secret_returns_404() throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/no-such-key")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void listing_a_tenants_secrets_returns_metadata_without_any_value_field() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> secrets = Json.asArray(Json.asObject(Json.parse(response.body())).get("secrets"));
+    assertEquals(1, secrets.size());
+    Map<String, Object> entry = Json.asObject(secrets.get(0));
+    assertEquals("db-password", entry.get("key"));
+    assertEquals(1L, entry.get("latestVersion"));
+    assertEquals(false, entry.get("deleted"));
+    assertEquals(java.util.Set.of("key", "latestVersion", "deleted"), entry.keySet());
+  }
+
+  @Test
+  @Timeout(10)
+  void versions_lists_every_claimed_version_number() throws Exception {
+    putSecret("acme", "db-password", "v1");
+    putSecret("acme", "db-password", "v2");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password/versions"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    assertEquals(
+        List.of(1L, 2L), Json.asArray(Json.asObject(Json.parse(response.body())).get("versions")));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_explicit_version_query_parameter_reads_that_historical_value() throws Exception {
+    putSecret("acme", "db-password", "v1");
+    putSecret("acme", "db-password", "v2");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?version=1"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals(1L, body.get("version"));
+    assertEquals("v1", new String(decode((String) body.get("value")), StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @Timeout(10)
+  void soft_deleting_a_secret_hides_it_from_a_default_get_but_versions_remain_readable()
+      throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+
+    HttpResponse<String> deleteResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+                .DELETE()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, deleteResponse.statusCode());
+
+    HttpResponse<String> getResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(404, getResponse.statusCode());
+
+    HttpResponse<String> historicalResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?version=1"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, historicalResponse.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void hard_deleting_a_secret_removes_every_version() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+
+    HttpResponse<String> deleteResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?destroy=true"))
+                .DELETE()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, deleteResponse.statusCode());
+
+    HttpResponse<String> historicalResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?version=1"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(404, historicalResponse.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void deleting_an_unknown_secret_returns_404() throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/no-such-key"))
+                .DELETE()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(404, response.statusCode());
+  }
+
+  private HttpResponse<String> putSecret(String tenantId, String key, String value)
+      throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/" + tenantId + "/" + key))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(Map.of("value", encode(value.getBytes(StandardCharsets.UTF_8))))))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
 }

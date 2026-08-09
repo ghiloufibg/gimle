@@ -92,9 +92,7 @@ import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
-import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -217,6 +215,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/accounts/", this::handleAccount);
     target.createContext("/accounts", this::handleAccountsList);
     target.createContext("/secrets/rotate-key", this::handleRotateSecretsKey);
+    target.createContext("/secrets/", this::handleSecretsProxy);
     target.createContext("/auth/login", this::handleAuthLogin);
     target.createContext("/auth/logout", this::handleAuthLogout);
     target.createContext("/auth/session", this::handleAuthSession);
@@ -1160,6 +1159,25 @@ public final class ApiServer implements AutoCloseable {
         .findFirst();
   }
 
+  /**
+   * {@code true} for a {@code ConfigEntry} key Fafnir's own versioned {@code /secrets/*} surface
+   * owns -- {@code <key>@meta} or {@code <key>@N} (design doc §7a) -- rather than one written
+   * through this process's own {@code /config/*} endpoints. Both keyspaces share the same
+   * underlying {@code ConfigEntry} rows in {@code gimle-mimir} (§7's own framing: no store schema
+   * change), so without this filter every secret written through {@code /secrets/*} would leak into
+   * a plain {@code GET /config/{tenantId}} listing as a handful of oddly-named, ciphertext- bearing
+   * "config entries" -- exactly the resource-kind blurring the {@code CONFIG}/{@code SECRET} RBAC
+   * split (§6e's closing sentence) exists to avoid.
+   */
+  private static boolean isFafnirManagedSecretKey(String key) {
+    int at = key.lastIndexOf('@');
+    if (at < 0 || at == key.length() - 1) {
+      return false;
+    }
+    String suffix = key.substring(at + 1);
+    return suffix.equals("meta") || suffix.chars().allMatch(Character::isDigit);
+  }
+
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
@@ -1221,6 +1239,9 @@ public final class ApiServer implements AutoCloseable {
     }
     List<ConfigEntry> visible = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
+      if (isFafnirManagedSecretKey(entry.key())) {
+        continue;
+      }
       if (entry.encrypted() ? canReadSecrets : canReadConfig) {
         visible.add(entry);
       }
@@ -1473,6 +1494,73 @@ public final class ApiServer implements AutoCloseable {
       respondStoreUnavailable(exchange);
     } catch (IOException | RuntimeException e) {
       log.warn("secrets key rotation failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- /secrets/{tenantId}/... (design doc §6e/§7) -- a byte-for-byte proxy to Fafnir ----
+
+  /**
+   * This gate doesn't move -- {@code ApiServer} still performs its own {@code requireAuthorized}
+   * check exactly as it does for every other resource kind, before ever forwarding anything. Unlike
+   * Phase A's fixed internal operations above, this endpoint's body/response shape is Fafnir's own
+   * evolving API (§6e), so this handler never parses either -- it relays the request verbatim
+   * ({@code method}, path tail, query string, body) and attaches the calling principal's identity
+   * as an internal claim header for Fafnir's own independent re-check (§9's corrected
+   * defense-in-depth: skipping *re-authentication* here is fine, skipping *re-authorization* on
+   * Fafnir's side is not, so this process's own {@link #requireAuthorized} call is not a substitute
+   * for Fafnir's).
+   */
+  private void handleSecretsProxy(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/secrets/");
+      int slash = tail.indexOf('/');
+      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenantId");
+        return;
+      }
+      Verb verb =
+          switch (exchange.getRequestMethod()) {
+            case "GET" -> Verb.READ;
+            case "PUT" -> Verb.WRITE;
+            case "DELETE" -> Verb.DELETE;
+            default -> null;
+          };
+      if (verb == null) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.SECRET, verb, Optional.of(tenantId))) {
+        return;
+      }
+      Map<String, String> forwardHeaders = new LinkedHashMap<>();
+      resolvePrincipal(exchange)
+          .ifPresent(
+              principal -> {
+                forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+                forwardHeaders.put(
+                    "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+              });
+      byte[] body =
+          "PUT".equals(exchange.getRequestMethod())
+              ? readBody(exchange).getBytes(StandardCharsets.UTF_8)
+              : null;
+      String query = exchange.getRequestURI().getRawQuery();
+      String path = "/secrets/" + tail + (query != null ? "?" + query : "");
+      FafnirClient.RawResponse response =
+          fafnirClient.forward(exchange.getRequestMethod(), path, body, forwardHeaders);
+      exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+      exchange.sendResponseHeaders(response.statusCode(), response.body().length);
+      try (OutputStream out = exchange.getResponseBody()) {
+        out.write(response.body());
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("secrets proxy request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
@@ -2257,30 +2345,11 @@ public final class ApiServer implements AutoCloseable {
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     Optional<X509Certificate> certificate = peerCertificate(exchange);
     if (certificate.isPresent()) {
-      return Optional.of(principalFromCertificate(certificate.get()));
+      return Optional.of(Subjects.principalFrom(certificate.get()));
     }
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
         .map(username -> new Principal(username, Set.of()));
-  }
-
-  /**
-   * {@code CN=} becomes the principal's name, every {@code O=} an entry in its groups -- see {@code
-   * claudedocs/authn-authz-design.md} §2/§2a for why {@code O=} is trustworthy here: it is stamped
-   * server-side at issuance ({@link #handleBootstrapCsrSubmit}), never taken verbatim from a
-   * client's own CSR.
-   */
-  private static Principal principalFromCertificate(X509Certificate certificate) {
-    X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());
-    RDN[] commonNames = subject.getRDNs(BCStyle.CN);
-    if (commonNames.length == 0) {
-      throw new IllegalStateException("certificate subject carries no CN=: " + subject);
-    }
-    Set<String> groups = new LinkedHashSet<>();
-    for (RDN rdn : subject.getRDNs(BCStyle.O)) {
-      groups.add(rdn.getFirst().getValue().toString());
-    }
-    return new Principal(commonNames[0].getFirst().getValue().toString(), groups);
   }
 
   private static Optional<String> sessionCookie(HttpExchange exchange) {

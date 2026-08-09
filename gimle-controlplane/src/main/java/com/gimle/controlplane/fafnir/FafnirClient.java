@@ -77,6 +77,40 @@ public final class FafnirClient implements AutoCloseable {
     return (byte) ((Number) response.get("activeKeyId")).intValue();
   }
 
+  /**
+   * A byte-for-byte proxy hop for the versioned {@code /secrets/*} surface (design doc §6e) --
+   * {@code ApiServer} doesn't need typed request/response handling here the way it does for Phase
+   * A's fixed internal operations above, since it never inspects the body, only relays it (§6d:
+   * "pure network relay"). {@code headers} carries the calling principal's identity as an internal
+   * claim (§9's corrected defense-in-depth) -- an {@code X-Gimle-Forwarded-Principal}/{@code
+   * X-Gimle-Forwarded-Groups} pair, trusted by Fafnir only because it arrives over this
+   * mTLS-authenticated connection, never treated by Fafnir as itself proof of authorization.
+   */
+  public RawResponse forward(String method, String path, byte[] body, Map<String, String> headers) {
+    try {
+      HttpRequest.Builder builder =
+          HttpRequest.newBuilder(baseUri.resolve(path)).timeout(REQUEST_TIMEOUT);
+      headers.forEach(builder::header);
+      builder.method(
+          method,
+          body == null
+              ? HttpRequest.BodyPublishers.noBody()
+              : HttpRequest.BodyPublishers.ofByteArray(body));
+      HttpResponse<byte[]> response =
+          httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+      return new RawResponse(response.statusCode(), response.body());
+    } catch (IOException e) {
+      throw GimleSecretsException.fafnirUnavailable("fafnir request to " + path + " failed", e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw GimleSecretsException.fafnirUnavailable(
+          "fafnir request to " + path + " interrupted", e);
+    }
+  }
+
+  /** A raw HTTP response relayed verbatim back to the original caller by {@code ApiServer}. */
+  public record RawResponse(int statusCode, byte[] body) {}
+
   private Map<String, Object> post(String path, Object body) {
     try {
       HttpResponse<String> response =

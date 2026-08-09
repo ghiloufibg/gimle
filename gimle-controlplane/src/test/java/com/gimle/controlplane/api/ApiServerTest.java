@@ -723,6 +723,78 @@ class ApiServerTest {
     assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
   }
 
+  // ---- /secrets/{tenantId}/... proxy to Fafnir (design doc §6e) ----
+
+  @Test
+  void secrets_put_and_get_round_trip_through_the_fafnir_proxy() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        Json.write(Map.of("value", encode("hunter2")))))
+                .build());
+    assertEquals(200, put.statusCode());
+    assertEquals(1L, Json.asObject(Json.parse(put.body())).get("version"));
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(get.body()));
+    assertEquals("hunter2", decode((String) body.get("value")));
+  }
+
+  @Test
+  void secrets_list_never_proxies_a_value_field_and_is_absent_from_plain_config_list()
+      throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(Json.write(Map.of("value", encode("hunter2")))))
+            .build());
+
+    HttpResponse<String> secretsList =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme")).GET().build());
+    List<Object> secrets =
+        Json.asArray(Json.asObject(Json.parse(secretsList.body())).get("secrets"));
+    assertEquals(1, secrets.size());
+    assertEquals(Set.of("key", "latestVersion", "deleted"), Json.asObject(secrets.get(0)).keySet());
+
+    // Fafnir's own synthetic db-password@meta/db-password@1 bookkeeping entries must never leak
+    // into the plain /config/{tenantId} listing -- the two resource kinds stay on two distinct
+    // API surfaces, matching the RBAC split this design follows (§6e's closing sentence).
+    HttpResponse<String> configList =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
+    assertTrue(Json.asObjectList(Json.parse(configList.body())).isEmpty());
+  }
+
+  @Test
+  void secrets_delete_removes_the_secret() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/temp"))
+            .PUT(HttpRequest.BodyPublishers.ofString(Json.write(Map.of("value", encode("x")))))
+            .build());
+
+    HttpResponse<String> delete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/temp")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/temp")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  private static String encode(String plaintext) {
+    return java.util.Base64.getEncoder().encodeToString(plaintext.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String decode(String base64) {
+    return new String(java.util.Base64.getDecoder().decode(base64), StandardCharsets.UTF_8);
+  }
+
   @Test
   void console_static_files_are_served_once_wired() throws Exception {
     Path consoleRoot = tempDir.resolve("console-dist");

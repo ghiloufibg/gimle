@@ -1,0 +1,250 @@
+package com.gimle.fafnir;
+
+import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.protocol.Json;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.LeaseGrant;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.UUID;
+
+/**
+ * Fafnir's versioned secret storage -- the synthetic-key convention from design doc §7. {@code
+ * key@meta} is a mutable pointer entry ({@code {latestVersion, deleted}}, plain JSON, never
+ * encrypted -- it names a version, it isn't one); {@code key@N} is an immutable, encrypted value
+ * entry for version {@code N}. Both are ordinary {@link ConfigEntry} rows in the same {@code
+ * gimle-mimir} store {@code gimle-controlplane}'s own {@code /config/*} traffic already uses -- no
+ * store schema change, just a key-naming convention only this class ever interprets (§7's own
+ * framing: "Fafnir owns policy, gimle-mimir stays a dumb store"). Deliberately a plain Java class,
+ * not tied to HTTP, matching {@link FafnirCrypto}'s own separation from {@link FafnirServer}.
+ */
+public final class SecretStore {
+
+  private static final String META_SUFFIX = "@meta";
+  // Bounds §7b's optimistic write-verify-retry loop -- contention only ever produces a harmless
+  // orphaned key@N entry and a retry, never data loss, but a pathological hot-key race still
+  // shouldn't spin forever. Generous on purpose: the design doc's own framing is "a human/CLI-
+  // driven write path, not a hot loop," so a real deployment sees at most a couple of colliding
+  // writers, not the fully-simultaneous N-way race a stress test deliberately creates.
+  private static final int MAX_WRITE_ATTEMPTS = 50;
+  // Held only for the narrow verify-then-advance-@meta step of #put -- see that method's own
+  // javadoc for why a lease is needed there at all, despite §7b's explicit "no lock" framing.
+  private static final Duration META_LEASE_TTL = Duration.ofSeconds(5);
+
+  private final StoreClient storeClient;
+  private final FafnirCrypto crypto;
+
+  public SecretStore(StoreClient storeClient, FafnirCrypto crypto) {
+    this.storeClient = storeClient;
+    this.crypto = crypto;
+  }
+
+  /** §6e's list endpoint: every logical secret's metadata for {@code tenantId}, never a value. */
+  public List<SecretMetadata> list(String tenantId) {
+    List<SecretMetadata> result = new ArrayList<>();
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
+      if (!entry.key().endsWith(META_SUFFIX)) {
+        continue;
+      }
+      String key = entry.key().substring(0, entry.key().length() - META_SUFFIX.length());
+      Meta meta = Meta.fromBytes(entry.value());
+      result.add(new SecretMetadata(key, meta.latestVersion(), meta.deleted()));
+    }
+    return result;
+  }
+
+  /** §7c: {@code key@1 .. key@latestVersion} -- every version always exists once claimed. */
+  public List<Integer> versions(String tenantId, String key) {
+    validateKey(key);
+    Meta meta = readMeta(tenantId, key).orElse(Meta.EMPTY);
+    List<Integer> versions = new ArrayList<>();
+    for (int v = 1; v <= meta.latestVersion(); v++) {
+      versions.add(v);
+    }
+    return versions;
+  }
+
+  /**
+   * §7c's read path: an explicit {@code version} reads {@code key@N} directly, bypassing {@code
+   * @meta} entirely (so a historical read is unaffected by concurrent writes advancing {@code
+   * latestVersion}, and unaffected by a soft delete -- deletion only ever touches {@code @meta}).
+   * Latest-version reads (no {@code version} given) return empty for a soft-deleted or
+   * never-written secret, matching Vault KV v2's own "deleted means not found at latest" read
+   * behavior.
+   */
+  public Optional<byte[]> get(String tenantId, String key, OptionalInt version) {
+    validateKey(key);
+    int targetVersion;
+    if (version.isPresent()) {
+      targetVersion = version.getAsInt();
+    } else {
+      Optional<Meta> meta = readMeta(tenantId, key);
+      if (meta.isEmpty() || meta.get().deleted() || meta.get().latestVersion() == 0) {
+        return Optional.empty();
+      }
+      targetVersion = meta.get().latestVersion();
+    }
+    return findEntry(tenantId, versionKey(key, targetVersion)).map(e -> crypto.decrypt(e.value()));
+  }
+
+  public boolean exists(String tenantId, String key) {
+    validateKey(key);
+    return readMeta(tenantId, key).isPresent();
+  }
+
+  /**
+   * §7b's write path: optimistic insert, not a lock -- claiming a candidate {@code key@N} value
+   * entry (steps 1-2) is fully lock-free, exactly as the design doc specifies: two writers racing
+   * to write the same {@code key@N} slot is a harmless uniqueness collision, since whichever one's
+   * write to {@code key@N} lands last simply becomes what that immutable entry holds, and the loser
+   * of the race below just discards its own claim and retries with a fresh version number.
+   *
+   * <p><b>Correction to the design doc's literal §7b sequence</b>, found empirically (a concurrent-
+   * writer test reliably produced duplicate version claims against the plain read-write-reread
+   * check as written): comparing {@code @meta}'s value before and after writing {@code key@next}
+   * only detects a writer that has *already finished* advancing {@code @meta} -- it does not
+   * prevent two writers from both passing that check concurrently, since neither has written {@code
+   * @meta} yet at the moment each performs its own "after" read (a classic TOCTOU window). §7b's own
+   * "not a lock" framing is right about *claiming a version number*; it doesn't hold for the very
+   * last step, *advancing the single mutable pointer that says which version is current*, which is
+   * exactly the kind of shared-state race a lock is the correct tool for. So this method takes the
+   * narrowest possible lease -- scoped to this one key, held only across the final verify-and-
+   * advance step, never around version selection or encryption -- rather than reintroducing a lock
+   * around the whole operation the design doc correctly argued against.
+   *
+   * <p>{@code @meta} is still written last, deliberately: if Fafnir crashes between claiming {@code
+   * key@next} and advancing {@code @meta}, {@code @meta} still names the old version and the
+   * orphaned {@code key@next} stays invisible to every read path forever -- a crash mid-write can
+   * never make {@code @meta} point at a value that didn't finish landing.
+   */
+  public int put(String tenantId, String key, byte[] plaintext) {
+    validateKey(key);
+    String leaseName = "fafnir-secret-meta:" + tenantId + ":" + key;
+    // Fresh per call (not a shared field): two concurrent #put callers -- the exact case this
+    // lease exists to serialize -- must present distinct holder identities, or the store's own
+    // "already held by this holderId" renewal rule would let both of them hold the lease at once.
+    String holderId = UUID.randomUUID().toString();
+    for (int attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+      Meta before = readMeta(tenantId, key).orElse(Meta.EMPTY);
+      int next = before.latestVersion() + 1;
+      byte[] ciphertext = crypto.encrypt(plaintext);
+      storeClient.propose(
+          new StateMutation.PutConfigEntry(
+              new ConfigEntry(tenantId, versionKey(key, next), ciphertext, true)));
+      LeaseGrant lease = storeClient.tryAcquireOrRenewLease(leaseName, holderId, META_LEASE_TTL);
+      if (!lease.granted()) {
+        // Another writer is mid-advance for this exact key -- key@next is a harmless orphan;
+        // retry from whatever version is current once the lease frees up.
+        continue;
+      }
+      try {
+        Meta after = readMeta(tenantId, key).orElse(Meta.EMPTY);
+        if (after.latestVersion() == before.latestVersion()) {
+          writeMeta(tenantId, key, new Meta(next, false));
+          return next;
+        }
+        // Lost the race to a writer that already finished before this one even acquired the
+        // lease -- key@next is now a harmless orphan, retry from the now-current version.
+      } finally {
+        storeClient.releaseLease(leaseName, holderId);
+      }
+    }
+    throw GimleSecretsException.writeContention(tenantId, key, MAX_WRITE_ATTEMPTS);
+  }
+
+  /** §7d soft delete: every {@code @N} entry stays on disk, recoverable by a future undelete. */
+  public boolean softDelete(String tenantId, String key) {
+    validateKey(key);
+    Optional<Meta> meta = readMeta(tenantId, key);
+    if (meta.isEmpty()) {
+      return false;
+    }
+    writeMeta(tenantId, key, new Meta(meta.get().latestVersion(), true));
+    return true;
+  }
+
+  /** §7d hard delete ({@code ?destroy=true}): removes {@code @meta} and every {@code @N}. */
+  public boolean hardDelete(String tenantId, String key) {
+    validateKey(key);
+    Optional<Meta> meta = readMeta(tenantId, key);
+    if (meta.isEmpty()) {
+      return false;
+    }
+    for (int v = 1; v <= meta.get().latestVersion(); v++) {
+      storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, versionKey(key, v)));
+    }
+    storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, metaKey(key)));
+    return true;
+  }
+
+  private Optional<Meta> readMeta(String tenantId, String key) {
+    return findEntry(tenantId, metaKey(key)).map(e -> Meta.fromBytes(e.value()));
+  }
+
+  private void writeMeta(String tenantId, String key, Meta meta) {
+    storeClient.propose(
+        new StateMutation.PutConfigEntry(
+            new ConfigEntry(tenantId, metaKey(key), meta.toBytes(), false)));
+  }
+
+  private Optional<ConfigEntry> findEntry(String tenantId, String rawKey) {
+    return storeClient.listConfigEntriesFor(tenantId).stream()
+        .filter(e -> e.key().equals(rawKey))
+        .findFirst();
+  }
+
+  private static String metaKey(String key) {
+    return key + META_SUFFIX;
+  }
+
+  private static String versionKey(String key, int version) {
+    return key + "@" + version;
+  }
+
+  /**
+   * Flat namespace: {@code /} and {@code @} both disallowed. {@code /} because Gimlé's RBAC model
+   * (tenant-scoped, not path-scoped) has no enforcement mechanism today that would ever consume a
+   * hierarchical path segment (§7a); {@code @} because it's this scheme's own reserved separator --
+   * a raw key containing it could collide with a synthetic {@code @meta}/{@code @N} suffix and
+   * break the split back apart.
+   */
+  private static void validateKey(String key) {
+    if (key == null || key.isBlank()) {
+      throw new IllegalArgumentException("key must not be blank");
+    }
+    if (key.contains("/") || key.contains("@")) {
+      throw new IllegalArgumentException(
+          "key must not contain '/' or '@' (reserved for Fafnir's own version/meta suffixes): "
+              + key);
+    }
+  }
+
+  /** The {@code key@meta} entry's decoded payload -- never holds secret material itself. */
+  private record Meta(int latestVersion, boolean deleted) {
+
+    static final Meta EMPTY = new Meta(0, false);
+
+    static Meta fromBytes(byte[] bytes) {
+      Map<String, Object> map =
+          Json.asObject(Json.parse(new String(bytes, StandardCharsets.UTF_8)));
+      int latestVersion = ((Number) map.get("latestVersion")).intValue();
+      boolean deleted = Boolean.TRUE.equals(map.get("deleted"));
+      return new Meta(latestVersion, deleted);
+    }
+
+    byte[] toBytes() {
+      Map<String, Object> map = new LinkedHashMap<>();
+      map.put("latestVersion", latestVersion);
+      map.put("deleted", deleted);
+      return Json.write(map).getBytes(StandardCharsets.UTF_8);
+    }
+  }
+}

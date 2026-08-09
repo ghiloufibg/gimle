@@ -31,6 +31,15 @@ public final class FafnirCrypto {
     this.keyRing = KeyFileManager.loadAllOrCreate(secretKeyFilePath);
   }
 
+  /**
+   * Exposed so {@link FafnirServer} can build a {@link SecretStore}/{@code Authorizer} off the same
+   * connection, rather than threading a second {@link StoreClient} reference through both
+   * constructors.
+   */
+  public StoreClient storeClient() {
+    return storeClient;
+  }
+
   public byte[] encrypt(byte[] plaintext) {
     KeyRing ring = keyRing;
     return SecretCipher.encrypt(plaintext, ring.activeKey(), ring.activeKeyId());
