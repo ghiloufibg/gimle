@@ -188,6 +188,20 @@ class ModuleControllerTest {
   }
 
   @Test
+  void a_module_forced_to_failed_cannot_be_started_again_without_re_resolving() {
+    // FAILED (P2-19) has no in-worker retry path: the only way out is an operator (or a control
+    // loop) re-resolving or uninstalling, never a bare start() call landing directly on it.
+    Fixture f = fixtureFor("com.gimle.fixture.no_retry_from_failed");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+    f.controller().forceFailed(f.id(), "restart budget exhausted");
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+
+    assertThrows(GimleLifecycleException.class, () -> f.controller().start(f.id()));
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+  }
+
+  @Test
   void force_failed_rejects_a_module_that_is_not_active() {
     Fixture f = fixtureFor("com.gimle.fixture.force_failed_not_active");
     // Still INSTALLED -- never resolved/started.
