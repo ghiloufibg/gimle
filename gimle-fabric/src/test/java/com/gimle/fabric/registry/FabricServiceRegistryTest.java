@@ -225,6 +225,42 @@ class FabricServiceRegistryTest {
   }
 
   @Test
+  @Timeout(15)
+  void all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed()
+      throws Exception {
+    // Three endpoints, none reachable: a correlated failure that ejects every candidate for this
+    // interface. Without the P2-7 panic floor, once all three breakers open, lookup() would
+    // filter every candidate out and return Optional.empty() -- routing this call nowhere with no
+    // indication why, rather than at least attempting one of them.
+    ServiceCatalog catalog = new ServiceCatalog();
+    for (int i = 0; i < 3; i++) {
+      catalog.localRegister(
+          selfNode,
+          "worker-dead-" + i,
+          OWNER,
+          GREETER_EXPORT,
+          Optional.empty(),
+          new InetSocketAddress("127.0.0.1", 1)); // nothing listens here
+    }
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // Enough failed calls (windowSize=4 per breaker, spread across 3 endpoints by round-robin
+    // selection) to drive every breaker open.
+    for (int i = 0; i < 30; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      try {
+        greeter.greet("x");
+      } catch (RuntimeException ignored) {
+        // expected: nothing is listening
+      }
+    }
+
+    // Every breaker is now open, but the panic floor must still yield a candidate rather than an
+    // empty lookup.
+    assertTrue(registry.lookup(Greeter.class).isPresent());
+  }
+
+  @Test
   void no_known_exporter_anywhere_throws_gimle_cluster_exception() {
     FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), new ServiceCatalog());
     assertThrows(GimleClusterException.class, () -> registry.lookup(Greeter.class));

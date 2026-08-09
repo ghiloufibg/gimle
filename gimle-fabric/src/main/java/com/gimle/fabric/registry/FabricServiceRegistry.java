@@ -55,6 +55,13 @@ public final class FabricServiceRegistry implements ServiceRegistry {
 
   private static final Logger log = LoggerFactory.getLogger(FabricServiceRegistry.class);
 
+  /**
+   * Default panic-mode ejection floor (P2-7): once more than this fraction of a lookup's own
+   * candidates have an open circuit breaker, {@link #selectAllowedCandidate} stops excluding them
+   * -- a correlated failure that happens to be transient shouldn't route to nowhere.
+   */
+  private static final double DEFAULT_MAX_EJECTION_PERCENT = 0.5;
+
   private final MemberId selfNode;
   private final String workerId;
   private final ServiceRegistry localRegistry;
@@ -66,6 +73,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final double breakerErrorRateThreshold;
   private final Duration breakerCooldown;
   private final Optional<String> selfTenantId;
+  private final double maxEjectionPercent;
 
   private final Map<ServiceEndpoint, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final LeastOutstandingRequestsSelector<ServiceEndpoint> selector =
@@ -117,6 +125,40 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       double breakerErrorRateThreshold,
       Duration breakerCooldown,
       Optional<String> selfTenantId) {
+    this(
+        selfNode,
+        workerId,
+        localRegistry,
+        catalog,
+        exportsOf,
+        controlChannel,
+        interfaceLoader,
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        selfTenantId,
+        DEFAULT_MAX_EJECTION_PERCENT);
+  }
+
+  /**
+   * {@code maxEjectionPercent} (P2-7) is the panic-mode floor described on {@link
+   * #DEFAULT_MAX_EJECTION_PERCENT}, exposed here for callers (tests, chiefly) that want a
+   * non-default value; production wiring goes through one of the shorter overloads above and gets
+   * the default.
+   */
+  public FabricServiceRegistry(
+      MemberId selfNode,
+      String workerId,
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Consumer<ControlMessage> controlChannel,
+      ClassLoader interfaceLoader,
+      int breakerWindowSize,
+      double breakerErrorRateThreshold,
+      Duration breakerCooldown,
+      Optional<String> selfTenantId,
+      double maxEjectionPercent) {
     this.selfNode = selfNode;
     this.workerId = workerId;
     this.localRegistry = localRegistry;
@@ -128,6 +170,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     this.breakerErrorRateThreshold = breakerErrorRateThreshold;
     this.breakerCooldown = breakerCooldown;
     this.selfTenantId = selfTenantId;
+    this.maxEjectionPercent = maxEjectionPercent;
   }
 
   @Override
@@ -171,9 +214,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       if (!endpoint.export().permitsTenant(selfTenantId)) {
         continue; // this tenant isn't on the export's allow-list
       }
-      if (breakerFor(endpoint).isExcluded()) {
-        continue;
-      }
+      // Breaker state is deliberately not filtered here -- selectAllowedCandidate applies it
+      // against this tier's own candidate count, so the panic-mode floor below has an accurate
+      // denominator instead of endpoints having already vanished before it can see them.
       (isSameMachine ? sameMachine : remote).add(endpoint);
     }
 
@@ -227,7 +270,34 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   private ServiceEndpoint selectAllowedCandidate(List<ServiceEndpoint> candidates) {
-    List<ServiceEndpoint> remaining = new ArrayList<>(candidates);
+    if (candidates.isEmpty()) {
+      return null;
+    }
+    List<ServiceEndpoint> healthy = new ArrayList<>();
+    int ejectedCount = 0;
+    for (ServiceEndpoint endpoint : candidates) {
+      if (breakerFor(endpoint).isExcluded()) {
+        ejectedCount++;
+      } else {
+        healthy.add(endpoint);
+      }
+    }
+    if (ejectedCount > 0 && (double) ejectedCount / candidates.size() > maxEjectionPercent) {
+      // Panic mode: more than maxEjectionPercent of this lookup's own candidates have an open
+      // circuit breaker. Excluding them all would route this lookup nowhere for what might be a
+      // transient correlated failure -- admit every candidate back in, bypassing each breaker's
+      // own allowRequest() gate (the single-trial HALF_OPEN contract stops mattering once nothing
+      // is actually being excluded).
+      log.warn(
+          "{} of {} candidates for {} have an open circuit breaker, past the {}% ejection floor"
+              + " -- admitting all candidates rather than routing nowhere",
+          ejectedCount,
+          candidates.size(),
+          candidates.get(0).export().interfaceName(),
+          Math.round(maxEjectionPercent * 100));
+      return selector.select(candidates);
+    }
+    List<ServiceEndpoint> remaining = new ArrayList<>(healthy);
     while (!remaining.isEmpty()) {
       ServiceEndpoint chosen = selector.select(remaining);
       if (breakerFor(chosen).allowRequest()) {
