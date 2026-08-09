@@ -80,6 +80,23 @@ export interface ConfigEntry {
   encrypted: boolean;
 }
 
+// Fafnir's /secrets/* surface (design doc §6e/§7) never returns a value alongside metadata --
+// SecretMetadata and SecretValue are deliberately two separate types, not one type with an
+// optional `value`, so a list response can't accidentally be typed as if it carried one.
+export interface SecretMetadata {
+  tenantId: string;
+  key: string;
+  latestVersion: number;
+  deleted: boolean;
+}
+
+export interface SecretValue {
+  tenantId: string;
+  key: string;
+  version: number;
+  value: string;
+}
+
 export interface ModuleInstance {
   deploymentName: string;
   instanceIndex: number;

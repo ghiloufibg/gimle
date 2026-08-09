@@ -7,6 +7,7 @@ import {
   Users,
   Network,
   Settings,
+  KeyRound,
   BarChart3,
   LogOut,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const items = [
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Tenants", url: "/tenants", icon: Users },
   { title: "Config", url: "/config", icon: Settings },
+  { title: "Secrets", url: "/secrets", icon: KeyRound },
 ];
 
 export function AppSidebar() {

@@ -5,6 +5,7 @@ import type {
   Node,
   Tenant,
   ConfigEntry,
+  SecretMetadata,
 } from "@/types";
 
 // Seeded PRNG so mock data is stable across renders/SSR hydration.
@@ -81,7 +82,9 @@ export const nodes: Node[] = Array.from({ length: 10 }, (_, i) => {
     lastHeartbeatAt:
       rand() < 0.05
         ? null
-        : new Date(now - (stale ? intBetween(35, 300) * 1000 : intBetween(0, 20) * 1000)).toISOString(),
+        : new Date(
+            now - (stale ? intBetween(35, 300) * 1000 : intBetween(0, 20) * 1000),
+          ).toISOString(),
     capacity: {
       totalMemoryBytes: totalMem,
       assignedMemoryBytes: Math.floor(totalMem * (0.2 + rand() * 0.7)),
@@ -136,9 +139,7 @@ export const deployments: Deployment[] = Array.from({ length: 42 }, (_, i) => {
   const name = `${mod}-${version.replace(/\./g, "-")}-${i}`;
   const replicas = intBetween(1, 6);
   const placed = Math.max(0, replicas - (rand() < 0.15 ? intBetween(1, replicas) : 0));
-  const instances = Array.from({ length: placed }, (_, ix) =>
-    makeInstance(ix, pick(nodes).nodeId),
-  );
+  const instances = Array.from({ length: placed }, (_, ix) => makeInstance(ix, pick(nodes).nodeId));
   const tenantId = rand() < 0.15 ? null : pick(tenants).id;
   return {
     spec: {
@@ -220,6 +221,7 @@ export function removeTenant(id: string) {
   const i = tenants.findIndex((x) => x.id === id);
   if (i >= 0) tenants.splice(i, 1);
   delete configByTenant[id];
+  delete secretsByTenant[id];
 }
 
 export function upsertConfig(entry: ConfigEntry) {
@@ -234,4 +236,64 @@ export function removeConfig(tenantId: string, key: string) {
   if (!list) return;
   const i = list.findIndex((e) => e.key === key);
   if (i >= 0) list.splice(i, 1);
+}
+
+// ---- Secrets (design doc §6e/§7) ----
+
+const SECRET_KEYS = ["db.password", "api.key", "jwt.signingKey", "s3.secretKey", "smtp.password"];
+
+/** Mock-only internal shape -- every claimed version's plaintext, index 0 = version 1, never
+ * dropped even after a soft delete (mirrors Fafnir's own "@N entries stay on disk" semantics). */
+interface MockSecret {
+  tenantId: string;
+  key: string;
+  versions: string[];
+  deleted: boolean;
+}
+
+export const secretsByTenant: Record<string, MockSecret[]> = Object.fromEntries(
+  tenants.map((t) => [
+    t.id,
+    SECRET_KEYS.slice(0, intBetween(2, SECRET_KEYS.length)).map((key) => ({
+      tenantId: t.id,
+      key,
+      versions: [`s3cr3t-${Math.random().toString(36).slice(2, 10)}`],
+      deleted: false,
+    })),
+  ]),
+);
+
+export function secretMetadata(secret: MockSecret): SecretMetadata {
+  return {
+    tenantId: secret.tenantId,
+    key: secret.key,
+    latestVersion: secret.versions.length,
+    deleted: secret.deleted,
+  };
+}
+
+/** Upserts by appending a new version, matching §7b's "a write always claims a new version, never
+ * overwrites an existing one" semantics -- a previously soft-deleted key becomes live again. */
+export function upsertSecret(tenantId: string, key: string, value: string): MockSecret {
+  const list = (secretsByTenant[tenantId] ??= []);
+  const existing = list.find((s) => s.key === key);
+  if (existing) {
+    existing.versions.push(value);
+    existing.deleted = false;
+    return existing;
+  }
+  const created: MockSecret = { tenantId, key, versions: [value], deleted: false };
+  list.push(created);
+  return created;
+}
+
+/** {@code destroy}: hard-delete (removes the entry entirely); otherwise soft-delete (§7d), keeping
+ * every version reachable by explicit version number. */
+export function removeSecret(tenantId: string, key: string, destroy: boolean) {
+  const list = secretsByTenant[tenantId];
+  if (!list) return;
+  const i = list.findIndex((s) => s.key === key);
+  if (i < 0) return;
+  if (destroy) list.splice(i, 1);
+  else list[i].deleted = true;
 }

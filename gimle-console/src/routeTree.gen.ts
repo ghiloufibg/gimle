@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TopologyRouteImport } from './routes/topology'
+import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
@@ -29,6 +30,11 @@ import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$
 const TopologyRoute = TopologyRouteImport.update({
   id: '/topology',
   path: '/topology',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SecretsRoute = SecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MetricsRoute = MetricsRouteImport.update({
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
+  '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
+  '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
+  '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logs'
     | '/metrics'
+    | '/secrets'
     | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
@@ -189,6 +199,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logs'
     | '/metrics'
+    | '/secrets'
     | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
@@ -207,6 +218,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logs'
     | '/metrics'
+    | '/secrets'
     | '/topology'
     | '/deployments/$name'
     | '/deployments/new'
@@ -226,6 +238,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
   MetricsRoute: typeof MetricsRoute
+  SecretsRoute: typeof SecretsRoute
   TopologyRoute: typeof TopologyRoute
   DeploymentsNameRoute: typeof DeploymentsNameRoute
   DeploymentsNewRoute: typeof DeploymentsNewRoute
@@ -245,6 +258,13 @@ declare module '@tanstack/react-router' {
       path: '/topology'
       fullPath: '/topology'
       preLoaderRoute: typeof TopologyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/secrets': {
+      id: '/secrets'
+      path: '/secrets'
+      fullPath: '/secrets'
+      preLoaderRoute: typeof SecretsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/metrics': {
@@ -362,6 +382,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,
   MetricsRoute: MetricsRoute,
+  SecretsRoute: SecretsRoute,
   TopologyRoute: TopologyRoute,
   DeploymentsNameRoute: DeploymentsNameRoute,
   DeploymentsNewRoute: DeploymentsNewRoute,
