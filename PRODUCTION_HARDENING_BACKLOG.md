@@ -187,27 +187,57 @@ record, per this document's own stated convention.
 
 ## P2 — Solid improvements (medium value, mostly one-session)
 
+All 19 P2 items have landed on this branch, one commit each, in the order listed in "Suggested
+execution order" below. Findings kept in the table for the record, per this document's own
+stated convention. Three items (P2-14, P2-16, P2-17) shipped a deliberately reduced scope —
+see "Shipped scope notes" immediately below the table.
+
 | # | Finding | Module(s) | Value | Difficulty | Fit |
 |---|---|---|---|---|---|
-| P2-1 | Readiness probe is one-directional — never recovers automatically once failed (`WorkerRuntime.onReadinessResult`, `WorkerRuntime.java:196-206`; own comment confirms "deliberately no… mark ready call") | gimle-worker | Medium | Small | Yes |
-| P2-2 | No live resource-usage feedback loop — `currentUsage()` always returns `(0,0)` even within the portable limiter's own stated scope (`PortableJvmFlagsResourceLimiter.java:38-48`) | gimle-os | Medium | Small | Yes |
-| P2-3 | Worker crash has no cause classification (OOM vs. any other exit) — `WorkerProcessSupervisor.onExit` logs only the exit code (`WorkerProcessSupervisor.java:224-235`) | gimle-agent | Medium | Small | Yes |
-| P2-4 | No `startupProbe`/`initialDelaySeconds` equivalent — a slow-starting module can be torn down by its own liveness probe within `failureThreshold × interval` (as little as 3s) (`WorkerRuntime.java:146-174`, `ProbeLoop.java:31-46`) | gimle-worker | Medium | Small | Yes |
-| P2-5 | Hot redeploy has no version-aware traffic cutover — old/new versions round-robin together the instant the new one registers (`SimpleServiceRegistry.java:23-59` keys by interface only, not version) | gimle-module | Medium | Medium | Yes |
-| P2-6 | Circuit breaker conflates application errors with transport/availability failures — a legitimate validation exception scores identically to a network failure (`FabricServiceRegistry.java:282-298`); cf. Netflix Hystrix, the pattern's original popularizer, which distinguishes failure types explicitly | gimle-fabric | Medium | Medium | Yes |
-| P2-7 | No cluster-wide ejection safety valve ("panic threshold") — a correlated failure can open every endpoint's breaker simultaneously with `lookup` just returning empty, unlike Envoy's `max_ejection_percent` panic mode (`CircuitBreaker.java`, `FabricServiceRegistry.java:224-236`) | gimle-fabric | Medium | Small | Yes |
-| P2-8 | SWIM gossip has no periodic anti-entropy full-state sync — bounded 64-entry piggyback history can let a slow/partitioned node permanently miss an update; cf. Cassandra's Merkle-tree anti-entropy repair (`nodetool repair`) and Hashicorp memberlist's periodic push-pull full-state sync, both built for exactly this convergence guarantee (`GossipMember.java:594-626`) | gimle-fabric | Medium | Medium | Yes |
-| P2-9 | SWIM probe scheduling is pure-random with a fixed suspicion timeout — no per-cycle coverage guarantee, no Lifeguard-style adaptive suspicion; cf. Consul/Serf's adoption of Hashicorp's Lifeguard enhancement specifically to cut false-positive `DEAD` declarations under load, and Cassandra's own gossip generation/version numbers for similar robustness (`GossipMember.java:250-259`, `GossipConfig.java`) | gimle-fabric | Medium | Medium | Yes |
-| P2-10 | Trace propagation uses manual `Context.wrap`, not the `ScopedValue` mechanism the architecture doc commits to, and `TraceContext` drops W3C `tracestate`/baggage entirely (`TraceContext.java:12`, `BoundedModuleScheduler.java:52-56`) | gimle-fabric, gimle-worker | Medium | Small | Yes |
-| P2-11 | No brute-force protection on console login — no rate limit/lockout, only PBKDF2 cost as friction (`ApiServer.handleAuthLogin`, `:1285-1315`) | gimle-controlplane | Medium | Small | Yes |
-| P2-12 | No SpotBugs/PMD/ErrorProne/JaCoCo anywhere in the build — Checkstyle covers naming/formatting only, nothing catches bug-pattern defects or measures coverage (root `pom.xml:239-260`) | repo-wide | Medium | Small | Yes |
-| P2-13 | No SBOM generation or dependency-vulnerability scanning — a CVE in Bouncy Castle or SnakeYAML would go undetected | repo-wide | Medium | Small | Yes |
-| P2-14 | Node heartbeats are leader-local/unreplicated but reads round-robin across all store replicas — a replica that never held leadership returns empty forever, risking spurious mass rescheduling on any store leader change. Contrast Cassandra, where gossip-based node status is *deliberately* eventually-consistent and documented as such — Gimlé's version is a bug because it mixes a leader-local write with a round-robin read, not a valid eventually-consistent design in its own right (`StateStore.java:202-210,399-402`, `StoreClient.java:66-68,175-203`) | gimle-mimir | High | Medium | Partial (fix is small — route reads through the leader — but needs a convergence/flap regression test) |
-| P2-15 | CLAUDE.md's "single-node until Phase 5" framing for the state store is stale — multi-node HA, partition tolerance, and failover are implemented and covered by real 3-node tests (`RaftClusterTest.java`, `StoreClientClusterTest.java`), but `LOCAL_DEV.md`/`gimle-smoke-tests` still only run a single `StoreMain` node | gimle-mimir, docs | Medium | Small (doc fix) / Medium (smoke-test extension) | Yes (doc) / Partial (smoke tests) |
-| P2-16 | Secrets master key has no rotation or KMS integration — one AES-256 key generated once, no key-id/versioning in the ciphertext format (`KeyFileManager.java:36-56`, `SecretCipher.java:25-56`) | gimle-controlplane | Medium | Medium | Partial (versioned-key format fits one session; external KMS does not) |
-| P2-17 | Cross-tenant service-fabric access is default-allow — a manifest that omits tenant scoping is reachable by every tenant (`ServiceExport.java:29-40`, `FabricServiceRegistry.java:150-176`) | gimle-core, gimle-fabric | Medium | Medium | Partial (a cluster-wide default-deny flag is contained; retrofitting every manifest is broader) |
-| P2-18 | Admission-time and every reconcile tick both require synchronous local-filesystem access to the module artifact, with no content hashing tying a spec to a specific artifact (`ApiServer.java:440-446`, `DeploymentReconciler.java:117-127`) | gimle-controlplane | Medium | Medium | Partial (content-hash validation is small; a real artifact registry is not) |
-| P2-19 | Startup-hook failure and steady-state liveness failure take inconsistent self-healing paths — a hook throwing once is permanently stuck (no retry), while the same defect one probe cycle later gets automatic retries (documented as deliberate in `ModuleState`'s javadoc, but worth the asymmetry being explicit) | gimle-module, gimle-worker | Low-Medium | Medium | Yes |
+| P2-1 | ~~Readiness probe is one-directional — never recovers automatically once failed (`WorkerRuntime.onReadinessResult`, `WorkerRuntime.java:196-206`; own comment confirms "deliberately no… mark ready call")~~ | gimle-worker | Medium | Small | Done |
+| P2-2 | ~~No live resource-usage feedback loop — `currentUsage()` always returns `(0,0)` even within the portable limiter's own stated scope (`PortableJvmFlagsResourceLimiter.java:38-48`)~~ | gimle-os | Medium | Small | Done |
+| P2-3 | ~~Worker crash has no cause classification (OOM vs. any other exit) — `WorkerProcessSupervisor.onExit` logs only the exit code (`WorkerProcessSupervisor.java:224-235`)~~ | gimle-agent | Medium | Small | Done |
+| P2-4 | ~~No `startupProbe`/`initialDelaySeconds` equivalent — a slow-starting module can be torn down by its own liveness probe within `failureThreshold × interval` (as little as 3s) (`WorkerRuntime.java:146-174`, `ProbeLoop.java:31-46`)~~ | gimle-worker | Medium | Small | Done |
+| P2-5 | ~~Hot redeploy has no version-aware traffic cutover — old/new versions round-robin together the instant the new one registers (`SimpleServiceRegistry.java:23-59` keys by interface only, not version)~~ | gimle-module | Medium | Medium | Done |
+| P2-6 | ~~Circuit breaker conflates application errors with transport/availability failures — a legitimate validation exception scores identically to a network failure (`FabricServiceRegistry.java:282-298`); cf. Netflix Hystrix, the pattern's original popularizer, which distinguishes failure types explicitly~~ | gimle-fabric | Medium | Medium | Done |
+| P2-7 | ~~No cluster-wide ejection safety valve ("panic threshold") — a correlated failure can open every endpoint's breaker simultaneously with `lookup` just returning empty, unlike Envoy's `max_ejection_percent` panic mode (`CircuitBreaker.java`, `FabricServiceRegistry.java:224-236`)~~ | gimle-fabric | Medium | Small | Done |
+| P2-8 | ~~SWIM gossip has no periodic anti-entropy full-state sync — bounded 64-entry piggyback history can let a slow/partitioned node permanently miss an update; cf. Cassandra's Merkle-tree anti-entropy repair (`nodetool repair`) and Hashicorp memberlist's periodic push-pull full-state sync, both built for exactly this convergence guarantee (`GossipMember.java:594-626`)~~ | gimle-fabric | Medium | Medium | Done |
+| P2-9 | ~~SWIM probe scheduling is pure-random with a fixed suspicion timeout — no per-cycle coverage guarantee, no Lifeguard-style adaptive suspicion; cf. Consul/Serf's adoption of Hashicorp's Lifeguard enhancement specifically to cut false-positive `DEAD` declarations under load, and Cassandra's own gossip generation/version numbers for similar robustness (`GossipMember.java:250-259`, `GossipConfig.java`)~~ | gimle-fabric | Medium | Medium | Done |
+| P2-10 | ~~Trace propagation uses manual `Context.wrap`, not the `ScopedValue` mechanism the architecture doc commits to, and `TraceContext` drops W3C `tracestate`/baggage entirely (`TraceContext.java:12`, `BoundedModuleScheduler.java:52-56`)~~ | gimle-fabric, gimle-worker | Medium | Small | Done |
+| P2-11 | ~~No brute-force protection on console login — no rate limit/lockout, only PBKDF2 cost as friction (`ApiServer.handleAuthLogin`, `:1285-1315`)~~ | gimle-controlplane | Medium | Small | Done |
+| P2-12 | ~~No SpotBugs/PMD/ErrorProne/JaCoCo anywhere in the build — Checkstyle covers naming/formatting only, nothing catches bug-pattern defects or measures coverage (root `pom.xml:239-260`)~~ | repo-wide | Medium | Small | Done |
+| P2-13 | ~~No SBOM generation or dependency-vulnerability scanning — a CVE in Bouncy Castle or SnakeYAML would go undetected~~ | repo-wide | Medium | Small | Done |
+| P2-14 | ~~Node heartbeats are leader-local/unreplicated but reads round-robin across all store replicas — a replica that never held leadership returns empty forever, risking spurious mass rescheduling on any store leader change. Contrast Cassandra, where gossip-based node status is *deliberately* eventually-consistent and documented as such — Gimlé's version is a bug because it mixes a leader-local write with a round-robin read, not a valid eventually-consistent design in its own right (`StateStore.java:202-210,399-402`, `StoreClient.java:66-68,175-203`)~~ | gimle-mimir | High | Medium | Done (reduced scope) |
+| P2-15 | ~~CLAUDE.md's "single-node until Phase 5" framing for the state store is stale — multi-node HA, partition tolerance, and failover are implemented and covered by real 3-node tests (`RaftClusterTest.java`, `StoreClientClusterTest.java`), but `LOCAL_DEV.md`/`gimle-smoke-tests` still only run a single `StoreMain` node~~ | gimle-mimir, docs | Medium | Small (doc fix) / Medium (smoke-test extension) | Done |
+| P2-16 | ~~Secrets master key has no rotation or KMS integration — one AES-256 key generated once, no key-id/versioning in the ciphertext format (`KeyFileManager.java:36-56`, `SecretCipher.java:25-56`)~~ | gimle-controlplane | Medium | Medium | Done (reduced scope) |
+| P2-17 | ~~Cross-tenant service-fabric access is default-allow — a manifest that omits tenant scoping is reachable by every tenant (`ServiceExport.java:29-40`, `FabricServiceRegistry.java:150-176`)~~ | gimle-core, gimle-fabric | Medium | Medium | Done (reduced scope) |
+| P2-18 | ~~Admission-time and every reconcile tick both require synchronous local-filesystem access to the module artifact, with no content hashing tying a spec to a specific artifact (`ApiServer.java:440-446`, `DeploymentReconciler.java:117-127`)~~ | gimle-controlplane | Medium | Medium | Done |
+| P2-19 | ~~Startup-hook failure and steady-state liveness failure take inconsistent self-healing paths — a hook throwing once is permanently stuck (no retry), while the same defect one probe cycle later gets automatic retries (documented as deliberate in `ModuleState`'s javadoc, but worth the asymmetry being explicit)~~ | gimle-module, gimle-worker | Low-Medium | Medium | Done |
+
+### Shipped scope notes (P2 Partial-fit items)
+
+- **P2-14** — shipped `StoreClient.sendLeaderRoutedRead`, reusing `sendLeaderOnly`'s existing
+  preferred-leader cache and `NotLeader`-hint-follow machinery; only `getNodeHeartbeat` was
+  switched to it. Every other store read stays round-robin — this is deliberately narrower than
+  "make all reads leader-aware" (a general linearizable-read gap is tracked separately in P3),
+  scoped to the one resource kind that is genuinely leader-local by design.
+- **P2-16** — shipped local key-file versioning and rotation only: `SecretCipher` now emits
+  `version || keyId || iv || ciphertext`, `KeyFileManager` loads a full `KeyRing` from sibling
+  `key.<id>` files plus an `active` sidecar, and a rotation walk re-encrypts every config entry
+  under the new active key. External KMS integration (AWS KMS/Vault), envelope encryption, and
+  automatic scheduled rotation are explicitly out of scope. One known, accepted limitation:
+  rotation walks `listTenants()`-registered tenants only, so a config entry filed under a
+  free-form `tenantId` string with no matching `Tenant` record is not re-encrypted by the walk —
+  documented inline in `rotateSecretsKey`'s javadoc rather than built around, since a "list every
+  config entry regardless of tenant" store API would be a larger, separate wire-protocol change.
+- **P2-17** — shipped a cluster-wide `defaultDenyCrossTenant` flag on `FabricServiceRegistry`
+  (`-Dgimle.fabric.defaultDenyCrossTenant=true`), flipping the meaning of an export's empty
+  `allowedTenantIds` from "public" to "same-tenant-only" when set. Retrofitting every manifest
+  with explicit tenant scoping is out of scope. The plan's literal "opt back in via
+  `allowedTenants: ["*"]`" escape hatch was checked against `ControlMessageCodec`'s existing wire
+  encoding and found not implementable without a deeper wire-format change (an explicit `*`
+  already collapses to the same encoding as an empty set) — accepted as a narrower shipped scope
+  rather than a fragile workaround.
 
 ---
 
@@ -270,9 +300,13 @@ correctly excluded above as existing, deliberate deferrals rather than items on 
 1. ~~**P0 items, in listed order**~~ — **Done** (P0-7 reclassified as not-a-gap, see Not gaps);
    each closed either a correctness bug (P0-1, P0-6, P0-9), a "looks implemented, isn't" gap
    (P0-2, P0-3, P0-4, P0-5), or a foundational engineering-rigor gap (P0-8, P0-10, P0-11).
-2. **P2 quick wins** (P2-1 through P2-13) — same shape as P0 but lower individual value; good
-   filler between P1 initiatives.
+2. ~~**P2 quick wins** (P2-1 through P2-13)~~ — **Done**, same shape as P0 but lower individual
+   value.
 3. ~~**P1 big rocks**~~ — **Done**, landed P1-4 → P1-6 → P1-3 → P1-2 → P1-1 → P1-5 (tractable/
    contained first, riskiest last); P1-1 and P1-5 shipped deliberately reduced scope rather than
    their original "Fit: No" full form — see each item's own "Shipped scope" note above.
-4. **P2 remainder and P3** as time allows; P3 items are explicitly lower priority, not urgent gaps.
+4. ~~**P2 remainder**~~ — **Done**, landed P2-15 → P2-14 → P2-18 → P2-6 → P2-7 → P2-1 → P2-4 →
+   P2-2 → P2-3 → P2-19 → P2-5 → P2-9 → P2-8 → P2-10 → P2-17 → P2-11 → P2-16 → P2-12 → P2-13
+   (grouped by shared files/subsystems, per that batch's own execution plan); P2-14, P2-16, and
+   P2-17 shipped deliberately reduced scope — see each item's "Shipped scope" note above. P3
+   remains as time allows; its items are explicitly lower priority, not urgent gaps.
