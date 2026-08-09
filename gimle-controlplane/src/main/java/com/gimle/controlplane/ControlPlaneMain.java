@@ -8,6 +8,7 @@ import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
 import java.io.IOException;
@@ -93,6 +94,17 @@ public final class ControlPlaneMain {
     System.setProperty("gimle.node.id", selfHost + ":" + port);
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("controlplane-platform.log"));
+
+    // PLAINTEXT is a deliberate default (see CLAUDE.md's "Not gaps" -- trivial local onboarding
+    // matters more here than secure-by-default), not an oversight, but a silent one: nothing else
+    // announces that every API call on this port is unauthenticated. One loud line at boot makes
+    // the tradeoff visible instead of only discoverable by reading source.
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      log.warn(
+          "running with no authentication (gimle.transport.protocol=plaintext) -- every API call"
+              + " on this port is unauthenticated; do not expose it beyond a trusted local network."
+              + " Set -Dgimle.transport.protocol=tls to require mTLS.");
+    }
 
     StoreClient storeClient = new StoreClient(storeEndpoints);
 
