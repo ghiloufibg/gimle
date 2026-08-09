@@ -110,6 +110,25 @@ re-diagnosed every time:
   low-probability property of the test's own tampering strategy, not a `SessionTokens` bug.
 - Passed cleanly on an isolated re-run with no code change.
 
+### `SecretStoreTest#concurrent_writers_to_the_same_key_never_lose_an_update_and_every_slot_has_one_winner`
+
+- Observed: 2026-08-09, during F-7 (Fafnir rate limiting + observability) on
+  `secrets-vault-implementation`, running the full `gimle-fafnir` module test suite together (not
+  in isolation) alongside several other real-`InProcessStore`/real-HTTP-server test classes.
+- Failure: `GimleRaftException: no reachable store leader could serve ListConfigEntriesFor after
+  retrying every endpoint`, thrown from one of the six concurrent writer threads' own
+  `SecretStore.put` → `readMeta` → `StoreClient.listConfigEntriesFor` call.
+- Same shape as this doc's other Raft-timeout entries: this test already deliberately drives six
+  threads at a single-node `InProcessStore` simultaneously (see `SecretStore.java`'s own
+  `MAX_WRITE_ATTEMPTS` javadoc for why that concurrency is intentional, not a bug), and under this
+  sandbox's shared CPU/IO plus several *other* test classes' real sockets/Raft nodes running at the
+  same time, that self-imposed load occasionally pushes a proposal/read past its retry budget --
+  not a correctness regression in `SecretStore`'s write-verify-retry logic itself, which the same
+  test's own version-uniqueness assertions verify on every other run.
+- Passed cleanly on three consecutive full-module re-runs (`mvn -pl gimle-fafnir test`, no `-Dtest`
+  filter) with no code change, and on three consecutive isolated (`-Dtest=SecretStoreTest`) re-runs
+  before that.
+
 ## Process
 
 When a test fails that looks unrelated to the diff being verified: re-run it in isolation

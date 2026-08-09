@@ -4,12 +4,15 @@ import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.observability.FafnirMetrics;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsExchange;
@@ -23,6 +26,8 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -53,6 +58,15 @@ import org.slf4j.LoggerFactory;
 public final class FafnirServer implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(FafnirServer.class);
+  // A dedicated logger, not `log` -- design doc §9's Observability subsection: a queryable record
+  // of every /secrets/* request (principal, tenant, key, version, verb, allow/deny, timestamp --
+  // never the value), separated from ordinary operational logging so it can be routed/retained
+  // differently. gimle-observability has no general-purpose audit-event-log mechanism today (see
+  // InstanceEvent's own javadoc: "the general audit-logging item still on the roadmap") -- adding
+  // one is a bigger, separate undertaking than this item's scope, so this uses the same structured
+  // SLF4J logging every other Gimlé process already relies on for its own queryable event trail,
+  // rather than inventing a parallel Raft-backed collection for a single event kind.
+  private static final Logger auditLog = LoggerFactory.getLogger("com.gimle.fafnir.audit");
 
   // gimle-controlplane's own claim about who originated a proxied /secrets/* request -- trusted
   // only because it arrives over this mTLS-authenticated connection (the same "channel
@@ -65,15 +79,26 @@ public final class FafnirServer implements AutoCloseable {
   private final FafnirCrypto crypto;
   private final SecretStore secretStore;
   private final Authorizer authorizer;
+  private final FafnirMetrics metrics;
+  // Keyed by calling principal/node identity, incrementing on Authorizer.authorize(...) == false
+  // rather than a login failure -- the same generic identity-keyed backoff counter ApiServer's own
+  // login endpoint uses, reused per that class's own javadoc ("gimle-fafnir constructs its own
+  // separate instance keyed by calling principal/node identity").
+  private final LoginThrottle authzThrottle = new LoginThrottle();
   // Not final: a TLS rotation rebuilds this the same way ApiServer's own #server field does --
   // see that class's field javadoc for why a rebuild, not a hot-swap, is the only supported path.
   private volatile HttpServer server;
   private final int boundPort;
 
   public FafnirServer(FafnirCrypto crypto, int port) throws IOException {
+    this(crypto, port, new FafnirMetrics());
+  }
+
+  public FafnirServer(FafnirCrypto crypto, int port, FafnirMetrics metrics) throws IOException {
     this.crypto = crypto;
     this.secretStore = new SecretStore(crypto.storeClient(), crypto);
     this.authorizer = new Authorizer(crypto.storeClient());
+    this.metrics = metrics;
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
@@ -102,10 +127,34 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   private void registerContexts(HttpServer target) {
-    target.createContext("/internal/secrets/encrypt", this::handleEncrypt);
-    target.createContext("/internal/secrets/decrypt", this::handleDecrypt);
-    target.createContext("/secrets/rotate-key", this::handleRotateKey);
-    target.createContext("/secrets/", this::handleSecrets);
+    target.createContext("/internal/secrets/encrypt", instrument("encrypt", this::handleEncrypt));
+    target.createContext("/internal/secrets/decrypt", instrument("decrypt", this::handleDecrypt));
+    target.createContext("/secrets/rotate-key", instrument("rotate-key", this::handleRotateKey));
+    target.createContext("/secrets/", instrument("secrets", this::handleSecrets));
+  }
+
+  /**
+   * Wraps a handler with request-count/latency/error Micrometer recording (design doc §9's
+   * Observability subsection, mirroring {@code WorkerMetrics}/{@code FabricServer}'s own request-
+   * metrics pattern) -- at context-registration time rather than inside each handler body, so every
+   * endpoint gets identical instrumentation with zero per-handler boilerplate. {@code error} is
+   * read from the exchange's own response code after the delegate finishes (every handler here
+   * already sends a real status and closes the exchange itself in its own {@code finally} block),
+   * not from an escaping exception -- these handlers deliberately never let one escape.
+   */
+  private HttpHandler instrument(String endpoint, HttpHandler delegate) {
+    return exchange -> {
+      String verb = exchange.getRequestMethod();
+      long startNanos = System.nanoTime();
+      try {
+        delegate.handle(exchange);
+      } finally {
+        Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
+        int status = exchange.getResponseCode();
+        boolean error = status <= 0 || status >= 400;
+        metrics.recordRequest(endpoint, verb, latency, error);
+      }
+    };
   }
 
   public void start() {
@@ -225,7 +274,7 @@ public final class FafnirServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        if (authorizeSecrets(exchange, Verb.READ, tenantId)) {
+        if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.empty())) {
           handleListSecrets(exchange, tenantId);
         }
         return;
@@ -244,24 +293,24 @@ public final class FafnirServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        if (authorizeSecrets(exchange, Verb.READ, tenantId)) {
+        if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.of(key))) {
           handleSecretVersions(exchange, tenantId, key);
         }
         return;
       }
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
-          if (authorizeSecrets(exchange, Verb.READ, tenantId)) {
+          if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.of(key))) {
             handleGetSecret(exchange, tenantId, key);
           }
         }
         case "PUT" -> {
-          if (authorizeSecrets(exchange, Verb.WRITE, tenantId)) {
+          if (authorizeSecrets(exchange, Verb.WRITE, tenantId, Optional.of(key))) {
             handlePutSecret(exchange, tenantId, key);
           }
         }
         case "DELETE" -> {
-          if (authorizeSecrets(exchange, Verb.DELETE, tenantId)) {
+          if (authorizeSecrets(exchange, Verb.DELETE, tenantId, Optional.of(key))) {
             handleDeleteSecret(exchange, tenantId, key);
           }
         }
@@ -357,8 +406,15 @@ public final class FafnirServer implements AutoCloseable {
    * every other Gimlé process (§9): no TLS means no identity to check in the first place, so every
    * request passes -- {@code gimle.transport.protocol=tls} is the one switch that turns this check
    * on, cluster-wide.
+   *
+   * <p>Also the single point every {@code /secrets/*} request passes through with its principal,
+   * tenant, key, and verb all in hand -- so this is where §9's rate limiting (a {@link
+   * #authzThrottle} keyed by principal, incrementing on a denial) and the audit log entry (§9's
+   * Observability subsection) both live, rather than duplicating either concern into every
+   * individual handler.
    */
-  private boolean authorizeSecrets(HttpExchange exchange, Verb verb, String tenantId) {
+  private boolean authorizeSecrets(
+      HttpExchange exchange, Verb verb, String tenantId, Optional<String> key) {
     if (!(exchange instanceof HttpsExchange)) {
       return true;
     }
@@ -367,11 +423,29 @@ public final class FafnirServer implements AutoCloseable {
       respondQuietly(exchange, 401, "authentication required");
       return false;
     }
-    if (!authorizer.authorize(
-        principal.get(), ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty())) {
+    String throttleKey = principal.get().name();
+    Optional<Instant> throttledUntil = authzThrottle.throttledUntil(throttleKey);
+    if (throttledUntil.isPresent()) {
+      respondThrottled(exchange, throttledUntil.get());
+      return false;
+    }
+    boolean allowed =
+        authorizer.authorize(
+            principal.get(), ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty());
+    auditLog.info(
+        "principal={} tenant={} key={} verb={} allow={}",
+        principal.get().name(),
+        tenantId,
+        key.orElse("-"),
+        verb,
+        allowed);
+    if (!allowed) {
+      authzThrottle.recordFailure(throttleKey);
+      metrics.recordAuthzFailure(verb.name());
       respondQuietly(exchange, 403, "forbidden");
       return false;
     }
+    authzThrottle.recordSuccess(throttleKey);
     return true;
   }
 
@@ -484,5 +558,17 @@ public final class FafnirServer implements AutoCloseable {
     } catch (IOException e) {
       log.warn("failed to write error response: {}", e.getMessage());
     }
+  }
+
+  /**
+   * {@code 429} with a standard {@code Retry-After} header (seconds) -- the same shape {@code
+   * ApiServer.respondThrottled} already uses for its own {@link LoginThrottle}-backed login
+   * throttling, reused here for {@link #authzThrottle}'s consecutive-authorization-failure signal.
+   */
+  private static void respondThrottled(HttpExchange exchange, Instant nextAllowedAttempt) {
+    long retryAfterSeconds =
+        Math.max(1, Duration.between(Instant.now(), nextAllowedAttempt).toSeconds());
+    exchange.getResponseHeaders().add("Retry-After", String.valueOf(retryAfterSeconds));
+    respondQuietly(exchange, 429, "too many attempts; try again later");
   }
 }
