@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.core.throttle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

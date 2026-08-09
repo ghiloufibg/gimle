@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.core.throttle;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -7,17 +7,21 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * In-memory, per-key exponential backoff for repeated login failures (P2-11) -- {@code ApiServer}
- * tracks one key per username and a second per remote address, so a locked-out username doesn't
- * block a legitimate caller from a different IP, and a single IP hammering many usernames still
- * gets throttled even though no individual username crossed its own threshold.
+ * In-memory, per-key exponential backoff for repeated failures against a key of the caller's own
+ * choosing (P2-11). {@code gimle-controlplane}'s {@code ApiServer} tracks one key per username and
+ * a second per remote address for login attempts, so a locked-out username doesn't block a
+ * legitimate caller from a different IP, and a single IP hammering many usernames still gets
+ * throttled even though no individual username crossed its own threshold. {@code gimle-fafnir}
+ * constructs its own separate instance keyed by calling principal/node identity, incrementing on an
+ * authorization failure rather than a login failure -- the class itself is generic over what {@code
+ * key} means, so no changes are needed to support a second, independent caller.
  *
  * <p>Deliberately in-memory and per-replica, not a {@code StateMutation} replicated through the
- * store: the control plane is already multi-replica and stateless by design, and a failed-login
- * write would put attacker-controlled traffic straight into the Raft log -- worse than the gap this
- * closes. A distributed attacker can still spread attempts across replicas, but each replica
- * throttling independently still bounds the rate any single one will answer, and is a strict
- * improvement over no throttling at all.
+ * store: every process using this is already multi-replica and stateless by design, and a
+ * failed-attempt write would put attacker-controlled traffic straight into the Raft log -- worse
+ * than the gap this closes. A distributed attacker can still spread attempts across replicas, but
+ * each replica throttling independently still bounds the rate any single one will answer, and is a
+ * strict improvement over no throttling at all.
  */
 public final class LoginThrottle {
 
@@ -81,7 +85,9 @@ public final class LoginThrottle {
         });
   }
 
-  /** Clears {@code key}'s failure history -- a genuine login should not still be paying for it. */
+  /**
+   * Clears {@code key}'s failure history -- a genuine success should not still be paying for it.
+   */
   public void recordSuccess(String key) {
     byKey.remove(key);
   }

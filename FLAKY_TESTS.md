@@ -96,6 +96,20 @@ re-diagnosed every time:
   Surefire `<excludes>` entry in `gimle-smoke-tests/pom.xml` for its own `IT` suffix) in a future
   session rather than leaning on the ad hoc `-Dtest` flag forever.
 
+### `SessionTokensTest#a_tampered_token_is_rejected`
+
+- Observed: 2026-08-09, during a `gimle-core,gimle-mimir,gimle-controlplane` verify run on
+  `secrets-vault-implementation` (F-2, `LoginThrottle` relocation — unrelated to this test's own
+  code, `SessionTokens` wasn't touched by that change).
+- Failure: `AssertionFailedError: expected: <Optional.empty> but was: <Optional[alice]>` at
+  `SessionTokensTest.java:60`.
+- Not a timing race like the entries above — the test flips the token's last base64url character
+  (`'A' <-> 'B'`) to corrupt the trailing HMAC tag byte, but a base64 group's last character only
+  encodes 2 significant bits; occasionally the specific flip lands on bits that don't change the
+  decoded byte's meaningful value, so verification spuriously still succeeds. A pre-existing,
+  low-probability property of the test's own tampering strategy, not a `SessionTokens` bug.
+- Passed cleanly on an isolated re-run with no code change.
+
 ## Process
 
 When a test fails that looks unrelated to the diff being verified: re-run it in isolation
