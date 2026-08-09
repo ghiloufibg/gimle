@@ -129,47 +129,59 @@ banner) demoted to P3.
 
 ## P1 — Big rocks (high value, needs its own sub-plan)
 
-### P1-1. Tier 1 "shared worker JVM density" is not implemented at the agent
+All six P1 items have landed on this branch, in the order P1-4 → P1-6 → P1-3 → P1-2 → P1-1 → P1-5
+(tractable/contained first, riskiest last). Two of them (P1-1, P1-5) were originally flagged **Fit:
+No** — both shipped a deliberately reduced, real, working scope instead of being skipped, matching
+how P0-5 shipped "Partial" and still closed the concrete, testable half of its gap; the reductions
+are called out explicitly below each, not silently glossed over. Findings kept below for the
+record, per this document's own stated convention.
+
+### ~~P1-1. Tier 1 "shared worker JVM density" is not implemented at the agent~~ — Done (reduced scope)
 - **Module**: `gimle-agent`, `gimle-controlplane`
 - **Evidence**: `AgentMain`'s own javadoc (`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java:64-69`) admits "each replica gets its own worker JVM"; `reconcileAssignments`/`instanceKey` (`:533-549`, `:869-871`) spawns one `WorkerProcessSupervisor` per instance unconditionally, tier is never consulted; `Scheduler.java:44-47`'s own comment: "Tier 1 density packing across separate deployments isn't implemented anywhere in this codebase today."
 - **Real-world comparison**: Kubernetes packs many pods onto one kubelet/containerd node; Gimlé's own pitch is the JVM-analogue of that for Tier 1 — many modules in *one* worker JVM. The closer analogues are actually one runtime down in abstraction: Apache Karaf/Felix (OSGi containers, CLAUDE.md's own stated ancestor for the module system) genuinely host many bundles in one JVM as their density lever, and the Erlang BEAM VM's lightweight-process model — millions of isolated, independently-supervised processes sharing one VM — is the platform-level precedent for "many isolated units, one runtime, real density."
 - **Gap**: The central architectural claim "Tier 1 — module in a shared worker JVM… Density win" (CLAUDE.md, "Core architecture") is not realized by any code path today. `gimle-worker` can technically host multiple `ModuleLayer`s in one JVM, but nothing in the placement/spawn loop ever routes two Tier-1 instances to an already-running worker. Self-disclosed in a code comment, but not listed among CLAUDE.md's documented deferrals.
 - **Value**: High — this is the platform's core density claim, currently unrealized · **Difficulty**: Large · **Fit**: No (needs agent-side worker reuse, scheduler assign-to-existing-worker logic, and protocol changes — scope as its own multi-session initiative)
+- **Shipped scope**: agent-local only, in `AgentMain` (`findReusableTier1Worker`/`installIntoExistingWorker`). A new Tier-1 instance reuses an already-running worker on the *same node* when the candidate's tenant matches (or both are untenanted), it never shares a worker with another instance of the *same* module (would corrupt `WorkerRuntime`'s per-`ModuleId` keying), and the worker stays under a fixed density cap. `Scheduler`/`NodeCandidate` are untouched — the control plane still reasons about node-level capacity only, with no visibility into which worker an instance lands in. Per-worker `-Xmx` subdivision is explicitly out of scope: a shared worker's memory ceiling stays whatever it was sized for at spawn time. See `gimle-docs/docs/architecture/tiered-isolation.md`'s own "Tier 1 density: agent-local, not scheduler-visible" section.
 
-### P1-2. No queryable event log, despite the spec naming it the primary debugging surface
+### ~~P1-2. No queryable event log, despite the spec naming it the primary debugging surface~~ — Done
 - **Modules**: `gimle-module`, `gimle-controlplane`, `gimle-core`
 - **Evidence**: `gimle-PROJECT-v2.md:115` promises a structured event log "queryable via the API server — the `kubectl describe` equivalent." `LifecycleEvent` (`gimle-module/src/main/java/com/gimle/module/lifecycle/LifecycleEvent.java:8-29`) is only consumed transiently (mapped to a log line) in `WorkerRuntime.java:110-114`/`WorkerMain.java:121-123`, never persisted. Restart-attempt history lives only in an in-memory `RestartTracker` field with no getter, no durable snapshot, and no `/events` route in `ApiServer`.
 - **Real-world comparison**: Kubernetes' Events API / `kubectl describe pod` surfacing `BackOff`/`Killing`/`Started` with counts; Nomad's own `nomad alloc status` Task Events stream (a much closer scale/complexity match than Kubernetes for `gimle-cli`) is the same idea — a durable, per-allocation timeline an operator reads after the fact, not just a moment-in-time log line.
 - **Gap**: There is no way, via CLI or console, to answer "why did instance X restart 3 times" after the fact.
 - **Value**: High · **Difficulty**: Large · **Fit**: Partial (a durable event append + a `/events` list endpoint is one session; a rich query language is more)
 
-### P1-3. No metrics API endpoint and no real per-module RED (rate/errors/duration) data anywhere in the console
+### ~~P1-3. No metrics API endpoint and no real per-module RED (rate/errors/duration) data anywhere in the console~~ — Done
 - **Modules**: `gimle-controlplane`, `gimle-console`
 - **Evidence**: No `/metrics` route in `ApiServer`; `gimle-console/src/routes/metrics.tsx:1-60` builds its charts from lifecycle/placement/capacity/quota stores — none of it request latency/error/traffic (which, per P0-5, isn't collected anyway).
 - **Real-world comparison**: Kafka/ES dashboards surface per-topic/per-index request rate, p99 latency, error rate as first-class panels; Consul and Nomad both expose a `telemetry` stanza feeding Prometheus for exactly this operator-facing purpose.
 - **Gap**: The console's "Metrics" screen shows placement/capacity/quota signals only — no golden-signal fabric-call data, because nothing collects it and nothing exposes it.
 - **Value**: High · **Difficulty**: Large · **Fit**: Partial (depends on P0-5 landing first; then a `/metrics` endpoint + console panel is a further session)
+- **Shipped scope**: request-rate/error-rate now flow real through the heartbeat and a `/metrics` rollup endpoint, per the "Partial" fit above. p99/latency-histogram data remains explicitly deferred — `Timer`s already record it in `WorkerMetrics`, but percentile computation/shipping is materially more plumbing than a counter delta.
 
-### P1-4. No wire-protocol versioning on any fabric codec
+### ~~P1-4. No wire-protocol versioning on any fabric codec~~ — Done
 - **Module**: `gimle-fabric`
 - **Evidence**: `FabricCodec` (`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java:22-161`), `SwimCodec` (`SwimCodec.java:20-154`), `ServiceCatalogCodec` (`ServiceCatalogCodec.java:30-130`) all decode strictly positionally with no schema/version field; payloads use raw `ObjectOutputStream` (`ObjectMarshalling.java:21-39`), coupling wire compatibility to exact class/serialVersionUID match.
 - **Real-world comparison**: Kafka carries `api_key`+`api_version` on every request and negotiates via `ApiVersionsRequest`, enabling rolling upgrades; Cassandra's native protocol does the same with an explicit `STARTUP`/`SUPPORTED` version handshake, and Consul's `-raft-protocol` flag lets a cluster negotiate Raft protocol versions specifically to support rolling upgrades without downtime.
 - **Gap**: Any future field addition/reorder, or a rolling upgrade running two Gimlé versions briefly, breaks decoding silently or throws, with no negotiation path.
 - **Value**: High · **Difficulty**: Medium · **Fit**: Partial (adding a version byte + rejecting unknown versions is one session; full negotiation is more)
+- **Shipped scope**: `FabricCodec` and `SwimCodec` both now carry a version byte, rejected via `GimleCodecException.unsupportedVersion` on mismatch (no silent downgrade). `ServiceCatalogCodec` needed no version of its own — it's a tag-less payload already nested inside `SwimCodec`'s own versioned frame. `RaftCodec`/`StoreCodec` (`gimle-mimir`) were left untouched, matching the finding's own scope (fabric codecs only) and their own existing tag-extension precedent.
 
-### P1-5. Static Raft cluster membership — no online reconfiguration
+### ~~P1-5. Static Raft cluster membership — no online reconfiguration~~ — Done (reduced scope)
 - **Module**: `gimle-mimir`
 - **Evidence**: `StoreMain.java:52,66,154-163` parses `--peers` once at process start; no `AddServer`/`RemoveServer`/joint-consensus RPC anywhere in `RaftRpc.java`.
 - **Real-world comparison**: the Raft paper's §6 joint-consensus protocol; etcd's `MemberAdd`/`MemberRemove`; Kafka KRaft's dynamic quorum reconfiguration. HashiCorp Consul's "Autopilot" feature is arguably the most apt comparison for Gimlé's own operational ethos — it automates peer add/remove and dead-server cleanup specifically so cluster operators don't have to reason about joint consensus by hand, which is the operational-simplicity direction this gap should eventually move toward.
 - **Gap**: Growing/shrinking/replacing the store cluster requires a full restart with a new peer list — no safe, live way to do it, unlike real Raft deployments.
 - **Value**: High — membership change is one of the trickiest, most instructive parts of Raft, currently entirely absent · **Difficulty**: Large · **Fit**: No (scope as its own project)
+- **Shipped scope**: etcd-style, one-server-at-a-time membership change (`RaftNode.addServer`/`removeServer`, `StoreRpc.AddServer`/`RemoveServer`), deliberately **not** full joint consensus — only one `MembershipChange` is ever in flight, replacing the old configuration outright rather than a `C_old,new` dual-majority overlap window. `StoreMain`'s `--peers` is now bootstrap-only configuration for a brand-new cluster, not fixed for its lifetime. Two narrower, explicitly tracked follow-ups, not silent gaps: a `gimle-cli` surface for both operations (today exercised via `StoreClient` directly), and a removed server isn't notified it was removed, so it can keep calling `RequestVote` against survivors until it's separately shut down — real joint consensus's disruption-mitigation machinery (pre-vote/check-quorum) was intentionally not built for this reduction.
 
-### P1-6. Scheduler is a single-pass filter+greedy-spread — no weighted multi-priority scoring, taints, or preemption
+### ~~P1-6. Scheduler is a single-pass filter+greedy-spread — no weighted multi-priority scoring, taints, or preemption~~ — Done (partial: cordoning only)
 - **Module**: `gimle-controlplane`
 - **Evidence**: `Scheduler.place` (`Scheduler.java:89-100`) — one comparator (free memory, then free CPU), single `filter(...).findFirst()`.
 - **Real-world comparison**: Kubernetes runs predicates + a weighted sum of multiple priority functions + taints/tolerations + preemption; Nomad's scheduler runs the same filter-then-score shape with `spread`/`affinity`/`constraint` stanzas at a scale and complexity closer to Gimlé's own; Apache Mesos takes a genuinely different paradigm worth knowing about — two-level scheduling via resource offers, where frameworks (not a central scheduler) decide whether to accept.
 - **Gap**: No node taints/cordoning, no priority classes, no preemption when the cluster is full — `GimleSchedulingException.noFeasiblePlacement` is the only outcome even when evicting something lower-priority would make room.
 - **Value**: Medium — good next step once P0-2 (labels) lands · **Difficulty**: Large · **Fit**: Partial (one extra priority dimension or basic taints could fit one session; preemption would not)
+- **Shipped scope**: operator-driven node cordoning (`gimle cordon`/`uncordon`, `POST /nodes/{id}/cordon`/`/uncordon`) — a binary "don't schedule here" flag, the scheduler's first non-resource, non-label placement filter. It never evicts an instance already running on the node. Weighted multi-priority scoring, taint/toleration semantics beyond this one binary flag, and preemption all remain explicitly out of scope, per the finding's own "Partial" fit.
 
 ---
 
@@ -260,9 +272,7 @@ correctly excluded above as existing, deliberate deferrals rather than items on 
    (P0-2, P0-3, P0-4, P0-5), or a foundational engineering-rigor gap (P0-8, P0-10, P0-11).
 2. **P2 quick wins** (P2-1 through P2-13) — same shape as P0 but lower individual value; good
    filler between P1 initiatives.
-3. **P1 big rocks**, each scoped into its own sub-plan before starting:
-   - P1-4 (wire versioning) and P1-5 (dynamic Raft membership) are independent of each other.
-   - P1-1 (Tier 1 density) is the highest-value, highest-effort item in this whole document —
-     it's the platform's core pitch. Worth a dedicated design pass before any code.
-   - P1-2 (event log) and P1-3 (metrics API) both depend on P0-5 landing first.
+3. ~~**P1 big rocks**~~ — **Done**, landed P1-4 → P1-6 → P1-3 → P1-2 → P1-1 → P1-5 (tractable/
+   contained first, riskiest last); P1-1 and P1-5 shipped deliberately reduced scope rather than
+   their original "Fit: No" full form — see each item's own "Shipped scope" note above.
 4. **P2 remainder and P3** as time allows; P3 items are explicitly lower priority, not urgent gaps.
