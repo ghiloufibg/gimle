@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phases 1–5 are implemented and committed: `gimle-core`, `gimle-module`, `gimle-os`, `gimle-worker`, `gimle-agent`, `gimle-controlplane`, `gimle-observability`, `gimle-fabric`, and `gimle-cli` all exist as working Maven modules with tests. `gimle-api` doesn't exist as its own module — a deliberate deviation, not a gap; probe/service-registry types live in `gimle-module` instead. Two pieces within these phases are still explicitly deferred, not oversights: kernel-level (cgroup v2) resource enforcement in `gimle-os` (only the portable JVM-flags `ResourceLimiter` exists today) and Tier 3 isolation (FFM `unshare`/`setns`, unimplemented on every platform and rejected outright rather than silently downgraded) — see "Core architecture" below.
+Phases 1–5 are implemented and committed: `gimle-core`, `gimle-module`, `gimle-os`, `gimle-worker`, `gimle-agent`, `gimle-controlplane`, `gimle-mimir`, `gimle-observability`, `gimle-fabric`, and `gimle-cli` all exist as working Maven modules with tests. `gimle-api` doesn't exist as its own module — a deliberate deviation, not a gap; probe/service-registry types live in `gimle-module` instead. `gimle-mimir` is the Raft-replicated state store's own process, split out of `gimle-controlplane` (which now talks to it over the network via `StoreClient` rather than embedding one) — real multi-node HA, failover, and etcd-style live membership change (`AddServer`/`RemoveServer`), not a single-node stand-in. Two pieces within these phases are still explicitly deferred, not oversights: kernel-level (cgroup v2) resource enforcement in `gimle-os` (only the portable JVM-flags `ResourceLimiter` exists today) and Tier 3 isolation (FFM `unshare`/`setns`, unimplemented on every platform and rejected outright rather than silently downgraded) — see "Core architecture" below.
 
 Phase 6 (module web console), originally scoped as a stretch goal, is now substantially complete: the control-plane-side static-serving backend (`ApiServer.serveConsole`, resolved automatically at startup via `BundledConsole` — see below) has landed, and the frontend at `gimle-console/` — a Lovable-generated React/TanStack Router/Zustand/Tailwind SPA — talks to the real control-plane API via `Http*Repository` implementations for every screen (Overview, Metrics, Topology, Deployments, Instances, Nodes, Tenants, Config, Logs; see `web-console-design.md` §4/§4c), not the original mock-only pull. Logs are backed by a real `/logs/*` API (`gimle-console/src/repositories/http/logs.ts`, `AgentLogServer` in `gimle-agent`, proxied through `ApiServer` in `gimle-controlplane`) with genuine live tailing from both the console UI and `gimle-cli logs --follow`, plus `hs_err_pid*.log` crash-dump listing on the Logs screen for a crashed instance — see `claudedocs/log-explorer-design.md` and `gimle-console/LOCAL_DEV.md` for how to run a real control-plane + node-agent + deployed-module cluster locally and exercise it end to end. Vitest coverage (`web-console-design.md` §12/M4) is done: Mock and Http repository tests for all six repositories plus a store-level error-surfacing test. `gimle-console/` is a Vite SPA (`bun run build` → `dist/index.html` + `dist/assets/*`), matching the same pattern already proven in the sibling `flow-trace-ui` project — but unlike that project, it *is* a Maven module here (`gimle-console/pom.xml`, no Java sources): `exec-maven-plugin` shells out to Bun (install/build/test) and a resources-copy step bundles the built SPA into the module's own jar under `console/**`. `gimle-controlplane` depends on that jar and `ControlPlaneMain` reads it straight off the classpath at startup (`BundledConsole.java`) — no separate build/copy/flag step, no `--console-dir`. `mvn verify` from the repo root builds and tests everything, Java and console alike, in one command (requires JDK 25 on `PATH`/`JAVA_HOME`, and `bun` on `PATH` too now).
 
@@ -54,11 +54,12 @@ Machine (Node Agent, JVM)
 
 ## Node topology
 
-Three Java process roles, nothing else runs on the machine:
+Four Java process roles, nothing else runs on the machine:
 
 - **Node Agent** — one per machine, owns worker `Process` lifecycle and resource-limit assignment (portable JVM flags today, see "Core architecture" above), reports capacity/state, never runs user code.
 - **Worker JVM** — hosts module instances in `ModuleLayer`s, reports health/metrics to its agent, disposable by design.
-- **Control Plane** — Raft-replicated, one or more JVMs: API server, state store, scheduler, reconcilers.
+- **Control Plane** (`gimle-controlplane`) — API server, scheduler, reconcilers; one or more stateless JVMs, talking to the store cluster over the network rather than embedding one.
+- **Store** (`gimle-mimir`) — the Raft-replicated state store, its own process kind with its own Raft-peer and client ports; multi-node HA, failover, and etcd-style live membership change are implemented and tested, not deferred.
 
 Node/worker/module failure are distinct events with distinct recovery costs (seconds/sub-second/milliseconds) and are reconciled accordingly.
 
@@ -72,8 +73,8 @@ Node/worker/module failure are distinct events with distinct recovery costs (sec
 
 ## Control plane
 
-- **API server** accepts manifests (desired state), persisted to the state store.
-- **State store** — embedded, Raft-backed for HA (single-node until Phase 5).
+- **API server** accepts manifests (desired state), persisted through a `StoreClient` to the `gimle-mimir` state store cluster over the network (no embedded/in-process store anymore).
+- **State store** (`gimle-mimir`) — its own Raft-replicated process kind, decoupled 1:N from `gimle-controlplane`'s own replica count; multi-node HA and etcd-style live membership change (`AddServer`/`RemoveServer`, one server at a time) are both implemented and covered by real multi-node tests, not a Phase-5-deferred single-node stand-in.
 - **Scheduler** places instances by resource requests, isolation tier, anti-affinity (replicas of one module must not share a worker JVM), and machine load — a two-dimensional bin-packing problem (resources × tier).
 - **Reconcilers** — one control loop per resource kind, **level-triggered, not edge-triggered**: must converge from any starting state, including after missing every event. This is the hardest-to-test and most important correctness property in the codebase — reconciler changes need convergence tests from arbitrary starting states, not just the happy-path transition.
 - **Membership/failure detection** — SWIM-style gossip over UDP between node agents, off the control plane's critical path.
@@ -102,7 +103,8 @@ Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped v
 - `gimle-os` — resource limiting (`ResourceLimiter`); portable JVM-flags implementation only today, kernel-level cgroup v2 deferred (see "Core architecture" above)
 - `gimle-worker` — worker JVM runtime: module hosting, schedulers, probing, local registry
 - `gimle-agent` — node agent: worker supervision, resource assignment, capacity reporting
-- `gimle-controlplane` — API server, state store, scheduler, reconcilers, Raft-replicated (multi-node)
+- `gimle-controlplane` — API server, scheduler, reconcilers; stateless, talks to a `gimle-mimir` store cluster over the network rather than embedding one
+- `gimle-mimir` — the Raft-replicated state store, its own process (`StoreMain`); real Raft (leader election, log replication, snapshotting, etcd-style live membership change), not a simplified stand-in
 - `gimle-fabric` — service registry, three-path invocation, load balancing, circuit breaking, gossip membership
 - `gimle-observability` — metrics, tracing, JFR accounting, event log
 - `gimle-cli` — control-plane client, agent launcher, worker launcher
