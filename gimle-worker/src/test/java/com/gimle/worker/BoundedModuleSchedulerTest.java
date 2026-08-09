@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.ContextKey;
+import io.opentelemetry.context.Scope;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -113,6 +116,34 @@ class BoundedModuleSchedulerTest {
   void empty_mdc_tags_leave_the_submission_untagged() throws Exception {
     try (BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2, Map.of())) {
       Future<String> future = scheduler.submit(() -> MDC.get(InstanceMdcKeys.DEPLOYMENT_NAME));
+      assertNull(future.get(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void the_callers_ambient_context_is_restored_inside_the_submitted_task() throws Exception {
+    // P2-10: this is the mechanism a caller's OTel span (and anything else riding Context, like
+    // baggage) actually depends on to be the parent of whatever span the submitted task starts --
+    // proving Context.wrap's capture-and-restore works is the direct test of that claim, without
+    // needing a full OTel SDK dependency here just to assert on real Span parent/child ids.
+    ContextKey<String> key = ContextKey.named("test-value");
+    Context withValue = Context.current().with(key, "hello");
+
+    String observed;
+    try (Scope scope = withValue.makeCurrent();
+        BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2)) {
+      Future<String> future = scheduler.submit(() -> Context.current().get(key));
+      observed = future.get(5, TimeUnit.SECONDS);
+    }
+
+    assertEquals("hello", observed);
+  }
+
+  @Test
+  void a_submission_made_outside_any_context_scope_sees_no_value_for_that_key() throws Exception {
+    ContextKey<String> key = ContextKey.named("test-value-absent");
+    try (BoundedModuleScheduler scheduler = new BoundedModuleScheduler(ID, 2)) {
+      Future<String> future = scheduler.submit(() -> Context.current().get(key));
       assertNull(future.get(5, TimeUnit.SECONDS));
     }
   }

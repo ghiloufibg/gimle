@@ -12,6 +12,7 @@ import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.observability.WorkerMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.api.baggage.Baggage;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +24,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -85,6 +87,42 @@ class FabricServerTest {
         "greet",
         new String[] {"java.lang.String"},
         ObjectMarshalling.serialize(new Object[] {arg}));
+  }
+
+  @Test
+  @Timeout(10)
+  void baggage_from_the_caller_survives_an_inbound_call_into_the_handler() throws Exception {
+    // P2-10: baggage isn't just decoded and discarded -- it must actually be the ambient
+    // Baggage.current() the target module's own handler observes, the same way it would if the
+    // call had never left the caller's own thread.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    AtomicReference<String> observedUserId = new AtomicReference<>();
+    registry.register(
+        OWNER,
+        Greeter.class,
+        name -> {
+          observedUserId.set(Baggage.current().getEntryValue("userId"));
+          return "hello:" + name;
+        });
+
+    server = new FabricServer(registry, Greeter.class.getClassLoader());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    TraceContext traceWithBaggage = new TraceContext(1L, 2L, 3L, (byte) 1, "", "userId=alice");
+    FabricFrame.InvokeRequest request =
+        new FabricFrame.InvokeRequest(
+            1L,
+            traceWithBaggage,
+            Greeter.class.getName(),
+            "greet",
+            new String[] {"java.lang.String"},
+            ObjectMarshalling.serialize(new Object[] {"world"}));
+
+    clientThreads = Executors.newVirtualThreadPerTaskExecutor();
+    clientThreads.submit(() -> FabricClient.call(address, request)).get(5, TimeUnit.SECONDS);
+
+    assertEquals("alice", observedUserId.get());
   }
 
   @Test

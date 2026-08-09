@@ -51,6 +51,23 @@ class FabricCodecTest {
   }
 
   @Test
+  void round_trips_a_non_empty_tracestate_and_baggage() throws IOException {
+    TraceContext trace =
+        new TraceContext(1L, 2L, 3L, (byte) 1, "vendor1=abc,vendor2=def", "userId=alice,env=prod");
+    FabricFrame.InvokeRequest original =
+        new FabricFrame.InvokeRequest(
+            1L, trace, "com.gimle.example.Greeter", "greet", new String[0], new byte[0]);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    FabricCodec.write(buffer, original);
+    FabricFrame.InvokeRequest decoded =
+        (FabricFrame.InvokeRequest)
+            FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray()));
+
+    assertEquals(trace, decoded.trace());
+  }
+
+  @Test
   void reading_past_a_clean_end_of_stream_returns_null() throws IOException {
     FabricFrame decoded = FabricCodec.read(new ByteArrayInputStream(new byte[0]));
     assertNull(decoded);
@@ -78,13 +95,15 @@ class FabricCodecTest {
   void rejects_a_forged_huge_param_count_before_allocating() throws IOException {
     ByteArrayOutputStream body = new ByteArrayOutputStream();
     DataOutputStream bodyOut = new DataOutputStream(body);
-    bodyOut.writeByte(1); // version
+    bodyOut.writeByte(2); // version
     bodyOut.writeByte(0); // TAG_INVOKE_REQUEST
     bodyOut.writeLong(1L); // correlationId
     bodyOut.writeLong(1L); // trace.traceIdHigh
     bodyOut.writeLong(2L); // trace.traceIdLow
     bodyOut.writeLong(3L); // trace.spanId
     bodyOut.writeByte(1); // trace.flags
+    bodyOut.writeUTF(""); // trace.tracestate
+    bodyOut.writeUTF(""); // trace.baggage
     bodyOut.writeUTF("com.gimle.example.Greeter"); // interfaceName
     bodyOut.writeUTF("greet"); // methodName
     bodyOut.writeInt(Integer.MAX_VALUE - 8); // forged param count
@@ -123,8 +142,8 @@ class FabricCodecTest {
             GimleCodecException.class,
             () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
     assertTrue(
-        thrown.getMessage().contains("99") && thrown.getMessage().contains("1"),
-        "expected the message to name both the declared (99) and max supported (1) versions, got: "
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("2"),
+        "expected the message to name both the declared (99) and max supported (2) versions, got: "
             + thrown.getMessage());
   }
 

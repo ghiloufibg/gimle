@@ -110,7 +110,7 @@ Note the escape hatch this buys: a module that leaks despite everything can be m
 ## Observability
 
 - **Per-module metrics** via Micrometer: request rate/latency/errors, allocation rate, CPU time, thread counts, classloader and metaspace footprint.
-- **Distributed tracing** via OpenTelemetry, propagated through scoped values — including across in-JVM calls, so a co-located hop is a visible span rather than a gap in the trace.
+- **Distributed tracing** via OpenTelemetry, propagated through `Context.wrap` capture-and-restore across virtual-thread boundaries — including across in-JVM calls, so a co-located hop is a visible span rather than a gap in the trace. Not `ScopedValue`: OTel's own `Span.current()`/`Baggage.current()` read OTel's own `Context`, so a `ScopedValue` carrying trace state would still need `Context.makeCurrent()` re-entered inside it to be useful — the two mechanisms would end up coexisting, not one replacing the other. Cross-hop propagation (same-machine UDS, cross-machine TCP) carries `tracestate`/`baggage` alongside trace/span id, not just the bare identifiers.
 - **JFR-backed resource accounting** — per-module allocation and CPU attribution from JFR event streams. This is what makes Tier 1 soft limits enforceable at all.
 - **Structured event log** of every lifecycle transition and reconciliation decision, queryable via the API server. The `kubectl describe` equivalent and the primary debugging surface.
 - **Whole-cluster debugging**: because every tier is a JVM, a JFR recording or heap dump can be pulled from any component through the same API. Debugging the platform and debugging the workload use identical tools — the clearest practical advantage of the all-Java approach.

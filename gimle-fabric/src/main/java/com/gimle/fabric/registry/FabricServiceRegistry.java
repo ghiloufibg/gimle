@@ -14,8 +14,11 @@ import com.gimle.fabric.transport.FabricClient;
 import com.gimle.fabric.transport.FabricFrame;
 import com.gimle.fabric.transport.ObjectMarshalling;
 import com.gimle.module.lifecycle.ServiceRegistry;
+import io.opentelemetry.api.baggage.Baggage;
+import io.opentelemetry.api.baggage.BaggageEntry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceState;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationHandler;
@@ -397,13 +400,51 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private TraceContext captureTrace() {
     SpanContext context = Span.current().getSpanContext();
     if (!context.isValid()) {
-      return new TraceContext(0L, 0L, 0L, (byte) 0);
+      return new TraceContext(0L, 0L, 0L, (byte) 0, "", "");
     }
     String traceId = context.getTraceId();
     long high = Long.parseUnsignedLong(traceId.substring(0, 16), 16);
     long low = Long.parseUnsignedLong(traceId.substring(16, 32), 16);
     long spanId = Long.parseUnsignedLong(context.getSpanId(), 16);
     byte flags = context.isSampled() ? (byte) 1 : (byte) 0;
-    return new TraceContext(high, low, spanId, flags);
+    return new TraceContext(
+        high, low, spanId, flags, encodeTraceState(context.getTraceState()), encodeBaggage());
+  }
+
+  /**
+   * W3C {@code tracestate}'s own {@code key1=value1,key2=value2} wire syntax -- {@link TraceState}
+   * has no built-in serializer, so this reproduces it directly rather than pulling in a header-
+   * parsing dependency for one line's worth of format.
+   */
+  private static String encodeTraceState(TraceState traceState) {
+    StringBuilder sb = new StringBuilder();
+    traceState
+        .asMap()
+        .forEach(
+            (key, value) -> {
+              if (!sb.isEmpty()) {
+                sb.append(',');
+              }
+              sb.append(key).append('=').append(value);
+            });
+    return sb.toString();
+  }
+
+  /**
+   * W3C {@code baggage}'s {@code key1=value1,key2=value2} wire syntax, capturing only each entry's
+   * value -- per-entry metadata (the optional {@code ;property=...} suffix the real header allows)
+   * is deliberately not modeled, matching this codec's existing "small, hand-rolled, exactly what's
+   * needed" posture rather than a general-purpose baggage-header implementation.
+   */
+  private static String encodeBaggage() {
+    Map<String, BaggageEntry> entries = Baggage.current().asMap();
+    StringBuilder sb = new StringBuilder();
+    for (Map.Entry<String, BaggageEntry> entry : entries.entrySet()) {
+      if (!sb.isEmpty()) {
+        sb.append(',');
+      }
+      sb.append(entry.getKey()).append('=').append(entry.getValue().getValue());
+    }
+    return sb.toString();
   }
 }

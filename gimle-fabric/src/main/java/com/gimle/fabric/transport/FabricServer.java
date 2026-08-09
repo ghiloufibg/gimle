@@ -8,12 +8,15 @@ import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.observability.WorkerMetrics;
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.baggage.Baggage;
+import io.opentelemetry.api.baggage.BaggageBuilder;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.TraceFlags;
 import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.api.trace.TraceStateBuilder;
 import io.opentelemetry.context.Context;
 import java.io.Closeable;
 import java.io.IOException;
@@ -243,8 +246,9 @@ public final class FabricServer implements AutoCloseable {
   }
 
   private FabricFrame dispatch(FabricFrame.InvokeRequest request) {
-    Span span = startChildSpan(request);
-    try (var scope = Context.current().with(span).makeCurrent()) {
+    Context spanContext = startChildSpanContext(request);
+    Span span = Span.fromContext(spanContext);
+    try (var scope = spanContext.makeCurrent()) {
       Object result = invokeLocally(request);
       span.setStatus(StatusCode.OK);
       return new FabricFrame.InvokeResponse(
@@ -373,19 +377,58 @@ public final class FabricServer implements AutoCloseable {
     };
   }
 
-  private Span startChildSpan(FabricFrame.InvokeRequest request) {
+  /**
+   * Builds the {@link Context} that becomes current for the duration of one dispatched call -- the
+   * new child span layered on top of a base context that already carries the caller's {@code
+   * baggage} (P2-10), so {@code invokeLocally}'s handler sees both {@link Span#current()} and
+   * {@link Baggage#current()} exactly as the caller had them, not just the span.
+   */
+  private Context startChildSpanContext(FabricFrame.InvokeRequest request) {
     var trace = request.trace();
     SpanContext remoteParent =
         SpanContext.createFromRemoteParent(
             traceIdHex(trace.traceIdHigh(), trace.traceIdLow()),
             spanIdHex(trace.spanId()),
             (trace.flags() & 1) != 0 ? TraceFlags.getSampled() : TraceFlags.getDefault(),
-            TraceState.getDefault());
-    return GlobalOpenTelemetry.getTracer("com.gimle.fabric")
-        .spanBuilder(request.interfaceName() + "#" + request.methodName())
-        .setSpanKind(SpanKind.SERVER)
-        .setParent(Context.root().with(Span.wrap(remoteParent)))
-        .startSpan();
+            decodeTraceState(trace.tracestate()));
+    Context parentContext =
+        decodeBaggage(trace.baggage()).storeInContext(Context.root().with(Span.wrap(remoteParent)));
+    Span span =
+        GlobalOpenTelemetry.getTracer("com.gimle.fabric")
+            .spanBuilder(request.interfaceName() + "#" + request.methodName())
+            .setSpanKind(SpanKind.SERVER)
+            .setParent(parentContext)
+            .startSpan();
+    return parentContext.with(span);
+  }
+
+  /** Inverse of {@code FabricServiceRegistry#encodeTraceState} -- see that method's own javadoc. */
+  private static TraceState decodeTraceState(String encoded) {
+    if (encoded.isEmpty()) {
+      return TraceState.getDefault();
+    }
+    TraceStateBuilder builder = TraceState.builder();
+    for (String pair : encoded.split(",")) {
+      int eq = pair.indexOf('=');
+      if (eq > 0) {
+        builder.put(pair.substring(0, eq), pair.substring(eq + 1));
+      }
+    }
+    return builder.build();
+  }
+
+  /** Inverse of {@code FabricServiceRegistry#encodeBaggage} -- see that method's own javadoc. */
+  private static Baggage decodeBaggage(String encoded) {
+    BaggageBuilder builder = Baggage.builder();
+    if (!encoded.isEmpty()) {
+      for (String pair : encoded.split(",")) {
+        int eq = pair.indexOf('=');
+        if (eq > 0) {
+          builder.put(pair.substring(0, eq), pair.substring(eq + 1));
+        }
+      }
+    }
+    return builder.build();
   }
 
   static String traceIdHex(long high, long low) {

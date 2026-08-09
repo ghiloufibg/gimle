@@ -26,8 +26,11 @@ import java.io.UncheckedIOException;
  */
 public final class FabricCodec {
 
-  /** The only wire-protocol version any writer produces today; bump this when the shape changes. */
-  private static final int CURRENT_VERSION = 1;
+  /**
+   * The only wire-protocol version any writer produces today; bump this when the shape changes.
+   * Bumped 1 -> 2 by P2-10's {@code tracestate}/{@code baggage} additions to {@link TraceContext}.
+   */
+  private static final int CURRENT_VERSION = 2;
 
   private static final byte TAG_INVOKE_REQUEST = 0;
   private static final byte TAG_INVOKE_RESPONSE = 1;
@@ -151,10 +154,18 @@ public final class FabricCodec {
     out.writeLong(trace.traceIdLow());
     out.writeLong(trace.spanId());
     out.writeByte(trace.flags());
+    out.writeUTF(trace.tracestate());
+    out.writeUTF(trace.baggage());
   }
 
   private static TraceContext readTrace(DataInputStream in) throws IOException {
-    return new TraceContext(in.readLong(), in.readLong(), in.readLong(), in.readByte());
+    long traceIdHigh = in.readLong();
+    long traceIdLow = in.readLong();
+    long spanId = in.readLong();
+    byte flags = in.readByte();
+    String tracestate = in.readUTF();
+    String baggage = in.readUTF();
+    return new TraceContext(traceIdHigh, traceIdLow, spanId, flags, tracestate, baggage);
   }
 
   private static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

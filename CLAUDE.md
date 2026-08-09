@@ -93,7 +93,7 @@ Node/worker/module failure are distinct events with distinct recovery costs (sec
 
 ## Observability
 
-Micrometer for per-module metrics, OpenTelemetry tracing propagated via scoped values (including across in-JVM hops), JFR-backed per-module allocation/CPU accounting (what makes Tier 1 soft limits enforceable), and a structured, queryable event log of every lifecycle/reconciliation decision.
+Micrometer for per-module metrics, OpenTelemetry tracing propagated via `Context.wrap` capture-and-restore across virtual-thread boundaries (including across in-JVM hops — not `ScopedValue`: OTel's own `Span.current()`/`Baggage.current()` read OTel's own `Context`, so a `ScopedValue` carrying trace state would still need `Context.makeCurrent()` re-entered inside it to be useful, i.e. both mechanisms would end up coexisting, not one replacing the other), JFR-backed per-module allocation/CPU accounting (what makes Tier 1 soft limits enforceable), and a structured, queryable event log of every lifecycle/reconciliation decision.
 
 ## Project structure (multi-module Maven)
 
