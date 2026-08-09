@@ -81,6 +81,16 @@ already-persisted custom `Role` that was granted `CONFIG` before this split does
 access automatically — that's the correct tightening, not an oversight, but worth calling out
 explicitly since it changes behavior for encrypted entries under a pre-existing `CONFIG`-only role.
 
+**Fafnir's own versioned `/secrets/*` surface** (see [Multi-tenancy](./multi-tenancy.md#secrets))
+is a second door onto `SECRET`-guarded data, not a bypass of this model: `ApiServer` still performs
+its own `requireAuthorized(SECRET, ...)` check before proxying, exactly as it does for `/config/*`,
+but Fafnir additionally runs its own **independent** `Authorizer.authorize(...)` against RBAC data
+it reads itself over its own `StoreClient` connection — the same `Role`/`RoleBinding` objects, read
+a second time by a second process, rather than trusted from the proxy's decision. A buggy or
+compromised control-plane replica that forwarded an unauthorized `/secrets/*` request is still
+denied at Fafnir, which never treats "this arrived from the control plane" as itself proof of
+authorization.
+
 ## Two identity paths, one authorization engine
 
 ```mermaid

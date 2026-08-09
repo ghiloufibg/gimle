@@ -11,7 +11,7 @@ served at `/console` with no separate deploy step (see
 
 ## Screens
 
-Nine routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
+Ten routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
 same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth:
 
 | Screen | Shows |
@@ -23,7 +23,8 @@ same data the [CLI](../reference/cli-reference.md) reads, not a parallel source 
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
 | Metrics | Per-module dashboards backed by `WorkerMetrics` (see [Observability](./observability.md)). |
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
-| Config | Tenant-scoped config/secrets, including encrypted values — see [Multi-tenancy](./multi-tenancy.md). |
+| Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
+| Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker, soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
 | Logs | Live log tailing and crash-dump listing, below. |
 
 ## Logs: live tailing and crash dumps

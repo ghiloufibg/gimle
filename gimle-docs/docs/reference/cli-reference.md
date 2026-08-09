@@ -32,6 +32,12 @@ gimle delete tenant <id>
 gimle get config <tenantId>
 gimle set config <tenantId> <key> <value> [--encrypted]
 gimle delete config <tenantId> <key>
+gimle secret list <tenantId>
+gimle secret get <tenantId> <key> [--version N]
+gimle secret set <tenantId> <key> --value <v>
+gimle secret delete <tenantId> <key> [--destroy]
+gimle secret versions <tenantId> <key>
+gimle secret rotate-key
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
@@ -55,6 +61,16 @@ picture. `token create` and `approve` need this invocation's own configured mTLS
 plus `gimle.tls.certFile`/`keyFile`/`caFile`); `request`/`status` deliberately don't, since they run
 before that identity exists. `renew` only acts if the credential is actually due for renewal, unless
 `--force`.
+
+Unlike `config`, `secret` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
+it needs two actions (`versions`, `rotate-key`) that three-verb dispatch has no shape for. Every
+call is proxied by the control plane to Fafnir, the dedicated secrets service (see
+[Multi-tenancy](../architecture/multi-tenancy.md#secrets) and
+[Node topology](../architecture/node-topology.md#fafnir)) — never talked to directly. Each `set`
+claims a new, immutable version rather than overwriting the last one; `get` defaults to the latest
+version, `--version N` reads a specific one; `delete` soft-deletes by default (every version stays
+recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
+key and re-encrypts every existing secret under it, cluster-wide.
 
 The `role`/`rolebinding`/`account` verbs manage RBAC — see
 [Authentication and authorization](../architecture/authn-authz.md). `--permission` may repeat (a

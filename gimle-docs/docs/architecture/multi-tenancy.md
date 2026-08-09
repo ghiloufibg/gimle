@@ -32,20 +32,43 @@ codebase does unprompted. Instead, it marks the offending deployment's status as
 warning — a human operator resolves an over-quota tenant explicitly, the reconciler only surfaces
 the problem.
 
-## Tenant-scoped config, and encryption
+## Tenant-scoped config
 
-Config entries (`gimle set config <tenantId> <key> <value> [--encrypted]`, see
-[CLI reference](../reference/cli-reference.md)) are scoped to a tenant. An encrypted entry is
-protected with real cryptography, not a placeholder:
+Plain config entries (`gimle set config <tenantId> <key> <value>`, see
+[CLI reference](../reference/cli-reference.md)) are scoped to a tenant and served directly by
+`gimle-controlplane`'s own `/config/*` endpoints — no crypto boundary, since a plain entry never
+needed one. `encrypted == true` is no longer a variant of this same entry: an entry needing crypto
+is a **secret**, a distinct resource kind (`ResourceKind.SECRET` vs. `ResourceKind.CONFIG`), served
+by a distinct process, covered next.
 
-- **`SecretCipher`** — AES-256-GCM via the JDK's own `Cipher`/`SecretKeySpec`, no external crypto
-  library (the same "prefer what the JDK already provides" posture as AppCDS/JFR/`ModuleLayer`
-  elsewhere in this codebase). Output is `iv || ciphertext-with-tag`, self-contained so a single
-  `byte[]` round-trips through decryption without the caller tracking the IV separately.
-- **`KeyFileManager`** — loads the control plane's AES-256 master key from a key file, generating
-  one on first run if absent. A platform-generated local key file, not an external KMS dependency —
-  consistent with the same MVP-first/YAGNI posture the rest of this codebase applies. File
-  permissions are restricted to owner-read-only wherever the filesystem supports POSIX permissions
-  (every real deployment target); on a filesystem that doesn't (Windows, local development only),
-  the key is still written but the restriction is skipped with a logged warning rather than a hard
-  failure.
+## Secrets
+
+Secret material is owned entirely by **Fafnir** (`gimle-fafnir`), a dedicated process extracted out
+of the control plane — see [Node topology](./node-topology.md#fafnir) for where it sits in the
+cluster. `gimle-controlplane` performs no cryptography itself: it proxies `/secrets/*` calls to
+Fafnir over mTLS, forwarding the calling principal's identity as an internal claim, but Fafnir
+still authorizes every request independently against RBAC data it reads itself — a compromised or
+buggy control-plane replica that forwarded an unauthorized request is still caught there (genuine
+defense-in-depth, not a decision Fafnir merely re-derives from the proxy's own conclusion).
+
+- **`SecretCipher`** (`gimle-fafnir`) — AES-256-GCM via the JDK's own `Cipher`/`SecretKeySpec`, no
+  external crypto library (the same "prefer what the JDK already provides" posture as AppCDS/JFR/
+  `ModuleLayer` elsewhere in this codebase). Output is `version(1) || keyId(1) || iv(12) ||
+  ciphertext-with-tag`: `keyId` lets decryption pick the right key out of the key ring after a
+  rotation, without a caller having to track which key encrypted which blob separately.
+- **`KeyFileManager`**/**`KeyRing`** (`gimle-fafnir`) — loads Fafnir's own AES-256 master key ring
+  from a key file, generating one on first run if absent. A platform-generated local key file, not
+  an external KMS dependency — consistent with the same MVP-first/YAGNI posture the rest of this
+  codebase applies. File permissions are restricted to owner-read-only wherever the filesystem
+  supports POSIX permissions (every real deployment target); on a filesystem that doesn't (Windows,
+  local development only), the key is still written but the restriction is skipped with a logged
+  warning rather than a hard failure. `POST /secrets/rotate-key` generates a new active key and
+  re-encrypts every existing secret under it; old keys are kept, never deleted, so any entry the
+  rotation walk hasn't reached yet still decrypts correctly under its original key.
+- **Versioning** — every write claims a new, immutable version rather than overwriting the last one
+  (`gimle secret set`/`GET .../versions`); `gimle secret get` defaults to the latest version,
+  `--version N` reads a specific historical one. `gimle secret delete` soft-deletes by default
+  (every version stays recoverable) — `--destroy` hard-deletes irreversibly. This versioning lives
+  entirely inside Fafnir as a synthetic key-naming convention (`key@N` for each immutable version,
+  `key@meta` for the mutable current-version pointer) layered over the same underlying config-entry
+  store `/config/*` uses — no separate store schema for it.
