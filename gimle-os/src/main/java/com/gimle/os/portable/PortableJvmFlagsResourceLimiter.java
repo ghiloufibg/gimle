@@ -2,7 +2,6 @@ package com.gimle.os.portable;
 
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
-import com.gimle.core.module.ResourceUsage;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import java.util.List;
@@ -33,18 +32,6 @@ public final class PortableJvmFlagsResourceLimiter implements ResourceLimiter {
     long memoryBytes = limit.memoryBytes();
     int activeProcessors = (int) Math.max(1, Math.ceilDiv(limit.cpuMillicores(), 1000L));
     return List.of("-Xmx" + memoryBytes, "-XX:ActiveProcessorCount=" + activeProcessors);
-  }
-
-  /**
-   * This limiter has no local process to introspect — the agent and the worker are separate JVMs,
-   * and there is no live view into a worker's actual memory/CPU without the worker self-reporting
-   * over the control channel. Always returns a zeroed reading; real usage tracking comes from the
-   * worker's own {@code MetricsReport} messages, aggregated by the agent's capacity tracker, not
-   * through this method.
-   */
-  @Override
-  public ResourceUsage currentUsage(ResourceLimitHandle handle) {
-    return new ResourceUsage(0, 0);
   }
 
   @Override

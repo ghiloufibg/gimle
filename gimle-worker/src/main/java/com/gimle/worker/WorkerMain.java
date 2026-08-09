@@ -203,11 +203,11 @@ public final class WorkerMain {
    * java.lang.management} APIs -- no cgroup reads, no FFM, identical on Linux/macOS/Windows,
    * matching {@code PortableJvmFlagsResourceLimiter}'s own portability bar -- once per {@link
    * #METRICS_REPORT_INTERVAL}, against every module currently ACTIVE in this worker. One JVM-wide
-   * figure reported per module rather than a true per-module breakdown: correct as long as this
-   * worker hosts at most one module (today's reality -- Tier 1 density packing isn't implemented
-   * anywhere in this codebase yet), a reasonable approximation once it is. Feeds {@code
-   * AutoscaleReconciler}'s CPU-utilization math, which previously always saw zero since nothing on
-   * this side ever sent a {@code MetricsReport} at all.
+   * figure reported per module rather than a true per-module breakdown: a reasonable approximation
+   * under Tier 1 density packing (several modules genuinely sharing this worker JVM, implemented
+   * since P1-5), not just a placeholder for a since-closed gap. Feeds {@code AutoscaleReconciler}'s
+   * CPU-utilization math, which previously always saw zero since nothing on this side ever sent a
+   * {@code MetricsReport} at all.
    *
    * <p>Request/error rate comes from {@code workerMetrics}' cumulative counters, diffed against the
    * previous tick's reading and divided by the interval -- {@code WorkerMetrics} itself only

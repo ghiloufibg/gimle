@@ -2,7 +2,6 @@ package com.gimle.os;
 
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
-import com.gimle.core.module.ResourceUsage;
 import java.util.List;
 
 /**
@@ -20,8 +19,6 @@ public interface ResourceLimiter {
   ResourceLimitHandle prepare(String workerId, ResourceSpec limit);
 
   List<String> jvmFlags(ResourceLimitHandle handle);
-
-  ResourceUsage currentUsage(ResourceLimitHandle handle);
 
   void release(ResourceLimitHandle handle);
 }

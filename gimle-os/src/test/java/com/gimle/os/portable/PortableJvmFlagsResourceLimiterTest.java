@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
-import com.gimle.core.module.ResourceUsage;
 import com.gimle.os.ResourceLimitHandle;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -57,14 +56,6 @@ class PortableJvmFlagsResourceLimiterTest {
     // exactly 2000m -> 2 processors.
     ResourceLimitHandle twoCores = limiter.prepare("worker-1", new ResourceSpec("128Mi", "2000m"));
     assertTrue(limiter.jvmFlags(twoCores).contains("-XX:ActiveProcessorCount=2"));
-  }
-
-  @Test
-  void current_usage_is_a_documented_zero_reading() {
-    // This limiter can't introspect a separate worker process locally; real usage comes from
-    // the worker's own MetricsReport over the control channel, not this method.
-    ResourceLimitHandle handle = limiter.prepare("worker-1", new ResourceSpec("128Mi", "250m"));
-    assertEquals(new ResourceUsage(0, 0), limiter.currentUsage(handle));
   }
 
   @Test
