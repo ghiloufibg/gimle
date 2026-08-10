@@ -205,6 +205,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/deployments", this::handleDeploymentsList);
     target.createContext("/metrics", this::handleMetrics);
     target.createContext("/events", this::handleEvents);
+    target.createContext("/audit", this::handleAudit);
     target.createContext("/nodes/", this::handleNode);
     target.createContext("/nodes", this::handleNodesList);
     target.createContext("/tenants/", this::handleTenant);
@@ -857,6 +858,63 @@ public final class ApiServer implements AutoCloseable {
     map.put("kind", event.kind().name());
     map.put("message", event.message());
     event.causeSummary().ifPresent(summary -> map.put("causeSummary", summary));
+    map.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
+    return map;
+  }
+
+  /**
+   * {@code GET /audit[?principal=&resource=&tenant=&since=&limit=]} -- the read side of the
+   * cross-resource audit trail {@link #requireAuthorized} writes into (see {@code
+   * OBSERVABILITY_AUDIT_DESIGN.md}'s Part A). Gated on {@link ResourceKind#AUDIT}, the same
+   * "reading the trail is itself an access-controlled action" framing already applied to {@code
+   * ROLE}/{@code ROLE_BINDING}/{@code ACCOUNT} -- every filter is optional and independently
+   * combinable, matching {@link com.gimle.mimir.store.StoreReader#listAuditEvents}'s own shape.
+   */
+  private void handleAudit(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.AUDIT, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, String> query = parseQuery(exchange);
+      Optional<String> principal = Optional.ofNullable(query.get("principal"));
+      Optional<String> resource = Optional.ofNullable(query.get("resource"));
+      Optional<String> tenant = Optional.ofNullable(query.get("tenant"));
+      Optional<Long> since = Optional.ofNullable(query.get("since")).map(Long::parseLong);
+      int limit =
+          Optional.ofNullable(query.get("limit")).map(Integer::parseInt).orElse(Integer.MAX_VALUE);
+
+      List<Map<String, Object>> events = new ArrayList<>();
+      for (AuditEvent event : storeClient.listAuditEvents(principal, resource, tenant, since)) {
+        if (events.size() >= limit) {
+          break;
+        }
+        events.add(auditEventToJson(event));
+      }
+      respondJson(exchange, 200, events);
+    } catch (NumberFormatException e) {
+      respondQuietly(exchange, 400, "since/limit must be numeric");
+    } catch (IOException | RuntimeException e) {
+      log.warn("audit request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static Map<String, Object> auditEventToJson(AuditEvent event) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("id", event.id());
+    map.put("principal", event.principal());
+    map.put("groups", List.copyOf(event.groups()));
+    map.put("resourceKind", event.resourceKind());
+    map.put("verb", event.verb());
+    event.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
+    event.targetId().ifPresent(targetId -> map.put("targetId", targetId));
+    map.put("allowed", event.allowed());
     map.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
     return map;
   }

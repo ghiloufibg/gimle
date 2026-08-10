@@ -118,6 +118,7 @@ public final class GimleCli {
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
       case "events" -> handleEvents(rest, client, output, out);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
+      case "audit" -> new AuditCommand(client, output, out).run(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -239,6 +240,8 @@ public final class GimleCli {
           secret delete <tenantId> <key> [--destroy]
           secret versions <tenantId> <key>
           secret rotate-key
+          audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
+                     [--since <epochMillis>] [--limit N]
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
           get roles [name]
           set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]

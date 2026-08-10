@@ -298,6 +298,49 @@ class GimleCliTest {
     assertEquals(2L, second.get("activeKeyId"));
   }
 
+  /**
+   * This suite runs {@code ApiServer} in plaintext mode (no TLS setup anywhere in {@link
+   * #startServer}), so {@code requireAuthorized} short-circuits to {@code true} before ever
+   * reaching the audit-emission code (see {@code ApiServer.requireAuthorized}'s own javadoc) --
+   * these tests exercise the CLI command's own flag-parsing/query-string/output wiring against the
+   * real {@code GET /audit} endpoint, not the write-then-record semantics themselves (already
+   * covered against real mTLS by {@code ApiServerAuthzTest}/{@code FafnirSecretsAuthzTest}).
+   */
+  @Test
+  void audit_list_with_no_filters_succeeds_and_is_empty_in_plaintext_mode() throws Exception {
+    run("secret", "set", "acme", "db-password", "--value", "hunter2");
+
+    outBuffer.reset();
+    int exit = run("audit", "list");
+    assertEquals(0, exit, stderr());
+  }
+
+  @Test
+  void audit_list_accepts_every_filter_flag_without_a_malformed_request() throws Exception {
+    int exit =
+        run(
+            "audit",
+            "list",
+            "--principal",
+            "alice",
+            "--resource",
+            "DEPLOYMENT",
+            "--tenant",
+            "acme",
+            "--since",
+            "0",
+            "--limit",
+            "10");
+    assertEquals(0, exit, stderr());
+  }
+
+  @Test
+  void audit_command_without_the_list_verb_prints_usage_and_nonzero_exit() {
+    int exit = run("audit");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("usage: gimle audit list"));
+  }
+
   @Test
   void get_nodes_lists_a_registered_node() throws Exception {
     registerNode("node-a");
