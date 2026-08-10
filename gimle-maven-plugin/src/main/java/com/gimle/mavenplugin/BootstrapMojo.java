@@ -33,17 +33,17 @@ import org.eclipse.aether.repository.RemoteRepository;
  * every {@code gimle-examples} module once the cluster is ready, prints a summary, then blocks
  * until interrupted and tears the whole cluster back down.
  *
- * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs seven modules'
- * runtime classpaths (store, fafnir, control plane, agent, worker, pki, cli), not one, and
+ * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs eight modules'
+ * runtime classpaths (store, fafnir, muninn, control plane, agent, worker, pki, cli), not one, and
  * supervises four long-running processes together rather than one. So it self-filters to the root
  * aggregator project (artifactId {@code "gimle"}, guaranteed present regardless of {@code -pl}),
  * the same pattern {@link DocsMojo} already uses, instead of extending {@link AbstractGimleMojo}.
  *
  * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link FafnirMojo}/{@link
- * ControlPlaneMojo}/{@link AgentMojo} already use, deliberately: this goal and "those goals run by
- * hand in separate terminals" are meant to be the same cluster, not two topologies to keep in sync
- * -- which also means this goal isn't meant to run alongside an already-running manual session of
- * any of them.
+ * MuninnMojo}/{@link ControlPlaneMojo}/{@link AgentMojo} already use, deliberately: this goal and
+ * "those goals run by hand in separate terminals" are meant to be the same cluster, not two
+ * topologies to keep in sync -- which also means this goal isn't meant to run alongside an
+ * already-running manual session of any of them.
  *
  * <p>TLS-mode caveat, worth recording rather than hiding: {@code gimle-pki}'s {@code
  * PkiBootstrapMain} mints {@code controlplane}, {@code fafnir}, and {@code operator} leaf
@@ -67,6 +67,8 @@ public final class BootstrapMojo extends AbstractMojo {
   private static final int STORE_CLIENT_PORT = 9091;
   // Matches FafnirMojo's own gimle.fafnir.port default.
   private static final int FAFNIR_PORT = 9092;
+  // Matches MuninnMojo's own gimle.muninn.port default.
+  private static final int MUNINN_PORT = 9093;
   private static final int CONTROLPLANE_PORT = 8080;
   private static final String AGENT_NODE_ID = "node-1";
   private static final String GOSSIP_BIND_ADDRESS = "127.0.0.1:9090";
@@ -158,6 +160,16 @@ public final class BootstrapMojo extends AbstractMojo {
           () -> isPortOpen(STORE_CLIENT_PORT),
           readyTimeout,
           "store client port " + STORE_CLIENT_PORT + " should start listening");
+
+      // Before fafnir/control-plane, not after: Muninn only needs the store (its own read-only
+      // Authorizer check), so bringing it up this early means it's already reachable to receive
+      // shipped data from every process started after it, from as early in the cluster's lifecycle
+      // as possible.
+      spawned.add(spawnMuninn(base, tls, tlsDir, logsDir));
+      awaitTrue(
+          () -> isPortOpen(MUNINN_PORT),
+          readyTimeout,
+          "muninn port " + MUNINN_PORT + " should start listening");
 
       spawned.add(spawnFafnir(base, tls, tlsDir, logsDir));
       awaitTrue(
@@ -300,6 +312,32 @@ public final class BootstrapMojo extends AbstractMojo {
     return spawnLongRunning(command, logsDir.resolve("fafnir.log"));
   }
 
+  private Process spawnMuninn(Path base, boolean tls, Path tlsDir, Path logsDir)
+      throws MojoExecutionException {
+    List<String> command = new ArrayList<>();
+    command.add(GimleProcesses.javaExecutable());
+    if (tls) {
+      // Its own dedicated leaf identity, the same reasoning as Fafnir's above: Muninn's own
+      // independent Authorizer check on proxied reads needs to be attributable to its own
+      // certificate Subject, not a borrowed one.
+      addTlsFlags(
+          command,
+          tlsDir.resolve("muninn.crt"),
+          tlsDir.resolve("muninn.key"),
+          tlsDir.resolve("ca.crt"));
+    }
+    command.add("-cp");
+    command.add(resolveClasspath("gimle-muninn"));
+    command.add("com.gimle.muninn.MuninnMain");
+    command.add(String.valueOf(MUNINN_PORT));
+    command.add("--store-endpoints");
+    command.add("127.0.0.1:" + STORE_CLIENT_PORT);
+    command.add("--data-root");
+    command.add(base.resolve("muninn-data").toString());
+    getLog().info("starting muninn on port " + MUNINN_PORT);
+    return spawnLongRunning(command, logsDir.resolve("muninn.log"));
+  }
+
   private Process spawnControlPlane(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
     List<String> command = new ArrayList<>();
@@ -352,6 +390,9 @@ public final class BootstrapMojo extends AbstractMojo {
     // own javadoc on gimle.agent.fafnirEndpoint for why this is a system property rather than a
     // new positional arg.
     command.add("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + FAFNIR_PORT);
+    // Same reasoning, for shipping this agent's own + every supervised worker's logs to Muninn
+    // (design doc Part B) -- see AgentMain's own javadoc on gimle.agent.muninnEndpoint.
+    command.add("-Dgimle.agent.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-agent"));
     command.add("com.gimle.agent.AgentMain");
