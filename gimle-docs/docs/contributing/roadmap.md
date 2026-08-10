@@ -42,14 +42,13 @@ Instrumentation nobody consumes is decoration, not observability.
    every supervised worker's logs to Muninn; `ApiServer`'s `/logs/*` proxy falls back to Muninn's
    shipped history whenever a live agent genuinely can't be reached, so a gone node or instance's
    history is still searchable, not just what's currently on disk.
-5. ~~**Multi-metric autoscaling.**~~ **CPU-based autoscaling now works** — each worker JVM
-   self-reports its own process CPU load and heap usage (portable `java.lang.management`, no
-   cgroups) to its agent every few seconds, which is what `AutoscaleReconciler`'s CPU-utilization
-   math actually reads; previously the field it read was always zero, since nothing on the worker
-   side ever sent it. Still open: folding request-rate/latency/queue-depth signals in alongside
-   CPU to match what this project's own goals for scaling describe. **Why it's worth building**:
-   reconciling several competing signals into one scaling decision is a small, self-contained
-   version of a genuinely hard scheduling problem.
+5. ~~**Multi-metric autoscaling.**~~ **Done** — each worker JVM self-reports its own process CPU
+   load and heap usage (portable `java.lang.management`, no cgroups) to its agent every few
+   seconds, which is what `AutoscaleReconciler`'s CPU-utilization math reads; `AutoscalePolicy` now
+   also accepts optional request-rate, error-rate, and queue-depth targets, each folded in
+   alongside CPU as an independently-computed candidate replica count, with the highest one
+   ("worst signal wins," matching Kubernetes' own HPA) driving the scaling decision — see
+   [Control plane](../architecture/control-plane.md#reconcilers).
 
 ## Priority 3: workload diversity
 

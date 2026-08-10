@@ -57,3 +57,35 @@ entirely — proof those four are genuinely optional, not just under-documented.
 
 See [Writing a module manifest](../tutorials/writing-a-module-manifest.md) for a guided walkthrough
 building one of these up from scratch.
+
+## Deployment manifest: `autoscale`
+
+This one field lives on a different file — the deployment manifest (`deployment.yaml`, e.g.
+`gimle apply -f deployment.yaml`), not `gimle-module.yaml` above — but is documented here since it's
+the one part of that file's schema with enough shape to be worth a reference table. Grounded
+directly in `DeploymentManifestParser.parseAutoscale`; omit the whole `autoscale:` block for a
+deployment with a fixed `replicas` count (the common case) and none of this applies.
+
+```yaml
+autoscale:
+  minReplicas: 1
+  maxReplicas: 5
+  targetCpuUtilizationPercent: 50
+  targetRequestRatePerSecond: 20.0
+  targetErrorRatePercent: 5.0
+  targetQueueDepth: 10
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `minReplicas` / `maxReplicas` | yes | The effective replica count `AutoscaleReconciler` computes is always clamped to this range. |
+| `targetCpuUtilizationPercent` | yes | CPU signal, always evaluated: average observed CPU (`cpuMillicoresUsed` ÷ the module's own `resources.request.cpu`) against this target. |
+| `targetRequestRatePerSecond` | no | Per-instance requests/sec target. Omit and this signal is never evaluated — an existing CPU-only policy scales exactly as before. |
+| `targetErrorRatePercent` | no | Target error rate as a percentage of that instance's own request volume (errors/sec ÷ requests/sec × 100), not a raw errors/sec count. |
+| `targetQueueDepth` | no | Per-instance queue depth target. |
+
+Each configured signal (CPU always, the other three only when present) independently proposes an
+ideal replica count from the same averaged, ready-instance observations; the highest one drives the
+scaling decision — see [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers)
+for the full "worst signal wins" mechanics. All three optional targets must be positive if present,
+same as `targetCpuUtilizationPercent`.

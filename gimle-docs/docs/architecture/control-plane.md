@@ -146,6 +146,17 @@ actions:
 - `HealthReconciler`
 - `QuotaReconciler`
 
+`AutoscaleReconciler` folds up to four independently-optional signals into one scaling decision:
+CPU utilization (always evaluated), plus request rate, error rate, and queue depth, each evaluated
+only when its own `AutoscalePolicy` target is configured — an existing CPU-only policy scales
+exactly as it always has. Each configured signal proposes its own ideal replica count from the same
+ready-instance observations `HealthReconciler` already reads; the highest one wins ("worst signal
+wins," the same approach Kubernetes' own HPA takes across multiple metrics, rather than blending
+differently-shaped signals into one score), then feeds into the existing
+`[minReplicas, maxReplicas]` clamp and one-replica-per-tick damping unchanged. Error rate is
+evaluated as a percentage of that instance's own request volume (errors/sec ÷ requests/sec), not a
+raw errors/sec count.
+
 :::note[Level-triggered, not edge-triggered]
 
 Every reconciler here must converge from **any** starting state, including after missing every
