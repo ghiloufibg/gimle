@@ -51,6 +51,31 @@ still authorizes every request independently against RBAC data it reads itself �
 buggy control-plane replica that forwarded an unauthorized request is still caught there (genuine
 defense-in-depth, not a decision Fafnir merely re-derives from the proxy's own conclusion).
 
+### Why a dedicated service
+
+The extraction wasn't a response to a crypto weakness — `SecretCipher` already did real
+AES-256-GCM with key rotation before Fafnir existed. It closed five architectural/operational gaps
+instead:
+
+1. **No dedicated service.** `SecretCipher`/`KeyFileManager`/`KeyRing` were `gimle-controlplane`
+   implementation details; nothing named "secrets" existed as its own thing anywhere in the system.
+2. **Multi-replica control planes couldn't share secrets.** Each replica loaded its own local key
+   file with nothing provisioning it identically across replicas — a live bug, not a hypothetical:
+   a multi-replica smoke test spawned each control-plane replica with a *distinct* key file, so one
+   replica's ciphertext couldn't be opened by a sibling.
+3. **Full-fidelity plaintext exposure on every list call.** `GET /config/{tenantId}` decrypted and
+   returned every secret in a tenant in one response — no `list` (metadata-only) vs. `get`
+   (full-value) distinction the way Kubernetes RBAC or `vault kv list`/`get` split it.
+4. **No versioning, no audit trail, no single-key read, no CLI surface.** Overwriting a key
+   destroyed the old value permanently, and `gimle-cli`'s `config` command had no dedicated
+   `secret` verb and no way to trigger key rotation at all.
+5. **Module-facing consumption was push-only and undesigned.** Modules received secrets via
+   `ModuleContext.config(...)`, populated by the agent pushing a decrypted value at deploy time —
+   workable, but incidental: nobody had designed it as "the Gimlé secret-consumption pattern," it
+   was just how generic config delivery happened to also carry secrets.
+
+The rest of this section describes how Fafnir closes each of these.
+
 - **`SecretCipher`** (`gimle-fafnir`) — AES-256-GCM via the JDK's own `Cipher`/`SecretKeySpec`, no
   external crypto library (the same "prefer what the JDK already provides" posture as AppCDS/JFR/
   `ModuleLayer` elsewhere in this codebase). Output is `version(1) || keyId(1) || iv(12) ||
