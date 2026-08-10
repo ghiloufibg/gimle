@@ -173,6 +173,31 @@ re-diagnosed every time:
   (`Flakes: 1`) and the build did not fail. Not re-run further in isolation since it never actually
   blocked anything; noted here per this doc's own standing convention rather than left silent.
 
+### `SystemLogCaptureTest#system_log_capture_survives_a_respawn` -- a second, deterministic failure mode
+
+- Observed: 2026-08-10, while adding `PrettyLogEncoder`/`ConsoleLogEncoder` (a new, opt-in
+  human-readable console log format alongside the existing JSON one) on `secrets-vault-implementation`.
+  This test is already in the standing exclusion list above, but every prior entry attributes its
+  flakiness to timing (process-respawn wait windows); this run surfaced a second, unrelated, and
+  fully deterministic cause worth recording separately.
+- Failure: the test asserts every SYSTEM-capture line contains `"plain text banner"` (the fixture's
+  own known-good output), but this sandbox's JVM launcher itself also emits a `Picked up
+  JAVA_TOOL_OPTIONS: ...` line to stdout before any Java `main()` runs (visible at the top of every
+  single `mvn`/`java` invocation's output in this sandbox, including every command in this session's
+  own transcript) -- a second, non-JSON line the same SYSTEM-capture mechanism correctly captures,
+  which the test's own assertion loop doesn't expect and therefore fails on.
+- Ruled out as a regression from the new encoder: `PlainStdoutCrashDriver` (the fixture this test
+  spawns) writes its banner line via plain `System.out.println`, never touching SLF4J/Logback at
+  all -- the new encoder classes have no code path this test's fixture ever calls, confirmed by
+  reading the fixture directly rather than assuming.
+- Reproduced deterministically (not intermittently) on two consecutive isolated runs
+  (`-Dtest='!LogRotationTest'` scoped to `gimle-agent` only) -- both failed with the identical
+  `JAVA_TOOL_OPTIONS` line, not merely "sometimes." That determinism is itself sandbox-specific
+  (this environment always sets `JAVA_TOOL_OPTIONS`, matching its own proxy/truststore
+  configuration described at the top of this session's system prompt), so a real terminal/CI
+  environment without that variable set would likely never hit this failure mode at all -- the
+  existing exclusion already covers it either way.
+
 ## Process
 
 When a test fails that looks unrelated to the diff being verified: re-run it in isolation

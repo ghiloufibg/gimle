@@ -5,12 +5,14 @@
   its own logback.xml.
 -->
 <configuration>
-  <!-- JSON, not the plain-text pattern this used to be (log-explorer-design.md §4): every
-       process's SYSTEM-capture fallback (WorkerProcessSupervisor.drainOutput) tells a structured
-       line apart from raw output by attempting to JSON-parse it, so console/stdout output has to
-       be JSON too, not just the file appenders GimleLogging attaches programmatically. -->
+  <!-- ConsoleLogEncoder picks JSON or colored plain-text per process at startup, not here: see
+       that class's own javadoc for why JSON has to stay the auto-detected default whenever this
+       process's stdout is piped or redirected (worker subprocesses drained live by
+       WorkerProcessSupervisor.drainOutput, or any process gimle-maven-plugin spawns) and pretty
+       only kicks in for a directly-run process on a real interactive terminal. Independent of the
+       file appenders GimleLogging attaches programmatically, which always stay JSON. -->
   <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder class="com.gimle.core.logging.JsonLogEncoder"/>
+    <encoder class="com.gimle.core.logging.ConsoleLogEncoder"/>
   </appender>
 
   <root level="INFO">

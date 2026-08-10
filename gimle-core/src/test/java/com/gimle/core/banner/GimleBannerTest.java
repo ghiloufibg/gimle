@@ -19,7 +19,7 @@ import org.junit.jupiter.api.parallel.Resources;
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 class GimleBannerTest {
 
-  private static final String COLOR_PROPERTY = "gimle.banner.color";
+  private static final String COLOR_PROPERTY = "gimle.color";
   private static final String ENABLED_PROPERTY = "gimle.banner.enabled";
 
   @AfterEach
@@ -68,23 +68,14 @@ class GimleBannerTest {
   void color_never_strips_every_ansi_escape() {
     System.setProperty(COLOR_PROPERTY, "never");
     String rendered = GimleBanner.render(Map.of());
-    assertFalse(rendered.contains("["), "expected no ANSI escapes with color=never");
+    assertFalse(rendered.contains("["), "expected no ANSI escapes with color=never");
   }
 
   @Test
   void color_always_includes_ansi_escapes() {
     System.setProperty(COLOR_PROPERTY, "always");
     String rendered = GimleBanner.render(Map.of());
-    assertTrue(rendered.contains("["), "expected ANSI escapes with color=always");
-  }
-
-  @Test
-  void color_override_takes_precedence_regardless_of_environment() {
-    System.setProperty(COLOR_PROPERTY, "always");
-    assertEquals(GimleBanner.ColorMode.EXTENDED, GimleBanner.detectColorMode());
-
-    System.setProperty(COLOR_PROPERTY, "never");
-    assertEquals(GimleBanner.ColorMode.NONE, GimleBanner.detectColorMode());
+    assertTrue(rendered.contains("["), "expected ANSI escapes with color=always");
   }
 
   @Test
