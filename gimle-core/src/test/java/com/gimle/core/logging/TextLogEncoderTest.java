@@ -20,11 +20,11 @@ import org.slf4j.MDC;
 // any other class holding the same lock, under class-level parallel execution (root pom.xml) --
 // the same convention JsonLogEncoderTest already establishes.
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
-class PrettyLogEncoderTest {
+class TextLogEncoderTest {
 
   private static final String COLOR_PROPERTY = "gimle.color";
 
-  private final PrettyLogEncoder encoder = new PrettyLogEncoder();
+  private final TextLogEncoder encoder = new TextLogEncoder();
   // The real, statically-bound LoggerContext, not `new LoggerContext()`: LoggingEvent's MDC
   // capture needs the MDCAdapter that SLF4J's static binder wired up, which a fresh unbound
   // context doesn't have.

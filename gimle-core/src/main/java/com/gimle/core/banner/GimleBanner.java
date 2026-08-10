@@ -25,8 +25,8 @@ import java.util.Map;
  *       for the version.
  *   <li>{@code ${C_GOLD}} {@code ${C_GOLD_B}} {@code ${C_MINT}} {@code ${C_SLATE}} {@code
  *       ${C_RESET}} -- resolved via {@link AnsiPalette}, the same palette {@code
- *       com.gimle.core.logging.PrettyLogEncoder} colors every ongoing log line with, or to {@code
- *       ""} when colors are off.
+ *       com.gimle.core.logging.TextLogEncoder} colors every ongoing log line with, or to {@code ""}
+ *       when colors are off.
  * </ul>
  *
  * <p>Usage:

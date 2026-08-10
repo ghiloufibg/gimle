@@ -976,6 +976,12 @@ public final class AgentMain {
     // would just be log noise at scale, so this agent unconditionally suppresses it for every
     // worker it spawns. WorkerMain still prints when run directly (its own default stays enabled).
     baseCommand.add("-Dgimle.banner.enabled=false");
+    // ConsoleLogEncoder defaults to colored text now (see its own javadoc), which is exactly wrong
+    // for a piped subprocess: WorkerProcessSupervisor.drainOutput JSON-sniffs this worker's raw
+    // stdout to tell a structured line (already captured by its own PlatformFileAppender, so safe
+    // to skip) apart from unstructured output worth capturing separately. Forced explicitly here
+    // rather than left to a tty-detection guess, so the sniffing stays correct by construction.
+    baseCommand.add("-Dgimle.log.console=json");
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);

@@ -197,6 +197,34 @@ class AgentMainTest {
   }
 
   @Test
+  void the_spawned_command_always_forces_json_console_logging() {
+    // ConsoleLogEncoder now defaults to colored text, which would break
+    // WorkerProcessSupervisor's stdout JSON-sniffing if left on a worker's own piped stdout --
+    // this flag is what keeps that sniffing correct by construction rather than by guesswork.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+
+    List<String> command =
+        AgentMain.buildWorkerCommand(
+            "java",
+            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+            resourceLimiter,
+            handle,
+            Path.of("gimle-logs", "workers", "hello-deployment#0"),
+            "node-a",
+            assigned);
+
+    assertTrue(
+        command.contains("-Dgimle.log.console=json"),
+        "expected the worker's console output to be forced to JSON; command=" + command);
+  }
+
+  @Test
   void observation_json_reports_the_instances_real_self_reported_resource_usage() {
     // Regression test: cpuMillicoresUsed/memoryBytesUsed were previously never populated at all,
     // so AutoscaleReconciler's CPU-utilization math always saw zero. SupervisedInstance's

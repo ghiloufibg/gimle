@@ -5,12 +5,13 @@
   its own logback.xml.
 -->
 <configuration>
-  <!-- ConsoleLogEncoder picks JSON or colored plain-text per process at startup, not here: see
-       that class's own javadoc for why JSON has to stay the auto-detected default whenever this
-       process's stdout is piped or redirected (worker subprocesses drained live by
-       WorkerProcessSupervisor.drainOutput, or any process gimle-maven-plugin spawns) and pretty
-       only kicks in for a directly-run process on a real interactive terminal. Independent of the
-       file appenders GimleLogging attaches programmatically, which always stay JSON. -->
+  <!-- ConsoleLogEncoder picks JSON or colored text per process at startup, not here: see that
+       class's own javadoc. Default is colored text, unconditionally -- every process already
+       writes a complete, unconditional JSON trail to its own file via the PlatformFileAppender
+       GimleLogging attaches programmatically (independent of this appender entirely), so nothing
+       structured depends on CONSOLE's own format. The one exception is a worker spawned as a
+       supervised subprocess, which AgentMain forces back to JSON with an explicit
+       -Dgimle.log.console=json rather than relying on this appender to guess. -->
   <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
     <encoder class="com.gimle.core.logging.ConsoleLogEncoder"/>
   </appender>

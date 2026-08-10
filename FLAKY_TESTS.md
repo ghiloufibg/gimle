@@ -175,7 +175,7 @@ re-diagnosed every time:
 
 ### `SystemLogCaptureTest#system_log_capture_survives_a_respawn` -- a second, deterministic failure mode
 
-- Observed: 2026-08-10, while adding `PrettyLogEncoder`/`ConsoleLogEncoder` (a new, opt-in
+- Observed: 2026-08-10, while adding `TextLogEncoder`/`ConsoleLogEncoder` (a new, opt-in
   human-readable console log format alongside the existing JSON one) on `secrets-vault-implementation`.
   This test is already in the standing exclusion list above, but every prior entry attributes its
   flakiness to timing (process-respawn wait windows); this run surfaced a second, unrelated, and

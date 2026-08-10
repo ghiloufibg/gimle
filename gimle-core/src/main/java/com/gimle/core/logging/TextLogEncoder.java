@@ -28,7 +28,7 @@ import java.util.Map;
  * {@code gimle-instance-reader-*}, {@code gimle-fafnir-cert-rotation-tick}), not generic {@code
  * pool-1-thread-3}-style noise.
  */
-public final class PrettyLogEncoder extends EncoderBase<ILoggingEvent> {
+public final class TextLogEncoder extends EncoderBase<ILoggingEvent> {
 
   private static final DateTimeFormatter TIME_FORMAT =
       DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
