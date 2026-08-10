@@ -32,6 +32,26 @@ client port.
 mvn gimle:store -Dgimle.store.clientPort=9091
 ```
 
+## `mvn gimle:muninn`
+
+Launches a real `MuninnMain` process — the logs/metrics/traces sink as its own process (see [Node
+topology](../architecture/node-topology.md#muninn)), talking to a `gimle-mimir` store cluster over
+the network for its own read-only `Authorizer` check, the same way `gimle:fafnir`'s process does.
+Run this *before* any process that wants to ship to it — its own default `storeEndpoints` already
+points at `mvn gimle:store`'s default client port.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.muninn.port` | `9093` | Ingest/read HTTP port. |
+| `gimle.muninn.dataRoot` | `${project.build.directory}/gimle-muninn-data` | Where shipped logs/metrics/traces persist to disk, day-bucketed. |
+| `gimle.muninn.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
+| `gimle.muninn.csrEndpoint` | *(unset)* | `host:port` of a reachable `ApiServer` to submit this replica's own certificate-rotation CSRs to — only meaningful in TLS mode. |
+| `gimle.muninn.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+
+```bash
+mvn gimle:muninn -Dgimle.muninn.port=9093
+```
+
 ## `mvn gimle:controlplane`
 
 Launches a real `ControlPlaneMain` process, talking to a `gimle-mimir` store cluster over the

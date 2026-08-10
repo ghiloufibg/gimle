@@ -29,17 +29,19 @@ Nothing else matters until this exists.
 
 Instrumentation nobody consumes is decoration, not observability.
 
-3. **Real metrics/tracing export.** `WorkerMetrics` (see
-   [Observability](../architecture/observability.md)) now records every real inbound call
-   (`FabricServer`) and each worker's self-reported CPU/memory usage, not just synthetic test
-   traffic, but still defaults to an in-memory `SimpleMeterRegistry` that nothing external reads;
-   `GimleTracing` defaults to a `LoggingSpanExporter` — spans are real and correctly parented, just
-   logged rather than shipped anywhere. **Why it's worth building**: the gap between "instrumented"
-   and "observable" is exactly the gap between a demo and an on-call-ready system.
-4. **Centralized log aggregation.** Logs live per-node on local disk today; the
-   [web console](../architecture/web-console.md) and CLI tail them live, but nothing searches a
-   history once a node or instance is gone. **Why it's worth building**: "logs on disk" stops
-   working somewhere between one machine and a hundred.
+3. ~~**Real metrics/tracing export.**~~ **Done** — see
+   [Observability](../architecture/observability.md) and [Node
+   topology](../architecture/node-topology.md#muninn). `gimle-controlplane`, `gimle-fafnir`, and
+   `gimle-mimir` each ship their own request/RPC metrics and traces to Muninn, a dedicated sink
+   process, via a periodic `MuninnShipper`/`MuninnSpanExporter` when a Muninn endpoint is
+   configured — readable back through `GET /metrics-history/*` and `GET /traces-history/*`. Still
+   open: `WorkerMetrics` itself stays local-registry-only (see Observability's own note on why
+   worker-tier shipping is a real, separate gap, not covered by this item).
+4. ~~**Centralized log aggregation.**~~ **Done** — see [Node
+   topology](../architecture/node-topology.md#muninn). `gimle-agent` ships its own platform log and
+   every supervised worker's logs to Muninn; `ApiServer`'s `/logs/*` proxy falls back to Muninn's
+   shipped history whenever a live agent genuinely can't be reached, so a gone node or instance's
+   history is still searchable, not just what's currently on disk.
 5. ~~**Multi-metric autoscaling.**~~ **CPU-based autoscaling now works** — each worker JVM
    self-reports its own process CPU load and heap usage (portable `java.lang.management`, no
    cgroups) to its agent every few seconds, which is what `AutoscaleReconciler`'s CPU-utilization

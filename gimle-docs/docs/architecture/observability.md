@@ -15,12 +15,10 @@ One Micrometer `MeterRegistry` per worker JVM, with every meter tagged by module
 (`Tags.of("module", ..., "version", ...)`) so per-module dashboards are a query away, not a
 separate registry per module. Tracks request rate/latency/error counts
 (`gimle.module.request.latency`/`.count`/`.errors`), thread counts, and metaspace footprint per
-module. Defaults to an in-memory `SimpleMeterRegistry` with no exporter wired up — the counters
-exist and are queryable today; which real exporter backend (Prometheus, OTLP, something else) a
-deployment wants is a separate, later decision, independent of the instrumentation itself.
-`FabricServer` records every real inbound call's latency/outcome here, not just synthetic test
-traffic. Separately, each worker JVM self-reports its own process CPU load and heap usage (portable
-`java.lang.management`, no cgroups) to its agent every few seconds, which is what feeds
+module. Defaults to an in-memory `SimpleMeterRegistry` — the counters exist and are queryable
+today. `FabricServer` records every real inbound call's latency/outcome here, not just synthetic
+test traffic. Separately, each worker JVM self-reports its own process CPU load and heap usage
+(portable `java.lang.management`, no cgroups) to its agent every few seconds, which is what feeds
 `AutoscaleReconciler`'s CPU-utilization math with real, non-zero data. That same periodic report
 also diffs `WorkerMetrics`' cumulative request/error counters against the previous tick to compute
 real request-rate/error-rate figures (not just CPU/memory), plus each module's current
@@ -32,16 +30,36 @@ p99/latency-histogram data — `WorkerMetrics`' `Timer`s already record it, but 
 computation and shipping it off-worker is materially more plumbing than a counter delta and remains
 a future item.
 
+`gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir` each carry their own analogous per-process
+`MeterRegistry` (`ApiServerMetrics`/`FafnirMetrics`/`StoreMetrics` — request/RPC count, latency,
+error count, tagged by endpoint+verb or RPC kind), and ship it to Muninn (see
+[Node topology](./node-topology.md#muninn)) via a periodic `MuninnShipper` when a Muninn endpoint
+is configured, readable back through `GET /metrics-history/{processKind}/{processId}`. **Worker
+JVM metrics are explicitly not part of this**: `WorkerMetrics` above stays local-registry-only,
+shipped nowhere — only a worker's *logs* reach Muninn, relayed by its supervising node agent (see
+[Node topology](./node-topology.md#muninn)), not its metrics or traces. Extending metrics/trace
+shipping down to the worker tier itself is a real, acknowledged gap, not an oversight: the
+agent↔worker control channel would need a new message shape for a full `MeterRegistry` snapshot,
+materially more plumbing than the existing `ControlMessage.MetricsReport`'s few scalar fields.
+
 ## Tracing: `GimleTracing`
 
 Installs a process-wide OpenTelemetry `SdkTracerProvider` that `gimle-fabric`'s `FabricServer`/
 `FabricServiceRegistry` read via `GlobalOpenTelemetry` — so a trace started by a same-worker call
 stays attached across a same-machine or cross-machine hop too (see
-[Service fabric](./service-fabric.md)'s `TraceContext`). Defaults to a `LoggingSpanExporter`: spans
-are real and correctly parented today, just logged rather than shipped to a collector — same
-"instrumentation now, exporter later" posture as `WorkerMetrics`. Idempotent: a worker that's
-already installed a tracer provider (or a test that pre-configured one) is left alone rather than
-double-registered.
+[Service fabric](./service-fabric.md)'s `TraceContext`). `installDefault()` keeps installing a
+`LoggingSpanExporter`: spans are real and correctly parented, just logged rather than shipped to a
+collector. `install(SpanExporter)` generalizes this to an arbitrary exporter over a
+`BatchSpanProcessor` (a real network-bound exporter shouldn't block on every single span the way
+the default's `SimpleSpanProcessor` does); `installWithMuninnShipping(MuninnShipper)` is the common
+case, wrapping a `MuninnSpanExporter` that ships every batch to Muninn, readable back through `GET
+/traces-history/{processKind}/{processId}`. `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir`
+each install tracing this way — Muninn-backed when a Muninn endpoint is configured, falling back to
+the logging default otherwise — the same "genuine RPC-serving process" set that ships its own
+metrics. `gimle-agent` deliberately doesn't install tracing at all: its local log-tail surface
+isn't part of the fabric-call trace chain, so there's no span parent/child to attach to.
+Idempotent: a process that's already installed a tracer provider (or a test that pre-configured
+one) is left alone rather than double-registered.
 
 ## Per-module CPU and allocation: `ThreadNameJfrAttributor`
 

@@ -40,6 +40,11 @@ implementations that happen to agree.
 For a crashed instance, the Logs screen also lists any `hs_err_pid*.log` JVM crash dumps it left
 behind — the kind of file you'd otherwise have to know to go find on disk by hand.
 
+A gone node or instance's logs are still served transparently: `ApiServer`'s `/logs/*` proxy falls
+back to Muninn's own shipped history (see [Node topology](./node-topology.md#muninn)) whenever a
+live agent genuinely can't be reached, so the Logs screen keeps working with no console-side code
+change — the fallback is invisible from this screen's own point of view.
+
 ## Login
 
 See [Authentication and authorization](./authn-authz.md) for the full picture. The console

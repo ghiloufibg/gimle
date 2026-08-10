@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Node topology
 
-Five Java process roles run across a cluster — no other runtime, no containers, no sidecars:
+Six Java process roles run across a cluster — no other runtime, no containers, no sidecars:
 
 ```mermaid
 graph TD
@@ -18,19 +18,28 @@ graph TD
     CP["Control Plane<br/>(gimle-controlplane, N replicas)"]
     Store["Store<br/>(gimle-mimir, M replicas, Raft-replicated)"]
     Fafnir["Fafnir<br/>(gimle-fafnir, K replicas)"]
+    Muninn["Muninn<br/>(gimle-muninn, logs/metrics/traces sink)"]
     Agent -->|reports capacity/state, executes placement| CP
     Agent -->|fetches secret values directly, mTLS| Fafnir
     CP <-->|StoreRpc, TCP| Store
     CP -->|proxies /secrets/*, encrypt/decrypt/rotate-key, mTLS| Fafnir
     Fafnir <-->|StoreRpc, TCP| Store
+    Muninn <-->|StoreRpc, TCP, read-only| Store
     Worker1 -.->|health/metrics over a local control channel| Agent
     Worker2 -.->|health/metrics over a local control channel| Agent
+    Agent -.->|ships own + supervised workers' logs| Muninn
+    CP -.->|ships own request metrics/traces| Muninn
+    Fafnir -.->|ships own request metrics/traces| Muninn
+    Store -.->|ships own RPC metrics/traces| Muninn
+    CP -->|proxies /logs/*, /metrics-history/*, /traces-history/*| Muninn
 ```
 
 The control plane, the store, and Fafnir are three independently-scalable process kinds, not
 one — the same split Kubernetes draws between `kube-apiserver` and `etcd`, extended one step
 further for secret material specifically (see [Control plane](./control-plane.md)); `N`, `M`, and
-`K` above need not match.
+`K` above need not match. Muninn (below) is a fourth, similarly independent process kind — a
+unified sink every other process ships logs/metrics/traces to, rather than each owning its own
+export path.
 
 ## Node Agent
 
@@ -78,6 +87,34 @@ Fafnir over mTLS — not proxied through the control plane — authorized by the
 certificate identity and its current tenant assignments. Fafnir gets its own distinct certificate
 identity minted at cluster-bootstrap time, not a borrowed one, so every action it takes is
 attributable to its own certificate Subject in the audit log.
+
+## Muninn
+
+One or more stateless JVMs (`gimle-muninn`) — a unified sink for logs, metrics, and traces shipped
+from every other process, replacing what would otherwise be a separate exporter path per process
+kind. `gimle-agent` ships its own platform log plus every supervised worker's logs (workers have no
+outbound network identity of their own); `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir`
+each ship their own request metrics and traces directly, since none of the three has a supervising
+agent. Shipping is entirely optional and best-effort — a process with no Muninn endpoint configured
+behaves exactly as it did before Muninn existed (local log tailing, no metrics/traces export),
+never blocked or degraded by Muninn being unreachable.
+
+Storage is day-bucketed JSON-lines files under Muninn's own data root, keyed by node/instance for
+logs and by process kind + process ID for metrics and traces — deliberately not a new storage
+engine, just the same file-per-day shape `gimle-agent`'s own log rotation already uses, extended to
+a cluster-wide store. Muninn holds a read-only `StoreClient` against the same `gimle-mimir` cluster
+every other process talks to, and re-runs its own independent `Authorizer.authorize(...)` check on
+proxied reads rather than trusting an already-forwarded principal claim as proof by itself — the
+same defense-in-depth posture Fafnir established for `/secrets/*`.
+
+`gimle-controlplane`'s existing `/logs/*` proxy falls back to Muninn's shipped history whenever a
+live agent genuinely can't be reached (a gone node, an unreachable agent) instead of a bare
+404/502; `GET /metrics-history/*` and `GET /traces-history/*` are new, Muninn-only read surfaces
+with no live-process equivalent — a process's own metrics/traces only ever live in Muninn's shipped
+history, never served directly by the process itself the way logs can be. Muninn gets its own
+distinct certificate identity minted at cluster-bootstrap time, the same reasoning Fafnir's own
+identity has: every ingest/read decision it makes is attributable to its own certificate Subject,
+not a borrowed one.
 
 ## Multi-machine deployment
 
