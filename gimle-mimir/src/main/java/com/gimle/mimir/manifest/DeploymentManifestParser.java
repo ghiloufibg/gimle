@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -69,9 +71,20 @@ public final class DeploymentManifestParser {
     int minReplicas = requiredIntField(autoscale, "minReplicas");
     int maxReplicas = requiredIntField(autoscale, "maxReplicas");
     int targetCpuUtilizationPercent = requiredIntField(autoscale, "targetCpuUtilizationPercent");
+    OptionalDouble targetRequestRatePerSecond =
+        optionalDoubleField(autoscale, "targetRequestRatePerSecond");
+    OptionalDouble targetErrorRatePercent =
+        optionalDoubleField(autoscale, "targetErrorRatePercent");
+    OptionalInt targetQueueDepth = optionalIntField(autoscale, "targetQueueDepth");
     try {
       return Optional.of(
-          new AutoscalePolicy(minReplicas, maxReplicas, targetCpuUtilizationPercent));
+          new AutoscalePolicy(
+              minReplicas,
+              maxReplicas,
+              targetCpuUtilizationPercent,
+              targetRequestRatePerSecond,
+              targetErrorRatePercent,
+              targetQueueDepth));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
     }
@@ -113,6 +126,30 @@ public final class DeploymentManifestParser {
       throw new GimleManifestException("missing or non-numeric required field: autoscale." + key);
     }
     return number.intValue();
+  }
+
+  /** Unlike {@link #requiredIntField}, absence means "not evaluated" rather than an error. */
+  private static OptionalDouble optionalDoubleField(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (value == null) {
+      return OptionalDouble.empty();
+    }
+    if (!(value instanceof Number number)) {
+      throw new GimleManifestException("non-numeric field if present: autoscale." + key);
+    }
+    return OptionalDouble.of(number.doubleValue());
+  }
+
+  /** Unlike {@link #requiredIntField}, absence means "not evaluated" rather than an error. */
+  private static OptionalInt optionalIntField(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (value == null) {
+      return OptionalInt.empty();
+    }
+    if (!(value instanceof Number number)) {
+      throw new GimleManifestException("non-numeric field if present: autoscale." + key);
+    }
+    return OptionalInt.of(number.intValue());
   }
 
   private static ModuleId parseModuleId(Map<?, ?> module) {

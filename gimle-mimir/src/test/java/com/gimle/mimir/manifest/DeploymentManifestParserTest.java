@@ -263,4 +263,193 @@ class DeploymentManifestParserTest {
                       antiAffinity: yes-please
                     """)));
   }
+
+  @Test
+  void parses_a_cpu_only_autoscale_block_with_the_three_new_fields_absent() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(1, policy.minReplicas());
+    assertEquals(5, policy.maxReplicas());
+    assertEquals(50, policy.targetCpuUtilizationPercent());
+    assertTrue(policy.targetRequestRatePerSecond().isEmpty());
+    assertTrue(policy.targetErrorRatePercent().isEmpty());
+    assertTrue(policy.targetQueueDepth().isEmpty());
+  }
+
+  @Test
+  void parses_an_autoscale_block_with_all_six_fields_present() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                  targetRequestRatePerSecond: 10.5
+                  targetErrorRatePercent: 5
+                  targetQueueDepth: 20
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(10.5, policy.targetRequestRatePerSecond().orElseThrow());
+    assertEquals(5.0, policy.targetErrorRatePercent().orElseThrow());
+    assertEquals(20, policy.targetQueueDepth().orElseThrow());
+  }
+
+  @Test
+  void parses_an_autoscale_block_with_only_a_subset_of_the_new_fields() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                  targetQueueDepth: 20
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertTrue(policy.targetRequestRatePerSecond().isEmpty());
+    assertTrue(policy.targetErrorRatePercent().isEmpty());
+    assertEquals(20, policy.targetQueueDepth().orElseThrow());
+  }
+
+  @Test
+  void zero_target_request_rate_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      targetRequestRatePerSecond: 0
+                    """)));
+  }
+
+  @Test
+  void negative_target_error_rate_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      targetErrorRatePercent: -5
+                    """)));
+  }
+
+  @Test
+  void zero_target_queue_depth_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      targetQueueDepth: 0
+                    """)));
+  }
+
+  @Test
+  void non_numeric_target_request_rate_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      targetRequestRatePerSecond: not-a-number
+                    """)));
+  }
+
+  @Test
+  void non_numeric_target_queue_depth_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      targetQueueDepth: not-a-number
+                    """)));
+  }
 }

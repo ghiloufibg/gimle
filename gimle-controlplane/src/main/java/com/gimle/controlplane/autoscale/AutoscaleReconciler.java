@@ -15,20 +15,26 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.function.ToDoubleFunction;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Horizontal autoscaling: for every deployment carrying an {@link AutoscalePolicy}, computes
- * average observed CPU utilization ({@code cpuMillicoresUsed} &divide; the module descriptor's
- * {@code resourceRequest.cpuMillicores()}) across every currently-{@code ready} instance, and
- * writes an effective replica count clamped to {@code [minReplicas, maxReplicas]}, adjusted by
- * exactly one replica per tick toward the computed ideal rather than jumping straight there --
- * avoiding thrash on a single noisy sample, the same reasoning {@code RestartTracker}'s backoff
- * already applies to a different oscillation risk. {@link
- * com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in place of the
- * user-submitted {@code replicas} whenever a policy is present; this reconciler never touches
- * {@link com.gimle.mimir.store.InstanceAssignment}s itself.
+ * Horizontal autoscaling: for every deployment carrying an {@link AutoscalePolicy}, computes an
+ * ideal replica count per configured signal -- CPU utilization ({@code cpuMillicoresUsed} &divide;
+ * the module descriptor's {@code resourceRequest.cpuMillicores()}, always evaluated) plus request
+ * rate, error rate, and queue depth (each only when its own {@code AutoscalePolicy} target is
+ * configured), averaged across every currently-{@code ready} instance -- and takes the highest
+ * (worst) one as the basis for the effective replica count, the same "max wins across independently
+ * computed metrics" approach Kubernetes' own HPA uses rather than blending units together. The
+ * result is clamped to {@code [minReplicas, maxReplicas]} and adjusted by exactly one replica per
+ * tick toward it rather than jumping straight there -- avoiding thrash on a single noisy sample,
+ * the same reasoning {@code RestartTracker}'s backoff already applies to a different oscillation
+ * risk. {@link com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in
+ * place of the user-submitted {@code replicas} whenever a policy is present; this reconciler never
+ * touches {@link com.gimle.mimir.store.InstanceAssignment}s itself.
  */
 public final class AutoscaleReconciler {
 
@@ -83,16 +89,55 @@ public final class AutoscaleReconciler {
     }
 
     double averageUtilizationPercent =
-        readyObservations.stream()
-            .mapToDouble(obs -> (obs.cpuMillicoresUsed() * 100.0) / cpuRequestMillicores)
-            .average()
-            .orElse(0.0);
+        average(readyObservations, obs -> (obs.cpuMillicoresUsed() * 100.0) / cpuRequestMillicores);
+    int idealFromCpu =
+        computeIdeal(
+            currentEffective, averageUtilizationPercent, policy.targetCpuUtilizationPercent());
 
+    // Each of these three is present only when its own policy target is configured -- an existing
+    // CPU-only policy never evaluates them, matching pre-Part-C behavior exactly.
+    OptionalInt idealFromRequestRate =
+        policy.targetRequestRatePerSecond().isPresent()
+            ? OptionalInt.of(
+                computeIdeal(
+                    currentEffective,
+                    average(readyObservations, InstanceObservation::requestRatePerSecond),
+                    policy.targetRequestRatePerSecond().getAsDouble()))
+            : OptionalInt.empty();
+    // Error rate is evaluated as a percentage of that instance's own request volume (errors/sec
+    // divided by requests/sec), not a raw errors/sec count -- consistent with the policy field's
+    // own "Percent" name and the same per-instance-then-averaged shape CPU utilization already
+    // uses. An instance with zero request volume contributes 0% rather than dividing by zero.
+    OptionalInt idealFromErrorRate =
+        policy.targetErrorRatePercent().isPresent()
+            ? OptionalInt.of(
+                computeIdeal(
+                    currentEffective,
+                    average(readyObservations, AutoscaleReconciler::errorRatePercent),
+                    policy.targetErrorRatePercent().getAsDouble()))
+            : OptionalInt.empty();
+    OptionalInt idealFromQueueDepth =
+        policy.targetQueueDepth().isPresent()
+            ? OptionalInt.of(
+                computeIdeal(
+                    currentEffective,
+                    average(readyObservations, obs -> (double) obs.queueDepth()),
+                    policy.targetQueueDepth().getAsInt()))
+            : OptionalInt.empty();
+
+    // Worst signal wins: each configured metric proposes its own ideal replica count
+    // independently, and the highest one drives the decision -- the same approach Kubernetes' own
+    // HPA takes across multiple metrics, rather than blending differently-shaped signals together.
     int idealReplicas =
-        (int)
-            Math.ceil(
-                currentEffective
-                    * (averageUtilizationPercent / policy.targetCpuUtilizationPercent()));
+        Stream.of(
+                OptionalInt.of(idealFromCpu),
+                idealFromRequestRate,
+                idealFromErrorRate,
+                idealFromQueueDepth)
+            .filter(OptionalInt::isPresent)
+            .mapToInt(OptionalInt::getAsInt)
+            .max()
+            .orElse(currentEffective);
     int clampedIdeal = clamp(idealReplicas, policy);
 
     int nextEffective = currentEffective;
@@ -105,15 +150,36 @@ public final class AutoscaleReconciler {
 
     if (nextEffective != currentEffective) {
       log.info(
-          "deployment {}: average CPU utilization {}%, target {}%; adjusting effective replicas"
-              + " {} -> {}",
+          "deployment {}: ideal replicas by signal (cpu={}, requestRate={}, errorRate={},"
+              + " queueDepth={}); adjusting effective replicas {} -> {}",
           spec.name(),
-          averageUtilizationPercent,
-          policy.targetCpuUtilizationPercent(),
+          idealFromCpu,
+          idealFromRequestRate,
+          idealFromErrorRate,
+          idealFromQueueDepth,
           currentEffective,
           nextEffective);
     }
     putEffectiveReplicas(spec.name(), nextEffective);
+  }
+
+  private static double errorRatePercent(InstanceObservation obs) {
+    return obs.requestRatePerSecond() > 0
+        ? (obs.errorRatePerSecond() * 100.0) / obs.requestRatePerSecond()
+        : 0.0;
+  }
+
+  private static double average(
+      List<InstanceObservation> observations, ToDoubleFunction<InstanceObservation> signal) {
+    return observations.stream().mapToDouble(signal).average().orElse(0.0);
+  }
+
+  /**
+   * Shared by every signal: how many replicas would bring {@code observedAverage} to {@code
+   * target}.
+   */
+  private static int computeIdeal(int currentEffective, double observedAverage, double target) {
+    return (int) Math.ceil(currentEffective * (observedAverage / target));
   }
 
   /**

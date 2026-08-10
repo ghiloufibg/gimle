@@ -17,6 +17,8 @@ import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -26,7 +28,9 @@ import org.junit.jupiter.api.io.TempDir;
  * Phase 4 §10's autoscaling formula: average observed CPU utilization against the module's own
  * {@code resourceRequest.cpuMillicores()} (10m in {@code TestModuleBuilder.minimalDescriptor}),
  * adjusted by exactly one replica per tick toward the computed ideal and clamped to {@code
- * [minReplicas, maxReplicas]}.
+ * [minReplicas, maxReplicas]}. Part C extends this with three additional, independently-optional
+ * signals (request rate, error rate, queue depth) -- whichever configured signal proposes the
+ * highest ideal replica count wins, matching Kubernetes' own multi-metric HPA behavior.
  */
 class AutoscaleReconcilerTest {
 
@@ -55,10 +59,26 @@ class AutoscaleReconcilerTest {
 
   /**
    * Two ready instances (indices 0/1) on {@code node-a}, each using {@code cpuMillicoresUsed} out
-   * of the fixture's 10m request.
+   * of the fixture's 10m request, with every non-CPU scaling signal at zero.
    */
   private static void twoReadyInstancesAt(
       StateStore store, String deploymentName, ModuleId moduleId, long cpuMillicoresUsed) {
+    twoReadyInstancesAt(store, deploymentName, moduleId, cpuMillicoresUsed, 0.0, 0.0, 0);
+  }
+
+  /**
+   * Two ready instances (indices 0/1) on {@code node-a}, each reporting the given CPU usage plus
+   * request rate, error rate, and queue depth -- lets a test drive a non-CPU signal independently
+   * of the CPU one.
+   */
+  private static void twoReadyInstancesAt(
+      StateStore store,
+      String deploymentName,
+      ModuleId moduleId,
+      long cpuMillicoresUsed,
+      double requestRatePerSecond,
+      double errorRatePerSecond,
+      int queueDepth) {
     store.putAssignment(new InstanceAssignment(deploymentName, 0, "node-a", moduleId, ""));
     store.putAssignment(new InstanceAssignment(deploymentName, 1, "node-a", moduleId, ""));
     store.putNodeHeartbeat(
@@ -73,10 +93,11 @@ class AutoscaleReconcilerTest {
                     "ACTIVE",
                     true,
                     true,
-                    0.0,
-                    0,
+                    requestRatePerSecond,
+                    queueDepth,
                     cpuMillicoresUsed,
-                    0L),
+                    0L,
+                    errorRatePerSecond),
                 new InstanceObservation(
                     deploymentName,
                     1,
@@ -84,10 +105,11 @@ class AutoscaleReconcilerTest {
                     "ACTIVE",
                     true,
                     true,
-                    0.0,
-                    0,
+                    requestRatePerSecond,
+                    queueDepth,
                     cpuMillicoresUsed,
-                    0L))));
+                    0L,
+                    errorRatePerSecond))));
   }
 
   @Test
@@ -286,5 +308,83 @@ class AutoscaleReconcilerTest {
 
     assertEquals(5, store.getEffectiveReplicas("above-max-service").orElseThrow());
     assertEquals(1, store.getEffectiveReplicas("below-min-service").orElseThrow());
+  }
+
+  @Test
+  void queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target() {
+    StateStore store = new StateStore(tempDir.resolve("store-queue-depth-wins"));
+    Path jar = buildFixtureJar();
+    // CPU target 50%, queue-depth target 2: CPU alone (10% util) would want to hold/scale down,
+    // but every ready instance reports a queue depth of 10 -- 5x its target.
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1, 5, 50, OptionalDouble.empty(), OptionalDouble.empty(), OptionalInt.of(2));
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 0.0, 0.0, 10);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        "queue depth alone should drive a scale-up even though CPU utilization is well under"
+            + " target");
+  }
+
+  @Test
+  void request_rate_alone_can_drive_scale_up_when_cpu_is_under_target() {
+    StateStore store = new StateStore(tempDir.resolve("store-request-rate-wins"));
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1, 5, 50, OptionalDouble.of(10.0), OptionalDouble.empty(), OptionalInt.empty());
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    // 10% CPU util (well under the 50% target) but 50 req/s per instance against a 10 req/s
+    // target -- request rate alone should drive the scale-up.
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 50.0, 0.0, 0);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+  }
+
+  @Test
+  void error_rate_alone_can_drive_scale_up_when_cpu_is_under_target() {
+    StateStore store = new StateStore(tempDir.resolve("store-error-rate-wins"));
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1, 5, 50, OptionalDouble.empty(), OptionalDouble.of(5.0), OptionalInt.empty());
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    // 10% CPU util (well under target) but a 50% error rate (50 errors/s out of 100 req/s)
+    // against a 5% target -- error rate alone should drive the scale-up.
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 100.0, 50.0, 0);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+  }
+
+  @Test
+  void a_cpu_only_policy_ignores_non_cpu_signals_even_when_present_in_observations() {
+    StateStore store = new StateStore(tempDir.resolve("store-cpu-only-regression"));
+    Path jar = buildFixtureJar();
+    // The pre-Part-C 3-arg constructor: no request-rate/error-rate/queue-depth targets configured.
+    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    // Wildly high non-CPU signals that would obviously drive scale-up if evaluated, alongside a
+    // low CPU utilization that wants to scale down.
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 1000.0, 1000.0, 1000);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(
+        1,
+        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        "an unconfigured signal must never influence the scaling decision");
   }
 }
