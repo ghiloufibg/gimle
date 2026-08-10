@@ -4,6 +4,7 @@ module com.gimle.agent {
   requires com.gimle.module;
   requires com.gimle.fabric;
   requires com.gimle.pki;
+  requires com.gimle.observability;
   requires java.management;
   requires jdk.management;
   requires java.net.http;

@@ -56,6 +56,14 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
+    <!-- MuninnShipper: ships this agent's own logs, plus every supervised worker's, to Muninn
+         when -Dgimle.agent.muninnEndpoint is configured (design doc Part B/O-10). The agent's
+         first genuine main-scope need for anything in gimle-observability, which had only ever
+         been a test-scope dependency (via gimle-worker) before this. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-observability</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>

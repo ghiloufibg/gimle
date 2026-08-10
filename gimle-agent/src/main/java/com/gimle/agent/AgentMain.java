@@ -5,6 +5,7 @@ import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -27,6 +28,7 @@ import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
@@ -99,6 +101,11 @@ public final class AgentMain {
   private static final int MAX_TIER1_DENSITY = 4;
 
   /**
+   * How often each {@link MuninnShipper} instance ticks -- own logs and every supervised worker's.
+   */
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
+
+  /**
    * Enables the retaining-path attribution {@code OldObjectSampleCorrelator} (gimle-module) can
    * only surface when the worker JVM itself was launched with {@code path-to-gc-roots=true} -- that
    * setting is a recording-launch option, not something settable through the in-process {@code
@@ -139,11 +146,26 @@ public final class AgentMain {
     String fafnirEndpoint = System.getProperty("gimle.agent.fafnirEndpoint");
     URI fafnirBaseUrl =
         fafnirEndpoint == null ? null : URI.create((baseUrl.getScheme()) + "://" + fafnirEndpoint);
+    // Same optional-system-property posture as gimle.agent.fafnirEndpoint above: null means "ship
+    // nowhere," and local-only tailing via AgentLogServer keeps working entirely unchanged --
+    // design doc Part B/O-10.
+    String muninnEndpoint = System.getProperty("gimle.agent.muninnEndpoint");
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
+
+    if (muninnEndpoint != null) {
+      // This agent's own platform log has no per-instance scoping -- ships once, for the whole
+      // process lifetime, under this node's own identity (the same node-scoped ingest shape
+      // MuninnServer registers alongside the instance-scoped one).
+      MuninnShipper ownLogShipper =
+          new MuninnShipper(
+              muninnEndpoint, "/ingest/logs/nodes/" + nodeId + "/PLATFORM", MUNINN_SHIP_INTERVAL);
+      ownLogShipper.startShippingLogFile(
+          logRoot.resolve("agent-platform.log"), LogFileReader.configuredMaxFiles());
+    }
 
     AgentLogServer logServer = new AgentLogServer(logRoot, 0);
     logServer.start();
@@ -155,6 +177,11 @@ public final class AgentMain {
     bootstrapCertificateIfNeeded(nodeId, baseUrl);
     HttpClient httpClient = buildHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    // Keyed the same way supervised is (deploymentName#instanceIndex): a supervised instance's
+    // pair of MuninnShippers (its worker's own PLATFORM log, its own APPLICATION log), started
+    // the same tick the instance is added to supervised and closed the same tick it's removed.
+    // Empty (never populated) when muninnEndpoint is unset.
+    Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
 
     MemberId self = new MemberId(nodeId, gossipBindAddress);
     GossipMember gossipMember = new GossipMember(self, GossipConfig.defaults());
@@ -174,8 +201,10 @@ public final class AgentMain {
             httpClient,
             baseUrl,
             fafnirBaseUrl,
+            muninnEndpoint,
             nodeId,
             supervised,
+            instanceShippers,
             javaExecutable,
             commandTail,
             resourceLimiter,
@@ -664,8 +693,10 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
+      String muninnEndpoint,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
+      Map<String, List<MuninnShipper>> instanceShippers,
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
@@ -699,7 +730,10 @@ public final class AgentMain {
                 capacityTracker,
                 httpClient,
                 baseUrl,
-                fafnirBaseUrl);
+                fafnirBaseUrl,
+                muninnEndpoint,
+                instanceShippers,
+                logRoot);
           } else {
             startInstance(
                 assigned,
@@ -716,6 +750,8 @@ public final class AgentMain {
                 httpClient,
                 baseUrl,
                 fafnirBaseUrl,
+                muninnEndpoint,
+                instanceShippers,
                 logRoot);
           }
         } catch (IOException | RuntimeException e) {
@@ -725,7 +761,7 @@ public final class AgentMain {
     }
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
-        stopInstance(key, supervised, capacityTracker);
+        stopInstance(key, supervised, capacityTracker, instanceShippers);
       }
     }
   }
@@ -788,7 +824,10 @@ public final class AgentMain {
       CapacityTracker capacityTracker,
       HttpClient httpClient,
       URI baseUrl,
-      URI fafnirBaseUrl) {
+      URI fafnirBaseUrl,
+      String muninnEndpoint,
+      Map<String, List<MuninnShipper>> instanceShippers,
+      Path logRoot) {
     SupervisedInstance instance =
         new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
     instance.connection = existing.connection;
@@ -797,12 +836,14 @@ public final class AgentMain {
     instance.fabricTcpAddress = existing.fabricTcpAddress;
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
+    startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
     try {
       sendInstallStartSequence(instance, instance.connection, httpClient, baseUrl, fafnirBaseUrl);
     } catch (IOException e) {
       log.error("failed to install {} into shared worker: {}", key, e.getMessage());
       supervised.remove(key);
       capacityTracker.release(key);
+      stopShippingInstanceLogs(instanceShippers, key);
     }
   }
 
@@ -821,6 +862,8 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
+      String muninnEndpoint,
+      Map<String, List<MuninnShipper>> instanceShippers,
       Path logRoot)
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
@@ -857,6 +900,7 @@ public final class AgentMain {
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
+    startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
     supervisor.start();
 
     Thread.ofVirtual()
@@ -1253,8 +1297,12 @@ public final class AgentMain {
   }
 
   private static void stopInstance(
-      String key, Map<String, SupervisedInstance> supervised, CapacityTracker capacityTracker) {
+      String key,
+      Map<String, SupervisedInstance> supervised,
+      CapacityTracker capacityTracker,
+      Map<String, List<MuninnShipper>> instanceShippers) {
     SupervisedInstance instance = supervised.remove(key);
+    stopShippingInstanceLogs(instanceShippers, key);
     if (instance == null) {
       return;
     }
@@ -1285,6 +1333,56 @@ public final class AgentMain {
       }
     }
     capacityTracker.release(key);
+  }
+
+  /**
+   * Starts shipping this instance's worker's own {@code PLATFORM} log and this instance's own
+   * {@code APPLICATION} log to Muninn -- a no-op when {@code muninnEndpoint} is unset. Mirrors
+   * {@code AgentLogServer.handleInstanceLogs}'s own path derivation exactly (same {@code
+   * workerLogRoot}, same two file names per category) so a shipped line and a live read of the
+   * identical {@code /logs/instances/{deploymentName}/{instanceIndex}?category=} request agree,
+   * including for a Tier 1-density instance installed into another instance's already-running
+   * worker: its own {@code workerLogRoot} won't hold a real {@code worker-platform.log} of its own
+   * in that case (the shared worker's platform log lives under the *originating* instance's own key
+   * instead), and shipping simply finds nothing there each tick -- the identical "no data for this
+   * path" outcome a live read against that same path already produces today.
+   */
+  static void startShippingInstanceLogs(
+      String muninnEndpoint,
+      Map<String, List<MuninnShipper>> instanceShippers,
+      String key,
+      AssignedInstance assigned,
+      Path logRoot) {
+    if (muninnEndpoint == null) {
+      return;
+    }
+    Path workerLogRoot = logRoot.resolve("workers").resolve(key);
+    String instancePathPrefix =
+        "/ingest/logs/instances/" + assigned.deploymentName() + "/" + assigned.instanceIndex();
+
+    MuninnShipper platformShipper =
+        new MuninnShipper(muninnEndpoint, instancePathPrefix + "/PLATFORM", MUNINN_SHIP_INTERVAL);
+    platformShipper.startShippingLogFile(
+        workerLogRoot.resolve("worker-platform.log"), LogFileReader.configuredMaxFiles());
+
+    MuninnShipper applicationShipper =
+        new MuninnShipper(
+            muninnEndpoint, instancePathPrefix + "/APPLICATION", MUNINN_SHIP_INTERVAL);
+    applicationShipper.startShippingLogFile(
+        workerLogRoot
+            .resolve("instances")
+            .resolve(assigned.deploymentName() + "-" + assigned.instanceIndex() + ".log"),
+        LogFileReader.configuredMaxFiles());
+
+    instanceShippers.put(key, List.of(platformShipper, applicationShipper));
+  }
+
+  static void stopShippingInstanceLogs(
+      Map<String, List<MuninnShipper>> instanceShippers, String key) {
+    List<MuninnShipper> shippers = instanceShippers.remove(key);
+    if (shippers != null) {
+      shippers.forEach(MuninnShipper::close);
+    }
   }
 
   private static String instanceKey(AssignedInstance assigned) {
