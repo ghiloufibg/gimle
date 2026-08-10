@@ -25,6 +25,7 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.CsrPurpose;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
@@ -87,6 +88,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import javax.crypto.SecretKey;
@@ -2310,6 +2312,15 @@ public final class ApiServer implements AutoCloseable {
    * ever wrote one: {@code 401} when there is no usable identity at all, {@code 403} when the
    * identity is known but lacks the permission. Writes the response itself on failure so every call
    * site can just {@code return} without duplicating it.
+   *
+   * <p>Also the single choke point every mutating decision passes through with its principal,
+   * resource, and verb already in hand -- so for {@link Verb#WRITE}/{@link Verb#DELETE} (never
+   * {@link Verb#READ}, matching Kubernetes' own default audit policy: a console page-load's worth
+   * of {@code GET}s would dwarf the mutating-action volume actually worth capturing) this is where
+   * the decision is recorded into the durable, queryable audit trail (see {@link AuditEvent}), both
+   * allowed and denied alike -- a denial is exactly as auditable as a grant. A bare {@code 401} (no
+   * principal resolved at all) is deliberately not audited, since there's no principal to attribute
+   * the attempt to; only a resolved-but-denied principal produces an event.
    */
   private boolean requireAuthorized(
       HttpExchange exchange,
@@ -2325,11 +2336,36 @@ public final class ApiServer implements AutoCloseable {
       respondQuietly(exchange, 401, "authentication required");
       return false;
     }
-    if (!authorizer.authorize(principal.get(), resource, verb, tenant, targetId)) {
+    boolean authorized = authorizer.authorize(principal.get(), resource, verb, tenant, targetId);
+    if (verb == Verb.WRITE || verb == Verb.DELETE) {
+      recordAuditEvent(principal.get(), resource, verb, tenant, targetId, authorized);
+    }
+    if (!authorized) {
       respondQuietly(exchange, 403, "forbidden");
       return false;
     }
     return true;
+  }
+
+  private void recordAuditEvent(
+      Principal principal,
+      ResourceKind resource,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      boolean allowed) {
+    storeClient.propose(
+        new StateMutation.AppendAuditEvent(
+            new AuditEvent(
+                UUID.randomUUID().toString(),
+                principal.name(),
+                principal.groups(),
+                resource.name(),
+                verb.name(),
+                tenant,
+                targetId,
+                allowed,
+                System.currentTimeMillis())));
   }
 
   /** {@code targetId}-less convenience overload for the majority of call sites that need none. */

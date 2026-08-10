@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,7 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -36,6 +38,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -400,6 +403,96 @@ class ApiServerAuthzTest {
       assertEquals(200, deleteConfig(client, baseUrl, configCookie, "tenant-1", "plain-key"));
       assertEquals(200, deleteConfig(client, baseUrl, secretCookie, "tenant-1", "secret-key"));
     }
+  }
+
+  /**
+   * O-3 of {@code OBSERVABILITY_AUDIT_DESIGN.md}'s Part A: every {@code WRITE}/{@code DELETE}
+   * decision {@code requireAuthorized} makes lands in the durable audit trail, allowed and denied
+   * alike -- but {@code READ} and a bare {@code 401} (no principal resolved at all) deliberately
+   * don't.
+   */
+  @Test
+  void write_and_delete_decisions_are_audited_allowed_and_denied_but_reads_and_401s_are_not()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    byte[] passwordHash = PasswordHashes.hash("pw".toCharArray());
+    store.putAccount(new Account("writer", passwordHash));
+    store.putAccount(new Account("reader-only", passwordHash));
+    store.putRole(
+        new Role(
+            "config-writer",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.CONFIG, Verb.READ),
+                Permission.unscoped(ResourceKind.CONFIG, Verb.WRITE),
+                Permission.unscoped(ResourceKind.CONFIG, Verb.DELETE))));
+    store.putRole(
+        new Role(
+            "config-reader",
+            java.util.Set.of(Permission.unscoped(ResourceKind.CONFIG, Verb.READ))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("writer"), "config-writer"));
+    store.putRoleBinding(
+        new RoleBinding("b2", RoleBinding.userSubject("reader-only"), "config-reader"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String writerCookie = login(client, baseUrl, "writer", "pw");
+      String readerCookie = login(client, baseUrl, "reader-only", "pw");
+
+      // An unauthenticated request (no cookie at all) 401s -- no principal to attribute it to.
+      HttpRequest unauthenticated =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/config/tenant-1/no-cookie-key"))
+              .header("Content-Type", "application/json")
+              .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"x\",\"encrypted\":false}"))
+              .build();
+      assertEquals(
+          401, client.send(unauthenticated, HttpResponse.BodyHandlers.discarding()).statusCode());
+      assertTrue(listAuditEvents(store).isEmpty());
+
+      // A read produces no audit event, even though it's fully authorized.
+      listConfig(client, baseUrl, writerCookie, "tenant-1");
+      assertTrue(listAuditEvents(store).isEmpty());
+
+      // An allowed WRITE is audited.
+      assertEquals(200, putConfig(client, baseUrl, writerCookie, "tenant-1", "k1", "v1", false));
+      List<AuditEvent> afterAllowedWrite = listAuditEvents(store);
+      assertEquals(1, afterAllowedWrite.size());
+      assertEquals("writer", afterAllowedWrite.get(0).principal());
+      assertEquals("CONFIG", afterAllowedWrite.get(0).resourceKind());
+      assertEquals("WRITE", afterAllowedWrite.get(0).verb());
+      assertTrue(afterAllowedWrite.get(0).allowed());
+
+      // A denied WRITE (reader-only has no CONFIG:WRITE) is audited too -- a denial is exactly as
+      // auditable as a grant.
+      assertEquals(403, putConfig(client, baseUrl, readerCookie, "tenant-1", "k2", "v2", false));
+      List<AuditEvent> afterDeniedWrite = listAuditEvents(store);
+      assertEquals(2, afterDeniedWrite.size());
+      AuditEvent denied = afterDeniedWrite.get(0);
+      assertEquals("reader-only", denied.principal());
+      assertFalse(denied.allowed());
+
+      // An allowed DELETE is also audited.
+      assertEquals(200, deleteConfig(client, baseUrl, writerCookie, "tenant-1", "k1"));
+      assertEquals(3, listAuditEvents(store).size());
+      assertEquals("DELETE", listAuditEvents(store).get(0).verb());
+    }
+  }
+
+  private static List<AuditEvent> listAuditEvents(StateStore store) {
+    return store.listAuditEvents(
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   /**
