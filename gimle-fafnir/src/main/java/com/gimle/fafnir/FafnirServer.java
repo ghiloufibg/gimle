@@ -223,6 +223,15 @@ public final class FafnirServer implements AutoCloseable {
     return boundPort;
   }
 
+  /**
+   * Public so {@code FafnirMain} can hand this registry to a {@code MuninnShipper} when {@code
+   * -Dgimle.fafnir.muninnEndpoint} is configured (design doc Part B/O-10) -- the same shape {@code
+   * ApiServer#metrics()} already established for the control plane.
+   */
+  public FafnirMetrics metrics() {
+    return metrics;
+  }
+
   @Override
   public void close() {
     server.stop(0);

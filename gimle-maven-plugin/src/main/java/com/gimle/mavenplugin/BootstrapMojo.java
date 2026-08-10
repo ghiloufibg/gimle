@@ -277,6 +277,9 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("controlplane.key"),
           tlsDir.resolve("ca.crt"));
     }
+    // Optional (design doc Part B/O-10) -- see AgentMain's own javadoc on
+    // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
+    command.add("-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-mimir"));
     command.add("com.gimle.mimir.StoreMain");
@@ -301,6 +304,9 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("fafnir.key"),
           tlsDir.resolve("ca.crt"));
     }
+    // Optional (design doc Part B/O-10) -- see AgentMain's own javadoc on
+    // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
+    command.add("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-fafnir"));
     command.add("com.gimle.fafnir.FafnirMain");

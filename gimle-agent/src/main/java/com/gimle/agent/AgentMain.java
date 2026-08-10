@@ -28,6 +28,7 @@ import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.observability.AgentMetrics;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
@@ -156,6 +157,11 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
+    // One Timer/Counter pair around this agent's own tick body (design doc Part B/O-10) --
+    // constructed unconditionally (cheap, in-memory-only unless shipped) so #agentTick can record
+    // into it regardless of whether muninnEndpoint is configured.
+    AgentMetrics agentMetrics = new AgentMetrics();
+
     if (muninnEndpoint != null) {
       // This agent's own platform log has no per-instance scoping -- ships once, for the whole
       // process lifetime, under this node's own identity (the same node-scoped ingest shape
@@ -165,6 +171,8 @@ public final class AgentMain {
               muninnEndpoint, "/ingest/logs/nodes/" + nodeId + "/PLATFORM", MUNINN_SHIP_INTERVAL);
       ownLogShipper.startShippingLogFile(
           logRoot.resolve("agent-platform.log"), LogFileReader.configuredMaxFiles());
+      new MuninnShipper(muninnEndpoint, "/ingest/metrics/AGENT/" + nodeId, MUNINN_SHIP_INTERVAL)
+          .startShippingMetrics(agentMetrics.registry());
     }
 
     AgentLogServer logServer = new AgentLogServer(logRoot, 0);
@@ -196,6 +204,8 @@ public final class AgentMain {
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
     while (!Thread.currentThread().isInterrupted()) {
+      long tickStartNanos = System.nanoTime();
+      boolean tickFailed = false;
       try {
         reconcileAssignments(
             httpClient,
@@ -219,7 +229,10 @@ public final class AgentMain {
           gossipMember.reloadDtlsMaterial();
         }
       } catch (RuntimeException | IOException e) {
+        tickFailed = true;
         log.error("agent tick failed: {}", e.getMessage(), e);
+      } finally {
+        agentMetrics.recordTick(Duration.ofNanos(System.nanoTime() - tickStartNanos), tickFailed);
       }
       Thread.sleep(TICK_INTERVAL.toMillis());
     }

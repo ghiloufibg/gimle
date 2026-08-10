@@ -1,6 +1,8 @@
 module com.gimle.mimir {
   requires com.gimle.core;
   requires com.gimle.pki;
+  requires com.gimle.observability;
+  requires micrometer.core;
   requires org.yaml.snakeyaml;
   requires org.slf4j;
 

@@ -16,6 +16,7 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.observability.MuninnShipper;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -68,6 +69,7 @@ public final class ControlPlaneMain {
   // Comfortably longer than RECONCILE_INTERVAL so a brief store hiccup doesn't cost this replica
   // the lease before its very next renewal attempt.
   private static final Duration RECONCILER_LEASE_TTL = Duration.ofSeconds(10);
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
 
   private ControlPlaneMain() {}
 
@@ -158,6 +160,21 @@ public final class ControlPlaneMain {
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
 
+    // Same --muninn-endpoint value doing double duty (design doc Part B/O-10): the MuninnClient
+    // above reads a gone node/instance's shipped history back, this shipper ships this replica's
+    // own request metrics out -- one configured Muninn address, two independent uses against it,
+    // rather than a second flag naming the same process.
+    MuninnShipper metricsShipper =
+        muninnEndpoint == null
+            ? null
+            : new MuninnShipper(
+                muninnEndpoint,
+                "/ingest/metrics/CONTROLPLANE/" + selfApiAddress,
+                MUNINN_SHIP_INTERVAL);
+    if (metricsShipper != null) {
+      metricsShipper.startShippingMetrics(apiServer.metrics().registry());
+    }
+
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-controlplane-reconcile-tick").unstarted(r));
@@ -236,6 +253,9 @@ public final class ControlPlaneMain {
                       fafnirClient.close();
                       if (muninnClient != null) {
                         muninnClient.close();
+                      }
+                      if (metricsShipper != null) {
+                        metricsShipper.close();
                       }
                     }));
   }

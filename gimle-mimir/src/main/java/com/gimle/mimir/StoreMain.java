@@ -11,8 +11,11 @@ import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.raft.RaftPeerClientFactory;
 import com.gimle.mimir.raft.RaftTransport;
 import com.gimle.mimir.rpc.StoreNode;
+import com.gimle.mimir.rpc.StoreRpcHandler;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.observability.MuninnShipper;
+import com.gimle.observability.StoreMetrics;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -44,6 +47,7 @@ public final class StoreMain {
   private static final Logger log = LoggerFactory.getLogger(StoreMain.class);
 
   private static final Duration CERT_ROTATION_CHECK_INTERVAL = Duration.ofSeconds(2);
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
 
   private StoreMain() {}
 
@@ -80,6 +84,10 @@ public final class StoreMain {
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
+    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
+    // simply aren't shipped anywhere.
+    String muninnEndpoint = System.getProperty("gimle.store.muninnEndpoint");
 
     System.setProperty("gimle.process.role", "STORE");
     System.setProperty("gimle.node.id", selfRaftId);
@@ -121,8 +129,36 @@ public final class StoreMain {
     raftNode.start();
 
     StoreNode storeNode = new StoreNode(raftNode, store, raftIdToClientAddress);
-    StoreTransport storeTransport = new StoreTransport(storeNode);
+    // Per-RPC-kind request/error/latency metrics (design doc Part B/O-10), wrapping the handler
+    // at construction time the same "decorate once, not per call site" shape FafnirServer's own
+    // #instrument already established for its HTTP contexts.
+    StoreMetrics storeMetrics = new StoreMetrics();
+    StoreRpcHandler instrumentedStoreNode =
+        request -> {
+          long startNanos = System.nanoTime();
+          boolean error = false;
+          try {
+            return storeNode.handle(request);
+          } catch (RuntimeException e) {
+            error = true;
+            throw e;
+          } finally {
+            storeMetrics.recordRequest(
+                request.getClass().getSimpleName(),
+                Duration.ofNanos(System.nanoTime() - startNanos),
+                error);
+          }
+        };
+    StoreTransport storeTransport = new StoreTransport(instrumentedStoreNode);
     storeTransport.listen(new InetSocketAddress(clientPort));
+    MuninnShipper metricsShipper =
+        muninnEndpoint == null
+            ? null
+            : new MuninnShipper(
+                muninnEndpoint, "/ingest/metrics/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
+    if (metricsShipper != null) {
+      metricsShipper.startShippingMetrics(storeMetrics.registry());
+    }
 
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =
@@ -158,6 +194,9 @@ public final class StoreMain {
                       ticker.shutdownNow();
                       raftTransport.close();
                       raftNode.close();
+                      if (metricsShipper != null) {
+                        metricsShipper.close();
+                      }
                     }));
 
     // Every listener/ticker thread started above is a virtual thread, which the JVM always treats

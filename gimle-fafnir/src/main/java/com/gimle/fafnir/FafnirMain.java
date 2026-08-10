@@ -7,6 +7,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.observability.MuninnShipper;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -35,6 +36,7 @@ public final class FafnirMain {
 
   private static final Logger log = LoggerFactory.getLogger(FafnirMain.class);
   private static final Duration CERT_ROTATION_CHECK_INTERVAL = Duration.ofSeconds(2);
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
 
   private FafnirMain() {}
 
@@ -95,6 +97,21 @@ public final class FafnirMain {
     FafnirServer fafnirServer = new FafnirServer(crypto, port);
     fafnirServer.start();
 
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
+    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
+    // simply aren't shipped anywhere.
+    String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
+    MuninnShipper metricsShipper =
+        muninnEndpoint == null
+            ? null
+            : new MuninnShipper(
+                muninnEndpoint,
+                "/ingest/metrics/FAFNIR/" + selfHost + ":" + fafnirServer.port(),
+                MUNINN_SHIP_INTERVAL);
+    if (metricsShipper != null) {
+      metricsShipper.startShippingMetrics(fafnirServer.metrics().registry());
+    }
+
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
@@ -150,6 +167,9 @@ public final class FafnirMain {
                       fafnirServer.close();
                       ticker.shutdownNow();
                       storeClient.close();
+                      if (metricsShipper != null) {
+                        metricsShipper.close();
+                      }
                     }));
   }
 

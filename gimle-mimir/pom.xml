@@ -55,5 +55,11 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
+    <!-- StoreMetrics + MuninnShipper: StoreMain ships its own request metrics to Muninn when
+         -Dgimle.store.muninnEndpoint is configured (design doc Part B/O-10). -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-observability</artifactId>
+    </dependency>
   </dependencies>
 </project>

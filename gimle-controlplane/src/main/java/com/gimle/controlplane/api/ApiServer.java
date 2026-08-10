@@ -55,11 +55,13 @@ import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.observability.ApiServerMetrics;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.OwnCertificateRotator;
 import com.gimle.pki.Pem;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsExchange;
@@ -127,6 +129,11 @@ public final class ApiServer implements AutoCloseable {
   // a gone node/instance, the same "opt in, degrade gracefully" posture gimle-agent's own
   // muninnEndpoint already has.
   private final MuninnClient muninnClient;
+  // Per-endpoint request/error/latency metrics (design doc Part B/O-10), the same shape
+  // FafnirServer's own metrics field already established -- see #instrument. Not exposed through
+  // any public constructor parameter (no test/caller has ever needed to inject a custom
+  // registry); a same-package test reads it back through #metrics().
+  private final ApiServerMetrics metrics = new ApiServerMetrics();
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
@@ -236,36 +243,75 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void registerContexts(HttpServer target) throws IOException {
-    target.createContext("/deployments/", this::handleDeployment);
-    target.createContext("/deployments", this::handleDeploymentsList);
-    target.createContext("/metrics", this::handleMetrics);
-    target.createContext("/events", this::handleEvents);
-    target.createContext("/audit", this::handleAudit);
-    target.createContext("/nodes/", this::handleNode);
-    target.createContext("/nodes", this::handleNodesList);
-    target.createContext("/tenants/", this::handleTenant);
-    target.createContext("/tenants", this::handleTenantsList);
-    target.createContext("/config/", this::handleConfig);
-    target.createContext("/logs/", this::handleLogs);
-    target.createContext("/roles/", this::handleRole);
-    target.createContext("/roles", this::handleRolesList);
-    target.createContext("/rolebindings/", this::handleRoleBinding);
-    target.createContext("/rolebindings", this::handleRoleBindingsList);
-    target.createContext("/accounts/", this::handleAccount);
-    target.createContext("/accounts", this::handleAccountsList);
-    target.createContext("/secrets/rotate-key", this::handleRotateSecretsKey);
-    target.createContext("/secrets/", this::handleSecretsProxy);
-    target.createContext("/auth/login", this::handleAuthLogin);
-    target.createContext("/auth/logout", this::handleAuthLogout);
-    target.createContext("/auth/session", this::handleAuthSession);
+    target.createContext("/deployments/", instrument("deployments", this::handleDeployment));
+    target.createContext("/deployments", instrument("deployments", this::handleDeploymentsList));
+    target.createContext("/metrics", instrument("metrics", this::handleMetrics));
+    target.createContext("/events", instrument("events", this::handleEvents));
+    target.createContext("/audit", instrument("audit", this::handleAudit));
+    target.createContext("/nodes/", instrument("nodes", this::handleNode));
+    target.createContext("/nodes", instrument("nodes", this::handleNodesList));
+    target.createContext("/tenants/", instrument("tenants", this::handleTenant));
+    target.createContext("/tenants", instrument("tenants", this::handleTenantsList));
+    target.createContext("/config/", instrument("config", this::handleConfig));
+    target.createContext("/logs/", instrument("logs", this::handleLogs));
+    target.createContext(
+        "/metrics-history/", instrument("metrics-history", this::handleMetricsHistory));
+    target.createContext("/roles/", instrument("roles", this::handleRole));
+    target.createContext("/roles", instrument("roles", this::handleRolesList));
+    target.createContext("/rolebindings/", instrument("rolebindings", this::handleRoleBinding));
+    target.createContext("/rolebindings", instrument("rolebindings", this::handleRoleBindingsList));
+    target.createContext("/accounts/", instrument("accounts", this::handleAccount));
+    target.createContext("/accounts", instrument("accounts", this::handleAccountsList));
+    target.createContext(
+        "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
+    target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
+    target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
+    target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
+    target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
     if (certificateAuthority.isPresent()) {
-      target.createContext("/bootstrap/csr", this::handleBootstrapCsrSubmit);
-      target.createContext("/bootstrap/csr/", this::handleBootstrapCsrSubResource);
-      target.createContext("/bootstrap/tokens", this::handleBootstrapTokens);
+      target.createContext(
+          "/bootstrap/csr", instrument("bootstrap-csr", this::handleBootstrapCsrSubmit));
+      target.createContext(
+          "/bootstrap/csr/", instrument("bootstrap-csr", this::handleBootstrapCsrSubResource));
+      target.createContext(
+          "/bootstrap/tokens", instrument("bootstrap-tokens", this::handleBootstrapTokens));
     }
     if (consoleStaticRoot.isPresent()) {
       registerConsole(target, consoleStaticRoot.get());
     }
+  }
+
+  /**
+   * Wraps a handler with request-count/latency/error Micrometer recording (design doc Part B/O-10),
+   * at context-registration time rather than inside each handler body -- the identical pattern
+   * {@code FafnirServer.instrument} already established, copied rather than shared since the two
+   * classes have no common base to hang it on. {@code error} is read from the exchange's own
+   * response code after the delegate finishes, not from an escaping exception -- every handler here
+   * already sends a real status and closes the exchange itself.
+   */
+  private HttpHandler instrument(String endpoint, HttpHandler delegate) {
+    return exchange -> {
+      String verb = exchange.getRequestMethod();
+      long startNanos = System.nanoTime();
+      try {
+        delegate.handle(exchange);
+      } finally {
+        Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
+        int status = exchange.getResponseCode();
+        boolean error = status <= 0 || status >= 400;
+        metrics.recordRequest(endpoint, verb, latency, error);
+      }
+    };
+  }
+
+  /**
+   * Public so {@code ControlPlaneMain} can hand this registry to a {@code MuninnShipper} when
+   * {@code --muninn-endpoint} is configured (design doc Part B/O-10), and so a same-package test
+   * can assert on it directly -- see {@link #metrics}'s own field javadoc for why this isn't a
+   * constructor parameter instead.
+   */
+  public ApiServerMetrics metrics() {
+    return metrics;
   }
 
   /**
@@ -1931,6 +1977,51 @@ public final class ApiServer implements AutoCloseable {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("logs request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code GET /metrics-history/{processKind}/{processId}} (design doc Part B/O-10) -- a thin,
+   * read-only proxy to Muninn's own {@code GET /metrics/{processKind}/{processId}} (B-9), the same
+   * {@code ResourceKind.LOGS}/{@code Verb.READ} gate the rest of this class's own {@code /logs/*}
+   * surface uses (design doc §5c: "these are all the same shape of thing" -- no dedicated {@code
+   * METRICS} resource kind). {@code since}-only, no backward paging this phase (a deliberate
+   * scope-narrowing, not an oversight -- see the design doc's own O-10 note). Unlike {@code
+   * /logs/*}, there is no live-agent path to fall back from here: Muninn's shipped history *is* the
+   * only place a process's own metrics ever live, so a missing {@code muninnClient} is a plain 404
+   * rather than a proxy failure.
+   */
+  private void handleMetricsHistory(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      String tail = pathSegmentAfter(exchange, "/metrics-history/");
+      String[] parts = tail.split("/", 2);
+      if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+        respond(exchange, 400, "expected /metrics-history/{processKind}/{processId}");
+        return;
+      }
+      if (muninnClient == null) {
+        respond(exchange, 404, "no muninn endpoint configured");
+        return;
+      }
+      Map<String, String> query = parseQuery(exchange);
+      String since = query.get("since");
+      String muninnPath =
+          "/metrics/" + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
+      proxyToMuninn(exchange, muninnPath);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("metrics history request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();

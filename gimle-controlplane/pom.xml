@@ -91,5 +91,12 @@
       <artifactId>gimle-fafnir</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- ApiServerMetrics + MuninnShipper: ApiServer instruments its own endpoints and, when
+         -Dgimle.controlplane.muninnEndpoint is configured, ships them to Muninn (design doc Part
+         B/O-10). -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-observability</artifactId>
+    </dependency>
   </dependencies>
 </project>
