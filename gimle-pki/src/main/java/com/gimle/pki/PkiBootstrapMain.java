@@ -21,10 +21,11 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
  * {@code mvn gimle:tls-init}'s entry point (spawned by {@code TlsInitMojo} against this module's
  * own resolved classpath, mirroring {@code DeployMojo}'s shape). Generates, once, everything a
  * brand-new cluster needs to start in {@code gimle.transport.protocol=tls} mode: the self-signed
- * cluster CA, the control plane's own leaf certificate, and the first human operator's leaf
- * certificate. A node agent deliberately gets nothing here -- it obtains its own certificate later,
- * live, via {@code claudedocs/tls-transport-security-design.md} §4's CSR bootstrap flow, the same
- * reason {@code gimle-worker} never depends on this module at all.
+ * cluster CA, the control plane's own leaf certificate, Fafnir's and Muninn's own leaf
+ * certificates, and the first human operator's leaf certificate. A node agent deliberately gets
+ * nothing here -- it obtains its own certificate later, live, via {@code
+ * claudedocs/tls-transport-security-design.md} §4's CSR bootstrap flow, the same reason {@code
+ * gimle-worker} never depends on this module at all.
  *
  * <p>Known limitation: the control plane's leaf SAN only carries DNS names (this module's {@link
  * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a control plane reached by
@@ -64,6 +65,11 @@ public final class PkiBootstrapMain {
     // directly load-bearing for its audit story, since it's the one component whose entire job is
     // being the trust boundary for secret material.
     issueLeaf(outputDir, ca, "fafnir", "CN=" + hostname, List.of(hostname, "localhost"));
+    // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
+    // own independent Authorizer.authorize(...) check on every proxied read rather than trusting
+    // ApiServer's forwarded-principal claim as proof by itself, and that defense-in-depth check
+    // needs to be attributable to Muninn's own certificate Subject, not a borrowed one.
+    issueLeaf(outputDir, ca, "muninn", "CN=" + hostname, List.of(hostname, "localhost"));
     issueLeaf(
         outputDir,
         ca,
@@ -73,7 +79,8 @@ public final class PkiBootstrapMain {
     String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     System.out.println(
-        "wrote cluster CA, control-plane, fafnir, and initial-operator material to " + outputDir);
+        "wrote cluster CA, control-plane, fafnir, muninn, and initial-operator material to "
+            + outputDir);
     System.out.println();
     System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);
     System.out.println(

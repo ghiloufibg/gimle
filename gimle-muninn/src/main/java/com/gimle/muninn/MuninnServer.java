@@ -97,6 +97,26 @@ public final class MuninnServer implements AutoCloseable {
   }
 
   /**
+   * Rebuilds the {@link HttpServer}/{@link HttpsServer} from whatever TLS material now sits at
+   * {@code gimle.tls.certFile}/{@code keyFile} -- the same stop/rebuild/re-register/restart
+   * contract {@code FafnirServer.reloadTlsMaterial} already established (see that method's own
+   * javadoc for why a rebuild, not a hot-swap, is the only path the JDK actually supports).
+   */
+  public synchronized void reloadTlsMaterial() throws IOException {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return;
+    }
+    HttpServer previous = server;
+    previous.stop(0);
+    HttpServer rebuilt = createHttpServer(boundPort);
+    registerContexts(rebuilt);
+    rebuilt.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    rebuilt.start();
+    server = rebuilt;
+    log.info("reloaded TLS material and rebuilt HttpsServer on port {}", boundPort);
+  }
+
+  /**
    * The console's Overview-equivalent status surface: no RBAC gate -- nothing here is per-tenant or
    * data-bearing (never a shipped line's content), just process-level status every operator who can
    * reach this port is already trusted to see, the same posture {@code FafnirServer}'s own {@code

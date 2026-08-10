@@ -3,28 +3,37 @@ package com.gimle.muninn;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Muninn's entry point -- arg shape mirrors {@code FafnirMain}'s ({@code --store-endpoints} is how
- * it reaches {@code gimle-mimir} for its own read-only {@code Authorizer} check on proxied reads),
- * plus one required flag Fafnir has no equivalent of: {@code --data-root}, where the logs/metrics/
- * traces this process ingests actually live on disk (see {@code OBSERVABILITY_AUDIT_DESIGN.md}
- * §5c).
+ * it reaches {@code gimle-mimir} for its own read-only {@code Authorizer} check on proxied reads,
+ * {@code --csr-endpoint} is this process's own rotation ticker's target, mirroring {@code
+ * FafnirMain}'s identical flag -- and that class's ticker *ordering*, not {@code StoreMain}'s, see
+ * the ticker below), plus one required flag Fafnir has no equivalent of: {@code --data-root}, the
+ * directory this process's ingested logs/metrics/traces are stored under.
  */
 public final class MuninnMain {
 
   private static final Logger log = LoggerFactory.getLogger(MuninnMain.class);
+  private static final Duration CERT_ROTATION_CHECK_INTERVAL = Duration.ofSeconds(2);
 
   private MuninnMain() {}
 
@@ -46,6 +55,7 @@ public final class MuninnMain {
     String selfHost = "127.0.0.1";
     List<SocketAddress> storeEndpoints = List.of();
     Path dataRoot = null;
+    URI csrEndpoint = null;
     for (int i = 1; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
@@ -53,6 +63,8 @@ public final class MuninnMain {
         storeEndpoints = parseStoreEndpoints(args[++i]);
       } else if ("--data-root".equals(args[i]) && i + 1 < args.length) {
         dataRoot = Path.of(args[++i]);
+      } else if ("--csr-endpoint".equals(args[i]) && i + 1 < args.length) {
+        csrEndpoint = URI.create("https://" + args[++i] + "/bootstrap/csr");
       }
     }
     if (storeEndpoints.isEmpty()) {
@@ -87,6 +99,37 @@ public final class MuninnMain {
     MuninnServer muninnServer = new MuninnServer(storeClient, port);
     muninnServer.start();
 
+    URI finalCsrEndpoint = csrEndpoint;
+    ScheduledExecutorService ticker =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-muninn-cert-rotation-tick").unstarted(r));
+    // Unconditional, not leader-gated -- Muninn has no leader election (stateless, N replicas),
+    // and every replica's own certificate needs to stay fresh regardless. Deliberately checks
+    // TransportProtocol *before* touching TlsSettings.fromConfig(), the same correct ordering
+    // FafnirMain/ApiServer/AgentMain already use -- StoreMain's own ticker evaluates
+    // TlsSettings.fromConfig() unconditionally instead, which permanently kills a
+    // scheduleAtFixedRate on its first tick in default plaintext mode (TlsSettings.fromConfig()
+    // throws, and scheduleAtFixedRate suppresses all future runs after an uncaught exception).
+    ticker.scheduleAtFixedRate(
+        () -> {
+          if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+            return;
+          }
+          boolean rotated =
+              OwnCertificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint);
+          if (rotated) {
+            try {
+              muninnServer.reloadTlsMaterial();
+            } catch (IOException e) {
+              log.warn(
+                  "failed to reload TLS material after certificate rotation: {}", e.getMessage());
+            }
+          }
+        },
+        CERT_ROTATION_CHECK_INTERVAL.toMillis(),
+        CERT_ROTATION_CHECK_INTERVAL.toMillis(),
+        TimeUnit.MILLISECONDS);
+
     log.info(
         "muninn listening on port {} (self: {}:{}, data root: {}, store endpoints: {})",
         muninnServer.port(),
@@ -101,6 +144,7 @@ public final class MuninnMain {
                 .unstarted(
                     () -> {
                       muninnServer.close();
+                      ticker.shutdownNow();
                       storeClient.close();
                     }));
   }
