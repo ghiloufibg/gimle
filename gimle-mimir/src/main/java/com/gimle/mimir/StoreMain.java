@@ -14,6 +14,7 @@ import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreRpcHandler;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.observability.StoreMetrics;
 import com.gimle.pki.OwnCertificateRotator;
@@ -159,6 +160,20 @@ public final class StoreMain {
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(storeMetrics.registry());
     }
+    // Design doc Part B/O-13: a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
+    // own javadoc on why it deliberately skips tracing installation). Shipped to Muninn when
+    // configured, falling back to GimleTracing's existing WorkerMain-established default
+    // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
+    MuninnShipper tracesShipper =
+        muninnEndpoint == null
+            ? null
+            : new MuninnShipper(
+                muninnEndpoint, "/ingest/traces/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
+    if (tracesShipper != null) {
+      GimleTracing.installWithMuninnShipping(tracesShipper);
+    } else {
+      GimleTracing.installDefault();
+    }
 
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =
@@ -196,6 +211,9 @@ public final class StoreMain {
                       raftNode.close();
                       if (metricsShipper != null) {
                         metricsShipper.close();
+                      }
+                      if (tracesShipper != null) {
+                        tracesShipper.close();
                       }
                     }));
 

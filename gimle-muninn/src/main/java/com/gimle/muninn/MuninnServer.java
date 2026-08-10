@@ -124,6 +124,8 @@ public final class MuninnServer implements AutoCloseable {
     target.createContext("/logs/instances/", this::handleReadInstanceLogs);
     target.createContext("/ingest/metrics/", this::handleIngestMetrics);
     target.createContext("/metrics/", this::handleReadMetrics);
+    target.createContext("/ingest/traces/", this::handleIngestTraces);
+    target.createContext("/traces/", this::handleReadTraces);
   }
 
   public void start() {
@@ -308,6 +310,36 @@ public final class MuninnServer implements AutoCloseable {
     }
   }
 
+  // ---- POST /ingest/traces/{processKind}/{processId} ----
+
+  private void handleIngestTraces(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] parts = tailAfter(exchange, "/ingest/traces/").split("/", 2);
+      if (parts.length != 2
+          || !PATH_SEGMENT.matcher(parts[0]).matches()
+          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
+        respond(exchange, 400, "expected /ingest/traces/{processKind}/{processId}");
+        return;
+      }
+      if (!identityAllowedToIngestMetricsOrTraces(exchange)) {
+        respond(exchange, 403, "no verified client certificate");
+        return;
+      }
+      ingest(exchange, "traces/" + parts[0] + "/" + parts[1]);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("traces ingest failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   // ---- GET /logs/nodes/{nodeId}/{category} ----
 
   private void handleReadNodeLogs(HttpExchange exchange) {
@@ -390,6 +422,32 @@ public final class MuninnServer implements AutoCloseable {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("metrics read failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- GET /traces/{processKind}/{processId} ----
+
+  private void handleReadTraces(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] parts = tailAfter(exchange, "/traces/").split("/", 2);
+      if (parts.length != 2
+          || !PATH_SEGMENT.matcher(parts[0]).matches()
+          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
+        respond(exchange, 400, "expected /traces/{processKind}/{processId}");
+        return;
+      }
+      read(exchange, "traces/" + parts[0] + "/" + parts[1]);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("traces read failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();

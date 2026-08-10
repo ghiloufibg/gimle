@@ -16,6 +16,7 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MuninnShipper;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -174,6 +175,22 @@ public final class ControlPlaneMain {
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(apiServer.metrics().registry());
     }
+    // Design doc Part B/O-13: a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
+    // own javadoc on why it deliberately skips tracing installation). Shipped to Muninn when
+    // configured, falling back to GimleTracing's existing WorkerMain-established default
+    // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
+    MuninnShipper tracesShipper =
+        muninnEndpoint == null
+            ? null
+            : new MuninnShipper(
+                muninnEndpoint,
+                "/ingest/traces/CONTROLPLANE/" + selfApiAddress,
+                MUNINN_SHIP_INTERVAL);
+    if (tracesShipper != null) {
+      GimleTracing.installWithMuninnShipping(tracesShipper);
+    } else {
+      GimleTracing.installDefault();
+    }
 
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
@@ -256,6 +273,9 @@ public final class ControlPlaneMain {
                       }
                       if (metricsShipper != null) {
                         metricsShipper.close();
+                      }
+                      if (tracesShipper != null) {
+                        tracesShipper.close();
                       }
                     }));
   }
