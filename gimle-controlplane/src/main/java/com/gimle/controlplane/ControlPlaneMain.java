@@ -8,6 +8,8 @@ import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
+import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.rpc.StoreClient;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -67,6 +70,12 @@ public final class ControlPlaneMain {
   private ControlPlaneMain() {}
 
   public static void main(String[] args) throws IOException {
+    BannerPrinter.print(
+        System.out,
+        Map.of(
+            "app.name", "Gimlé Control Plane",
+            "app.description", "API server, scheduler, reconcilers",
+            "app.version", GimleVersion.current()));
     if (args.length < 2) {
       System.err.println(
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "

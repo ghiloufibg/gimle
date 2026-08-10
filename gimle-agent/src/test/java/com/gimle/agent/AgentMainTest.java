@@ -169,6 +169,34 @@ class AgentMainTest {
   }
 
   @Test
+  void the_spawned_command_always_suppresses_the_startup_banner() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+
+    List<String> command =
+        AgentMain.buildWorkerCommand(
+            "java",
+            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+            resourceLimiter,
+            handle,
+            Path.of("gimle-logs", "workers", "hello-deployment#0"),
+            "node-1",
+            assigned);
+
+    // A worker starts once per module instance, not once per node/replica lifecycle -- unlike
+    // BannerPrinter's own enabled-by-default posture (see that class's javadoc), every worker
+    // this agent spawns gets it explicitly turned off to keep per-instance logs quiet at scale.
+    assertTrue(
+        command.contains("-Dgimle.banner.enabled=false"),
+        "expected the worker's startup banner to be suppressed; command=" + command);
+  }
+
+  @Test
   void observation_json_reports_the_instances_real_self_reported_resource_usage() {
     // Regression test: cpuMillicoresUsed/memoryBytesUsed were previously never populated at all,
     // so AutoscaleReconciler's CPU-utilization math always saw zero. SupervisedInstance's

@@ -1,5 +1,7 @@
 package com.gimle.mimir;
 
+import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.raft.PeerAddress;
@@ -48,6 +50,12 @@ public final class StoreMain {
   private record PeerSpec(String host, int raftPort, int clientPort) {}
 
   public static void main(String[] args) throws IOException {
+    BannerPrinter.print(
+        System.out,
+        Map.of(
+            "app.name", "Gimlé Mimir",
+            "app.description", "Raft-replicated state store",
+            "app.version", GimleVersion.current()));
     if (args.length < 3) {
       System.err.println(
           "usage: StoreMain <stateDir> <raftPort> <clientPort> [--host <hostname>] "

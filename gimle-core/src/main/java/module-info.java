@@ -13,4 +13,5 @@ module com.gimle.core {
   exports com.gimle.core.logging;
   exports com.gimle.core.tls;
   exports com.gimle.core.throttle;
+  exports com.gimle.core.banner;
 }

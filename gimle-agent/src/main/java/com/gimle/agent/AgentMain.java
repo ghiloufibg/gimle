@@ -1,5 +1,7 @@
 package com.gimle.agent;
 
+import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
@@ -110,6 +112,12 @@ public final class AgentMain {
   private AgentMain() {}
 
   public static void main(String[] args) throws IOException, InterruptedException {
+    BannerPrinter.print(
+        System.out,
+        Map.of(
+            "app.name", "Gimlé Node Agent",
+            "app.description", "worker supervision, resource assignment, capacity reporting",
+            "app.version", GimleVersion.current()));
     if (args.length < 5) {
       System.err.println(
           "usage: AgentMain <nodeId> <controlPlaneBaseUrl> <gossipBindHost:port>"
@@ -963,6 +971,11 @@ public final class AgentMain {
     baseCommand.add(
         "-Dgimle.fabric.defaultDenyCrossTenant="
             + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
+    // A worker starts once per module instance, not once per node/replica lifecycle like every
+    // other process role -- printing BannerPrinter's ASCII-art banner on every one of those spawns
+    // would just be log noise at scale, so this agent unconditionally suppresses it for every
+    // worker it spawns. WorkerMain still prints when run directly (its own default stays enabled).
+    baseCommand.add("-Dgimle.banner.enabled=false");
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
     baseCommand.addAll(commandTail);

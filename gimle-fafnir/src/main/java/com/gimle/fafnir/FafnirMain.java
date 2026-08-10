@@ -1,5 +1,7 @@
 package com.gimle.fafnir;
 
+import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -13,6 +15,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +37,12 @@ public final class FafnirMain {
   private FafnirMain() {}
 
   public static void main(String[] args) throws IOException {
+    BannerPrinter.print(
+        System.out,
+        Map.of(
+            "app.name", "Gimlé Fafnir",
+            "app.description", "secrets vault",
+            "app.version", GimleVersion.current()));
     if (args.length < 2) {
       System.err.println(
           "usage: FafnirMain <port> <secretKeyPath> --store-endpoints "

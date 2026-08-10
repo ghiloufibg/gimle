@@ -33,6 +33,22 @@
   </dependencies>
 
   <build>
+    <resources>
+      <!-- The default resources dir, kept unfiltered and listed explicitly: declaring <resources>
+           at all replaces Maven's own implicit default, so this entry has to stay even though its
+           values match that default. logback.xml and the banner templates below must never go
+           through ${*} substitution (see gimle-version.properties's own comment for why). -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>false</filtering>
+      </resource>
+      <!-- Filtered separately: gimle-version.properties is the only resource that should ever see
+           Maven property substitution. -->
+      <resource>
+        <directory>src/main/resources-filtered</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
     <plugins>
       <!-- Publishes TestMdcExtension, its META-INF/services registration, and logback-test.xml
            as a test-jar so every downstream module gets test-log correlation by adding one

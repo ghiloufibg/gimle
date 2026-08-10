@@ -1,5 +1,7 @@
 package com.gimle.worker;
 
+import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceLogCloser;
 import com.gimle.core.logging.InstanceMdcContext;
@@ -58,6 +60,16 @@ public final class WorkerMain {
   private WorkerMain() {}
 
   public static void main(String[] args) throws IOException {
+    // Suppressed by default when gimle-agent spawns this process (AgentMain#buildWorkerCommand
+    // sets -Dgimle.banner.enabled=false unconditionally) since a worker starts once per module
+    // instance rather than once per node/replica lifecycle; still prints when WorkerMain is run
+    // directly (manual testing, gimle:worker-style standalone use).
+    BannerPrinter.print(
+        System.out,
+        Map.of(
+            "app.name", "Gimlé Worker",
+            "app.description", "module hosting runtime",
+            "app.version", GimleVersion.current()));
     if (args.length != 3) {
       System.err.println("usage: WorkerMain <nodeId> <tenantId-or-empty> <control-socket-path>");
       System.exit(2);

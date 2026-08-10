@@ -1,0 +1,8 @@
+${C_GOLD}      ◢█◣      ${C_GOLD_B} ██████╗ ██╗███╗   ███╗██╗     ███████╗${C_RESET}
+${C_GOLD}    ◢█████◣    ${C_GOLD_B}██╔════╝ ██║████╗ ████║██║     ██╔════╝${C_RESET}
+${C_GOLD}  ◢█████████◣  ${C_GOLD_B}██║  ███╗██║██╔████╔██║██║     █████╗  ${C_RESET}
+${C_GOLD} ╱${C_MINT}▓▒░ ░▒▓${C_GOLD}╲ ${C_GOLD_B}██║   ██║██║██║╚██╔╝██║██║     ██╔══╝  ${C_RESET}
+${C_SLATE}▕${C_MINT}█  ▄▄  ▄▄  █${C_SLATE}▏${C_GOLD_B}╚██████╔╝██║██║ ╚═╝ ██║███████╗███████╗${C_RESET}
+${C_SLATE}╰──────────────╯${C_GOLD_B}╚═════╝ ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝${C_RESET}
+${C_MINT}  ▸ ${C_GOLD_B}${app.name}${C_SLATE} :: ${C_MINT}${app.description}${C_SLATE}  ·  v${app.version}${C_RESET}
+${C_SLATE}  the hall that stands through ragnarok${C_RESET}
