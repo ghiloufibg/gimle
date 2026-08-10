@@ -61,6 +61,16 @@ public final class MuninnServer implements AutoCloseable {
    */
   private static final Pattern PATH_SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
+  /**
+   * Same traversal defense as {@link #PATH_SEGMENT} (no {@code /} or {@code \}), but additionally
+   * allows {@code :} -- unlike a node's plain {@code nodeId} (an agent-chosen token, always
+   * alphanumeric), a metrics/traces {@code processId} is every process's own self-reported {@code
+   * host:port} (the same value {@code gimle.node.id} already holds for the control plane/Fafnir/
+   * Mimir), which is meaningless without the port. Colons are legal in a directory name on the
+   * POSIX filesystems this cluster actually runs on.
+   */
+  private static final Pattern PROCESS_ID_SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]*");
+
   private static final int DEFAULT_LIMIT = 200;
 
   // Read-only: Muninn re-runs its own independent Authorizer.authorize(...) check on proxied
@@ -112,6 +122,8 @@ public final class MuninnServer implements AutoCloseable {
     target.createContext("/ingest/logs/instances/", this::handleIngestInstanceLogs);
     target.createContext("/logs/nodes/", this::handleReadNodeLogs);
     target.createContext("/logs/instances/", this::handleReadInstanceLogs);
+    target.createContext("/ingest/metrics/", this::handleIngestMetrics);
+    target.createContext("/metrics/", this::handleReadMetrics);
   }
 
   public void start() {
@@ -266,6 +278,36 @@ public final class MuninnServer implements AutoCloseable {
     respondJson(exchange, 200, Map.of("appended", lines.size()));
   }
 
+  // ---- POST /ingest/metrics/{processKind}/{processId} ----
+
+  private void handleIngestMetrics(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] parts = tailAfter(exchange, "/ingest/metrics/").split("/", 2);
+      if (parts.length != 2
+          || !PATH_SEGMENT.matcher(parts[0]).matches()
+          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
+        respond(exchange, 400, "expected /ingest/metrics/{processKind}/{processId}");
+        return;
+      }
+      if (!identityAllowedToIngestMetricsOrTraces(exchange)) {
+        respond(exchange, 403, "no verified client certificate");
+        return;
+      }
+      ingest(exchange, "metrics/" + parts[0] + "/" + parts[1]);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("metrics ingest failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   // ---- GET /logs/nodes/{nodeId}/{category} ----
 
   private void handleReadNodeLogs(HttpExchange exchange) {
@@ -322,6 +364,32 @@ public final class MuninnServer implements AutoCloseable {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("instance log read failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- GET /metrics/{processKind}/{processId} ----
+
+  private void handleReadMetrics(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] parts = tailAfter(exchange, "/metrics/").split("/", 2);
+      if (parts.length != 2
+          || !PATH_SEGMENT.matcher(parts[0]).matches()
+          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
+        respond(exchange, 400, "expected /metrics/{processKind}/{processId}");
+        return;
+      }
+      read(exchange, "metrics/" + parts[0] + "/" + parts[1]);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("metrics read failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
@@ -393,6 +461,24 @@ public final class MuninnServer implements AutoCloseable {
                 a.deploymentName().equals(deploymentName)
                     && a.instanceIndex() == instanceIndex
                     && a.nodeId().equals(callerNodeId.get()));
+  }
+
+  /**
+   * Metrics ingest (design doc Part B/O-9/O-12, and traces in O-13) comes from every process kind
+   * -- control plane, Fafnir, Mimir, and the agent -- whose {@code processId} path segment is a
+   * self-reported {@code host:port} (matching each process's own {@code gimle.node.id} value), not
+   * that process's own certificate CN (a fixed per-role alias like {@code "controlplane"}/{@code
+   * "fafnir"} minted by {@code PkiBootstrapMain}). A strict CN-equals-processId check the way
+   * node/instance log ingest uses above therefore doesn't generalize here; the weaker-but-still-
+   * real check available is that TLS mode requires *some* certificate the cluster CA actually
+   * issued to have completed the mTLS handshake at all -- this only additionally rejects a
+   * handshake that somehow completed with no peer certificate present.
+   */
+  private boolean identityAllowedToIngestMetricsOrTraces(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange httpsExchange)) {
+      return true;
+    }
+    return peerCertificateCommonName(httpsExchange).isPresent();
   }
 
   private static Optional<String> peerCertificateCommonName(HttpsExchange exchange) {
