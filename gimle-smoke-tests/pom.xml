@@ -62,6 +62,12 @@
       <artifactId>gimle-fafnir</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Same reasoning as gimle-fafnir above, for MuninnMain (design doc Part B/O-14). -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-muninn</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <profiles>

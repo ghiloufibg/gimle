@@ -137,6 +137,11 @@
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
+        <artifactId>gimle-muninn</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
         <artifactId>gimle-fafnir-console</artifactId>
         <version>${project.version}</version>
       </dependency>

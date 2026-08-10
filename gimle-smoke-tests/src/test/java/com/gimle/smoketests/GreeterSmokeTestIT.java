@@ -831,7 +831,7 @@ class GreeterSmokeTestIT {
     await(
         () -> isPortOpen(host, port),
         timeout,
-        "store client port " + port + " should start listening");
+        "port " + host + ":" + port + " should start listening");
   }
 
   private static boolean isPortOpen(String host, int port) {
