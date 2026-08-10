@@ -364,6 +364,10 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add("127.0.0.1:" + STORE_CLIENT_PORT);
     command.add("--fafnir-endpoint");
     command.add("127.0.0.1:" + FAFNIR_PORT);
+    // Optional (design doc Part B/O-11) -- lets this replica's /logs/* proxy fall back to
+    // Muninn's own shipped history for a gone node/instance instead of a bare 404/502.
+    command.add("--muninn-endpoint");
+    command.add("127.0.0.1:" + MUNINN_PORT);
     getLog().info("starting control plane on port " + CONTROLPLANE_PORT);
     return spawnLongRunning(command, logsDir.resolve("controlplane.log"));
   }

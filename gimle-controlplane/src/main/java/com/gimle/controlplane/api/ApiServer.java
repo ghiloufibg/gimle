@@ -2,6 +2,7 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
@@ -121,6 +122,11 @@ public final class ApiServer implements AutoCloseable {
   // client is a thin, pure-HTTP caller against it (design doc Phase A), replacing the in-process
   // SecretCipher/KeyFileManager/KeyRing calls this field's predecessor made directly.
   private final FafnirClient fafnirClient;
+  // Nullable, unlike fafnirClient: Muninn's /logs/* fallback (design doc Part B/O-11) is
+  // genuinely optional -- a cluster with none configured just keeps today's 404/502 behavior for
+  // a gone node/instance, the same "opt in, degrade gracefully" posture gimle-agent's own
+  // muninnEndpoint already has.
+  private final MuninnClient muninnClient;
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
@@ -168,6 +174,18 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * Same as the three-argument constructor, plus a real {@code muninnClient} for tests/callers that
+   * want the {@code /logs/*} Muninn fallback exercised -- every other constructor here passes
+   * {@code null}, matching {@code muninnClient}'s own field javadoc (a cluster with none configured
+   * simply never attempts the fallback).
+   */
+  public ApiServer(
+      StoreClient storeClient, int port, FafnirClient fafnirClient, MuninnClient muninnClient)
+      throws IOException {
+    this(storeClient, port, ephemeralKeyPath(), fafnirClient, muninnClient);
+  }
+
+  /**
    * {@code secretKeyFilePath} is only this replica's own persistent AES-256 session-signing key
    * anymore (generated on first run if absent) -- the secrets master key ring it used to also name
    * now lives entirely in Fafnir, reached through {@code fafnirClient}. {@code storeClient} is this
@@ -180,18 +198,35 @@ public final class ApiServer implements AutoCloseable {
   public ApiServer(
       StoreClient storeClient, int port, Path secretKeyFilePath, FafnirClient fafnirClient)
       throws IOException {
+    this(storeClient, port, secretKeyFilePath, fafnirClient, null);
+  }
+
+  /** Same as the four-argument constructor, plus a real {@code muninnClient} -- see above. */
+  public ApiServer(
+      StoreClient storeClient,
+      int port,
+      Path secretKeyFilePath,
+      FafnirClient fafnirClient,
+      MuninnClient muninnClient)
+      throws IOException {
     this(
         storeClient,
         port,
         fafnirClient,
+        muninnClient,
         SessionKeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
   }
 
   private ApiServer(
-      StoreClient storeClient, int port, FafnirClient fafnirClient, SecretKey sessionSigningKey)
+      StoreClient storeClient,
+      int port,
+      FafnirClient fafnirClient,
+      MuninnClient muninnClient,
+      SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
     this.fafnirClient = fafnirClient;
+    this.muninnClient = muninnClient;
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     this.server = createHttpServer(port);
@@ -1921,7 +1956,13 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing nodeId");
       return;
     }
-    proxyToAgent(exchange, nodeId, "/logs/nodes/" + nodeId);
+    // Only bother computing/attempting a Muninn fallback when one is actually configured -- with
+    // no muninnClient, every one of proxyToAgent's three failure branches keeps its original
+    // 404/502 behavior unchanged rather than routing through proxyToMuninn's own "no muninn
+    // endpoint configured" 404, which would otherwise clobber the pre-existing status codes and
+    // messages callers already depend on.
+    String muninnFallbackPath = muninnClient == null ? null : muninnNodeLogsPath(nodeId, exchange);
+    proxyToAgent(exchange, nodeId, "/logs/nodes/" + nodeId, muninnFallbackPath);
   }
 
   private void handleInstanceLogsProxy(HttpExchange exchange, String tail) throws IOException {
@@ -1942,6 +1983,16 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "invalid instanceIndex");
       return;
     }
+    // Muninn only ever ingested the plain PLATFORM/APPLICATION shape (design doc §5c) -- a
+    // crashdumps sub-path (a whole-file directory listing/fetch, never routed through
+    // LogFileReader in the first place) has no Muninn-side equivalent to fall back to.
+    // Same "only when actually configured" gating as handleNodeLogsProxy above, on top of the
+    // existing crashdumps-subPath exclusion.
+    String subPath = parts.length == 3 ? parts[2] : null;
+    String muninnFallbackPath =
+        subPath != null || muninnClient == null
+            ? null
+            : muninnInstanceLogsPath(deploymentName, instanceIndex, exchange);
     String nodeId =
         storeClient.listAssignmentsFor(deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
@@ -1949,18 +2000,103 @@ public final class ApiServer implements AutoCloseable {
             .findFirst()
             .orElse(null);
     if (nodeId == null) {
+      if (muninnFallbackPath != null) {
+        proxyToMuninn(exchange, muninnFallbackPath);
+        return;
+      }
       respond(exchange, 404, "no placement found for " + deploymentName + "#" + instanceIndex);
       return;
     }
     // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
     // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
-    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail);
+    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath);
   }
 
-  /** Looks up the owning node's self-reported log-server address and forwards the request as-is. */
-  private void proxyToAgent(HttpExchange exchange, String nodeId, String path) throws IOException {
+  /**
+   * {@code /logs/nodes/{nodeId}/{category}} -- Muninn's own path-segment convention for category
+   * (design doc §5c), translated from this surface's own query-parameter convention (matching
+   * {@code AgentLogServer.handleNodeLogs}'s {@code category} default of {@code PLATFORM}). {@code
+   * follow}/{@code category} are stripped from the forwarded query; everything else ({@code
+   * cursor}/{@code since}/{@code limit}) passes through unchanged -- {@code follow=true} reaching
+   * this fallback is silently dropped rather than erroring (Muninn only ever serves shipped
+   * history, never a live tail), so a client that was following a now-gone node still gets a
+   * non-follow page back instead of a hard failure.
+   */
+  private static String muninnNodeLogsPath(String nodeId, HttpExchange exchange) {
+    Map<String, String> query = parseQuery(exchange);
+    String category = query.getOrDefault("category", "PLATFORM");
+    return "/logs/nodes/" + nodeId + "/" + category + forwardedQuery(query);
+  }
+
+  /** Same translation as {@link #muninnNodeLogsPath}, for the instance-scoped shape. */
+  private static String muninnInstanceLogsPath(
+      String deploymentName, int instanceIndex, HttpExchange exchange) {
+    Map<String, String> query = parseQuery(exchange);
+    String category = query.getOrDefault("category", "APPLICATION");
+    return "/logs/instances/"
+        + deploymentName
+        + "/"
+        + instanceIndex
+        + "/"
+        + category
+        + forwardedQuery(query);
+  }
+
+  private static String forwardedQuery(Map<String, String> query) {
+    StringBuilder qs = new StringBuilder();
+    for (Map.Entry<String, String> entry : query.entrySet()) {
+      if (entry.getKey().equals("category") || entry.getKey().equals("follow")) {
+        continue;
+      }
+      qs.append(qs.isEmpty() ? '?' : '&')
+          .append(entry.getKey())
+          .append('=')
+          .append(entry.getValue());
+    }
+    return qs.toString();
+  }
+
+  /** Relays Muninn's response verbatim; no configured {@code muninnClient} is just a plain 404. */
+  private void proxyToMuninn(HttpExchange exchange, String muninnPath) throws IOException {
+    if (muninnClient == null) {
+      respond(exchange, 404, "not found (no live agent, and no muninn endpoint configured)");
+      return;
+    }
+    MuninnClient.RawResponse response;
+    try {
+      response = muninnClient.get(muninnPath);
+    } catch (IOException e) {
+      respond(
+          exchange,
+          404,
+          "not found (no live agent, and muninn unreachable: " + e.getMessage() + ")");
+      return;
+    }
+    exchange.getResponseHeaders().add("Content-Type", response.contentType());
+    exchange.sendResponseHeaders(response.statusCode(), response.body().length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(response.body());
+    }
+  }
+
+  /**
+   * Looks up the owning node's self-reported log-server address and forwards the request as-is --
+   * falling back to Muninn (design doc Part B/O-11) whenever a live agent genuinely isn't
+   * reachable: an unregistered node, a registered node with no advertised log-server address yet,
+   * or a registered-and-advertised node whose agent the actual request still couldn't reach. {@code
+   * muninnFallbackPath} is {@code null} for a request shape Muninn has no equivalent for (see
+   * {@link #handleInstanceLogsProxy}'s crashdumps case), in which case these three conditions keep
+   * their original 404/502 behavior unchanged.
+   */
+  private void proxyToAgent(
+      HttpExchange exchange, String nodeId, String path, String muninnFallbackPath)
+      throws IOException {
     Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
     if (registration.isEmpty()) {
+      if (muninnFallbackPath != null) {
+        proxyToMuninn(exchange, muninnFallbackPath);
+        return;
+      }
       respond(exchange, 404, "unknown node: " + nodeId);
       return;
     }
@@ -1969,6 +2105,10 @@ public final class ApiServer implements AutoCloseable {
       // A known node whose agent hasn't self-advertised a log-server address yet -- still a
       // legitimate "upstream not ready" gateway condition, unlike the truly-unknown-node case
       // above, which isn't a gateway problem at all.
+      if (muninnFallbackPath != null) {
+        proxyToMuninn(exchange, muninnFallbackPath);
+        return;
+      }
       respond(exchange, 502, "node " + nodeId + " has no known log-server address");
       return;
     }
@@ -1987,9 +2127,17 @@ public final class ApiServer implements AutoCloseable {
       response = agentHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      if (muninnFallbackPath != null) {
+        proxyToMuninn(exchange, muninnFallbackPath);
+        return;
+      }
       respond(exchange, 502, "interrupted while proxying to agent " + apiAddress.get());
       return;
     } catch (IOException e) {
+      if (muninnFallbackPath != null) {
+        proxyToMuninn(exchange, muninnFallbackPath);
+        return;
+      }
       respond(
           exchange, 502, "failed to reach agent at " + apiAddress.get() + ": " + e.getMessage());
       return;

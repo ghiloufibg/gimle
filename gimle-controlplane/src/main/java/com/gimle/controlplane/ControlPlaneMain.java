@@ -3,6 +3,7 @@ package com.gimle.controlplane;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
@@ -81,7 +82,7 @@ public final class ControlPlaneMain {
       System.err.println(
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
               + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
-              + " [--host <hostname>]");
+              + " [--host <hostname>] [--muninn-endpoint host:port]");
       System.exit(2);
       return;
     }
@@ -90,6 +91,7 @@ public final class ControlPlaneMain {
     String selfHost = "127.0.0.1";
     List<SocketAddress> storeEndpoints = List.of();
     String fafnirEndpoint = null;
+    String muninnEndpoint = null;
     for (int i = 2; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
@@ -97,6 +99,8 @@ public final class ControlPlaneMain {
         storeEndpoints = parseStoreEndpoints(args[++i]);
       } else if ("--fafnir-endpoint".equals(args[i]) && i + 1 < args.length) {
         fafnirEndpoint = args[++i];
+      } else if ("--muninn-endpoint".equals(args[i]) && i + 1 < args.length) {
+        muninnEndpoint = args[++i];
       }
     }
     if (storeEndpoints.isEmpty()) {
@@ -128,6 +132,9 @@ public final class ControlPlaneMain {
 
     StoreClient storeClient = new StoreClient(storeEndpoints);
     FafnirClient fafnirClient = new FafnirClient(fafnirEndpoint);
+    // Optional, unlike fafnirClient above -- a cluster with no Muninn endpoint configured simply
+    // never gets the /logs/* fallback for a gone node/instance (see MuninnClient's own javadoc).
+    MuninnClient muninnClient = muninnEndpoint == null ? null : new MuninnClient(muninnEndpoint);
 
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler =
@@ -146,7 +153,8 @@ public final class ControlPlaneMain {
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
     QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
 
-    ApiServer apiServer = new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient);
+    ApiServer apiServer =
+        new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
 
@@ -200,11 +208,13 @@ public final class ControlPlaneMain {
         RECONCILE_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
     log.info(
-        "control plane listening on port {} (self: {}, store endpoints: {}, fafnir: {})",
+        "control plane listening on port {} (self: {}, store endpoints: {}, fafnir: {}, muninn:"
+            + " {})",
         apiServer.port(),
         selfApiAddress,
         storeEndpoints,
-        fafnirEndpoint);
+        fafnirEndpoint,
+        muninnEndpoint == null ? "none" : muninnEndpoint);
 
     Optional<Path> consoleRoot =
         BundledSpa.resolve(ControlPlaneMain.class.getClassLoader(), "console/index.html");
@@ -224,6 +234,9 @@ public final class ControlPlaneMain {
                       ticker.shutdownNow();
                       storeClient.close();
                       fafnirClient.close();
+                      if (muninnClient != null) {
+                        muninnClient.close();
+                      }
                     }));
   }
 
