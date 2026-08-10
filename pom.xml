@@ -24,6 +24,7 @@
     <module>gimle-worker</module>
     <module>gimle-agent</module>
     <module>gimle-mimir</module>
+    <module>gimle-muninn</module>
     <module>gimle-fafnir-console</module>
     <module>gimle-fafnir</module>
     <module>gimle-controlplane</module>
