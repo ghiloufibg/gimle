@@ -6,6 +6,7 @@ import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.session.SessionKeyFileManager;
 import com.gimle.core.session.SessionTokens;
@@ -16,6 +17,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.observability.FafnirMetrics;
 import com.gimle.pki.Subjects;
@@ -46,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
@@ -69,14 +72,10 @@ import org.slf4j.LoggerFactory;
 public final class FafnirServer implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(FafnirServer.class);
-  // A dedicated logger, not `log` -- design doc §9's Observability subsection: a queryable record
-  // of every /secrets/* request (principal, tenant, key, version, verb, allow/deny, timestamp --
-  // never the value), separated from ordinary operational logging so it can be routed/retained
-  // differently. gimle-observability has no general-purpose audit-event-log mechanism today (see
-  // InstanceEvent's own javadoc: "the general audit-logging item still on the roadmap") -- adding
-  // one is a bigger, separate undertaking than this item's scope, so this uses the same structured
-  // SLF4J logging every other Gimlé process already relies on for its own queryable event trail,
-  // rather than inventing a parallel Raft-backed collection for a single event kind.
+  // A dedicated logger, not `log` -- design doc §9's Observability subsection: every /secrets/*
+  // request (principal, tenant, key, verb, allow/deny) also lands in the durable, queryable
+  // AuditEvent trail (see #authorizeSecrets), but this line has independent value for an operator
+  // tailing this process's own log file directly, no query needed.
   private static final Logger auditLog = LoggerFactory.getLogger("com.gimle.fafnir.audit");
 
   // gimle-controlplane's own claim about who originated a proxied /secrets/* request -- trusted
@@ -504,6 +503,26 @@ public final class FafnirServer implements AutoCloseable {
         key.orElse("-"),
         verb,
         allowed);
+    // The durable, queryable counterpart to the auditLog line above --
+    // OBSERVABILITY_AUDIT_DESIGN.md
+    // Part A closes the "gimle-observability has no general-purpose audit-event-log mechanism
+    // today" gap this class's own auditLog field javadoc originally flagged. The SLF4J line stays:
+    // it has independent value for an operator tailing this process's own log file, no query
+    // needed.
+    crypto
+        .storeClient()
+        .propose(
+            new StateMutation.AppendAuditEvent(
+                new AuditEvent(
+                    UUID.randomUUID().toString(),
+                    principal.get().name(),
+                    principal.get().groups(),
+                    ResourceKind.SECRET.name(),
+                    verb.name(),
+                    Optional.of(tenantId),
+                    key,
+                    allowed,
+                    System.currentTimeMillis())));
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());

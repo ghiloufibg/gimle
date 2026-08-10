@@ -306,6 +306,126 @@ class FafnirSecretsAuthzTest {
   }
 
   /**
+   * O-4 of {@code OBSERVABILITY_AUDIT_DESIGN.md}'s Part A: allowed and denied {@code /secrets/*}
+   * decisions both land in the durable audit trail alongside Fafnir's own existing SLF4J log line.
+   */
+  @Test
+  @Timeout(10)
+  void an_allowed_secret_request_is_recorded_in_the_durable_audit_trail() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        var events =
+            inProcessStore
+                .store()
+                .listAuditEvents(
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        assertEquals(1, events.size());
+        assertEquals("caller", events.get(0).principal());
+        assertEquals("SECRET", events.get(0).resourceKind());
+        assertEquals("READ", events.get(0).verb());
+        assertEquals(Optional.of("acme"), events.get(0).tenantId());
+        assertEquals(true, events.get(0).allowed());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_denied_secret_request_is_recorded_in_the_durable_audit_trail() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // No Role/RoleBinding granted -- the plain "not authorized" case, same as this file's own
+      // a_caller_whose_own_certificate_holds_no_secret_permission_is_forbidden test.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(403, response.statusCode());
+
+        var events =
+            inProcessStore
+                .store()
+                .listAuditEvents(
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        assertEquals(1, events.size());
+        assertEquals(false, events.get(0).allowed());
+      }
+    }
+  }
+
+  /**
+   * The {@code GROUP_NODES} self-service branch (see {@link FafnirServer#authorizeSecrets})
+   * bypasses {@code authorizer.authorize(...)} entirely, but still computes an {@code allowed}
+   * boolean that belongs in the trail exactly like an ordinary caller's decision does.
+   */
+  @Test
+  @Timeout(10)
+  void a_nodes_self_service_secret_read_is_also_audited() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      assignDeploymentToNode(inProcessStore.store(), "node-1", "acme");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        var events =
+            inProcessStore
+                .store()
+                .listAuditEvents(
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        assertEquals(1, events.size());
+        assertEquals("node-1", events.get(0).principal());
+        assertEquals(true, events.get(0).allowed());
+      }
+    }
+  }
+
+  /**
    * A single-replica deployment placed on {@code nodeId} for {@code tenantId} -- the minimal
    * scheduler-decision shape {@link FafnirServer#isTenantAssignedToNode} joins against, mirroring
    * exactly what a real {@code DeploymentReconciler} placement would have written.
