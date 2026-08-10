@@ -24,6 +24,7 @@
     <module>gimle-worker</module>
     <module>gimle-agent</module>
     <module>gimle-mimir</module>
+    <module>gimle-fafnir-console</module>
     <module>gimle-fafnir</module>
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
@@ -131,6 +132,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-mimir</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-fafnir-console</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

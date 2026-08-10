@@ -45,6 +45,14 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-observability</artifactId>
     </dependency>
+    <!-- No Java sources of its own: just the built web console SPA bundled at
+         fafnir-console/** inside its own jar (see that module's pom.xml). FafnirMain resolves it
+         off the classpath at startup via BundledSpa, the same pattern gimle-controlplane already
+         uses for gimle-console. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir-console</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>

@@ -2,6 +2,8 @@ module com.gimle.core {
   requires org.slf4j;
   requires ch.qos.logback.classic;
   requires ch.qos.logback.core;
+  requires jdk.httpserver;
+  requires java.net.http;
 
   exports com.gimle.core.module;
   exports com.gimle.core.exception;
@@ -14,4 +16,6 @@ module com.gimle.core {
   exports com.gimle.core.tls;
   exports com.gimle.core.throttle;
   exports com.gimle.core.banner;
+  exports com.gimle.core.session;
+  exports com.gimle.core.web;
 }

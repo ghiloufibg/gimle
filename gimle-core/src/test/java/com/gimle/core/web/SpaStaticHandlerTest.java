@@ -1,4 +1,4 @@
-package com.gimle.controlplane.api;
+package com.gimle.core.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -22,8 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Exercises {@link ConsoleStaticHandler} directly over a real loopback HTTP connection. */
-class ConsoleStaticHandlerTest {
+/** Exercises {@link SpaStaticHandler} directly over a real loopback HTTP connection. */
+class SpaStaticHandlerTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
@@ -49,7 +49,7 @@ class ConsoleStaticHandlerTest {
 
   private void startWithShell(String shellFileName) throws IOException {
     server = HttpServer.create(new InetSocketAddress(0), 0);
-    server.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
+    server.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     server.start();
     baseUrl = "http://localhost:" + server.getAddress().getPort();

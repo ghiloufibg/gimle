@@ -1,4 +1,4 @@
-package com.gimle.controlplane;
+package com.gimle.core.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,13 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@link BundledConsole} sits behind a classloader lookup that can return either a {@code jar:} or
- * a {@code file:} URL depending on how the caller was launched -- both branches, plus the "not
+ * {@link BundledSpa} sits behind a classloader lookup that can return either a {@code jar:} or a
+ * {@code file:} URL depending on how the caller was launched -- both branches, plus the "not
  * bundled at all" case, are exercised here against real classpath entries (a real jar built with
  * {@link JarOutputStream}, a real exploded directory), not mocks, since the whole point of this
  * class is genuine cross-{@code FileSystem} {@code Path} behavior.
  */
-class BundledConsoleTest {
+class BundledSpaTest {
 
   @TempDir Path tempDir;
 
@@ -32,7 +32,7 @@ class BundledConsoleTest {
     Files.writeString(classesDir.resolve("console").resolve("index.html"), "<html></html>");
 
     try (URLClassLoader loader = new URLClassLoader(new URL[] {classesDir.toUri().toURL()}, null)) {
-      Optional<Path> resolved = BundledConsole.resolve(loader);
+      Optional<Path> resolved = BundledSpa.resolve(loader, "console/index.html");
       assertTrue(resolved.isPresent(), "expected the exploded console/ directory to resolve");
       assertTrue(Files.isRegularFile(resolved.get().resolve("index.html")));
     }
@@ -51,7 +51,7 @@ class BundledConsoleTest {
     }
 
     try (URLClassLoader loader = new URLClassLoader(new URL[] {jarPath.toUri().toURL()}, null)) {
-      Optional<Path> resolved = BundledConsole.resolve(loader);
+      Optional<Path> resolved = BundledSpa.resolve(loader, "console/index.html");
       assertTrue(resolved.isPresent(), "expected the bundled jar's console/ entry to resolve");
       Path indexHtml = resolved.get().resolve("index.html");
       assertTrue(Files.isRegularFile(indexHtml));
@@ -67,7 +67,24 @@ class BundledConsoleTest {
   @Test
   void returns_empty_when_no_bundled_console_is_on_the_classpath() throws Exception {
     try (URLClassLoader loader = new URLClassLoader(new URL[] {tempDir.toUri().toURL()}, null)) {
-      assertTrue(BundledConsole.resolve(loader).isEmpty());
+      assertTrue(BundledSpa.resolve(loader, "console/index.html").isEmpty());
+    }
+  }
+
+  @Test
+  void resolves_a_different_marker_resource_for_a_second_bundled_spa() throws Exception {
+    // Fafnir's own console jar bundles under the identical console/** prefix as gimle-console's --
+    // no collision, since each process's classpath only ever carries the one console jar it
+    // depends on -- but this test picks a distinct marker path to prove BundledSpa itself makes no
+    // assumption about "console" being the only valid prefix.
+    Path classesDir = tempDir.resolve("classes");
+    Files.createDirectories(classesDir.resolve("fafnir-console"));
+    Files.writeString(classesDir.resolve("fafnir-console").resolve("index.html"), "<html></html>");
+
+    try (URLClassLoader loader = new URLClassLoader(new URL[] {classesDir.toUri().toURL()}, null)) {
+      Optional<Path> resolved = BundledSpa.resolve(loader, "fafnir-console/index.html");
+      assertTrue(resolved.isPresent());
+      assertTrue(Files.isRegularFile(resolved.get().resolve("index.html")));
     }
   }
 }

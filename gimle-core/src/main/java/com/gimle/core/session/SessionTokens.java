@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.core.session;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -27,9 +27,14 @@ import javax.crypto.spec.SecretKeySpec;
  *
  * <p>Deliberately not a lookup table: unlike {@code BootstrapTokenRegistry}'s single-use tokens
  * (checked once, against one control-plane node's memory, at issuance), a session token must keep
- * verifying on every request, potentially against whichever control-plane node happens to receive
- * it. A signed, stateless token needs no replication or shared table to make that work -- any node
- * holding the same signing key verifies independently.
+ * verifying on every request, potentially against whichever node happens to receive it. A signed,
+ * stateless token needs no replication or shared table to make that work -- any node holding the
+ * same signing key verifies independently.
+ *
+ * <p>Lives in {@code gimle-core}, not {@code gimle-controlplane}, so {@code gimle-fafnir}'s own web
+ * console can issue and verify its own session cookies too -- each process signs with its own key
+ * (see {@link SessionKeyFileManager}), never a shared one, so this class carries no assumption
+ * about which process is calling it.
  */
 public final class SessionTokens {
 

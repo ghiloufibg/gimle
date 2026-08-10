@@ -40,6 +40,20 @@ public final class FafnirCrypto {
     return storeClient;
   }
 
+  /**
+   * Exposed so {@link FafnirServer} can derive its own session-signing key file path as a sibling
+   * of this one (mirroring {@code ApiServer}'s own {@code secretKeyFilePath.resolveSibling(
+   * "session.key")}), without either constructor threading a second path through the other.
+   */
+  public Path secretKeyFilePath() {
+    return secretKeyFilePath;
+  }
+
+  /** The console status endpoint's own view of "which key is currently active." */
+  public byte activeKeyId() {
+    return keyRing.activeKeyId();
+  }
+
   public byte[] encrypt(byte[] plaintext) {
     KeyRing ring = keyRing;
     return SecretCipher.encrypt(plaintext, ring.activeKey(), ring.activeKeyId());

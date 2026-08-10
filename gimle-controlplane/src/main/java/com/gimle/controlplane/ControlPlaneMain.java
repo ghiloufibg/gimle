@@ -12,6 +12,7 @@ import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
 import java.io.IOException;
@@ -205,7 +206,8 @@ public final class ControlPlaneMain {
         storeEndpoints,
         fafnirEndpoint);
 
-    Optional<Path> consoleRoot = BundledConsole.resolve(ControlPlaneMain.class.getClassLoader());
+    Optional<Path> consoleRoot =
+        BundledSpa.resolve(ControlPlaneMain.class.getClassLoader(), "console/index.html");
     if (consoleRoot.isPresent()) {
       apiServer.serveConsole(consoleRoot.get());
       log.info("serving bundled web console at /console");

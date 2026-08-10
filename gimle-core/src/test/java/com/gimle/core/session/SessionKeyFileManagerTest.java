@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.core.session;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

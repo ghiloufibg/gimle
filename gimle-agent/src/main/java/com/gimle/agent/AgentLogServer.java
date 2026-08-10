@@ -236,7 +236,7 @@ final class AgentLogServer implements AutoCloseable {
   /**
    * Defense-in-depth alongside the {@code DEPLOYMENT_NAME} allow-list above: guards against a
    * symlink inside {@code root} pointing outside it, the same real-path discipline {@code
-   * ConsoleStaticHandler.isWithinRoot} applies for static console files. {@code candidate} may not
+   * SpaStaticHandler.isWithinRoot} applies for static console files. {@code candidate} may not
    * exist yet (a brand-new instance with no log lines written), in which case only the lexical
    * check applies -- there is nothing on disk yet for a real-path check to see through.
    */
@@ -313,8 +313,8 @@ final class AgentLogServer implements AutoCloseable {
 
   /**
    * {@code name} is validated against the exact expected pattern before touching the filesystem --
-   * the same path-traversal discipline {@code ConsoleStaticHandler} applies for static files, here
-   * as a strict allow-list regex rather than a real-path containment check.
+   * the same path-traversal discipline {@code SpaStaticHandler} applies for static files, here as a
+   * strict allow-list regex rather than a real-path containment check.
    */
   private static void fetchCrashDump(HttpExchange exchange, Path workerLogRoot, String name)
       throws IOException {

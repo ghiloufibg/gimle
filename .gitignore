@@ -13,6 +13,10 @@ gimle-console/dist/
 gimle-console/.output/
 console-dist/
 
+# gimle-fafnir-console -- same reasoning as gimle-console above.
+gimle-fafnir-console/node_modules/
+gimle-fafnir-console/dist/
+
 # gimle-docs (Docusaurus/Bun-family project) build artifacts, including the aggregate Javadoc
 # copied into static/javadoc/ by gimle-docs/pom.xml's copy-javadoc-static execution -- regenerated
 # output, not authored content, same reasoning as gimle-console/dist/ above.

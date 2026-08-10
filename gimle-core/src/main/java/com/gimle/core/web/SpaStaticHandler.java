@@ -1,4 +1,4 @@
-package com.gimle.controlplane.api;
+package com.gimle.core.web;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -17,9 +17,11 @@ import java.util.Map;
  * falls back to {@code shellFileName} with {@code 200} so the SPA's own client-side router handles
  * the path -- the standard SPA-fallback pattern, needed because {@code
  * com.sun.net.httpserver.SimpleFileServer}'s handler has no hook to intercept its own 404s with a
- * fallback.
+ * fallback. Shared by every process that bundles its own console ({@code gimle-controlplane}'s
+ * {@code ApiServer}, {@code gimle-fafnir}'s {@code FafnirServer}) rather than each carrying its own
+ * copy of this logic.
  */
-final class ConsoleStaticHandler implements HttpHandler {
+public final class SpaStaticHandler implements HttpHandler {
 
   /**
    * Vite's build-output directory: files under it are content-hashed assets with no client-side
@@ -55,7 +57,7 @@ final class ConsoleStaticHandler implements HttpHandler {
   private final Path staticRoot;
   private final Path shellFile;
 
-  ConsoleStaticHandler(Path staticRoot, String shellFileName) throws IOException {
+  public SpaStaticHandler(Path staticRoot, String shellFileName) throws IOException {
     this.staticRoot = staticRoot.toRealPath();
     this.shellFile = this.staticRoot.resolve(shellFileName);
   }

@@ -5,8 +5,6 @@ import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
-import com.gimle.controlplane.secret.SessionKeyFileManager;
-import com.gimle.controlplane.secret.SessionTokens;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
@@ -38,12 +36,15 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.session.SessionKeyFileManager;
+import com.gimle.core.session.SessionTokens;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -245,7 +246,7 @@ public final class ApiServer implements AutoCloseable {
   private static void registerConsole(HttpServer target, Path staticRoot) throws IOException {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
-    target.createContext("/console", new ConsoleStaticHandler(staticRoot, shellFileName));
+    target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
   }
 
   /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */

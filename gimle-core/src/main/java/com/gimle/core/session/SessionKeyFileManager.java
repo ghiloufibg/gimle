@@ -1,4 +1,4 @@
-package com.gimle.controlplane.secret;
+package com.gimle.core.session;
 
 import com.gimle.core.exception.GimleSecretsException;
 import java.io.IOException;
@@ -15,14 +15,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Loads {@code ApiServer}'s AES-256 session-cookie-signing key from {@code keyFilePath}, generating
- * one on first run if absent -- the same load-or-create/owner-only-permissions logic {@code
+ * Loads a process's own AES-256 session-cookie-signing key from {@code keyFilePath}, generating one
+ * on first run if absent -- the same load-or-create/owner-only-permissions logic {@code
  * gimle-fafnir}'s own {@code KeyFileManager} uses for secret-value encryption keys, kept as a
  * separate, single-key (no rotation, no ring) class here rather than a shared dependency on that
  * one: this key signs session tokens, not secret values, and {@link SessionTokens}' own javadoc
  * explains why it's deliberately never rotated (a session token's short TTL already bounds its
- * exposure window) -- a genuinely different lifecycle from the ring Fafnir now owns, not the same
- * concern split across two processes.
+ * exposure window) -- a genuinely different lifecycle from a key ring, not the same concern split
+ * across two processes.
+ *
+ * <p>Lives in {@code gimle-core} so both {@code gimle-controlplane}'s {@code ApiServer} and {@code
+ * gimle-fafnir}'s {@code FafnirServer} construct their own independent instance from the same
+ * class, each pointed at its own key file -- deliberately never a shared key or shared file between
+ * the two processes: each console's session is its own, matching the rest of Fafnir's own
+ * defense-in-depth posture (it never trusts "authenticated somewhere else" as proof by itself).
  */
 public final class SessionKeyFileManager {
 
