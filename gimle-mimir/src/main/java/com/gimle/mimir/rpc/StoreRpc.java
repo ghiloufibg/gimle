@@ -3,6 +3,7 @@ package com.gimle.mimir.rpc;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -13,6 +14,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The client-facing wire protocol {@code StoreClient} speaks to a {@code StoreNode} -- the store's
@@ -68,7 +70,8 @@ public sealed interface StoreRpc {
           GetNodeHeartbeat,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
-          ListInstanceEvents {}
+          ListInstanceEvents,
+          ListAuditEvents {}
 
   sealed interface Response extends StoreRpc
       permits Ok,
@@ -93,7 +96,8 @@ public sealed interface StoreRpc {
           RoleBindingListResult,
           ReconcilerInstanceStateResult,
           ReconcilerInstanceStateListResult,
-          InstanceEventListResult {}
+          InstanceEventListResult,
+          AuditEventListResult {}
 
   // ---- leader-only requests (writes, plus the one leader-local read) ----
 
@@ -173,6 +177,19 @@ public sealed interface StoreRpc {
 
   record ListInstanceEvents(String deploymentName, int instanceIndex) implements Request {}
 
+  /**
+   * The first {@code Request} variant with optional fields -- every filter defaults to "match
+   * everything for that dimension" the same way {@link com.gimle.mimir.store.StoreReader
+   * #listAuditEvents}'s own {@code Optional} parameters do; {@code StoreCodec} encodes each via
+   * {@code DomainCodec.writeOptionalString}/{@code writeOptionalLong}.
+   */
+  record ListAuditEvents(
+      Optional<String> principal,
+      Optional<String> resourceKind,
+      Optional<String> tenantId,
+      Optional<Long> since)
+      implements Request {}
+
   // ---- responses ----
 
   /** Shared "the write succeeded, no payload" response for Propose/PutHeartbeat/ReleaseLease. */
@@ -233,4 +250,6 @@ public sealed interface StoreRpc {
       implements Response {}
 
   record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
+
+  record AuditEventListResult(List<AuditEvent> values) implements Response {}
 }

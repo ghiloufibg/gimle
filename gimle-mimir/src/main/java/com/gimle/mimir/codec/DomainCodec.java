@@ -10,6 +10,7 @@ import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -443,6 +444,65 @@ public final class DomainCodec {
         message,
         causeSummary.isEmpty() ? Optional.empty() : Optional.of(causeSummary),
         occurredAtEpochMilli);
+  }
+
+  public static void writeAuditEvent(DataOutputStream out, AuditEvent event) throws IOException {
+    out.writeUTF(event.id());
+    out.writeUTF(event.principal());
+    out.writeInt(event.groups().size());
+    for (String group : event.groups()) {
+      out.writeUTF(group);
+    }
+    out.writeUTF(event.resourceKind());
+    out.writeUTF(event.verb());
+    writeOptionalString(out, event.tenantId());
+    writeOptionalString(out, event.targetId());
+    out.writeBoolean(event.allowed());
+    out.writeLong(event.occurredAtEpochMilli());
+  }
+
+  public static AuditEvent readAuditEvent(DataInputStream in) throws IOException {
+    String id = in.readUTF();
+    String principal = in.readUTF();
+    int groupCount = in.readInt();
+    Set<String> groups = new LinkedHashSet<>();
+    for (int i = 0; i < groupCount; i++) {
+      groups.add(in.readUTF());
+    }
+    String resourceKind = in.readUTF();
+    String verb = in.readUTF();
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> targetId = readOptionalString(in);
+    boolean allowed = in.readBoolean();
+    long occurredAtEpochMilli = in.readLong();
+    return new AuditEvent(
+        id,
+        principal,
+        groups,
+        resourceKind,
+        verb,
+        tenantId,
+        targetId,
+        allowed,
+        occurredAtEpochMilli);
+  }
+
+  /**
+   * {@code since} filters ({@code StoreRpc.ListAuditEvents}) are the first optional {@code long}
+   * this codec has needed to serialize -- {@link #writeOptionalString}/{@link #readOptionalString}
+   * cover every optional-{@code String} case so far, this is the same presence-flag shape for the
+   * one primitive type they don't already handle.
+   */
+  public static void writeOptionalLong(DataOutputStream out, Optional<Long> value)
+      throws IOException {
+    out.writeBoolean(value.isPresent());
+    if (value.isPresent()) {
+      out.writeLong(value.get());
+    }
+  }
+
+  public static Optional<Long> readOptionalLong(DataInputStream in) throws IOException {
+    return in.readBoolean() ? Optional.of(in.readLong()) : Optional.empty();
   }
 
   public static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

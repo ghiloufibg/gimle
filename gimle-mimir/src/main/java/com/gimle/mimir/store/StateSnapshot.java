@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -32,7 +33,8 @@ public record StateSnapshot(
     List<Account> accounts,
     List<ReconcilerInstanceState> reconcilerInstanceStates,
     Set<String> cordonedNodes,
-    List<InstanceEvent> instanceEvents) {
+    List<InstanceEvent> instanceEvents,
+    List<AuditEvent> auditEvents) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -49,5 +51,6 @@ public record StateSnapshot(
     reconcilerInstanceStates = List.copyOf(reconcilerInstanceStates);
     cordonedNodes = Set.copyOf(cordonedNodes);
     instanceEvents = List.copyOf(instanceEvents);
+    auditEvents = List.copyOf(auditEvents);
   }
 }

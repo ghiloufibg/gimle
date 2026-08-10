@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -76,4 +77,10 @@ public interface StoreReader {
   List<ReconcilerInstanceState> listReconcilerInstanceStates();
 
   List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex);
+
+  List<AuditEvent> listAuditEvents(
+      Optional<String> principal,
+      Optional<String> resourceKind,
+      Optional<String> tenantId,
+      Optional<Long> since);
 }

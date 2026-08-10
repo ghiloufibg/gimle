@@ -14,6 +14,7 @@ import com.gimle.core.authz.Verb;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -29,6 +30,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -349,6 +354,191 @@ class StateStoreTest {
     target.restoreFromSnapshot(snapshot);
 
     assertEquals(List.of(event), target.listInstanceEvents("orders-service", 0));
+  }
+
+  private static AuditEvent auditEvent(
+      String id,
+      String principal,
+      String resourceKind,
+      String tenantId,
+      long occurredAtEpochMilli) {
+    return new AuditEvent(
+        id,
+        principal,
+        Set.of("gimle:operators"),
+        resourceKind,
+        "WRITE",
+        Optional.of(tenantId),
+        Optional.of("target-" + id),
+        true,
+        occurredAtEpochMilli);
+  }
+
+  @Test
+  void audit_events_round_trip_newest_first_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("audit-roundtrip");
+    StateStore store = new StateStore(root);
+    AuditEvent first = auditEvent("audit-1", "alice", "DEPLOYMENT", "tenant-1", 1_000L);
+    AuditEvent second = auditEvent("audit-2", "bob", "TENANT", "tenant-1", 2_000L);
+
+    store.putAuditEvent(first);
+    store.putAuditEvent(second);
+
+    assertEquals(
+        List.of(second, first),
+        store.listAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(
+        List.of(second, first),
+        reloaded.listAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void audit_events_beyond_the_retention_cap_prune_the_oldest_first() {
+    Path root = tempDir.resolve("audit-retention");
+    StateStore store = new StateStore(root);
+    // One over the cluster-wide retention cap.
+    for (int i = 0; i < StateStore.MAX_AUDIT_EVENTS + 1; i++) {
+      store.putAuditEvent(auditEvent("audit-" + i, "alice", "DEPLOYMENT", "tenant-1", 1_000L + i));
+    }
+
+    List<AuditEvent> events =
+        store.listAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    assertEquals(StateStore.MAX_AUDIT_EVENTS, events.size());
+    // Newest-first: the very first event (audit-0) was pruned, the last-written one is now first.
+    assertEquals("audit-" + StateStore.MAX_AUDIT_EVENTS, events.get(0).id());
+    assertEquals("audit-1", events.get(events.size() - 1).id());
+  }
+
+  @Test
+  void audit_events_filter_by_principal_resource_kind_tenant_and_since_independently() {
+    Path root = tempDir.resolve("audit-filters");
+    StateStore store = new StateStore(root);
+    store.putAuditEvent(auditEvent("audit-1", "alice", "DEPLOYMENT", "tenant-1", 1_000L));
+    store.putAuditEvent(auditEvent("audit-2", "bob", "TENANT", "tenant-1", 2_000L));
+    store.putAuditEvent(auditEvent("audit-3", "alice", "SECRET", "tenant-2", 3_000L));
+
+    assertEquals(
+        List.of("audit-3", "audit-1"),
+        ids(
+            store.listAuditEvents(
+                Optional.of("alice"), Optional.empty(), Optional.empty(), Optional.empty())));
+    assertEquals(
+        List.of("audit-2"),
+        ids(
+            store.listAuditEvents(
+                Optional.empty(), Optional.of("TENANT"), Optional.empty(), Optional.empty())));
+    assertEquals(
+        List.of("audit-2", "audit-1"),
+        ids(
+            store.listAuditEvents(
+                Optional.empty(), Optional.empty(), Optional.of("tenant-1"), Optional.empty())));
+    assertEquals(
+        List.of("audit-3", "audit-2"),
+        ids(
+            store.listAuditEvents(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(2_000L))));
+    assertEquals(
+        List.of("audit-3"),
+        ids(
+            store.listAuditEvents(
+                Optional.of("alice"),
+                Optional.empty(),
+                Optional.of("tenant-2"),
+                Optional.empty())));
+    assertTrue(
+        store
+            .listAuditEvents(
+                Optional.of("nobody"), Optional.empty(), Optional.empty(), Optional.empty())
+            .isEmpty());
+  }
+
+  private static List<String> ids(List<AuditEvent> events) {
+    return events.stream().map(AuditEvent::id).toList();
+  }
+
+  @Test
+  void an_empty_store_has_no_audit_events() {
+    Path root = tempDir.resolve("audit-empty");
+    StateStore store = new StateStore(root);
+
+    assertTrue(
+        store
+            .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+            .isEmpty());
+  }
+
+  @Test
+  void a_snapshot_carries_audit_events_and_restores_them() {
+    Path root = tempDir.resolve("snapshot-audit");
+    StateStore store = new StateStore(root);
+    AuditEvent event = auditEvent("audit-1", "alice", "DEPLOYMENT", "tenant-1", 1_000L);
+    store.putAuditEvent(event);
+
+    StateSnapshot snapshot = store.snapshot();
+    assertEquals(List.of(event), snapshot.auditEvents());
+
+    StateStore target = new StateStore(tempDir.resolve("snapshot-audit-target"));
+    target.restoreFromSnapshot(snapshot);
+
+    assertEquals(
+        List.of(event),
+        target.listAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void concurrent_audit_event_appends_never_exceed_the_cap_or_lose_or_duplicate_an_event()
+      throws InterruptedException {
+    Path root = tempDir.resolve("audit-concurrent");
+    StateStore store = new StateStore(root);
+    int threadCount = 16;
+    int perThread = 25;
+    ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+    CountDownLatch ready = new CountDownLatch(threadCount);
+    CountDownLatch go = new CountDownLatch(1);
+    CountDownLatch done = new CountDownLatch(threadCount);
+    try {
+      for (int t = 0; t < threadCount; t++) {
+        int threadIndex = t;
+        pool.submit(
+            () -> {
+              ready.countDown();
+              try {
+                go.await();
+                for (int i = 0; i < perThread; i++) {
+                  store.putAuditEvent(
+                      auditEvent(
+                          "audit-" + threadIndex + "-" + i,
+                          "alice",
+                          "DEPLOYMENT",
+                          "tenant-1",
+                          System.nanoTime()));
+                }
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              } finally {
+                done.countDown();
+              }
+            });
+      }
+      assertTrue(ready.await(5, TimeUnit.SECONDS));
+      go.countDown();
+      assertTrue(done.await(30, TimeUnit.SECONDS));
+    } finally {
+      pool.shutdown();
+    }
+
+    List<AuditEvent> events =
+        store.listAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    int totalWritten = threadCount * perThread;
+    assertEquals(Math.min(totalWritten, StateStore.MAX_AUDIT_EVENTS), events.size());
+    assertEquals(events.size(), Set.copyOf(ids(events)).size(), "no duplicate or lost event ids");
   }
 
   @Test

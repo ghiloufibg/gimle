@@ -4,6 +4,7 @@ import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -74,6 +75,7 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_RECONCILER_INSTANCE_STATE = 20;
   private static final byte MUT_PUT_NODE_CORDON = 21;
   private static final byte MUT_APPEND_INSTANCE_EVENT = 22;
+  private static final byte MUT_APPEND_AUDIT_EVENT = 23;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -419,6 +421,10 @@ public final class RaftCodec {
         out.writeByte(MUT_APPEND_INSTANCE_EVENT);
         DomainCodec.writeInstanceEvent(out, m.event());
       }
+      case StateMutation.AppendAuditEvent m -> {
+        out.writeByte(MUT_APPEND_AUDIT_EVENT);
+        DomainCodec.writeAuditEvent(out, m.event());
+      }
     }
   }
 
@@ -459,6 +465,8 @@ public final class RaftCodec {
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
       case MUT_APPEND_INSTANCE_EVENT ->
           new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
+      case MUT_APPEND_AUDIT_EVENT ->
+          new StateMutation.AppendAuditEvent(DomainCodec.readAuditEvent(in));
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -526,6 +534,10 @@ public final class RaftCodec {
       out.writeInt(snapshot.instanceEvents().size());
       for (InstanceEvent event : snapshot.instanceEvents()) {
         DomainCodec.writeInstanceEvent(out, event);
+      }
+      out.writeInt(snapshot.auditEvents().size());
+      for (AuditEvent event : snapshot.auditEvents()) {
+        DomainCodec.writeAuditEvent(out, event);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -606,6 +618,11 @@ public final class RaftCodec {
       for (int i = 0; i < instanceEventCount; i++) {
         instanceEvents.add(DomainCodec.readInstanceEvent(in));
       }
+      List<AuditEvent> auditEvents = new ArrayList<>();
+      int auditEventCount = in.readInt();
+      for (int i = 0; i < auditEventCount; i++) {
+        auditEvents.add(DomainCodec.readAuditEvent(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -620,7 +637,8 @@ public final class RaftCodec {
           accounts,
           reconcilerInstanceStates,
           cordonedNodes,
-          instanceEvents);
+          instanceEvents,
+          auditEvents);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

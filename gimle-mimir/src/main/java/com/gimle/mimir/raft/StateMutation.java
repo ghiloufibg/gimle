@@ -3,6 +3,7 @@ package com.gimle.mimir.raft;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
@@ -116,6 +117,18 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putInstanceEvent(event);
+    }
+  }
+
+  /**
+   * No corresponding {@code RemoveAuditEvent} for the same reason {@code AppendInstanceEvent} has
+   * none -- retention-cap pruning is internal to {@link StateStore#putAuditEvent}, applied
+   * identically on every replica as this mutation replays.
+   */
+  record AppendAuditEvent(AuditEvent event) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putAuditEvent(event);
     }
   }
 

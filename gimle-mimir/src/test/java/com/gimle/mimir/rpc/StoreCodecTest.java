@@ -13,6 +13,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -121,6 +122,19 @@ class StoreCodecTest {
         1_700_000_000_000L);
   }
 
+  private static AuditEvent auditEvent() {
+    return new AuditEvent(
+        "audit-1",
+        "alice",
+        Set.of("gimle:operators"),
+        "DEPLOYMENT",
+        "WRITE",
+        Optional.of("tenant-1"),
+        Optional.of("greeter"),
+        true,
+        1_700_000_000_000L);
+  }
+
   static Stream<StoreRpc> variants() {
     return Stream.of(
         // leader-only writes
@@ -153,6 +167,13 @@ class StoreCodecTest {
         new StoreRpc.GetRollingIndex("greeter"),
         new StoreRpc.GetNodeHeartbeat("node-1"),
         new StoreRpc.ListInstanceEvents("greeter", 0),
+        new StoreRpc.ListAuditEvents(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+        new StoreRpc.ListAuditEvents(
+            Optional.of("alice"),
+            Optional.of("SECRET"),
+            Optional.of("tenant-1"),
+            Optional.of(1_000L)),
         // responses
         new StoreRpc.Ok(),
         new StoreRpc.NotLeader("node-2:8081"),
@@ -182,7 +203,8 @@ class StoreCodecTest {
         new StoreRpc.ConfigEntryListResult(List.of()),
         new StoreRpc.RoleListResult(List.of(role())),
         new StoreRpc.RoleBindingListResult(List.of(roleBinding())),
-        new StoreRpc.InstanceEventListResult(List.of(instanceEvent())));
+        new StoreRpc.InstanceEventListResult(List.of(instanceEvent())),
+        new StoreRpc.AuditEventListResult(List.of(auditEvent())));
   }
 
   @ParameterizedTest

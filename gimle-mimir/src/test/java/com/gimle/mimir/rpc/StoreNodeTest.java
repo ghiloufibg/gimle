@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -27,6 +28,8 @@ import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -201,6 +204,84 @@ class StoreNodeTest {
     assertEquals(
         new StoreRpc.InstanceEventListResult(List.of()),
         node.handle(new StoreRpc.ListInstanceEvents("never-deployed", 0)));
+  }
+
+  // ---- ListAuditEvents / AppendAuditEvent (audit trail) ----
+
+  @Test
+  void a_leader_appends_an_audit_event_and_the_list_read_reflects_it() {
+    StoreNode node = leaderNode("audit-leader");
+    AuditEvent event =
+        new AuditEvent(
+            "audit-1",
+            "alice",
+            Set.of("gimle:operators"),
+            "DEPLOYMENT",
+            "WRITE",
+            Optional.of("tenant-1"),
+            Optional.of("greeter"),
+            true,
+            1_000L);
+
+    StoreRpc.Response proposeResponse =
+        node.handle(new StoreRpc.Propose(new StateMutation.AppendAuditEvent(event)));
+    assertEquals(new StoreRpc.Ok(), proposeResponse);
+
+    StoreRpc.Response listResponse =
+        node.handle(
+            new StoreRpc.ListAuditEvents(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+    assertEquals(new StoreRpc.AuditEventListResult(List.of(event)), listResponse);
+  }
+
+  @Test
+  void listing_audit_events_with_no_matches_is_empty() {
+    StoreNode node = leaderNode("audit-empty");
+    assertEquals(
+        new StoreRpc.AuditEventListResult(List.of()),
+        node.handle(
+            new StoreRpc.ListAuditEvents(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
+  }
+
+  /**
+   * Exercises {@code ListAuditEvents}' optional filter parameters actually surviving the wire --
+   * the one thing this request shape needs that {@code ListInstanceEvents} never did (see
+   * OBSERVABILITY_AUDIT_DESIGN.md's flagged ambiguity on this exact point).
+   */
+  @Test
+  void a_resource_kind_filter_narrows_the_list_read_over_the_wire() {
+    StoreNode node = leaderNode("audit-filter");
+    AuditEvent deploymentEvent =
+        new AuditEvent(
+            "audit-1",
+            "alice",
+            Set.of(),
+            "DEPLOYMENT",
+            "WRITE",
+            Optional.empty(),
+            Optional.empty(),
+            true,
+            1_000L);
+    AuditEvent secretEvent =
+        new AuditEvent(
+            "audit-2",
+            "alice",
+            Set.of(),
+            "SECRET",
+            "WRITE",
+            Optional.empty(),
+            Optional.empty(),
+            true,
+            2_000L);
+    node.handle(new StoreRpc.Propose(new StateMutation.AppendAuditEvent(deploymentEvent)));
+    node.handle(new StoreRpc.Propose(new StateMutation.AppendAuditEvent(secretEvent)));
+
+    StoreRpc.Response listResponse =
+        node.handle(
+            new StoreRpc.ListAuditEvents(
+                Optional.empty(), Optional.of("SECRET"), Optional.empty(), Optional.empty()));
+    assertEquals(new StoreRpc.AuditEventListResult(List.of(secretEvent)), listResponse);
   }
 
   // ---- AddServer: etcd-style membership change (P1-5) ----

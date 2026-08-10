@@ -15,6 +15,7 @@ import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -243,7 +244,18 @@ class RaftCodecTest {
             Set.of("node-1"),
             List.of(
                 new InstanceEvent(
-                    "evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L)));
+                    "evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L)),
+            List.of(
+                new AuditEvent(
+                    "audit-1",
+                    "alice",
+                    Set.of("gimle:operators"),
+                    "DEPLOYMENT",
+                    "WRITE",
+                    Optional.of("tenant-1"),
+                    Optional.of("greeter"),
+                    true,
+                    1_500L)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -270,6 +282,7 @@ class RaftCodecTest {
     assertEquals(snapshot.reconcilerInstanceStates(), decoded.reconcilerInstanceStates());
     assertEquals(snapshot.cordonedNodes(), decoded.cordonedNodes());
     assertEquals(snapshot.instanceEvents(), decoded.instanceEvents());
+    assertEquals(snapshot.auditEvents(), decoded.auditEvents());
   }
 
   @Test
@@ -312,6 +325,37 @@ class RaftCodecTest {
             2_000L);
     LogEntry failed = logEntry(2L, new StateMutation.AppendInstanceEvent(withCause));
     assertEquals(failed, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(failed)));
+  }
+
+  @Test
+  void round_trips_an_append_audit_event_mutation_allowed_and_denied_with_and_without_scope() {
+    AuditEvent allowedWithScope =
+        new AuditEvent(
+            "audit-1",
+            "alice",
+            Set.of("gimle:operators"),
+            "DEPLOYMENT",
+            "WRITE",
+            Optional.of("tenant-1"),
+            Optional.of("greeter"),
+            true,
+            1_000L);
+    LogEntry allowed = logEntry(1L, new StateMutation.AppendAuditEvent(allowedWithScope));
+    assertEquals(allowed, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(allowed)));
+
+    AuditEvent deniedUnscoped =
+        new AuditEvent(
+            "audit-2",
+            "mallory",
+            Set.of(),
+            "TENANT",
+            "DELETE",
+            Optional.empty(),
+            Optional.empty(),
+            false,
+            2_000L);
+    LogEntry denied = logEntry(2L, new StateMutation.AppendAuditEvent(deniedUnscoped));
+    assertEquals(denied, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(denied)));
   }
 
   @Test

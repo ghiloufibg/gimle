@@ -10,6 +10,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -89,6 +90,26 @@ public final class StateStore implements StoreReader {
    */
   private static final int MAX_EVENTS_PER_INSTANCE = 50;
 
+  /**
+   * The cross-resource audit trail, cluster-wide rather than per-key like {@link #instanceEvents}
+   * -- there's no natural single-key scope for "every mutating authorization decision," unlike an
+   * instance's own lifecycle timeline. Oldest-first internally (appended at the end, pruned from
+   * the front), matching {@link #instanceEvents}' own internal order; {@link #listAuditEvents}
+   * reverses for newest-first reads. Access is guarded by {@link #auditEventsLock} rather than a
+   * concurrent collection: append-then-prune must be atomic against the *whole* list, not per-key
+   * the way {@link ConcurrentHashMap#compute} makes {@link #putInstanceEvent} atomic for free.
+   */
+  private final List<AuditEvent> auditEvents = new ArrayList<>();
+
+  private final Object auditEventsLock = new Object();
+
+  /**
+   * Oldest events beyond this count are pruned on the next {@link #putAuditEvent} -- a generous
+   * cluster-wide cap (vs. {@link #MAX_EVENTS_PER_INSTANCE}'s much smaller per-instance one), since
+   * this is the only history across every resource kind, not one instance's own timeline.
+   */
+  static final int MAX_AUDIT_EVENTS = 50_000;
+
   public StateStore(Path root) {
     this.root = root;
     try {
@@ -106,6 +127,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(accountsDir());
       Files.createDirectories(reconcilerStateDir());
       Files.createDirectories(instanceEventsDir());
+      Files.createDirectories(auditEventsDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -513,6 +535,49 @@ public final class StateStore implements StoreReader {
     return List.copyOf(reversed);
   }
 
+  // ---- cross-resource audit trail ----
+
+  /**
+   * Appends one decision to the cluster-wide audit trail, pruning the oldest event(s) once {@link
+   * #MAX_AUDIT_EVENTS} is exceeded -- the append and the prune happen inside one {@code
+   * synchronized} block so every Raft replica applying the same committed {@code AppendAuditEvent}
+   * entries in the same order ends up with identical pruning decisions, the same guarantee {@link
+   * #putInstanceEvent}'s per-key {@code compute} gives it for free.
+   */
+  public void putAuditEvent(AuditEvent event) {
+    writeAtomically(auditEventFile(event), auditEventToYaml(event));
+    synchronized (auditEventsLock) {
+      auditEvents.add(event);
+      while (auditEvents.size() > MAX_AUDIT_EVENTS) {
+        AuditEvent oldest = auditEvents.remove(0);
+        deleteQuietly(auditEventFile(oldest));
+      }
+    }
+  }
+
+  /**
+   * Newest-first, with every filter applied in-memory over the retained window -- the same
+   * filter-after-retrieve shape every other {@code StoreReader} list method already uses. An empty
+   * {@code Optional} filter matches everything for that dimension.
+   */
+  public List<AuditEvent> listAuditEvents(
+      Optional<String> principal,
+      Optional<String> resourceKind,
+      Optional<String> tenantId,
+      Optional<Long> since) {
+    List<AuditEvent> snapshot;
+    synchronized (auditEventsLock) {
+      snapshot = new ArrayList<>(auditEvents);
+    }
+    Collections.reverse(snapshot);
+    return snapshot.stream()
+        .filter(e -> principal.isEmpty() || principal.get().equals(e.principal()))
+        .filter(e -> resourceKind.isEmpty() || resourceKind.get().equals(e.resourceKind()))
+        .filter(e -> tenantId.isEmpty() || e.tenantId().equals(tenantId))
+        .filter(e -> since.isEmpty() || e.occurredAtEpochMilli() >= since.get())
+        .toList();
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -541,7 +606,15 @@ public final class StateStore implements StoreReader {
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
             .collect(Collectors.toUnmodifiableSet()),
-        instanceEvents.values().stream().flatMap(List::stream).toList());
+        instanceEvents.values().stream().flatMap(List::stream).toList(),
+        auditEventsSnapshotOrder());
+  }
+
+  /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
+  private List<AuditEvent> auditEventsSnapshotOrder() {
+    synchronized (auditEventsLock) {
+      return List.copyOf(auditEvents);
+    }
   }
 
   /**
@@ -564,6 +637,7 @@ public final class StateStore implements StoreReader {
     List.copyOf(reconcilerInstanceStates.values())
         .forEach(s -> removeReconcilerInstanceState(s.deploymentName(), s.instanceIndex()));
     clearAllInstanceEvents();
+    clearAllAuditEvents();
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
@@ -582,6 +656,9 @@ public final class StateStore implements StoreReader {
     // -- StateSnapshot#instanceEvents preserves that order (see snapshot() above), and replaying
     // in the same order here reproduces identical per-instance retention-cap pruning decisions.
     snapshot.instanceEvents().forEach(this::putInstanceEvent);
+    // Same reasoning, cluster-wide: StateSnapshot#auditEvents is oldest-first (see
+    // auditEventsSnapshotOrder() above), reproducing identical MAX_AUDIT_EVENTS pruning on replay.
+    snapshot.auditEvents().forEach(this::putAuditEvent);
   }
 
   /**
@@ -594,6 +671,14 @@ public final class StateStore implements StoreReader {
       events.forEach(e -> deleteQuietly(instanceEventFile(e)));
     }
     instanceEvents.clear();
+  }
+
+  /** Same rationale as {@link #clearAllInstanceEvents}, for the cluster-wide audit trail. */
+  private void clearAllAuditEvents() {
+    synchronized (auditEventsLock) {
+      auditEvents.forEach(e -> deleteQuietly(auditEventFile(e)));
+      auditEvents.clear();
+    }
   }
 
   // ---- disk layout ----
@@ -727,6 +812,18 @@ public final class StateStore implements StoreReader {
 
   private static String instanceEventsKey(String deploymentName, int instanceIndex) {
     return deploymentName + "#" + instanceIndex;
+  }
+
+  private Path auditEventsDir() {
+    return root.resolve("audit");
+  }
+
+  /**
+   * One flat file per event, named by its own generated id -- unlike {@link #instanceEventFile},
+   * there's no natural per-key subdirectory for a cluster-wide trail with no single-key scope.
+   */
+  private Path auditEventFile(AuditEvent event) {
+    return auditEventsDir().resolve(event.id() + ".yaml");
   }
 
   private Path configFile(String tenantId, String key) {
@@ -875,6 +972,22 @@ public final class StateStore implements StoreReader {
           Comparator.comparingLong(InstanceEvent::occurredAtEpochMilli)
               .thenComparing(InstanceEvent::id));
       entry.setValue(List.copyOf(sorted));
+    }
+    loadEach(
+        auditEventsDir(),
+        "*.yaml",
+        file -> {
+          AuditEvent event = auditEventFromMap(loadMap(file));
+          synchronized (auditEventsLock) {
+            auditEvents.add(event);
+          }
+        });
+    // Same reasoning as the instance-event sort just above: loadEach's directory-stream order
+    // isn't append order, but putAuditEvent's own pruning assumes the in-memory list is
+    // oldest-first (it prunes from the front).
+    synchronized (auditEventsLock) {
+      auditEvents.sort(
+          Comparator.comparingLong(AuditEvent::occurredAtEpochMilli).thenComparing(AuditEvent::id));
     }
   }
 
@@ -1265,6 +1378,42 @@ public final class StateStore implements StoreReader {
         InstanceEventKind.valueOf((String) root.get("kind")),
         (String) root.get("message"),
         causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
+        ((Number) root.get("occurredAtEpochMilli")).longValue());
+  }
+
+  private static String auditEventToYaml(AuditEvent event) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("id", event.id());
+    root.put("principal", event.principal());
+    root.put("groups", List.copyOf(event.groups()));
+    root.put("resourceKind", event.resourceKind());
+    root.put("verb", event.verb());
+    event.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    event.targetId().ifPresent(targetId -> root.put("targetId", targetId));
+    root.put("allowed", event.allowed());
+    root.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
+    return new Yaml().dump(root);
+  }
+
+  private static AuditEvent auditEventFromMap(Map<?, ?> root) {
+    List<?> rawGroups = (List<?>) root.get("groups");
+    Set<String> groups =
+        rawGroups == null
+            ? Set.of()
+            : rawGroups.stream()
+                .map(String.class::cast)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    Object tenantId = root.get("tenantId");
+    Object targetId = root.get("targetId");
+    return new AuditEvent(
+        (String) root.get("id"),
+        (String) root.get("principal"),
+        groups,
+        (String) root.get("resourceKind"),
+        (String) root.get("verb"),
+        tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
+        targetId == null ? Optional.empty() : Optional.of((String) targetId),
+        (Boolean) root.get("allowed"),
         ((Number) root.get("occurredAtEpochMilli")).longValue());
   }
 }
