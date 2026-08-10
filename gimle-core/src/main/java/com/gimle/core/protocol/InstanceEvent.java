@@ -4,14 +4,13 @@ import java.util.Optional;
 
 /**
  * One durable, queryable entry in an instance's own lifecycle timeline -- distinct from {@code
- * ModuleStateChanged} (a fire-and-forget notification the agent doesn't retain) and from the
- * general audit-logging item still on the roadmap (this is per-instance timeline data, not a
- * cross-resource audit trail). {@code causeSummary} is populated only for a {@code
- * TRANSITION_FAILED} event, and deliberately holds an exception's class name plus message rather
- * than a full stack trace, to keep each event's persisted footprint small. {@code id} is generated
- * once at the point of occurrence (a worker, via {@link InstanceEventKind}'s owning transition) and
- * travels unchanged through every hop after that, giving callers a stable identity for pagination
- * independent of storage order.
+ * ModuleStateChanged} (a fire-and-forget notification the agent doesn't retain) and from {@link
+ * AuditEvent} (this is per-instance timeline data, not a cross-resource audit trail). {@code
+ * causeSummary} is populated only for a {@code TRANSITION_FAILED} event, and deliberately holds an
+ * exception's class name plus message rather than a full stack trace, to keep each event's
+ * persisted footprint small. {@code id} is generated once at the point of occurrence (a worker, via
+ * {@link InstanceEventKind}'s owning transition) and travels unchanged through every hop after
+ * that, giving callers a stable identity for pagination independent of storage order.
  */
 public record InstanceEvent(
     String id,
