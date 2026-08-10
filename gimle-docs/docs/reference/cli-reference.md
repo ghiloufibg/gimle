@@ -38,6 +38,8 @@ gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
+gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
+                  [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
@@ -72,6 +74,12 @@ version, `--version N` reads a specific one; `delete` soft-deletes by default (e
 recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
 key and re-encrypts every existing secret under it, cluster-wide.
 
+`audit list` reads the cross-resource audit trail (see
+[Authentication and authorization](../architecture/authn-authz.md#audit-logging)) — every
+`WRITE`/`DELETE` authorization decision, allowed and denied, across both the control plane and
+Fafnir. Every filter is optional and independently combinable; omitting all of them lists the most
+recent events cluster-wide.
+
 The `role`/`rolebinding`/`account` verbs manage RBAC — see
 [Authentication and authorization](../architecture/authn-authz.md). `--permission` may repeat (a
 role is a set of permissions); the optional third segment of `resource:verb:tenant` scopes a grant
@@ -103,6 +111,9 @@ gimle uncordon node-1 --server 127.0.0.1:8080
 
 # An instance's own lifecycle timeline (installed, resolved, started, active, ...)
 gimle events orders-service-deployment 0 --server 127.0.0.1:8080
+
+# Who deleted the acme tenant's secrets in the last hour -- allowed and denied attempts alike
+gimle audit list --tenant acme --resource SECRET --since 1712000000000 --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

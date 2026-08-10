@@ -184,10 +184,12 @@ capped at 50 events per instance with oldest-first pruning applied deterministic
 `applyTo` so every Raft replica prunes identically). `GET /events?deployment=&instance=` and
 `gimle-cli events <deploymentName> <instanceIndex>` read it back newest-first.
 
-This is deliberately distinct from general audit logging (who changed what, cluster-wide) — that
-remains a separate, unbuilt roadmap item. The event log is per-instance timeline data, and a
-`TRANSITION_FAILED` event's `causeSummary` is deliberately just an exception's class name plus
-message, not a full stack trace, to keep each event's footprint small.
+This is deliberately distinct from general [audit logging](./authn-authz.md#audit-logging) (who
+changed what, cluster-wide) — both are real, both live in `gimle-mimir`, but as two different
+mechanisms: this one is per-instance timeline data scoped and capped per instance, `AuditEvent` is a
+cluster-wide trail with a single retention cap and no natural per-key scope. A `TRANSITION_FAILED`
+event's `causeSummary` is deliberately just an exception's class name plus message, not a full stack
+trace, to keep each event's footprint small.
 
 ## What the control plane deliberately doesn't do
 

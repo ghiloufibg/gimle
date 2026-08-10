@@ -190,11 +190,31 @@ what `requireAuthorized` introduces at the API layer, in place of the single-sta
 **Managing `Role`/`RoleBinding`/`Account` objects themselves is CLI-only for now** — no "Access
 Control" console screen yet. It's a natural, explicitly scoped follow-up, not a gap in this design.
 
+## Audit logging
+
+Every `WRITE`/`DELETE` decision `requireAuthorized` makes — allowed or denied — lands in a durable,
+queryable, cluster-wide audit trail (`AuditEvent`), reusing `gimle-mimir`'s existing Raft-replicated
+storage rather than a second one: the same mechanism `InstanceEvent` already proved for a per-
+instance lifecycle timeline, generalized to a cluster-wide trail with a single retention cap instead
+of a per-key one. `READ` verbs and a bare `401` (no principal resolved at all) are deliberately not
+captured — matching Kubernetes' own default audit policy, where a page-load's worth of `GET`s would
+dwarf the mutating-action volume actually worth recording, and there being no principal to attribute
+an unauthenticated attempt to.
+
+Fafnir's own `/secrets/*` surface feeds the same trail: `FafnirServer.authorizeSecrets` proposes an
+`AuditEvent` through its own `StoreClient` alongside the existing `com.gimle.fafnir.audit` SLF4J
+logger line (kept for an operator tailing that process's own log directly) — including the
+`GROUP_NODES` self-service read branch, which bypasses `Authorizer.authorize` entirely but still
+computes an `allowed` boolean worth recording.
+
+Reading the trail is itself access-controlled, the same "who can grant access is itself an
+access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —
+`ResourceKind.AUDIT`, `Verb.READ`. `GET /audit[?principal=&resource=&tenant=&since=&limit=]` and
+`gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>] [--since <epochMillis>]
+[--limit N]` cover every filter independently and combinably.
+
 ## Explicitly out of scope
 
-- **Audit logging** (roadmap Priority 1, item 2) — a natural next consumer of the same
-  `requireAuthorized` enforcement point ("who did what"), but a distinct design with its own storage
-  and retention questions.
 - **External IdP/OIDC/SAML/SSO** — `Account` password auth is the entire console login story for
   now; nothing here precludes adding federation later (the session-issuing step is where it would
   plug in), but building it ahead of any actual need would be speculative.
