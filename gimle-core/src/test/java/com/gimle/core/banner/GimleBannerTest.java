@@ -17,7 +17,7 @@ import org.junit.jupiter.api.parallel.Resources;
 // any other class holding the same lock, under class-level parallel execution (root pom.xml) --
 // the same convention TransportProtocolTest/LoginThrottleTest already establish.
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
-class BannerPrinterTest {
+class GimleBannerTest {
 
   private static final String COLOR_PROPERTY = "gimle.banner.color";
   private static final String ENABLED_PROPERTY = "gimle.banner.enabled";
@@ -32,7 +32,7 @@ class BannerPrinterTest {
   void render_substitutes_every_caller_supplied_placeholder() {
     System.setProperty(COLOR_PROPERTY, "never");
     String rendered =
-        BannerPrinter.render(
+        GimleBanner.render(
             Map.of(
                 "app.name", "Test App",
                 "app.description", "does testy things",
@@ -48,7 +48,7 @@ class BannerPrinterTest {
   @Test
   void render_falls_back_to_defaults_when_the_caller_supplies_nothing() {
     System.setProperty(COLOR_PROPERTY, "never");
-    String rendered = BannerPrinter.render(Map.of());
+    String rendered = GimleBanner.render(Map.of());
 
     assertTrue(rendered.contains("Application"), "expected default app.name: " + rendered);
     assertTrue(rendered.contains("0.0.0"), "expected default app.version: " + rendered);
@@ -57,7 +57,7 @@ class BannerPrinterTest {
   @Test
   void render_leaves_no_dollar_brace_placeholder_unresolved() {
     System.setProperty(COLOR_PROPERTY, "never");
-    String rendered = BannerPrinter.render(Map.of("app.name", "Whatever"));
+    String rendered = GimleBanner.render(Map.of("app.name", "Whatever"));
 
     assertFalse(
         rendered.contains("${"),
@@ -67,31 +67,31 @@ class BannerPrinterTest {
   @Test
   void color_never_strips_every_ansi_escape() {
     System.setProperty(COLOR_PROPERTY, "never");
-    String rendered = BannerPrinter.render(Map.of());
+    String rendered = GimleBanner.render(Map.of());
     assertFalse(rendered.contains("["), "expected no ANSI escapes with color=never");
   }
 
   @Test
   void color_always_includes_ansi_escapes() {
     System.setProperty(COLOR_PROPERTY, "always");
-    String rendered = BannerPrinter.render(Map.of());
+    String rendered = GimleBanner.render(Map.of());
     assertTrue(rendered.contains("["), "expected ANSI escapes with color=always");
   }
 
   @Test
   void color_override_takes_precedence_regardless_of_environment() {
     System.setProperty(COLOR_PROPERTY, "always");
-    assertEquals(BannerPrinter.ColorMode.EXTENDED, BannerPrinter.detectColorMode());
+    assertEquals(GimleBanner.ColorMode.EXTENDED, GimleBanner.detectColorMode());
 
     System.setProperty(COLOR_PROPERTY, "never");
-    assertEquals(BannerPrinter.ColorMode.NONE, BannerPrinter.detectColorMode());
+    assertEquals(GimleBanner.ColorMode.NONE, GimleBanner.detectColorMode());
   }
 
   @Test
   void print_writes_the_rendered_banner_to_the_given_stream() {
     System.setProperty(COLOR_PROPERTY, "never");
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    BannerPrinter.print(
+    GimleBanner.print(
         new PrintStream(buffer, true, StandardCharsets.UTF_8), Map.of("app.name", "X"));
 
     assertTrue(buffer.toString(StandardCharsets.UTF_8).contains("X"));
@@ -101,7 +101,7 @@ class BannerPrinterTest {
   void print_is_a_no_op_when_disabled() {
     System.setProperty(ENABLED_PROPERTY, "false");
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    BannerPrinter.print(
+    GimleBanner.print(
         new PrintStream(buffer, true, StandardCharsets.UTF_8), Map.of("app.name", "X"));
 
     assertEquals(0, buffer.size(), "expected nothing written when gimle.banner.enabled=false");
@@ -110,7 +110,7 @@ class BannerPrinterTest {
   @Test
   void print_is_enabled_by_default() {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    BannerPrinter.print(
+    GimleBanner.print(
         new PrintStream(buffer, true, StandardCharsets.UTF_8), Map.of("app.name", "X"));
 
     assertTrue(buffer.size() > 0, "expected the banner to print when the property is unset");

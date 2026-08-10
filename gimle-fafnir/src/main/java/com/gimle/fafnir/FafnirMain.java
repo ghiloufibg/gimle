@@ -1,6 +1,6 @@
 package com.gimle.fafnir;
 
-import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
@@ -37,7 +37,7 @@ public final class FafnirMain {
   private FafnirMain() {}
 
   public static void main(String[] args) throws IOException {
-    BannerPrinter.print(
+    GimleBanner.print(
         System.out,
         Map.of(
             "app.name", "Gimlé Fafnir",

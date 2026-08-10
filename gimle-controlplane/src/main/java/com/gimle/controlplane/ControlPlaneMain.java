@@ -8,7 +8,7 @@ import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
-import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TransportProtocol;
@@ -70,7 +70,7 @@ public final class ControlPlaneMain {
   private ControlPlaneMain() {}
 
   public static void main(String[] args) throws IOException {
-    BannerPrinter.print(
+    GimleBanner.print(
         System.out,
         Map.of(
             "app.name", "Gimlé Control Plane",

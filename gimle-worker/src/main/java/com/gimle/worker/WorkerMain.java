@@ -1,6 +1,6 @@
 package com.gimle.worker;
 
-import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceLogCloser;
@@ -64,7 +64,7 @@ public final class WorkerMain {
     // sets -Dgimle.banner.enabled=false unconditionally) since a worker starts once per module
     // instance rather than once per node/replica lifecycle; still prints when WorkerMain is run
     // directly (manual testing, gimle:worker-style standalone use).
-    BannerPrinter.print(
+    GimleBanner.print(
         System.out,
         Map.of(
             "app.name", "Gimlé Worker",

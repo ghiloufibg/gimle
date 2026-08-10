@@ -189,7 +189,7 @@ class AgentMainTest {
             assigned);
 
     // A worker starts once per module instance, not once per node/replica lifecycle -- unlike
-    // BannerPrinter's own enabled-by-default posture (see that class's javadoc), every worker
+    // GimleBanner's own enabled-by-default posture (see that class's javadoc), every worker
     // this agent spawns gets it explicitly turned off to keep per-instance logs quiet at scale.
     assertTrue(
         command.contains("-Dgimle.banner.enabled=false"),

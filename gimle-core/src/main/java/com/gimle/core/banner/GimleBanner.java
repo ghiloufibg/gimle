@@ -30,7 +30,7 @@ import java.util.Map;
  * <p>Usage:
  *
  * <pre>{@code
- * BannerPrinter.print(System.out, Map.of(
+ * GimleBanner.print(System.out, Map.of(
  *     "app.name",        "Gimlé Control Plane",
  *     "app.description", "API server, scheduler, reconcilers",
  *     "app.version",     GimleVersion.current()));
@@ -44,7 +44,7 @@ import java.util.Map;
  * on every spawn would just be log noise at scale; every other process (control plane, agent,
  * store, Fafnir) leaves it on.
  */
-public final class BannerPrinter {
+public final class GimleBanner {
 
   // 256-color palette matching the console UI (golden roof + neon mint).
   private static final Map<String, String> ANSI =
@@ -73,7 +73,7 @@ public final class BannerPrinter {
     EXTENDED
   }
 
-  private BannerPrinter() {}
+  private GimleBanner() {}
 
   /** No-ops when {@code -Dgimle.banner.enabled=false} -- see the class javadoc. */
   public static void print(PrintStream out, Map<String, String> values) {
@@ -204,7 +204,7 @@ public final class BannerPrinter {
   }
 
   private static String load(String resource) {
-    try (InputStream in = BannerPrinter.class.getClassLoader().getResourceAsStream(resource)) {
+    try (InputStream in = GimleBanner.class.getClassLoader().getResourceAsStream(resource)) {
       if (in == null) {
         return null;
       }

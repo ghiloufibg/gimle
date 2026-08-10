@@ -1,6 +1,6 @@
 package com.gimle.mimir;
 
-import com.gimle.core.banner.BannerPrinter;
+import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
@@ -50,7 +50,7 @@ public final class StoreMain {
   private record PeerSpec(String host, int raftPort, int clientPort) {}
 
   public static void main(String[] args) throws IOException {
-    BannerPrinter.print(
+    GimleBanner.print(
         System.out,
         Map.of(
             "app.name", "Gimlé Mimir",
