@@ -3,6 +3,8 @@ module com.gimle.observability {
   requires micrometer.core;
   requires jdk.jfr;
   requires java.management;
+  requires java.net.http;
+  requires org.slf4j;
   requires io.opentelemetry.api;
   requires io.opentelemetry.context;
   requires io.opentelemetry.sdk;
