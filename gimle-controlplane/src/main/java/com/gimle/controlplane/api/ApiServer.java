@@ -256,6 +256,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/logs/", instrument("logs", this::handleLogs));
     target.createContext(
         "/metrics-history/", instrument("metrics-history", this::handleMetricsHistory));
+    target.createContext(
+        "/traces-history/", instrument("traces-history", this::handleTracesHistory));
     target.createContext("/roles/", instrument("roles", this::handleRole));
     target.createContext("/roles", instrument("roles", this::handleRolesList));
     target.createContext("/rolebindings/", instrument("rolebindings", this::handleRoleBinding));
@@ -2022,6 +2024,47 @@ public final class ApiServer implements AutoCloseable {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("metrics history request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code GET /traces-history/{processKind}/{processId}} (design doc Part B/O-13) -- structurally
+   * identical to {@link #handleMetricsHistory} above, proxying to Muninn's own {@code GET
+   * /traces/{processKind}/{processId}} (B-11) instead of {@code /metrics/...}. Same {@code
+   * ResourceKind.LOGS}/{@code Verb.READ} gate, same {@code since}-only convention, same "no
+   * live-agent fallback, a missing muninnClient is a plain 404" posture.
+   */
+  private void handleTracesHistory(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      String tail = pathSegmentAfter(exchange, "/traces-history/");
+      String[] parts = tail.split("/", 2);
+      if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+        respond(exchange, 400, "expected /traces-history/{processKind}/{processId}");
+        return;
+      }
+      if (muninnClient == null) {
+        respond(exchange, 404, "no muninn endpoint configured");
+        return;
+      }
+      Map<String, String> query = parseQuery(exchange);
+      String since = query.get("since");
+      String muninnPath =
+          "/traces/" + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
+      proxyToMuninn(exchange, muninnPath);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("traces history request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
