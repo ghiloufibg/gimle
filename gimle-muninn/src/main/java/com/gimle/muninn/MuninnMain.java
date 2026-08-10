@@ -96,8 +96,14 @@ public final class MuninnMain {
     }
 
     StoreClient storeClient = new StoreClient(storeEndpoints);
-    MuninnServer muninnServer = new MuninnServer(storeClient, port);
+    MuninnServer muninnServer = new MuninnServer(storeClient, port, dataRoot);
     muninnServer.start();
+
+    int retentionDays = Integer.getInteger("gimle.muninn.retentionDays", 30);
+    Duration retentionSweepInterval =
+        Duration.ofSeconds(Long.getLong("gimle.muninn.retentionSweepIntervalSeconds", 3600L));
+    RetentionSweeper retentionSweeper =
+        new RetentionSweeper(dataRoot, retentionDays, retentionSweepInterval);
 
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =
@@ -145,6 +151,7 @@ public final class MuninnMain {
                     () -> {
                       muninnServer.close();
                       ticker.shutdownNow();
+                      retentionSweeper.close();
                       storeClient.close();
                     }));
   }

@@ -69,7 +69,7 @@ class MuninnServerTlsTest {
     TlsSettings clientSettings = issueLeaf(ca, "caller");
 
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
-      try (MuninnServer server = new MuninnServer(store.client(), 0)) {
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
         server.start();
         SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
         HttpClient client = HttpClient.newBuilder().sslContext(clientContext).build();
@@ -98,7 +98,7 @@ class MuninnServerTlsTest {
     Path caFile = Path.of(System.getProperty(CA_FILE_PROPERTY));
 
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
-      try (MuninnServer server = new MuninnServer(store.client(), 0)) {
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
         server.start();
         TlsSettings clientSettings = new TlsSettings(certFile, keyFile, caFile);
         HttpClient before =

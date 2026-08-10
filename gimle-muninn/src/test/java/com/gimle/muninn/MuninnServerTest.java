@@ -40,7 +40,7 @@ class MuninnServerTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
-    server = new MuninnServer(store.client(), 0);
+    server = new MuninnServer(store.client(), 0, tempDir.resolve("data"));
     server.start();
     baseUrl = "http://127.0.0.1:" + server.port();
   }
