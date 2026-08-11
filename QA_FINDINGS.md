@@ -337,36 +337,62 @@ _load`) passed 2/2 clean isolated runs (52-54s wall-clock each), plus a full `gi
 error rate, queue depth) are now proven end to end against a real cluster, not just
 `AutoscaleReconcilerTest`'s in-process bypass.
 
+### Single-replica rolling-update downtime, quota-at-admission, and leader failover under load: all three confirmed correct
+
+Continuing sequentially down the remaining open scope. None of these three found a new bug — each
+confirms a real, already-implemented guarantee actually holds against a real cluster, not just at
+the unit/integration tier.
+
+**Single-replica rolling update has real, observed downtime**: the 2-replica rolling-update test
+(see above) proves continuous availability; `DeploymentReconciler.handleRollingUpdate`'s own javadoc
+is explicit that this is in-place index replacement, never additive surge-then-drain, so a single
+replica *should* see a real gap. `a_single_replica_rolling_update_has_real_observed_downtime`
+deploys 1 replica, rolls it from v1.0.0 to a real v1.1.0 (`TestModuleBuilder`-compiled, same as the
+2-replica test), and asserts the opposite inequality: the background sampler must observe at least
+one moment with zero `ACTIVE` instances, and the deployment must still fully converge afterward.
+Confirmed: the documented tradeoff is exactly as costly as documented, not silently worse (never
+recovering) or silently better (an undocumented surge).
+
+**A deployment that would exceed tenant quota is rejected at admission**: `ApiServer
+#checkTenantQuota` is a real, already-implemented 409 rejection at submission time, distinct from
+`QuotaReconciler`'s own after-the-fact flag-but-don't-evict (already covered at the smoke tier, see
+above) for a quota *retroactively lowered* below what's already running. This scenario sizes a
+tenant's quota to fit exactly one `greeter-provider` replica and submits a second deployment for the
+same tenant once the first is `ACTIVE` — confirmed: real `409`, the rejected deployment is never
+durably created at all (`GET /deployments/*` returns `404`, not an empty/pending record), and the
+first, already-compliant deployment is completely unaffected.
+
+**Raft leader failover loses no acknowledged write under concurrent load**: the existing
+single-node-loss scenario (`cluster_tolerates_losing_one_store_node_mid_deployment`) only submits a
+new write *after* the kill — this scenario runs a continuous background writer (a new, distinct
+tenant `PUT` roughly every 200ms — a real `StoreClient#propose` write against the same 3-node Raft
+cluster, deliberately using the lightweight tenant API rather than real module deployments so no
+scheduler/agent/worker side effects confound the signal) *before, during, and after* one store node
+is killed, deliberately not leader-targeted (`StoreRpc` doesn't expose "who is leader" to a client,
+same reasoning the existing test already documents — Raft's own commit-before-acknowledge guarantee
+must hold regardless of which node is lost). Confirmed: writes kept succeeding after the kill (real
+recovery under load), and every single acknowledged (`200`) write was still durably readable
+afterward — none lost.
+
+**Verification**: all three new smoke tests passed 2/2 clean isolated runs each.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
 were **not** attempted this session — listed here as open scope for a follow-up, not silently
 dropped:
 
-- Rolling update / version-aware traffic cutover *was* attempted this session — see above — and
-  found a real, now-fixed bug; a single-replica rollout (guaranteed downtime, by
-  `DeploymentReconciler`'s own deliberately-minimal in-place-replacement design — see its javadoc)
-  remains untested at the smoke tier, only the 2-replica continuous-availability case.
-- Multi-signal autoscaling *was* attempted this session — see above — and found a real, now-fixed
-  bug (request rate) plus confirmed correct behavior on the two remaining signals (error rate,
-  queue depth — see above). All four Part C signals (CPU, request rate, error rate, queue depth)
-  are now proven end to end against a real cluster, not just `AutoscaleReconcilerTest`'s in-process
-  bypass.
-- Raft leader failover under concurrent writes at the smoke-test tier specifically (covered at the
-  unit/integration tier in `gimle-mimir`, e.g. `RaftClusterTest`'s own failover tests; the
-  smoke-test tier's own single-node-loss scenario,
-  `cluster_tolerates_losing_one_store_node_mid_deployment`, covers a *loss*, not a *failover under
-  load*). Live membership change *was* attempted this session — see above — and is currently
-  `@Disabled` pending the still-open timing finding, not untested.
+- Rolling update / version-aware traffic cutover, multi-signal autoscaling, single-replica
+  rolling-update downtime, quota-at-admission, and Raft leader failover under load *were all*
+  attempted this session — see above for each.
 - RBAC/authz edge cases (cross-tenant denial, node-scoped self-service) at the smoke-test tier
-  (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`; not attempted at the smoke
-  tier since the smoke suite runs the whole cluster in plaintext mode with auth bypassed).
-  Multi-tenancy quota *enforcement* (flag-not-evict) is now covered at the smoke tier too — see
-  the added scenario above — but quota *interaction with scheduling* (a new deployment refused
-  placement outright because it would immediately violate quota) remains untested at this tier.
+  remain untested there (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`) — the
+  smoke suite runs the whole cluster in plaintext mode with auth bypassed, so exercising this
+  properly needs a second, TLS+auth-enabled cluster variant, a bigger lift than any single scenario
+  above and not attempted this session.
 - The console's Config screen, and a data-specific (not just page-loads) Metrics screen assertion —
-  see above; Overview/Nodes/Tenants/Instances/Secrets/Topology are now covered alongside the
-  original Deployments/Logs.
+  Overview/Nodes/Tenants/Instances/Secrets/Topology are now covered alongside the original
+  Deployments/Logs.
 
 ## Verification
 

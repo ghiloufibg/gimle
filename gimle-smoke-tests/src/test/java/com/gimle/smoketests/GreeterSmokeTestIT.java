@@ -26,6 +26,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -273,6 +275,114 @@ class GreeterSmokeTestIT {
         Duration.ofSeconds(90),
         "a deployment submitted after losing one store node should still reach ACTIVE, proving"
             + " the surviving store majority kept serving writes");
+  }
+
+  /**
+   * QA Phase 3 continuation: failover under real *concurrent* writes, not a write submitted only
+   * after the dust settles (the test above proves the surviving majority eventually serves writes
+   * again; this proves nothing acknowledged during the transition is ever lost). A background
+   * writer thread {@code PUT}s a new, distinct tenant (a real, lightweight {@code StoreClient
+   * #propose} write against the same 3-node Raft cluster, with no scheduler/agent/worker side
+   * effects to confound the signal the way a real module deployment's placement would) roughly
+   * every 200ms, continuously, before, during, and after one store node is killed -- deliberately
+   * not targeting the leader specifically ({@code StoreRpc} deliberately doesn't expose "who is
+   * leader" to a client, see the sibling test above), since Raft's own safety guarantee (a write is
+   * only acknowledged once committed to a majority) must hold regardless of which node is lost.
+   * Every write that received a real {@code 200} is recorded; once the writer stops, this asserts
+   * three things: writes kept succeeding after the kill (real recovery under load, not just a
+   * pre-kill snapshot), and -- the actual property under test -- every single acknowledged write is
+   * still durably readable afterward, none silently lost.
+   */
+  @Test
+  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_leader_failover_loses_no_acknowledged_write_under_concurrent_load() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Set<String> acknowledgedTenants = ConcurrentHashMap.newKeySet();
+    AtomicInteger attemptCounter = new AtomicInteger();
+    AtomicInteger acknowledgedAfterKill = new AtomicInteger();
+    AtomicBoolean killed = new AtomicBoolean(false);
+    AtomicBoolean stopWriting = new AtomicBoolean(false);
+
+    String quotaBody =
+        Json.write(
+            Map.of(
+                "quota", Map.of("maxMemoryBytes", 1L, "maxCpuMillicores", 1L, "maxInstances", 0)));
+
+    Thread writer =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  while (!stopWriting.get()) {
+                    String tenantId = "failover-canary-tenant-" + attemptCounter.incrementAndGet();
+                    try {
+                      HttpResponse<String> response =
+                          httpClient.send(
+                              HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+                                  .timeout(Duration.ofSeconds(5))
+                                  .PUT(
+                                      HttpRequest.BodyPublishers.ofString(
+                                          quotaBody, StandardCharsets.UTF_8))
+                                  .build(),
+                              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                      if (response.statusCode() == 200) {
+                        acknowledgedTenants.add(tenantId);
+                        if (killed.get()) {
+                          acknowledgedAfterKill.incrementAndGet();
+                        }
+                      }
+                    } catch (IOException | InterruptedException e) {
+                      // A transient failure during the failover window is expected and not itself
+                      // a violation -- what matters is that a write actually ACKNOWLEDGED (200) is
+                      // never subsequently lost, checked below. Simply move on to the next write.
+                    }
+                    try {
+                      Thread.sleep(200);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      return;
+                    }
+                  }
+                });
+
+    // Let a real batch of writes land before the kill.
+    Thread.sleep(Duration.ofSeconds(3).toMillis());
+    killWithDescendants(cluster.storeProcesses().get(0));
+    killed.set(true);
+
+    // Keep writing well past any realistic re-election/recovery window.
+    Thread.sleep(Duration.ofSeconds(30).toMillis());
+    stopWriting.set(true);
+    writer.join(Duration.ofSeconds(10).toMillis());
+
+    assertTrue(
+        acknowledgedTenants.size() >= 5,
+        "expected several real writes to have been acknowledged across the whole run; got "
+            + acknowledgedTenants.size());
+    assertTrue(
+        acknowledgedAfterKill.get() >= 1,
+        "expected at least one write to be acknowledged after the kill, proving the surviving"
+            + " majority actually resumed serving writes rather than just the pre-kill batch"
+            + " surviving");
+
+    for (String tenantId : acknowledgedTenants) {
+      HttpResponse<String> getResponse =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId)).GET().build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(
+          200,
+          getResponse.statusCode(),
+          "tenant "
+              + tenantId
+              + " was acknowledged (200) by the write path but is not durably readable afterward"
+              + " -- a real acknowledged write must never be lost across a leader failover");
+    }
   }
 
   /**
@@ -562,6 +672,83 @@ class GreeterSmokeTestIT {
         isActive(baseUrl, "greeter-provider-deployment"),
         "a quota-violating deployment must stay untouched, never evicted, per QuotaReconciler's"
             + " own documented contract");
+  }
+
+  /**
+   * QA Phase 3 continuation: the admission-time counterpart to the flag-but-don't-evict scenario
+   * above. {@code ApiServer#checkTenantQuota} is a real, already-implemented 409 rejection at
+   * submission time -- distinct from {@code QuotaReconciler}'s own after-the-fact flag for a quota
+   * lowered *below* what's already running -- but nothing previously proved it against a real
+   * cluster either. A tenant's quota is sized to fit exactly one {@code greeter-provider} replica
+   * (32Mi/20m request, see its {@code gimle-module.yaml}) and no more; a second deployment for the
+   * same tenant is submitted once the first is already {@code ACTIVE}, and this asserts the
+   * rejection is real (409, the deployment never created at all -- {@code GET /deployments/*}
+   * returns 404, not an empty/pending record) and that it never touched the first, already-running
+   * deployment.
+   */
+  @Test
+  @Timeout(value = 4, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_deployment_that_would_exceed_tenant_quota_is_rejected_at_admission() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path providerJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
+
+    String tenantId = "quota-admission-smoke-tenant";
+    // Room for exactly one 32Mi/20m replica (the provider's own request) and no more: a second
+    // replica of anything would push memory to 64Mi (> 40Mi) and instances to 2 (> 1).
+    putTenantQuota(baseUrl, tenantId, 40L * 1024 * 1024, 1000L, 1);
+
+    submitDeployment(
+        baseUrl,
+        "greeter-provider-quota-admission-a",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Optional.of(tenantId));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-quota-admission-a"),
+        Duration.ofSeconds(60),
+        "the first deployment should reach ACTIVE while comfortably within quota");
+
+    HttpResponse<String> rejected =
+        submitDeploymentExpectingRejection(
+            baseUrl,
+            "greeter-provider-quota-admission-b",
+            "com.gimle.examples.greeter.provider",
+            providerJar,
+            tenantId);
+    assertEquals(
+        409,
+        rejected.statusCode(),
+        "a second deployment that would push the tenant past its quota must be rejected outright"
+            + " at admission, not silently accepted and left for QuotaReconciler to flag later:"
+            + " body="
+            + rejected.body());
+
+    HttpResponse<String> secondDeploymentStatus =
+        httpClient.send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/deployments/greeter-provider-quota-admission-b"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(
+        404,
+        secondDeploymentStatus.statusCode(),
+        "a rejected submission must never be durably created at all, not even in a"
+            + " zero-instances/pending state");
+
+    assertTrue(
+        isActive(baseUrl, "greeter-provider-quota-admission-a"),
+        "the first, already-compliant deployment must be completely unaffected by the second"
+            + " submission's rejection");
   }
 
   private void putTenantQuota(
@@ -969,6 +1156,127 @@ class GreeterSmokeTestIT {
             + " rollout -- the whole point of a *rolling* update rather than a full outage."
             + " Observed minimum: "
             + minActiveDuringRollout.get());
+  }
+
+  /**
+   * QA Phase 3 continuation: the single-replica counterpart to the 2-replica test above -- confirms
+   * the documented tradeoff is real, not just documented. {@link
+   * com.gimle.controlplane.reconcile.DeploymentReconciler#handleRollingUpdate}'s own javadoc is
+   * explicit that this is in-place index replacement (kill old at that index, then place new at the
+   * same index), never additive surge-then-drain, so a single-replica deployment WILL see real
+   * downtime during a migration -- only a multi-replica deployment (the test above) can demonstrate
+   * continuous availability. This test asserts the opposite inequality from that one: real,
+   * observed downtime (the sampler must catch at least one moment with zero {@code ACTIVE}
+   * instances), and that the deployment still fully converges to the new version afterward --
+   * proving the tradeoff is exactly as costly as documented, not silently worse (e.g. never
+   * recovering) or silently better (e.g. a surge the docs don't claim to provide).
+   */
+  @Test
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_single_replica_rolling_update_has_real_observed_downtime() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path loadGeneratorJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-load-generator/target/greeter-load-generator-"
+                + GIMLE_VERSION
+                + ".jar");
+    Path providerV1Jar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(
+        Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
+    assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
+
+    submitDeployment(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar);
+    await(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+
+    submitDeploymentWithReplicasWithRetry(
+        baseUrl,
+        "greeter-provider-single-rolling-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0",
+        providerV1Jar,
+        1,
+        Duration.ofSeconds(30));
+    await(
+        () ->
+            allInstancesOnVersion(
+                baseUrl, "greeter-provider-single-rolling-deployment", "1.0.0", 1),
+        Duration.ofSeconds(90),
+        "the single v1 replica should reach ACTIVE before any rollout begins");
+
+    AtomicInteger minActiveDuringRollout = new AtomicInteger(Integer.MAX_VALUE);
+    AtomicBoolean stopSampling = new AtomicBoolean(false);
+    Thread sampler =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  while (!stopSampling.get()) {
+                    int active =
+                        activeInstanceCount(baseUrl, "greeter-provider-single-rolling-deployment");
+                    minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
+                    try {
+                      Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      return;
+                    }
+                  }
+                });
+
+    Process gatling =
+        spawnGatling(
+            javaExecutable,
+            classpath,
+            /* requestsPerSecond= */ 5,
+            /* durationSeconds= */ 90,
+            tempDir.resolve("gatling-single-rolling.log"));
+    processes.add(gatling);
+
+    Path providerV2Jar = buildProviderV2Jar();
+    submitDeploymentWithReplicasWithRetry(
+        baseUrl,
+        "greeter-provider-single-rolling-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.1.0",
+        providerV2Jar,
+        1,
+        Duration.ofSeconds(30));
+
+    try {
+      await(
+          () ->
+              allInstancesOnVersion(
+                  baseUrl, "greeter-provider-single-rolling-deployment", "1.1.0", 1),
+          Duration.ofSeconds(180),
+          "the single replica should still fully converge to v1.1.0 despite the observed downtime");
+    } finally {
+      stopSampling.set(true);
+      sampler.join(Duration.ofSeconds(5).toMillis());
+    }
+
+    assertEquals(
+        0,
+        minActiveDuringRollout.get(),
+        "a single-replica rolling update should show real, observed downtime (the old instance is"
+            + " stopped before the new one is placed) -- DeploymentReconciler's own javadoc"
+            + " documents this as a deliberate tradeoff of the minimal in-place-replacement design,"
+            + " not additive surge-then-drain. Observed minimum active instances: "
+            + minActiveDuringRollout.get()
+            + " (0 expected)");
   }
 
   /**
@@ -1908,6 +2216,33 @@ class GreeterSmokeTestIT {
     if (response.statusCode() != 200) {
       fail("deployment submission failed: " + response.statusCode() + " " + response.body());
     }
+  }
+
+  /**
+   * Like {@link #submitDeployment(String, String, String, Path, Optional)}, but for a submission
+   * expected to be rejected at admission -- returns the raw response instead of failing on a
+   * non-200, so the caller can assert on the rejection itself ({@code ApiServer#checkTenantQuota}'s
+   * own 409, in this suite's case).
+   */
+  private HttpResponse<String> submitDeploymentExpectingRejection(
+      String baseUrl, String deploymentName, String moduleName, Path jar, String tenantId)
+      throws Exception {
+    String manifest =
+        """
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        tenantId: %s
+        """
+            .formatted(deploymentName, moduleName, jar.toAbsolutePath(), tenantId);
+    return httpClient.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
+            .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
   /**
