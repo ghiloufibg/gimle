@@ -649,11 +649,15 @@ class GreeterSmokeTestIT {
     submitAutoscaleDeployment(
         baseUrl,
         "greeter-provider-autoscale-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0",
         providerJar,
         /* minReplicas= */ 1,
         /* maxReplicas= */ 2,
         /* targetCpuUtilizationPercent= */ 200,
-        /* targetRequestRatePerSecond= */ 5.0);
+        /* targetRequestRatePerSecond= */ Optional.of(5.0),
+        /* targetErrorRatePercent= */ Optional.empty(),
+        /* targetQueueDepth= */ Optional.empty());
     await(
         () -> isActive(baseUrl, "greeter-provider-autoscale-deployment"),
         Duration.ofSeconds(60),
@@ -681,6 +685,169 @@ class GreeterSmokeTestIT {
         "greeter-provider-autoscale-deployment should scale up from 1 to 2 replicas under real"
             + " Gatling-generated request-rate load, driven purely by the non-CPU"
             + " targetRequestRatePerSecond signal");
+  }
+
+  /**
+   * QA Phase 3 continuation: the error-rate autoscaling signal under real load. {@code
+   * targetErrorRatePercent} is the one Part C signal never exercised against a real cluster before
+   * this -- request rate found a real bug (the {@code DomainCodec} truncation, see above); error
+   * rate and queue depth were still unit/integration-only. Deploys {@link
+   * #buildFaultyProviderJar()} (real {@code greet} calls, deterministically ~50% of which throw) so
+   * the fabric server's own dispatch (see {@code FabricServer#dispatch}) records real errors
+   * against the instance's own {@code WorkerMetrics} -- the actual signal {@code
+   * AutoscaleReconciler}'s {@code errorRatePercent} helper reads, not a synthetic stand-in. CPU and
+   * request-rate targets are both set unreachable so only the error-rate signal can explain a
+   * scale-up.
+   */
+  @Test
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_deployment_scales_up_under_real_error_rate_load() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path loadGeneratorJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-load-generator/target/greeter-load-generator-"
+                + GIMLE_VERSION
+                + ".jar");
+    assertTrue(
+        Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
+    Path faultyProviderJar = buildFaultyProviderJar();
+
+    submitDeployment(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar);
+    await(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+
+    submitAutoscaleDeployment(
+        baseUrl,
+        "greeter-provider-error-rate-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0-faulty",
+        faultyProviderJar,
+        /* minReplicas= */ 1,
+        /* maxReplicas= */ 2,
+        /* targetCpuUtilizationPercent= */ 200,
+        /* targetRequestRatePerSecond= */ Optional.empty(),
+        // Comfortably below the real ~50% failure rate the faulty provider produces, so a stable
+        // request stream alone (no rate target configured) still drives a scale-up purely off
+        // error percentage.
+        /* targetErrorRatePercent= */ Optional.of(20.0),
+        /* targetQueueDepth= */ Optional.empty());
+    await(
+        () -> isActive(baseUrl, "greeter-provider-error-rate-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-error-rate-deployment should reach ACTIVE before any load is generated");
+    assertEquals(
+        1,
+        activeInstanceCount(baseUrl, "greeter-provider-error-rate-deployment"),
+        "should start at exactly its declared 1 replica before load begins");
+
+    Process gatling =
+        spawnGatling(
+            javaExecutable,
+            classpath,
+            /* requestsPerSecond= */ 10,
+            /* durationSeconds= */ 60,
+            tempDir.resolve("gatling-error-rate.log"));
+    processes.add(gatling);
+
+    await(
+        () -> activeInstanceCount(baseUrl, "greeter-provider-error-rate-deployment") >= 2,
+        Duration.ofSeconds(120),
+        "greeter-provider-error-rate-deployment should scale up from 1 to 2 replicas under real"
+            + " request failures, driven purely by the non-CPU/non-rate targetErrorRatePercent"
+            + " signal");
+  }
+
+  /**
+   * QA Phase 3 continuation: the queue-depth autoscaling signal under real load. Deploys {@link
+   * #buildSlowProviderJar()} (real {@code greet} calls, each sleeping ~300ms) and drives Gatling's
+   * <i>closed</i> injection model (see {@code GreeterAutoscaleSimulation}'s own javadoc) to hold
+   * more requests continuously in flight than {@code WorkerRuntime}'s per-module {@code
+   * BoundedModuleScheduler} concurrency bound (4) -- the only way to build a real, sustained
+   * backlog on it. {@code queueDepth} comes straight off that scheduler (see {@code
+   * WorkerMain#metricsReportLoop}), the actual signal {@code AutoscaleReconciler}'s {@code
+   * targetQueueDepth} reads. CPU, request-rate, and error-rate targets are all unreachable/absent
+   * so only the queue-depth signal can explain a scale-up.
+   */
+  @Test
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_deployment_scales_up_under_real_queue_depth_load() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path loadGeneratorJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-load-generator/target/greeter-load-generator-"
+                + GIMLE_VERSION
+                + ".jar");
+    assertTrue(
+        Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
+    Path slowProviderJar = buildSlowProviderJar();
+
+    submitDeployment(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar);
+    await(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+
+    submitAutoscaleDeployment(
+        baseUrl,
+        "greeter-provider-queue-depth-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0-slow",
+        slowProviderJar,
+        /* minReplicas= */ 1,
+        /* maxReplicas= */ 2,
+        /* targetCpuUtilizationPercent= */ 200,
+        /* targetRequestRatePerSecond= */ Optional.empty(),
+        /* targetErrorRatePercent= */ Optional.empty(),
+        // Comfortably below the ~16-deep backlog 20 concurrent 300ms-each callers sustain against
+        // a concurrency bound of 4 (roughly (20-4) requests waiting at any moment).
+        /* targetQueueDepth= */ Optional.of(2));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-queue-depth-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-queue-depth-deployment should reach ACTIVE before any load is generated");
+    assertEquals(
+        1,
+        activeInstanceCount(baseUrl, "greeter-provider-queue-depth-deployment"),
+        "should start at exactly its declared 1 replica before load begins");
+
+    Process gatling =
+        spawnGatling(
+            javaExecutable,
+            classpath,
+            /* requestsPerSecond= */ 0,
+            /* durationSeconds= */ 60,
+            /* concurrentUsers= */ 20,
+            tempDir.resolve("gatling-queue-depth.log"));
+    processes.add(gatling);
+
+    await(
+        () -> activeInstanceCount(baseUrl, "greeter-provider-queue-depth-deployment") >= 2,
+        Duration.ofSeconds(120),
+        "greeter-provider-queue-depth-deployment should scale up from 1 to 2 replicas under a real"
+            + " sustained request backlog, driven purely by the non-CPU/non-rate/non-error"
+            + " targetQueueDepth signal");
   }
 
   /**
@@ -891,6 +1058,199 @@ class GreeterSmokeTestIT {
   }
 
   /**
+   * A real {@code greeter-provider} whose {@code greet} deterministically fails half the time
+   * (every other call, via a static counter -- deterministic rather than random so the real failure
+   * rate this produces is exactly predictable: ~50%) -- the fabric server-side dispatch that
+   * invokes it records each thrown exception as a real error against this instance's own {@code
+   * WorkerMetrics} (see {@code FabricServer#dispatch}), which is exactly the {@code
+   * errorRatePerSecond} signal {@code AutoscaleReconciler}'s {@code targetErrorRatePercent} reads.
+   * Built via {@link TestModuleBuilder} rather than modifying the real, committed example module,
+   * same reasoning as {@link #buildProviderV2Jar()}.
+   */
+  private Path buildFaultyProviderJar() {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.examples.greeter.provider {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports com.gimle.examples.greeter.provider;
+              exports com.gimle.examples.greeter;
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.Greeter",
+            """
+            package com.gimle.examples.greeter;
+            public interface Greeter {
+              String greet(String name);
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderFaultyHooks",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.examples.greeter.Greeter;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            import java.util.concurrent.atomic.AtomicLong;
+            public final class GreeterProviderFaultyHooks implements ModuleLifecycleHooks {
+              private static final AtomicLong CALLS = new AtomicLong();
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.registerService(Greeter.class, name -> {
+                  if (CALLS.incrementAndGet() % 2 == 0) {
+                    throw new IllegalStateException("synthetic QA fault");
+                  }
+                  return "Hello, " + name + "! (from faulty provider)";
+                });
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderFaultyLiveness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.LivenessProbe;
+            public final class GreeterProviderFaultyLiveness implements LivenessProbe {
+              public boolean isAlive() { return true; }
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderFaultyReadiness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.ReadinessProbe;
+            public final class GreeterProviderFaultyReadiness implements ReadinessProbe {
+              public boolean isReady() { return true; }
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.examples.greeter.provider
+            version: 1.0.0-faulty
+            isolation:
+              tier: TIER_2
+            resources:
+              request:
+                memory: 32Mi
+                cpu: 20m
+              limit:
+                memory: 64Mi
+                cpu: 100m
+            exports:
+              - service: com.gimle.examples.greeter.Greeter
+                version: 1.0.0
+            lifecycle:
+              hooks: com.gimle.examples.greeter.provider.GreeterProviderFaultyHooks
+            health:
+              liveness: com.gimle.examples.greeter.provider.GreeterProviderFaultyLiveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProviderFaultyReadiness
+            """)
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "greeter-provider-faulty.jar");
+  }
+
+  /**
+   * A real {@code greeter-provider} whose {@code greet} always sleeps ~300ms before returning --
+   * paired with sustained concurrent (not just rate-limited) load, this is what actually builds a
+   * real backlog on {@code WorkerRuntime}'s per-module {@code BoundedModuleScheduler} (concurrency
+   * bound 4): a fixed request rate alone says nothing about how many requests are in flight at
+   * once, but enough slow, concurrent calls queue behind that bound the same way a real slow
+   * downstream dependency would. {@code queueDepth} is reported straight off that scheduler (see
+   * {@code WorkerMain#metricsReportLoop}), which is exactly the signal {@code
+   * AutoscaleReconciler}'s {@code targetQueueDepth} reads. Built via {@link TestModuleBuilder},
+   * same reasoning as {@link #buildProviderV2Jar()}.
+   */
+  private Path buildSlowProviderJar() {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.examples.greeter.provider {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports com.gimle.examples.greeter.provider;
+              exports com.gimle.examples.greeter;
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.Greeter",
+            """
+            package com.gimle.examples.greeter;
+            public interface Greeter {
+              String greet(String name);
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderSlowHooks",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.examples.greeter.Greeter;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class GreeterProviderSlowHooks implements ModuleLifecycleHooks {
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.registerService(Greeter.class, name -> {
+                  try {
+                    Thread.sleep(300);
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                  }
+                  return "Hello, " + name + "! (from slow provider)";
+                });
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderSlowLiveness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.LivenessProbe;
+            public final class GreeterProviderSlowLiveness implements LivenessProbe {
+              public boolean isAlive() { return true; }
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderSlowReadiness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.ReadinessProbe;
+            public final class GreeterProviderSlowReadiness implements ReadinessProbe {
+              public boolean isReady() { return true; }
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.examples.greeter.provider
+            version: 1.0.0-slow
+            isolation:
+              tier: TIER_2
+            resources:
+              request:
+                memory: 32Mi
+                cpu: 20m
+              limit:
+                memory: 64Mi
+                cpu: 100m
+            exports:
+              - service: com.gimle.examples.greeter.Greeter
+                version: 1.0.0
+            lifecycle:
+              hooks: com.gimle.examples.greeter.provider.GreeterProviderSlowHooks
+            health:
+              liveness: com.gimle.examples.greeter.provider.GreeterProviderSlowLiveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProviderSlowReadiness
+            """)
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "greeter-provider-slow.jar");
+  }
+
+  /**
    * Scans this test JVM's own classpath for the jars {@link #buildProviderV2Jar()}'s compilation
    * needs on its module path ({@code com.gimle.module}, {@code org.slf4j}) -- mirrors {@code
    * RealBundledHookAndProbeInvocationTest#findPlatformJars} (gimle-worker), matching either an
@@ -1026,37 +1386,64 @@ class GreeterSmokeTestIT {
     }
   }
 
+  /**
+   * {@code moduleName}/{@code moduleVersion} are explicit rather than hardcoded to greeter-
+   * provider's own committed 1.0.0 -- error-rate and queue-depth scenarios deploy a purpose-built
+   * chaos variant compiled on the fly by {@link TestModuleBuilder} (see {@link
+   * #buildFaultyProviderJar()}/{@link #buildSlowProviderJar()}) rather than modifying the real,
+   * committed example module just to inject synthetic faults/latency into it. {@code
+   * targetRequestRatePerSecond}/{@code targetErrorRatePercent}/{@code targetQueueDepth} are each
+   * independently optional, matching {@code AutoscalePolicy}'s own shape -- an absent one is simply
+   * omitted from the manifest, never evaluated by {@code AutoscaleReconciler}.
+   */
   private void submitAutoscaleDeployment(
       String baseUrl,
       String deploymentName,
+      String moduleName,
+      String moduleVersion,
       Path jar,
       int minReplicas,
       int maxReplicas,
       int targetCpuUtilizationPercent,
-      double targetRequestRatePerSecond)
+      Optional<Double> targetRequestRatePerSecond,
+      Optional<Double> targetErrorRatePercent,
+      Optional<Integer> targetQueueDepth)
       throws Exception {
+    StringBuilder autoscaleBlock =
+        new StringBuilder("autoscale:\n")
+            .append("  minReplicas: ")
+            .append(minReplicas)
+            .append('\n')
+            .append("  maxReplicas: ")
+            .append(maxReplicas)
+            .append('\n')
+            .append("  targetCpuUtilizationPercent: ")
+            .append(targetCpuUtilizationPercent)
+            .append('\n');
+    targetRequestRatePerSecond.ifPresent(
+        value ->
+            autoscaleBlock.append("  targetRequestRatePerSecond: ").append(value).append('\n'));
+    targetErrorRatePercent.ifPresent(
+        value -> autoscaleBlock.append("  targetErrorRatePercent: ").append(value).append('\n'));
+    targetQueueDepth.ifPresent(
+        value -> autoscaleBlock.append("  targetQueueDepth: ").append(value).append('\n'));
+
     String manifest =
         """
         name: %s
         module:
-          name: com.gimle.examples.greeter.provider
-          version: 1.0.0
+          name: %s
+          version: %s
         artifactPath: %s
         replicas: %d
-        autoscale:
-          minReplicas: %d
-          maxReplicas: %d
-          targetCpuUtilizationPercent: %d
-          targetRequestRatePerSecond: %s
-        """
+        %s"""
             .formatted(
                 deploymentName,
+                moduleName,
+                moduleVersion,
                 jar.toAbsolutePath(),
                 minReplicas,
-                minReplicas,
-                maxReplicas,
-                targetCpuUtilizationPercent,
-                targetRequestRatePerSecond);
+                autoscaleBlock);
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
@@ -1109,6 +1496,31 @@ class GreeterSmokeTestIT {
       int durationSeconds,
       Path logFile)
       throws IOException {
+    return spawnGatling(
+        javaExecutable,
+        classpath,
+        requestsPerSecond,
+        durationSeconds,
+        /* concurrentUsers= */ 0,
+        logFile);
+  }
+
+  /**
+   * Like {@link #spawnGatling(String, String, int, int, Path)}, but with a caller-chosen closed-
+   * model concurrency instead of the open-model {@code requestsPerSecond} rate -- see {@code
+   * GreeterAutoscaleSimulation}'s own javadoc on why a fixed request rate alone can't build a real
+   * queue-depth backlog, only a sustained concurrent-in-flight count can. {@code concurrentUsers <=
+   * 0} keeps the existing open-model behavior; {@code requestsPerSecond} is simply ignored in that
+   * case, the same shape the two-arg overload above already implies.
+   */
+  private Process spawnGatling(
+      String javaExecutable,
+      String classpath,
+      int requestsPerSecond,
+      int durationSeconds,
+      int concurrentUsers,
+      Path logFile)
+      throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
             javaExecutable,
@@ -1119,6 +1531,7 @@ class GreeterSmokeTestIT {
             "-Dgimle.load.baseUrl=http://127.0.0.1:19077",
             "-Dgimle.load.requestsPerSecond=" + requestsPerSecond,
             "-Dgimle.load.durationSeconds=" + durationSeconds,
+            "-Dgimle.load.concurrentUsers=" + concurrentUsers,
             "io.gatling.app.Gatling",
             "-s",
             "com.gimle.smoketests.load.GreeterAutoscaleSimulation",
