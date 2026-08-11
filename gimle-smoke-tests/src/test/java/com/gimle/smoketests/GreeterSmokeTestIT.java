@@ -382,6 +382,102 @@ class GreeterSmokeTestIT {
   }
 
   /**
+   * QA hardening pass, Phase 3 continuation: {@code QuotaReconciler}'s own class javadoc states it
+   * deliberately never evicts instances to force compliance, only surfaces a quota violation for a
+   * human operator to resolve -- covered at the reconciler-unit tier ({@code QuotaReconcilerTest}),
+   * but nothing previously proved this against a real running deployment. A tenant's quota is
+   * retroactively lowered below what's already running (the exact scenario that reconciler's own
+   * javadoc names), and this asserts both halves: the violation becomes visible on the real API
+   * surface, and the already-running instance is never touched.
+   */
+  @Test
+  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_tenant_over_quota_deployment_is_flagged_but_not_evicted() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path providerJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
+
+    String quotaTenantId = "quota-smoke-tenant";
+    // Generous enough for the provider's own request (32Mi/20m, gimle-module.yaml) to schedule
+    // and reach ACTIVE cleanly before the quota is lowered below it.
+    putTenantQuota(baseUrl, quotaTenantId, 256L * 1024 * 1024, 1000L, 10);
+
+    submitDeployment(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Optional.of(quotaTenantId));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-deployment should reach ACTIVE under a compliant quota");
+    assertTrue(
+        !isQuotaViolating(baseUrl, "greeter-provider-deployment"),
+        "should not be flagged while comfortably within quota");
+
+    // Retroactively lower the same tenant's quota below what's already running -- QuotaReconciler's
+    // own documented trigger for this flag, not a quota rejected at admission time.
+    putTenantQuota(baseUrl, quotaTenantId, 1L, 1L, 0);
+
+    await(
+        () -> isQuotaViolating(baseUrl, "greeter-provider-deployment"),
+        Duration.ofSeconds(30),
+        "greeter-provider-deployment should be flagged quota-violating once its tenant's quota is"
+            + " retroactively lowered below what's already running");
+    // Give the reconciler several more ticks' worth of headroom, then confirm it still never
+    // touched the running instance -- the actual guarantee this test exists to prove, not just
+    // that the flag can be set.
+    Thread.sleep(Duration.ofSeconds(5).toMillis());
+    assertTrue(
+        isActive(baseUrl, "greeter-provider-deployment"),
+        "a quota-violating deployment must stay untouched, never evicted, per QuotaReconciler's"
+            + " own documented contract");
+  }
+
+  private void putTenantQuota(
+      String baseUrl, String tenantId, long maxMemoryBytes, long maxCpuMillicores, int maxInstances)
+      throws Exception {
+    String quotaBody =
+        Json.write(
+            Map.of(
+                "quota",
+                Map.of(
+                    "maxMemoryBytes",
+                    maxMemoryBytes,
+                    "maxCpuMillicores",
+                    maxCpuMillicores,
+                    "maxInstances",
+                    maxInstances)));
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+                .PUT(HttpRequest.BodyPublishers.ofString(quotaBody, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("tenant quota update failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  private boolean isQuotaViolating(String baseUrl, String deploymentName) {
+    try {
+      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName);
+      return Boolean.TRUE.equals(status.get("quotaViolating"));
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
    * The metrics round trip (design doc Part B/O-10): a real request against a real control-plane
    * replica increments a real counter, that counter is shipped to Muninn, and the shipped value is
    * readable back through {@code GET /metrics-history/*} -- not just that the endpoint returns
