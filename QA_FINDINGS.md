@@ -376,6 +376,36 @@ afterward — none lost.
 
 **Verification**: all three new smoke tests passed 2/2 clean isolated runs each.
 
+### Console Config screen and a data-specific Metrics assertion: both confirmed correct
+
+Closing out the last item on the original open-scope list. No new bug: both screens genuinely
+reflect real backend state.
+
+**Config screen**: `GreeterSmokeTestIT#provisionTenantAndSecret` now also writes a real, plain
+(non-encrypted) config entry (`greeting.locale` = `en-US`) via `PUT /config/{tenantId}/{key}`,
+distinct from the already-masked `SECRET_KEY` the Secrets screen covers — exercises `ApiServer
+#handleListConfig`'s own plain-vs-encrypted filtering path, which nothing previously drove through
+the console. A new Playwright test asserts both the key and its real value render.
+
+**Metrics screen**: asserts the "Instances observed" `StatTile`'s own rendered *value* equals the
+real instance count (2: one `greeter-provider-deployment` instance, one `greeter-consumer-deployment`
+instance) — a concrete, data-derived number, not just that the chart shell rendered without
+crashing, the same "data-specific, not just page-loads" bar every other screen in this suite is
+already held to.
+
+**Diagnosed, not just retried, an apparent failure**: the very first isolated run of the updated
+integration test showed the Config assertion failing. Rather than assume a real bug, a temporary
+direct backend check (`GET /config/{tenantId}` polled straight from the Java test, bypassing the
+browser) confirmed the correct data was present on every run, including the failing one — isolating
+the flake to the browser/rendering side. Across 5 isolated runs while diagnosing this, the
+Playwright suite failed exactly once on the Config assertion and, on a *different* run, once on the
+pre-existing Nodes/healthy assertion instead — different screens failing on different runs is
+itself evidence against a real, deterministic bug in either, consistent with this suite's own
+already-documented general Playwright-under-load flakiness (see FLAKY_TESTS.md).
+
+**Verification**: 3 further clean full runs of the integration test (Playwright suite included)
+after the diagnostic confirmed the backend was correct; the diagnostic code itself was then removed.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -383,16 +413,14 @@ were **not** attempted this session — listed here as open scope for a follow-u
 dropped:
 
 - Rolling update / version-aware traffic cutover, multi-signal autoscaling, single-replica
-  rolling-update downtime, quota-at-admission, and Raft leader failover under load *were all*
-  attempted this session — see above for each.
+  rolling-update downtime, quota-at-admission, Raft leader failover under load, and the console's
+  Config/Metrics screens *were all* attempted this session — see above for each.
 - RBAC/authz edge cases (cross-tenant denial, node-scoped self-service) at the smoke-test tier
   remain untested there (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`) — the
   smoke suite runs the whole cluster in plaintext mode with auth bypassed, so exercising this
   properly needs a second, TLS+auth-enabled cluster variant, a bigger lift than any single scenario
-  above and not attempted this session.
-- The console's Config screen, and a data-specific (not just page-loads) Metrics screen assertion —
-  Overview/Nodes/Tenants/Instances/Secrets/Topology are now covered alongside the original
-  Deployments/Logs.
+  above and not attempted this session. This is now the only item remaining on the original QA
+  mission's real-cluster scope list.
 
 ## Verification
 

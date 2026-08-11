@@ -125,8 +125,18 @@ a future session wonders why a given test no longer needs its old exclusion:
   polling `GET /deployments/*` over real HTTP is exactly the kind of fixed-cadence read the sandbox's
   shared CPU/IO can stall past a real (but brief and correct) transition window, the same root cause
   as every other entry here — not a residual gap in the agent/reconciler fix itself.
-
-## Also investigated: `mvn verify` speed (no change kept)
+- **`GreeterSmokeTestIT#greeter_modules_deploy_across_a_store_cluster_and_multiple_control_plane_replicas`'s
+  Playwright leg** — general console/browser flakiness under this sandbox's load, not specific to
+  any one screen: across 5 isolated runs of this method while adding the Config/Metrics screen QA
+  scenarios, the Playwright suite failed exactly once on the *Config* assertion and, on a different
+  run, once on the pre-existing *Nodes/healthy* assertion instead -- different screens flaking on
+  different runs is itself evidence against a real bug in either. A direct backend diagnostic (`GET
+  /config/{tenantId}` polled straight from the Java test, bypassing the browser entirely) returned
+  the correct data on every single run, isolating the flake to the browser/rendering side, the same
+  class of timing issue as every other Playwright-tier entry here. One unrelated run also hit the
+  already-known transient `503 store temporarily unavailable` on the very first post-startup write
+  (this test's own initial `submitDeployment` calls don't use the retry wrapper other tests in this
+  suite do) -- not a new finding, consistent with the existing entries about that same window.
 
 A parallel pass looked at whether the standing `-T 1C` (root `.mvn/maven.config`) combined with
 this pom's own `junit.jupiter.execution.parallel.config.dynamic.factor=1.0` oversubscribes cores
