@@ -16,7 +16,16 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Isolated;
 
+/**
+ * Real UDP sockets with millisecond-scale gossip/failure-detection timing ({@link #FAST_CONFIG}).
+ * Observed flaking under this module's own class-level concurrency (root pom.xml) during a QA
+ * hardening pass -- the same CPU-contention-under-class-level-concurrency cause {@code
+ * RaftClusterTest} (gimle-mimir) and {@code SecretStoreTest} (gimle-fafnir) already needed {@link
+ * Isolated} for.
+ */
+@Isolated
 class GossipMemberTest {
 
   private static final GossipConfig FAST_CONFIG =
