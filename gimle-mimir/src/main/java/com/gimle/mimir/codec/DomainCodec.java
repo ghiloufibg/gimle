@@ -34,6 +34,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -120,6 +122,18 @@ public final class DomainCodec {
     return new PlacementConstraints(labels, antiAffinity);
   }
 
+  /**
+   * Bug fixed here (found via a real-cluster QA session driving genuine request-rate load through a
+   * deployed instance): the three optional multi-signal fields Part C added to {@link
+   * AutoscalePolicy} (targetRequestRatePerSecond/targetErrorRatePercent/targetQueueDepth) were
+   * never written here, so any policy configuring one of them was silently truncated to just its
+   * CPU target the instant it crossed either wire this codec backs -- {@code StoreClient.propose}
+   * on the way in, and every Raft log/snapshot replication after that. Part C's own reconciler
+   * tests never caught this because they construct {@code AutoscaleReconciler} against a bare
+   * in-process {@code StateStore} (bypassing both {@code StoreCodec} and {@code RaftCodec}
+   * entirely), so a `spec.autoscale()` object passed in was always the exact same Java reference
+   * read back, never round-tripped through bytes at all.
+   */
   public static void writeOptionalAutoscalePolicy(
       DataOutputStream out, Optional<AutoscalePolicy> policy) throws IOException {
     out.writeBoolean(policy.isPresent());
@@ -128,6 +142,9 @@ public final class DomainCodec {
       out.writeInt(p.minReplicas());
       out.writeInt(p.maxReplicas());
       out.writeInt(p.targetCpuUtilizationPercent());
+      writeOptionalDouble(out, p.targetRequestRatePerSecond());
+      writeOptionalDouble(out, p.targetErrorRatePercent());
+      writeOptionalInt(out, p.targetQueueDepth());
     }
   }
 
@@ -136,7 +153,43 @@ public final class DomainCodec {
     if (!in.readBoolean()) {
       return Optional.empty();
     }
-    return Optional.of(new AutoscalePolicy(in.readInt(), in.readInt(), in.readInt()));
+    int minReplicas = in.readInt();
+    int maxReplicas = in.readInt();
+    int targetCpuUtilizationPercent = in.readInt();
+    OptionalDouble targetRequestRatePerSecond = readOptionalDouble(in);
+    OptionalDouble targetErrorRatePercent = readOptionalDouble(in);
+    OptionalInt targetQueueDepth = readOptionalInt(in);
+    return Optional.of(
+        new AutoscalePolicy(
+            minReplicas,
+            maxReplicas,
+            targetCpuUtilizationPercent,
+            targetRequestRatePerSecond,
+            targetErrorRatePercent,
+            targetQueueDepth));
+  }
+
+  public static void writeOptionalDouble(DataOutputStream out, OptionalDouble value)
+      throws IOException {
+    out.writeBoolean(value.isPresent());
+    if (value.isPresent()) {
+      out.writeDouble(value.getAsDouble());
+    }
+  }
+
+  public static OptionalDouble readOptionalDouble(DataInputStream in) throws IOException {
+    return in.readBoolean() ? OptionalDouble.of(in.readDouble()) : OptionalDouble.empty();
+  }
+
+  public static void writeOptionalInt(DataOutputStream out, OptionalInt value) throws IOException {
+    out.writeBoolean(value.isPresent());
+    if (value.isPresent()) {
+      out.writeInt(value.getAsInt());
+    }
+  }
+
+  public static OptionalInt readOptionalInt(DataInputStream in) throws IOException {
+    return in.readBoolean() ? OptionalInt.of(in.readInt()) : OptionalInt.empty();
   }
 
   public static void writeOptionalString(DataOutputStream out, Optional<String> value)

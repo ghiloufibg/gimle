@@ -35,6 +35,8 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -60,7 +62,14 @@ class StoreCodecTest {
         "/artifacts/greeter.jar",
         3,
         new PlacementConstraints(Optional.of(Set.of("zone-a")), true),
-        Optional.of(new AutoscalePolicy(1, 5, 80)),
+        // All three multi-signal fields present, not just the CPU-only 3-arg constructor: a real
+        // bug (found via a real-cluster QA session) let DomainCodec silently drop these three on
+        // every write/read, but the generic round-trip equality check below never caught it,
+        // because "empty" round-trips correctly whether or not the codec ever touches these
+        // fields at all. Real, present values here make that gap impossible to miss again.
+        Optional.of(
+            new AutoscalePolicy(
+                1, 5, 80, OptionalDouble.of(50.0), OptionalDouble.of(5.0), OptionalInt.of(10))),
         Optional.of("tenant-1"),
         Optional.of("a".repeat(64)));
   }
