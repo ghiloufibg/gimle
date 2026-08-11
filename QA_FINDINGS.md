@@ -74,6 +74,24 @@ never matches, even though the process is real and running. Match on an *early* 
 behavior a *test* has to work around), but recorded here since it's exactly the kind of thing that
 would otherwise cost a future session real time rediscovering.
 
+**A second scenario was added in a follow-up continuation of this same session**:
+`a_tenant_over_quota_deployment_is_flagged_but_not_evicted` — deploys `greeter-provider` under a
+tenant quota it comfortably satisfies (asserts `quotaViolating` is `false` once `ACTIVE`), then
+retroactively lowers that same tenant's quota (via `PUT /tenants/{id}`) to a level the already-running
+deployment now exceeds. Asserts `QuotaReconciler` flags it (`quotaViolating` becomes `true` within
+30s, matching its `RECONCILE_INTERVAL = Duration.ofSeconds(2)`) **and** that the deployment stays
+`ACTIVE` — i.e. `QuotaReconciler`'s documented "flag, never evict" contract (it only ever calls
+`StateStore#putQuotaViolation`, never touches instance count) holds against a real running cluster,
+not just its own unit test (`QuotaReconcilerTest`). **Result: passes reliably (3/3 isolated runs
+clean, 2/3 full-suite runs clean).** No bug found — this is a second positive QA result confirming
+existing platform behavior rather than a new defect.
+
+The one full-suite run with a failure showed **both** this new test and an unrelated, untouched
+pre-existing test (`cluster_tolerates_losing_one_store_node_mid_deployment`) fail in the same run —
+evidence pointing at shared sandbox resource pressure from running all 6 heavy real-cluster tests
+back-to-back (that single run took 159.8s), not a defect specific to either test. Two follow-up
+full-suite runs after that were both 6/6 clean, consistent with that read.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -89,15 +107,20 @@ dropped:
 - Raft leader failover / live membership change under concurrent writes at the smoke-test tier
   (covered at the unit/integration tier in `gimle-mimir`, e.g. `RaftMembershipChangeTest`,
   `RaftClusterTest`'s own membership-change tests).
-- RBAC/authz edge cases (cross-tenant denial, node-scoped self-service) and multi-tenancy quota
-  enforcement at the smoke-test tier (covered at the unit/integration tier, e.g.
-  `ApiServerAuthzTest`, `QuotaReconcilerTest`).
+- RBAC/authz edge cases (cross-tenant denial, node-scoped self-service) at the smoke-test tier
+  (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`; not attempted at the smoke
+  tier since the smoke suite runs the whole cluster in plaintext mode with auth bypassed).
+  Multi-tenancy quota *enforcement* (flag-not-evict) is now covered at the smoke tier too — see
+  the added scenario above — but quota *interaction with scheduling* (a new deployment refused
+  placement outright because it would immediately violate quota) remains untested at this tier.
 - The console's full Playwright surface beyond Deployments/Logs (`gimle-console/e2e/`'s own scope
   today).
 
 ## Verification
 
-Every fix in Phase 1 and the Phase 3 addition was verified with repeated isolated runs (5-20x
+Every fix in Phase 1 and both Phase 3 additions was verified with repeated isolated runs (3-20x
 depending on the entry) plus checkstyle/spotbugs/fmt, documented per-entry in the commit history on
 `qa-hardening`. A final full-reactor `mvn verify` (2-entry exclusion list) passed clean at
-`9dadef8`..`fd22baf`; `gimle-smoke-tests -Psmoke` passed 5/5 including the new test at `a93b43f`.
+`9dadef8`..`fd22baf`; `gimle-smoke-tests -Psmoke` passed 5/5 including the worker-respawn test at
+`a93b43f`, and 6/6 including the quota-enforcement test at `b364e3e` (after one full-suite run with
+an unrelated shared-cause failure, see above).
