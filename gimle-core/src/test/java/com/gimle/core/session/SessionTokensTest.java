@@ -52,10 +52,16 @@ class SessionTokensTest {
   void a_tampered_token_is_rejected() {
     SecretKey key = key();
     String token = SessionTokens.issue("alice", key, Duration.ofHours(1));
-    // Flip the last character -- corrupts the trailing HMAC tag byte.
-    char last = token.charAt(token.length() - 1);
-    char flipped = last == 'A' ? 'B' : 'A';
-    String tampered = token.substring(0, token.length() - 1) + flipped;
+    // Flip a character in the middle of the token, not the last one: the final base64url
+    // character of a string whose length isn't a multiple of 4 only encodes the tail group's
+    // remaining significant bits (as few as 2), so occasionally flipping it lands on a value that
+    // decodes to the same byte -- a real, previously-observed source of test flakiness, not
+    // timing. A middle character always sits inside a full 4-char/3-byte group, so any change to
+    // it maps to a different 6-bit value and therefore a genuinely different decoded byte.
+    int index = token.length() / 2;
+    char original = token.charAt(index);
+    char flipped = original == 'A' ? 'B' : 'A';
+    String tampered = token.substring(0, index) + flipped + token.substring(index + 1);
 
     assertEquals(Optional.empty(), SessionTokens.verify(tampered, key));
   }

@@ -54,24 +54,33 @@ class SystemLogCaptureTest {
             Duration.ofMillis(200))) {
       supervisor.start();
 
-      waitForLineCount(systemLogFile, 2, Duration.ofSeconds(20));
+      // Wait for two *banner* lines specifically, not just two lines of any kind: some sandboxes'
+      // java launcher itself emits an incidental line to stdout before any Java main() runs (e.g.
+      // "Picked up JAVA_TOOL_OPTIONS: ..." when that env var is set), which the same
+      // SYSTEM-capture mechanism correctly captures too. Counting that toward a generic
+      // two-lines-total threshold would let the try-block exit -- closing the supervisor -- after
+      // only the first spawn's own banner ever appeared, never actually exercising the respawn
+      // path this test means to cover.
+      waitForBannerLineCount(systemLogFile, 2, Duration.ofSeconds(20));
     }
 
     List<String> lines = Files.readAllLines(systemLogFile);
+    long bannerLines = lines.stream().filter(line -> line.contains("plain text banner")).count();
     assertTrue(
-        lines.size() >= 2, "expected SYSTEM capture to survive a respawn; captured lines=" + lines);
-    for (String line : lines) {
-      assertTrue(line.contains("plain text banner"), "unexpected line: " + line);
-    }
+        bannerLines >= 2, "expected SYSTEM capture to survive a respawn; captured lines=" + lines);
   }
 
-  private void waitForLineCount(Path file, int count, Duration timeout)
+  private void waitForBannerLineCount(Path file, int count, Duration timeout)
       throws InterruptedException {
     Instant deadline = Instant.now().plus(timeout);
     while (Instant.now().isBefore(deadline)) {
       if (Files.exists(file)) {
         try {
-          if (Files.readAllLines(file).size() >= count) {
+          long bannerLines =
+              Files.readAllLines(file).stream()
+                  .filter(line -> line.contains("plain text banner"))
+                  .count();
+          if (bannerLines >= count) {
             return;
           }
         } catch (Exception e) {
@@ -80,7 +89,7 @@ class SystemLogCaptureTest {
       }
       Thread.sleep(50);
     }
-    fail("timed out waiting for " + count + " SYSTEM-log lines in " + file);
+    fail("timed out waiting for " + count + " banner lines in " + file);
   }
 
   private List<String> crashingCommand(
