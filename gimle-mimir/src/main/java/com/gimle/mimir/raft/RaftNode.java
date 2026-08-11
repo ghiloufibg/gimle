@@ -623,10 +623,27 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   private void stepDownLocked(long newTerm) {
     raftLog.setTermAndVote(newTerm, Optional.empty());
-    boolean wasLeader = role == Role.LEADER;
-    role = Role.FOLLOWER;
+    demoteToFollowerLocked();
     leaderHint = null;
     pendingMembershipChangeIndex = null;
+  }
+
+  /**
+   * The role-and-leader-state half of {@link #stepDownLocked}, split out so an equal-term demotion
+   * (this node's own current term unchanged, so nothing to reset there -- see the {@code role !=
+   * Role.FOLLOWER} branches in {@link #onAppendEntries}/{@link #onInstallSnapshot}) gets the exact
+   * same cleanup a higher-term step-down gets, not just a flipped {@link #role} field. Without
+   * this, a node that reached {@link Role#LEADER} without ever losing a real election at this term
+   * (the only way that happens: {@link #start()}'s empty-peers bootstrap path self-elects a node
+   * instantly -- a real, previously-observed hazard for a node standing by to {@code
+   * addServer}-join an existing cluster rather than bootstrap a new one) would keep its
+   * already-started {@link #peerSenderThreads} running after being told to step down, broadcasting
+   * competing heartbeats at the genuine leader's own term indefinitely: a real, sustained
+   * split-brain, not a self-resolving glitch.
+   */
+  private void demoteToFollowerLocked() {
+    boolean wasLeader = role == Role.LEADER;
+    role = Role.FOLLOWER;
     resetElectionTimerLocked();
     if (wasLeader) {
       for (Thread t : peerSenderThreads.values()) {
@@ -951,8 +968,22 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
       if (request.term() > raftLog.currentTerm()) {
         stepDownLocked(request.term());
-      } else if (role == Role.CANDIDATE) {
-        role = Role.FOLLOWER;
+      } else if (role != Role.FOLLOWER) {
+        // Not just CANDIDATE: a node can reach LEADER at this same term without ever losing an
+        // election to the peer now sending this AppendEntries -- start()'s empty-peers bootstrap
+        // path self-elects instantly (majority of a 1-node cluster is itself, see start()'s own
+        // comment), which a node standing by to join an existing cluster via a later addServer
+        // also hits, since it begins with zero configured peers. If that self-elected term happens
+        // to coincide with the real cluster's (routine for two clusters both freshly bootstrapped
+        // at term 1), this node is otherwise never told to step down -- CANDIDATE was the only
+        // case handled here, so a stray LEADER kept believing it, and once addServer's replicated
+        // MembershipChange reached it, reconfigurePeersLocked's own "still LEADER" check made it
+        // start broadcasting competing heartbeats at the genuine leader's own term: a real,
+        // sustained split-brain, not a self-resolving glitch. Demoting on any non-FOLLOWER role
+        // here is the correct general Raft rule regardless of how a same-term rival arose --
+        // demoteToFollowerLocked (not a bare role flip) also stops any peer-sender threads a stray
+        // LEADER already started.
+        demoteToFollowerLocked();
       }
       leaderHint = request.leaderId();
       resetElectionTimerLocked();
@@ -1008,8 +1039,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
       if (request.term() > raftLog.currentTerm()) {
         stepDownLocked(request.term());
-      } else if (role == Role.CANDIDATE) {
-        role = Role.FOLLOWER;
+      } else if (role != Role.FOLLOWER) {
+        // Same reasoning as the identical branch in onAppendEntries: not just CANDIDATE, and via
+        // demoteToFollowerLocked so a stray LEADER's peer-sender threads actually stop too.
+        demoteToFollowerLocked();
       }
       leaderHint = request.leaderId();
       resetElectionTimerLocked();
