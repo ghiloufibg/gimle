@@ -22,8 +22,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
-/** Design doc §7's synthetic-key versioning scheme, exercised directly against a real store. */
+/**
+ * Design doc §7's synthetic-key versioning scheme, exercised directly against a real store. {@code
+ * concurrent_writers_to_the_same_key_never_lose_an_update_and_every_slot_has_one_winner}
+ * deliberately drives six threads at a single-node {@code InProcessStore} simultaneously; under
+ * this module's own class-level concurrency (root pom.xml), running that alongside other classes'
+ * real HTTP servers/InProcessStores at the same time occasionally pushed a proposal/read past its
+ * retry budget -- the same CPU-contention-under-class-level-concurrency cause {@code
+ * RaftClusterTest} (gimle-mimir) already needed {@link Isolated} for.
+ */
+@Isolated
 class SecretStoreTest {
 
   @TempDir Path tempDir;
