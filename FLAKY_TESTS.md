@@ -105,6 +105,13 @@ a future session wonders why a given test no longer needs its old exclusion:
   CPU-contention-under-class-level-concurrency cause as the entries above, and `gimle-fabric` had
   no `@Isolated` usage anywhere despite this. Added. Confirmed clean across 3 full-module runs with
   rerun-masking disabled (`-Dsurefire.rerunFailingTestsCount=0`).
+- **`GreeterSmokeTestIT#a_tenant_over_quota_deployment_is_flagged_but_not_evicted`** — observed once
+  during the rolling-update QA scenario's own full-suite confirmation run (`409 unknown tenantId`
+  on `provisionTenantAndSecret`'s own tenant, submitted moments earlier in the same test), not
+  reproducible: passed cleanly in isolation and on an immediate full-suite retry (9/9, only the
+  disabled membership test skipped). `GreeterSmokeTestIT`'s own tests each spin an independent
+  cluster on distinct ports, so this looks like the same class of sandbox CPU/IO stall as every
+  other entry here rather than a real cross-test interaction; not yet seen a second time.
 
 ## Also investigated: `mvn verify` speed (no change kept)
 
