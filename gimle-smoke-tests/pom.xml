@@ -53,6 +53,19 @@
       <scope>test</scope>
     </dependency>
     <!--
+      TestModuleBuilder (compiles a real, tiny JPMS module in-process via javax.tools.JavaCompiler):
+      used to build a genuine "v2" of greeter-provider at test run time for the rolling-update
+      scenario, without committing a second, near-duplicate example module just to change one
+      version number and one string. The same technique gimle-worker's own
+      RealBundledHookAndProbeInvocationTest already uses to compile real bundled hooks/probes.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <!--
       gimle-controlplane's own gimle-fafnir dependency is test-scoped and therefore not
       transitive, so this module needs its own dependency to get FafnirMain onto the fork
       classpath the real Fafnir replica subprocesses below are launched against.

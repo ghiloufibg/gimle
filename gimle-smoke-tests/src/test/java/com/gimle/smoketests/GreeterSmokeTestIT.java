@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 import com.gimle.core.protocol.Json;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.module.testsupport.TestModuleBuilder;
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -24,6 +26,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -677,6 +681,349 @@ class GreeterSmokeTestIT {
         "greeter-provider-autoscale-deployment should scale up from 1 to 2 replicas under real"
             + " Gatling-generated request-rate load, driven purely by the non-CPU"
             + " targetRequestRatePerSecond signal");
+  }
+
+  /**
+   * QA Phase 3: rolling update / version-aware traffic cutover under real load. Deploys 2 replicas
+   * of {@code greeter-provider} at v1.0.0, confirms both reach {@code ACTIVE}, then submits a real
+   * v1.1.0 build of the same module (compiled on the fly by {@link TestModuleBuilder} -- see {@link
+   * #buildProviderV2Jar()} -- rather than committing a second, near-duplicate example module) while
+   * Gatling drives sustained real HTTP traffic through {@code greeter-load-generator}'s real fabric
+   * call the whole time. {@link
+   * com.gimle.controlplane.reconcile.DeploymentReconciler#handleRollingUpdate} (see its own
+   * javadoc) is deliberately minimal: one index migrated at a time, in place, no {@code
+   * maxSurge}/{@code maxUnavailable} surge-then-drain -- so this is only a genuine "rolling", not
+   * "recreate", test with 2+ replicas: while one index is mid-migration the other stays untouched
+   * and keeps serving. A background virtual-thread sampler polls the deployment's real observed
+   * instance count/version throughout the whole rollout window and asserts at least one instance
+   * stayed {@code ACTIVE} at every sampled moment -- proving continuous availability, not just
+   * eventual convergence to v2.
+   */
+  @Test
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_rolling_update_keeps_at_least_one_instance_serving_traffic_throughout() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path loadGeneratorJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-load-generator/target/greeter-load-generator-"
+                + GIMLE_VERSION
+                + ".jar");
+    Path providerV1Jar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(
+        Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
+    assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
+
+    submitDeployment(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar);
+    await(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+
+    submitDeploymentWithReplicasWithRetry(
+        baseUrl,
+        "greeter-provider-rolling-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0",
+        providerV1Jar,
+        2,
+        Duration.ofSeconds(30));
+    await(
+        () -> allInstancesOnVersion(baseUrl, "greeter-provider-rolling-deployment", "1.0.0", 2),
+        Duration.ofSeconds(90),
+        "both v1 replicas should reach ACTIVE before any rollout begins");
+
+    AtomicInteger minActiveDuringRollout = new AtomicInteger(Integer.MAX_VALUE);
+    AtomicBoolean stopSampling = new AtomicBoolean(false);
+    Thread sampler =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  while (!stopSampling.get()) {
+                    int active =
+                        activeInstanceCount(baseUrl, "greeter-provider-rolling-deployment");
+                    minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
+                    try {
+                      Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      return;
+                    }
+                  }
+                });
+
+    // Comfortably sustained across the whole rollout window -- proves the consumer-facing traffic
+    // path (load generator -> real fabric call -> greeter-provider) keeps working throughout, not
+    // just before/after.
+    Process gatling =
+        spawnGatling(
+            javaExecutable,
+            classpath,
+            /* requestsPerSecond= */ 5,
+            /* durationSeconds= */ 90,
+            tempDir.resolve("gatling-rolling.log"));
+    processes.add(gatling);
+
+    Path providerV2Jar = buildProviderV2Jar();
+    submitDeploymentWithReplicasWithRetry(
+        baseUrl,
+        "greeter-provider-rolling-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.1.0",
+        providerV2Jar,
+        2,
+        Duration.ofSeconds(30));
+
+    try {
+      await(
+          () -> allInstancesOnVersion(baseUrl, "greeter-provider-rolling-deployment", "1.1.0", 2),
+          Duration.ofSeconds(180),
+          "both replicas should migrate to v1.1.0 one index at a time, per"
+              + " DeploymentReconciler's own rolling-update contract");
+    } finally {
+      stopSampling.set(true);
+      sampler.join(Duration.ofSeconds(5).toMillis());
+    }
+
+    assertTrue(
+        minActiveDuringRollout.get() >= 1,
+        "at least one instance should have stayed ACTIVE at every sampled moment during the"
+            + " rollout -- the whole point of a *rolling* update rather than a full outage."
+            + " Observed minimum: "
+            + minActiveDuringRollout.get());
+  }
+
+  /**
+   * Compiles a real v1.1.0 {@code greeter-provider} at test run time via {@link TestModuleBuilder},
+   * same module name as the committed v1.0.0 example (so {@code DeploymentReconciler} recognizes it
+   * as a version bump of the same deployment, not a different module), different version and
+   * greeting text so a running instance's reported {@code moduleId.version} unambiguously proves
+   * which build is actually serving.
+   */
+  private Path buildProviderV2Jar() {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.examples.greeter.provider {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports com.gimle.examples.greeter.provider;
+              exports com.gimle.examples.greeter;
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.Greeter",
+            """
+            package com.gimle.examples.greeter;
+            public interface Greeter {
+              String greet(String name);
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderV2Hooks",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.examples.greeter.Greeter;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class GreeterProviderV2Hooks implements ModuleLifecycleHooks {
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.registerService(Greeter.class, name -> "Hello, " + name + "! (from provider v2)");
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderV2Liveness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.LivenessProbe;
+            public final class GreeterProviderV2Liveness implements LivenessProbe {
+              public boolean isAlive() { return true; }
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderV2Readiness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.ReadinessProbe;
+            public final class GreeterProviderV2Readiness implements ReadinessProbe {
+              public boolean isReady() { return true; }
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.examples.greeter.provider
+            version: 1.1.0
+            isolation:
+              tier: TIER_2
+            resources:
+              request:
+                memory: 32Mi
+                cpu: 20m
+              limit:
+                memory: 64Mi
+                cpu: 100m
+            exports:
+              - service: com.gimle.examples.greeter.Greeter
+                version: 1.0.0
+            lifecycle:
+              hooks: com.gimle.examples.greeter.provider.GreeterProviderV2Hooks
+            health:
+              liveness: com.gimle.examples.greeter.provider.GreeterProviderV2Liveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProviderV2Readiness
+            """)
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "greeter-provider-v2.jar");
+  }
+
+  /**
+   * Scans this test JVM's own classpath for the jars {@link #buildProviderV2Jar()}'s compilation
+   * needs on its module path ({@code com.gimle.module}, {@code org.slf4j}) -- mirrors {@code
+   * RealBundledHookAndProbeInvocationTest#findPlatformJars} (gimle-worker), matching either an
+   * installed jar in the local repo or a reactor-build {@code target/classes} directory, since
+   * which shape is on the classpath depends on whether this module is built standalone or as part
+   * of a multi-module reactor build.
+   */
+  private static List<Path> findCompileModulePathJars() {
+    String[] jarNeedles = {"slf4j-api-"};
+    String[] moduleArtifacts = {"gimle-module"};
+    List<Path> result = new ArrayList<>();
+    String cp = System.getProperty("java.class.path");
+    for (String entry : cp.split(File.pathSeparator)) {
+      String fileName = Path.of(entry).getFileName().toString();
+      String normalized = entry.replace('\\', '/');
+      for (String needle : jarNeedles) {
+        if (fileName.startsWith(needle)
+            && fileName.endsWith(".jar")
+            && !fileName.contains("tests")) {
+          result.add(Path.of(entry));
+        }
+      }
+      for (String artifact : moduleArtifacts) {
+        boolean installedJar = fileName.startsWith(artifact + "-") && fileName.endsWith(".jar");
+        boolean reactorClasses = normalized.endsWith("/" + artifact + "/target/classes");
+        if ((installedJar && !fileName.contains("tests")) || reactorClasses) {
+          result.add(Path.of(entry));
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Like {@link #submitDeployment}, but with a caller-chosen replica count and module version
+   * (rather than the hardcoded {@code replicas: 1}/{@code version: 1.0.0} that helper writes) --
+   * {@link com.gimle.mimir.manifest.DeploymentManifestParser#parseModuleId} reads the manifest's
+   * own declared {@code module.version} field verbatim as {@code spec.moduleId()}, never re-derived
+   * from the artifact's real descriptor inside the jar, so a version-bump rollout must state the
+   * new version here explicitly or {@code DeploymentReconciler} would never see a {@code moduleId}
+   * mismatch to trigger a rolling migration on.
+   */
+  private void submitDeploymentWithReplicas(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String version,
+      Path jar,
+      int replicas)
+      throws Exception {
+    String manifest =
+        """
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        replicas: %d
+        """
+            .formatted(deploymentName, moduleName, version, jar.toAbsolutePath(), replicas);
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
+                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("deployment submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitDeploymentWithReplicas} -- the
+   * store cluster can transiently reject a write with a 503 mid-election (see {@code
+   * submitDeploymentWithRetry}'s own call sites for the same real, previously-observed behavior),
+   * so every submission in this suite that isn't guaranteed to land against an
+   * already-proven-stable cluster retries rather than failing outright on the first transient
+   * rejection.
+   */
+  private void submitDeploymentWithReplicasWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String version,
+      Path jar,
+      int replicas,
+      Duration timeout)
+      throws Exception {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (true) {
+      try {
+        submitDeploymentWithReplicas(baseUrl, deploymentName, moduleName, version, jar, replicas);
+        return;
+      } catch (AssertionError e) {
+        if (System.nanoTime() > deadline) {
+          throw e;
+        }
+        Thread.sleep(500);
+      }
+    }
+  }
+
+  /**
+   * True once exactly {@code expectedCount} of {@code deploymentName}'s real placed instances
+   * report both {@code lifecycleState == ACTIVE} and {@code observation.moduleId.version ==
+   * version} -- unlike {@link #isActive}, this also checks the *version* actually running, which is
+   * the whole point of a rolling-update assertion (reaching ACTIVE again proves nothing about which
+   * build is serving).
+   */
+  private boolean allInstancesOnVersion(
+      String baseUrl, String deploymentName, String version, int expectedCount) {
+    try {
+      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      if (instances.size() != expectedCount) {
+        return false;
+      }
+      for (Map<String, Object> instance : instances) {
+        Object observation = instance.get("observation");
+        if (!(observation instanceof Map<?, ?> obsMap)
+            || !"ACTIVE".equals(obsMap.get("lifecycleState"))) {
+          return false;
+        }
+        Object moduleId = obsMap.get("moduleId");
+        if (!(moduleId instanceof Map<?, ?> moduleIdMap)
+            || !version.equals(moduleIdMap.get("version"))) {
+          return false;
+        }
+      }
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   private void submitAutoscaleDeployment(
