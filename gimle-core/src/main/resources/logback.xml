@@ -6,7 +6,7 @@
 -->
 <configuration>
   <!-- ConsoleLogEncoder picks JSON or colored text per process at startup, not here: see that
-       class's own javadoc. Default is colored text, unconditionally -- every process already
+       class's own javadoc. Default is colored text, unconditionally: every process already
        writes a complete, unconditional JSON trail to its own file via the PlatformFileAppender
        GimleLogging attaches programmatically (independent of this appender entirely), so nothing
        structured depends on CONSOLE's own format. The one exception is a worker spawned as a
