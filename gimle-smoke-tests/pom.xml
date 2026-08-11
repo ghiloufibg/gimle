@@ -83,7 +83,8 @@
     </dependency>
     <!--
       Real synthetic HTTP load for the multi-signal-autoscaling-under-real-load QA scenario
-      (GreeterSmokeTestIT#a_deployment_scales_up_under_real_gatling_generated_load): Gatling drives
+      (AutoscaleIT#a_deployment_scales_up_under_real_gatling_generated_request_rate_load): Gatling
+      drives
       real, controllable-rate HTTP traffic at greeter-load-generator (gimle-examples/), which turns
       every request into one real fabric call to greeter-provider: the actual signal
       AutoscaleReconciler's requestRatePerSecond target reads, not a synthetic stand-in for it.
@@ -119,8 +120,10 @@
         build-wiring gap, not a flaky test (see FLAKY_TESTS.md). excludedGroups is the actual fix:
         JUnit 5's own tag-based filtering is a separate mechanism from Surefire's class-name
         pattern selection, applied after -Dtest's own class-file selection has already run, so it
-        isn't affected by that override the same way. GreeterSmokeTestIT carries @Tag("smoke")
-        for exactly this.
+        isn't affected by that override the same way. Every concrete *IT class in this package
+        (GreeterClusterTopologyIT, RaftResilienceIT, ObservabilityIT, SelfHealingIT, QuotaIT,
+        AutoscaleIT, RollingUpdateIT, all sharing the GreeterSmokeClusterSupport fixture) carries
+        @Tag("smoke") for exactly this.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

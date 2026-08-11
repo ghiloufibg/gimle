@@ -2,12 +2,13 @@ import { test, expect } from "@playwright/test";
 
 // Targets a real, already-running control plane with the greeter-provider and greeter-consumer
 // sample modules deployed (gimle-examples/greeter-{provider,consumer}) -- see
-// gimle-smoke-tests' GreeterSmokeTestIT, which brings up that cluster before running this suite,
-// or gimle-console/LOCAL_DEV.md for doing the same by hand. Real browser, real backend, no mocked
-// repositories: the point is proving the console reflects genuine deployed-module state.
+// gimle-smoke-tests' GreeterClusterTopologyIT, which brings up that cluster before running this
+// suite, or gimle-console/LOCAL_DEV.md for doing the same by hand. Real browser, real backend, no
+// mocked repositories: the point is proving the console reflects genuine deployed-module state.
 
-// Matches gimle-smoke-tests' GreeterSmokeTestIT#SMOKE_OPERATOR_USERNAME/PASSWORD -- that test
-// creates this account via an unauthenticated PUT /accounts/{username} before this suite runs
+// Matches gimle-smoke-tests' GreeterSmokeClusterSupport#SMOKE_OPERATOR_USERNAME/PASSWORD --
+// GreeterClusterTopologyIT creates this account via an unauthenticated PUT /accounts/{username}
+// before this suite runs
 // (plaintext mode has no real security to protect: ApiServer#requireAuthorized bypasses auth
 // entirely without TLS), so both sides just hardcode the same smoke-test-only credential rather
 // than plumbing it through as config for a value that's never actually secret here.
@@ -30,8 +31,8 @@ test.beforeEach(async ({ page }) => {
 // (design doc §4.5 -- reads are deliberately not linearizable). A page load can land on a replica
 // that hasn't yet caught up with a very recent write and would then show that stale state forever
 // with no way to self-correct -- so this reloads the whole page on retry, not just re-checking the
-// same already-rendered DOM, the same reason GreeterSmokeTestIT's own StoreClientClusterTest
-// needed an equivalent same-poll-iteration read fix (see that test's `awaitPresent` helper).
+// same already-rendered DOM, the same reason gimle-mimir's own StoreClientClusterTest needed an
+// equivalent same-poll-iteration read fix (see that test's `awaitPresent` helper).
 async function expectDeploymentActive(page: import("@playwright/test").Page, name: string) {
   await expect(async () => {
     await page.goto(`/console/deployments/${name}`);
@@ -71,7 +72,7 @@ test("nodes screen shows the real agent, healthy", async ({ page }) => {
 });
 
 test("tenants screen shows the real provisioned tenant and its quota", async ({ page }) => {
-  // Matches GreeterSmokeTestIT#SECRET_TENANT_ID -- provisioned via provisionTenantAndSecret
+  // Matches GreeterSmokeClusterSupport#SECRET_TENANT_ID -- provisioned via provisionTenantAndSecret
   // before either greeter deployment is submitted.
   await expectVisibleEventually(page, "/console/tenants", "smoke-tenant");
 });
@@ -86,7 +87,7 @@ test("instances screen lists both greeter deployments' real running instances", 
 test("secrets screen shows the real secret key written through Fafnir, masked", async ({
   page,
 }) => {
-  // Matches GreeterSmokeTestIT#SECRET_KEY -- written via a real PUT /secrets/* call before the
+  // Matches GreeterSmokeClusterSupport#SECRET_KEY -- written via a real PUT /secrets/* call before the
   // provider deployment that reads it back is submitted. Only the key name is asserted: the
   // point of "masked until revealed" is that the value itself must never appear unrevealed.
   await expectVisibleEventually(page, "/console/secrets", "some-secret-key");
@@ -101,7 +102,7 @@ test("topology screen places both greeter deployments on the real node", async (
 test("config screen shows a real plain config entry for the provisioned tenant", async ({
   page,
 }) => {
-  // Matches GreeterSmokeTestIT#PLAIN_CONFIG_KEY/PLAIN_CONFIG_VALUE -- written via a real,
+  // Matches GreeterSmokeClusterSupport#PLAIN_CONFIG_KEY/PLAIN_CONFIG_VALUE -- written via a real,
   // unencrypted PUT /config/{tenantId}/{key} in provisionTenantAndSecret, distinct from the
   // masked SECRET_KEY the Secrets screen above already covers. Only one tenant exists in this
   // cluster, so the page's own auto-select-first-tenant behavior needs no extra interaction here.

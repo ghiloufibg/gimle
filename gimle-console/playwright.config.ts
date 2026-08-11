@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 // Deliberately no webServer block: this suite always targets an already-running real control
 // plane (CONSOLE_BASE_URL, default a local dev cluster) -- bringing up a real cluster (control
-// plane + agent + deployed modules) is GreeterSmokeTestIT's job (gimle-smoke-tests), not
+// plane + agent + deployed modules) is GreeterClusterTopologyIT's job (gimle-smoke-tests), not
 // something a frontend-only tool should own.
 export default defineConfig({
   testDir: "./e2e",
@@ -19,8 +19,9 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        // The sandbox this suite runs in (see GreeterSmokeTestIT) pre-installs Chromium at a
-        // fixed path rather than letting Playwright auto-download the revision its own pinned
+        // The sandbox this suite runs in (see gimle-smoke-tests' GreeterSmokeClusterSupport)
+        // pre-installs Chromium at a fixed path rather than letting Playwright auto-download
+        // the revision its own pinned
         // @playwright/test version expects -- without this, browserType.launch fails looking for
         // a revision-specific executable that was never fetched. Harmless outside that sandbox:
         // any host with this path present (or PLAYWRIGHT_BROWSERS_PATH pointed at one providing

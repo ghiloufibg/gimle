@@ -502,8 +502,9 @@ public final class BootstrapMojo extends AbstractMojo {
    * Best-effort only: submission (in {@link #applyExamples}) already failed the build if a manifest
    * was rejected outright. Reaching {@code ACTIVE} afterward is inherently async (module
    * resolution, a cold worker-JVM start) -- a warning, not a build failure, on timeout, the same
-   * posture {@code GreeterSmokeTestIT}'s own 60s-per-deployment {@code await()} budget takes for
-   * the identical reason, just downgraded from a test assertion to a dev-convenience nudge.
+   * posture gimle-smoke-tests' own {@code GreeterSmokeClusterSupport}'s 60s-per-deployment {@code
+   * await()} budget takes for the identical reason, just downgraded from a test assertion to a
+   * dev-convenience nudge.
    */
   private void awaitExamplesActive(
       String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost, Duration timeout) {
@@ -634,10 +635,10 @@ public final class BootstrapMojo extends AbstractMojo {
 
   /**
    * Reverse of spawn order (store, control plane, agent) -- nothing still running should be left
-   * racing a peer it depends on that's already gone, mirroring {@code
-   * GreeterSmokeTestIT.tearDown}'s own reasoning. Killing an already-dead process is a harmless
-   * no-op, so this is safe to call both from the shutdown hook and from this goal's own {@code
-   * finally} block without double-kill issues.
+   * racing a peer it depends on that's already gone, mirroring gimle-smoke-tests' own {@code
+   * GreeterSmokeClusterSupport.tearDown}'s own reasoning. Killing an already-dead process is a
+   * harmless no-op, so this is safe to call both from the shutdown hook and from this goal's own
+   * {@code finally} block without double-kill issues.
    */
   private void shutdownAll(List<Process> processes) {
     for (int i = processes.size() - 1; i >= 0; i--) {

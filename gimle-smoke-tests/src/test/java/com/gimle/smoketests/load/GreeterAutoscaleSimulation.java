@@ -16,16 +16,17 @@ import java.time.Duration;
  * request it sends becomes one real cross-worker fabric call to greeter-provider's {@code Greeter},
  * so the rate/concurrency this simulation drives is the actual signal {@code AutoscaleReconciler}'s
  * per-signal targets read off greeter-provider's own worker-reported metrics, not a synthetic
- * stand-in for it. {@code GreeterSmokeTestIT} spawns this as its own JVM process (the same shape it
- * already spawns every other cluster component in, via {@code io.gatling.app.Gatling -s
- * GreeterAutoscaleSimulation}), never embeds it -- Gatling's own runtime isn't designed to run
- * twice in one JVM, and every other subprocess this suite launches follows the same pattern already
- * (Playwright's own {@code bun run test:e2e} is the closest precedent).
+ * stand-in for it. {@code AutoscaleIT}/{@code RollingUpdateIT} (gimle-smoke-tests) spawn this as
+ * their own JVM process via the shared {@code GreeterSmokeClusterSupport#spawnGatling} helper (the
+ * same shape it already spawns every other cluster component in, via {@code io.gatling.app.Gatling
+ * -s GreeterAutoscaleSimulation}), never embedding it -- Gatling's own runtime isn't designed to
+ * run twice in one JVM, and every other subprocess this suite launches follows the same pattern
+ * already (Playwright's own {@code bun run test:e2e} is the closest precedent).
  *
  * <p>Every knob below is a system property rather than a constant so the same class serves
- * different scenarios without recompiling: {@code GreeterSmokeTestIT} passes them as {@code -D}
- * flags on the spawned JVM's own command line, matching how every other spawned process in that
- * suite is configured.
+ * different scenarios without recompiling: {@code spawnGatling} passes them as {@code -D} flags on
+ * the spawned JVM's own command line, matching how every other spawned process in that suite is
+ * configured.
  *
  * <p>{@code gimle.load.concurrentUsers} switches the whole injection model, not just one knob: 0
  * (the default) drives Gatling's <i>open</i> model, a fixed requests/sec rate regardless of how
