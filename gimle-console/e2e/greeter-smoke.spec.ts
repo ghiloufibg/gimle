@@ -39,14 +39,66 @@ async function expectDeploymentActive(page: import("@playwright/test").Page, nam
   }).toPass({ timeout: 30_000 });
 }
 
+// Same non-linearizable-read staleness concern as expectDeploymentActive above, generalized: any
+// list/detail screen backed by a StoreClient read (i.e. everything except Logs, which is its own
+// dedicated /logs/* API) can land on a store replica that hasn't caught up yet. Reload-and-retry
+// rather than re-checking the same already-rendered DOM, for the same reason.
+async function expectVisibleEventually(
+  page: import("@playwright/test").Page,
+  url: string,
+  text: string | RegExp,
+) {
+  await expect(async () => {
+    await page.goto(url);
+    await expect(page.getByText(text).first()).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
 test("deployments screen shows both greeter deployments reaching Active", async ({ page }) => {
   await expectDeploymentActive(page, "greeter-provider-deployment");
   await expectDeploymentActive(page, "greeter-consumer-deployment");
 });
 
-test("logs screen live-tails the consumer's real fabric call to the provider", async ({
+test("overview screen lists the deployed cluster's real node and deployments", async ({ page }) => {
+  await expectVisibleEventually(page, "/console", "greeter-provider-deployment");
+  await expect(page.getByText("greeter-consumer-deployment").first()).toBeVisible();
+  await expect(page.getByText("smoke-node-1").first()).toBeVisible();
+});
+
+test("nodes screen shows the real agent, healthy", async ({ page }) => {
+  await expectVisibleEventually(page, "/console/nodes", "smoke-node-1");
+  await expect(page.getByText("healthy", { exact: true }).first()).toBeVisible();
+});
+
+test("tenants screen shows the real provisioned tenant and its quota", async ({ page }) => {
+  // Matches GreeterSmokeTestIT#SECRET_TENANT_ID -- provisioned via provisionTenantAndSecret
+  // before either greeter deployment is submitted.
+  await expectVisibleEventually(page, "/console/tenants", "smoke-tenant");
+});
+
+test("instances screen lists both greeter deployments' real running instances", async ({
   page,
 }) => {
+  await expectVisibleEventually(page, "/console/instances", "greeter-provider-deployment");
+  await expect(page.getByText("greeter-consumer-deployment").first()).toBeVisible();
+});
+
+test("secrets screen shows the real secret key written through Fafnir, masked", async ({
+  page,
+}) => {
+  // Matches GreeterSmokeTestIT#SECRET_KEY -- written via a real PUT /secrets/* call before the
+  // provider deployment that reads it back is submitted. Only the key name is asserted: the
+  // point of "masked until revealed" is that the value itself must never appear unrevealed.
+  await expectVisibleEventually(page, "/console/secrets", "some-secret-key");
+  await expect(page.getByText("smoke-test-secret-value")).toHaveCount(0);
+});
+
+test("topology screen places both greeter deployments on the real node", async ({ page }) => {
+  await expectVisibleEventually(page, "/console/topology", "greeter-provider-deployment");
+  await expect(page.getByText("greeter-consumer-deployment").first()).toBeVisible();
+});
+
+test("logs screen live-tails the consumer's real fabric call to the provider", async ({ page }) => {
   await page.goto(
     "/console/logs?kind=instance&deploymentName=greeter-consumer-deployment&instanceIndex=0&category=APPLICATION",
   );

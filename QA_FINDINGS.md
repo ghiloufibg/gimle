@@ -172,6 +172,25 @@ the variability itself is sandbox-specific; (b) a real Raft-level improvement �
 new-member disruption, and a further hardening beyond the phantom-leader fix above) would reduce
 the disruption window's root cause rather than just tolerating it with a longer timeout.
 
+### Console Playwright coverage extended to six more real screens
+
+`gimle-console/e2e/greeter-smoke.spec.ts` previously covered only Deployments and Logs. Extended it
+with six more screens, all asserting genuine deployed-cluster state (real browser, real backend, no
+mocked repositories, same as the existing two): Overview (recent deployments/node registry),
+Nodes (`smoke-node-1` shows `healthy`), Tenants (`smoke-tenant`, provisioned via
+`provisionTenantAndSecret`), Instances (both greeter deployments' real running instances), Secrets
+(the real key written through Fafnir is visible, its **value** is asserted absent — the masked-
+until-revealed contract, not just presence of the key), and Topology (both deployments placed on
+the real node). A shared `expectVisibleEventually` helper generalizes the existing
+`expectDeploymentActive` retry pattern (reload-and-recheck, not re-poll-same-DOM) to every one of
+these, for the same non-linearizable-store-read staleness reason documented on the original helper.
+**Result: 8/8 passes on both of two full runs (20.2s/22.7s wall-clock for the Playwright leg) — no
+bug found, a second useful positive QA result** (the console genuinely reflects real cluster state
+across every screen exercised, not just the two already covered). Still not covered: Config screen,
+and the Metrics screen specifically (real data now exists via Muninn per Part B, but wiring a
+meaningful assertion there — a specific metric name/value rather than just "the page loaded" — was
+left for a follow-up given its more involved chart-rendering surface).
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -196,8 +215,9 @@ dropped:
   Multi-tenancy quota *enforcement* (flag-not-evict) is now covered at the smoke tier too — see
   the added scenario above — but quota *interaction with scheduling* (a new deployment refused
   placement outright because it would immediately violate quota) remains untested at this tier.
-- The console's full Playwright surface beyond Deployments/Logs (`gimle-console/e2e/`'s own scope
-  today).
+- The console's Config screen, and a data-specific (not just page-loads) Metrics screen assertion —
+  see above; Overview/Nodes/Tenants/Instances/Secrets/Topology are now covered alongside the
+  original Deployments/Logs.
 
 ## Verification
 
