@@ -229,16 +229,32 @@ class FabricServiceRegistryTest {
         selfNode, "worker-dead", OWNER, GREETER_EXPORT, Optional.empty(), deadAddress);
     FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
 
+    // A fixed warmup count risks a real, previously-observed flake: how many raw attempts the
+    // breaker's own error-rate window needs before it actually opens isn't guaranteed by any fixed
+    // number of load-balancer picks, so a hardcoded 30 iterations occasionally wasn't enough and a
+    // dead-endpoint failure leaked into the "must never fail again" loop below. Poll instead: keep
+    // calling (bounded, so a genuine regression still fails deterministically) until several
+    // consecutive calls in a row have all landed on the healthy endpoint, which is the actual
+    // condition this test needs before it can assert "never fails again."
     Set<String> observedResults = ConcurrentHashMap.newKeySet();
-    for (int i = 0; i < 30; i++) {
+    int consecutiveHealthy = 0;
+    int attempts = 0;
+    while (consecutiveHealthy < 5 && attempts < 500) {
+      attempts++;
       Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      String result;
       try {
-        observedResults.add(greeter.greet("x"));
+        result = greeter.greet("x");
       } catch (RuntimeException e) {
-        observedResults.add("failed");
+        result = "failed";
       }
+      observedResults.add(result);
+      consecutiveHealthy = "healthy:x".equals(result) ? consecutiveHealthy + 1 : 0;
     }
     assertTrue(observedResults.contains("healthy:x"));
+    assertTrue(
+        consecutiveHealthy >= 5,
+        "breaker never stabilized on the healthy endpoint within " + attempts + " attempts");
 
     // Once the dead endpoint's breaker has opened, every further call must land on "healthy" --
     // never a failure from the dead endpoint again.
