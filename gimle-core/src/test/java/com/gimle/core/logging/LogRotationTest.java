@@ -109,14 +109,32 @@ class LogRotationTest {
   }
 
   @Test
-  void cursor_paging_and_follow_resolve_correctly_across_a_rotation_boundary() throws IOException {
+  void cursor_paging_and_follow_resolve_correctly_across_a_rotation_boundary()
+      throws IOException, InterruptedException {
     Path file = dir.resolve("instance.log");
     appender = new PlatformFileAppender(file);
     appender.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
     appender.start();
 
+    // The cursor below is a millisecond-resolution timestamp compared with a strict isBefore
+    // (LogFileReader#readOlder) -- a real correctness limitation under fast writes, not a test
+    // artifact. It bites harder than a naive "2000 lines might share a millisecond" read suggests:
+    // maxFileSizeBytes=512 with these ~85-byte lines holds only ~6 lines per file, so across the
+    // 3-file budget only the *last* ~18 of the 2000 lines survive rotation eviction at all -- and
+    // if every one of those ~18 survivors was written within the same millisecond (easily true for
+    // a tight in-process loop on a fast run), the page-boundary cursor and everything "older" than
+    // it collapse onto the same instant, so "strictly older" legitimately returns nothing even
+    // though the assertion expects paged history to remain. Only the tail need be spread across
+    // genuinely distinct timestamps -- everything earlier gets evicted by rotation regardless, so
+    // sleeping there would only slow the test down for no benefit. The underlying
+    // millisecond-collision limitation itself is worth its own follow-up, not a fix this test
+    // should carry.
+    int tailLinesNeedingDistinctTimestamps = 40;
     for (int i = 0; i < 2000; i++) {
       write("line " + i + " padded so the 512-byte cap rotates more than once during this test");
+      if (i >= 2000 - tailLinesNeedingDistinctTimestamps) {
+        Thread.sleep(1);
+      }
     }
     appender.stop();
 

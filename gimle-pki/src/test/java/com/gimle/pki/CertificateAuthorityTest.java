@@ -237,8 +237,16 @@ class CertificateAuthorityTest {
     int exitCode = process.waitFor();
 
     assertEquals(0, exitCode, "openssl must parse the certificate without error:\n" + output);
-    assertTrue(output.contains("CN=node-1"), "openssl output must show the leaf's subject");
-    assertTrue(output.contains("CN=ca"), "openssl output must show the issuing CA's subject");
+    // OpenSSL's own -text rendering of a DN is version-dependent: OpenSSL 1.x prints "CN=node-1"
+    // (no spaces), OpenSSL 3.x prints "CN = node-1" (spaces around the "="), both for the exact
+    // same certificate -- a real, deterministic output-format difference between installed
+    // versions, not flakiness. Strip whitespace from the output before comparing so this test
+    // verifies openssl actually parsed the DN, not which version happens to be on PATH.
+    String outputNoWhitespace = output.replaceAll("\\s+", "");
+    assertTrue(
+        outputNoWhitespace.contains("CN=node-1"), "openssl output must show the leaf's subject");
+    assertTrue(
+        outputNoWhitespace.contains("CN=ca"), "openssl output must show the issuing CA's subject");
     assertTrue(output.contains("TLS Web Server Authentication"));
     assertTrue(output.contains("TLS Web Client Authentication"));
   }
