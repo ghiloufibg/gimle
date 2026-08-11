@@ -70,6 +70,36 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <!--
+        Two independent, redundant defenses against this suite ever running under plain
+        mvn verify (it spins up real JVM subprocess clusters and a real browser): the excludes
+        pattern below is Surefire's own default *IT.java convention made explicit, but that alone
+        isn't enough, since an unqualified -Dtest='!A,!B,...' (exclusions only, no positive
+        pattern), the shape every root-level verify command in this repo's own session history
+        uses for the standing flaky-test exclusion list, has been observed to override excludes
+        and broaden Surefire's own class discovery enough to pick GreeterSmokeTestIT up anyway,
+        even with the smoke profile (and its own failsafe binding below) never activated: a real
+        build-wiring gap, not a flaky test (see FLAKY_TESTS.md). excludedGroups is the actual fix:
+        JUnit 5's own tag-based filtering is a separate mechanism from Surefire's class-name
+        pattern selection, applied after -Dtest's own class-file selection has already run, so it
+        isn't affected by that override the same way. GreeterSmokeTestIT carries @Tag("smoke")
+        for exactly this.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+          <excludedGroups>smoke</excludedGroups>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
   <profiles>
     <profile>
       <id>smoke</id>

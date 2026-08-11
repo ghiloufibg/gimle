@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -50,8 +51,14 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <p>Not part of the default {@code mvn verify} -- opt in with {@code -Psmoke}. Assumes {@code mvn
  * install} has already produced every jar this launches, the same precondition LOCAL_DEV.md's own
- * manual flow has.
+ * manual flow has. {@code @Tag("smoke")} plus this module's own {@code excludedGroups} surefire
+ * configuration is belt-and-suspenders against a real, previously-observed build-wiring gap (see
+ * FLAKY_TESTS.md): an unqualified {@code -Dtest='!A,!B,...'} (exclusions only, no positive pattern)
+ * has been seen to broaden Surefire's own default class discovery enough to pick this class up
+ * under plain {@code mvn verify} anyway -- JUnit 5's own tag-based filtering is a separate
+ * mechanism from Surefire's class-name-pattern selection, so it isn't affected the same way.
  */
+@Tag("smoke")
 class GreeterSmokeTestIT {
 
   private static final int STORE_COUNT = 3;
