@@ -98,6 +98,34 @@ test("topology screen places both greeter deployments on the real node", async (
   await expect(page.getByText("greeter-consumer-deployment").first()).toBeVisible();
 });
 
+test("config screen shows a real plain config entry for the provisioned tenant", async ({
+  page,
+}) => {
+  // Matches GreeterSmokeTestIT#PLAIN_CONFIG_KEY/PLAIN_CONFIG_VALUE -- written via a real,
+  // unencrypted PUT /config/{tenantId}/{key} in provisionTenantAndSecret, distinct from the
+  // masked SECRET_KEY the Secrets screen above already covers. Only one tenant exists in this
+  // cluster, so the page's own auto-select-first-tenant behavior needs no extra interaction here.
+  await expectVisibleEventually(page, "/console/config", "greeting.locale");
+  await expect(page.getByText("en-US").first()).toBeVisible();
+});
+
+test("metrics screen shows a real, data-specific instance count, not just an empty shell", async ({
+  page,
+}) => {
+  // "Instances observed" is a StatTile driven by the same real deployments/instances data every
+  // other screen above already proves is genuine -- asserting its own rendered *value* (2: one
+  // greeter-provider-deployment instance, one greeter-consumer-deployment instance, both
+  // replicas: 1) is what makes this a data-specific check rather than just "the chart shell
+  // rendered without crashing."
+  await expect(async () => {
+    await page.goto("/console/metrics");
+    const instancesLabel = page.getByText("Instances observed", { exact: true });
+    await expect(instancesLabel).toBeVisible({ timeout: 3_000 });
+    const instancesTile = instancesLabel.locator("xpath=..");
+    await expect(instancesTile.locator("span").first()).toHaveText("2", { timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+});
+
 test("logs screen live-tails the consumer's real fabric call to the provider", async ({ page }) => {
   await page.goto(
     "/console/logs?kind=instance&deploymentName=greeter-consumer-deployment&instanceIndex=0&category=APPLICATION",

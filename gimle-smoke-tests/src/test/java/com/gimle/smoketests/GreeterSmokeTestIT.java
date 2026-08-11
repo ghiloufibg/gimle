@@ -88,6 +88,12 @@ class GreeterSmokeTestIT {
   private static final String SECRET_TENANT_ID = "smoke-tenant";
   private static final String SECRET_KEY = "some-secret-key";
   private static final String SECRET_VALUE = "smoke-test-secret-value";
+  // A real *plain* (non-encrypted) config entry for the same tenant -- distinct from SECRET_KEY
+  // above, which is masked by design. Exercises the console's Config screen (gimle-console/src/
+  // routes/config.tsx), which reads /config/* directly rather than the masked /secrets/* surface
+  // the Secrets screen already covers.
+  private static final String PLAIN_CONFIG_KEY = "greeting.locale";
+  private static final String PLAIN_CONFIG_VALUE = "en-US";
   // Matches gimle-console/e2e/greeter-smoke.spec.ts's own login credentials -- that suite logs in
   // as this account before touching any /console page (RBAC/session auth, commit 05af65d, gates
   // every console route client-side regardless of transport). Created via an unauthenticated PUT
@@ -2289,6 +2295,18 @@ class GreeterSmokeTestIT {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (secretResponse.statusCode() != 200) {
       fail("secret write failed: " + secretResponse.statusCode() + " " + secretResponse.body());
+    }
+
+    String configBody = Json.write(Map.of("value", PLAIN_CONFIG_VALUE, "encrypted", false));
+    HttpResponse<String> configResponse =
+        httpClient.send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/config/" + SECRET_TENANT_ID + "/" + PLAIN_CONFIG_KEY))
+                .PUT(HttpRequest.BodyPublishers.ofString(configBody, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (configResponse.statusCode() != 200) {
+      fail("config write failed: " + configResponse.statusCode() + " " + configResponse.body());
     }
   }
 
