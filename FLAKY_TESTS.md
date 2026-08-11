@@ -99,6 +99,29 @@ a future session wonders why a given test no longer needs its old exclusion:
   assertion checked for `CN=node-1` (no spaces) — a real, deterministic version-dependent
   formatting difference, not flakiness. Strip whitespace from the output before comparing.
   Confirmed clean across 5 runs.
+- **`GossipMemberTest`** (`gimle-fabric`, whole class) — newly observed during this same session's
+  own background verify runs (twice, different sub-tests each time), not previously tracked here.
+  Real UDP sockets with millisecond-scale gossip/failure-detection timing; same
+  CPU-contention-under-class-level-concurrency cause as the entries above, and `gimle-fabric` had
+  no `@Isolated` usage anywhere despite this. Added. Confirmed clean across 3 full-module runs with
+  rerun-masking disabled (`-Dsurefire.rerunFailingTestsCount=0`).
+
+## Also investigated: `mvn verify` speed (no change kept)
+
+A parallel pass looked at whether the standing `-T 1C` (root `.mvn/maven.config`) combined with
+this pom's own `junit.jupiter.execution.parallel.config.dynamic.factor=1.0` oversubscribes cores
+on this 4-core sandbox whenever multiple modules' own concurrent-class phases land at once — a
+real, plausible mechanism, and the same shape of contention several entries above trace their
+flakiness to. Tuning `dynamic.factor` down to `0.5` looked like a genuine win on a first
+measurement (5:29 vs. a 6:03 baseline, fewer flakes), but a same-command confirmation run came back
+at 6:39 — worse than baseline. Run-to-run wall-clock variance in this shared sandbox (over a full
+minute across otherwise-identical runs) turned out to be larger than the effect being measured, so
+no reliable conclusion could be drawn either way. Reverted rather than keep an unproven change;
+`dynamic.factor` is still `1.0`. Separately, `maven-build-cache-config.xml`'s caching stays
+disabled for the real, already-documented reason in that file's own top comment (the pinned
+`maven-build-cache-extension` version, `1.2.3`, has no per-project override in its schema, and
+only `1.2.3` is available in this sandbox's local repository to check against) — not re-litigated
+here, since nothing changed to justify revisiting it.
 
 ## Already excluded from the standard verify command
 
