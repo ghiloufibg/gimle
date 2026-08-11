@@ -107,6 +107,30 @@ class GreeterSmokeTestIT {
     process.destroyForcibly();
   }
 
+  /**
+   * The single {@code WorkerMain} child process descendant of a supervising {@code AgentMain}, if
+   * one currently exists. Matched on {@code -Dgimle.log.root=.../workers/...} ({@code
+   * AgentMain#buildWorkerCommand}'s own worker-only flag, scoping that worker's default log root to
+   * a subdirectory named after it) rather than the trailing {@code com.gimle.worker.WorkerMain}
+   * main-class argument: {@code ProcessHandle.Info#commandLine()} truncates a very long command
+   * line (this repo's own many-module classpath easily exceeds whatever internal buffer it uses)
+   * before reaching an argument that far into the command, a real, previously-observed gap between
+   * what {@code ProcessBuilder} was actually given and what comes back out through {@code
+   * ProcessHandle}. This flag sits early enough to survive that.
+   */
+  private static Optional<ProcessHandle> findWorkerDescendant(Process agentProcess) {
+    return agentProcess
+        .descendants()
+        .filter(
+            handle ->
+                handle
+                    .info()
+                    .commandLine()
+                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains("/workers/"))
+                    .orElse(false))
+        .findFirst();
+  }
+
   /** What a test needs to talk to a freshly-started store-cluster + control-plane-replica set. */
   private record SmokeCluster(
       List<Process> storeProcesses,
@@ -296,6 +320,65 @@ class GreeterSmokeTestIT {
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should still show the real secret value after its"
             + " owning agent died, now served from Muninn's shipped history instead");
+  }
+
+  /**
+   * QA hardening pass, Phase 3: the agent-death test above (and every other existing scenario in
+   * this class) never kills the *worker* JVM itself -- a genuinely different failure domain (see
+   * CLAUDE.md's own "tiered self-healing" framing: module dispose+reinstantiate vs. worker
+   * destroyForcibly+respawn vs. machine-level reschedule are three distinct recovery paths). This
+   * proves the middle tier: WorkerProcessSupervisor (gimle-agent) actually respawns a killed worker
+   * process and the deployment genuinely recovers to ACTIVE again, not just that the agent's own
+   * bookkeeping believes it should.
+   */
+  @Test
+  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_crashed_workers_instance_is_respawned_and_returns_to_active() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path providerJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
+
+    provisionTenantAndSecret(baseUrl);
+    submitDeployment(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Optional.of(SECRET_TENANT_ID));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-deployment should reach ACTIVE before the worker is killed");
+
+    ProcessHandle firstWorker =
+        findWorkerDescendant(cluster.agentProcess())
+            .orElseThrow(
+                () -> new AssertionError("expected a live WorkerMain descendant of the agent"));
+    long firstWorkerPid = firstWorker.pid();
+    firstWorker.destroyForcibly();
+
+    await(
+        () -> {
+          Optional<ProcessHandle> current = findWorkerDescendant(cluster.agentProcess());
+          // Both halves matter: a *new* worker process (proof the supervisor actually respawned
+          // one, not that the old one lingers) that has *also* brought the deployment back to
+          // ACTIVE (proof the respawned worker is genuinely healthy, not just alive).
+          return current.isPresent()
+              && current.get().pid() != firstWorkerPid
+              && isActive(baseUrl, "greeter-provider-deployment");
+        },
+        Duration.ofSeconds(60),
+        "a new worker process should replace pid "
+            + firstWorkerPid
+            + " and the deployment should return to ACTIVE");
   }
 
   /**
