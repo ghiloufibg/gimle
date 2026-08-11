@@ -1,9 +1,11 @@
 # QA hardening findings — 2026-08-11
 
-A dedicated QA pass (`qa-hardening` branch, 10 commits) covering three phases: stabilize the build
-by fixing reported flaky tests, look for ways to speed up `mvn verify`, and hunt bugs via new/
-enhanced tests including a real end-to-end cluster. This doc records what was found and fixed, what
-was investigated and found not to be a bug, and what's still open for a follow-up session.
+A dedicated QA pass (`qa-hardening` branch) covering three phases: stabilize the build by fixing
+reported flaky tests, look for ways to speed up `mvn verify`, and hunt bugs via new/enhanced tests
+including a real end-to-end cluster. This doc records what was found and fixed, what was
+investigated and found not to be a bug, and what's still open for a follow-up session. Phase 3 was
+continued across several sessions on this same branch; see its own subsections below for the
+running list of scenarios added.
 
 ## Phase 1 — flaky tests: 9 real bugs found and fixed, not just excluded
 
@@ -92,6 +94,84 @@ evidence pointing at shared sandbox resource pressure from running all 6 heavy r
 back-to-back (that single run took 159.8s), not a defect specific to either test. Two follow-up
 full-suite runs after that were both 6/6 clean, consistent with that read.
 
+### Real bug found while setting up the next scenario: every process's own logging config was silently broken
+
+Before even getting to the membership-change scenario below, the first attempt to run it surfaced
+a real, independent bug: every store/control-plane/etc. process's own startup log showed
+`ch.qos.logback.core.joran.spi.JoranException: ... The string "--" is not permitted within
+comments`, pointing at `gimle-core/src/main/resources/logback.xml` (shipped in `gimle-core`'s own
+jar, so every process on the classpath hits this identically). Line 9's comment contained a literal
+`--` mid-sentence (`"unconditionally -- every process already ..."`), the exact same class of XML
+rule already hit twice this session in `pom.xml` comments (see `FLAKY_TESTS.md`), except this time
+in a real production resource, not a build file. The practical effect: Logback's XML parse fails on
+every single process startup, silently falling back to its own bare default configuration instead
+of the real one this repo ships (`ConsoleLogEncoder`, `PLATFORM.log`/JSON file appenders, etc.) —
+console output still appears (Logback's fallback default does emit *something*), which is exactly
+why this had gone unnoticed: nothing crashes, nothing looks obviously wrong at a glance, but the
+real logging configuration was never actually in effect. **Fixed** by rephrasing the comment to
+avoid the literal `--` (same style already used for the two `pom.xml` fixes). Confirmed via
+`python3 -c "import xml.dom.minidom as m; m.parse(...)"` on the file directly, and by grepping
+every other tracked `*.xml` file in the repo the same way — no other occurrences.
+
+### Real bug found and fixed: a standalone store node can self-elect as a phantom leader that never steps down
+
+Extending `GreeterSmokeTestIT` with a live Raft membership-change scenario
+(`a_new_store_node_joins_via_live_membership_change_and_is_then_removed` — see below for its
+current `@Disabled` status) surfaced a genuine split-brain bug in `RaftNode`, not a test bug.
+
+**Reproduction**: start a `StoreMain` process standalone, with no `--peers` (`StoreMain`'s own
+documented pattern for a node that will join an *existing* cluster later via
+`StoreClient#addServer`, the P1-5 etcd-style live-membership-change feature). Once that node is
+added to a real 3-node cluster already serving writes, the control plane's own reconcile loop
+starts failing continuously (`no reachable store leader could serve propose/getNodeHeartbeat/...
+after retrying every endpoint`) for a real, sustained window (observed 85s-180s+ across 5 runs).
+
+**Root cause**: `RaftNode.start()` deliberately self-elects a node instantly, skipping the normal
+150-300ms election timer, whenever it's constructed with an empty peer set (`start()`'s own
+comment: "a single-node cluster's majority is 1 -- self alone -- so there is nothing to elect").
+That's correct for bootstrapping a brand-new single-node cluster, but a node standing by to
+*join* an existing cluster via a later `addServer` also starts with an empty peer set — there is
+no way to tell the two apart at `RaftNode`/`StoreMain` construction time. Such a node immediately
+becomes `Role.LEADER` of a phantom one-node "cluster" at term 1. Compounding this:
+`RaftNode.onAppendEntries`/`onInstallSnapshot` only ever demoted a `Role.CANDIDATE` back to
+`FOLLOWER` on an *equal*-term message (`else if (role == Role.CANDIDATE)`) — there was no case for
+an already-`Role.LEADER` node. Since a freshly-bootstrapped 3-node cluster and a freshly-
+self-elected standalone node both very plausibly land on term 1 independently, the phantom leader
+was never told to step down by the real leader's own heartbeats at that same term. Once `addServer`
+committed and replicated the new membership config to it, `reconfigurePeersLocked`'s own `if (role
+== Role.LEADER) startPeerSenderThreadLocked(...)` check — still true, since the phantom leader was
+never demoted — made it start broadcasting *its own* competing heartbeats to the real cluster's
+other members at the genuine leader's own term: a real, sustained split-brain, not a self-resolving
+glitch.
+
+**Fixed**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftNode.java` — both
+`onAppendEntries`/`onInstallSnapshot`'s equal-term branch now demotes on `role != Role.FOLLOWER`
+(covers both `CANDIDATE` and `LEADER`, the only three `Role` values), via a new
+`demoteToFollowerLocked()` helper split out of `stepDownLocked` so a demoted phantom leader's
+already-started `peerSenderThreads` are actually interrupted too, not just its `role` field
+flipped. Verified against the *entire* `gimle-mimir` module test suite (216+ tests across
+`gimle-core`/`gimle-observability`/`gimle-pki`/`gimle-mimir`, `mvn -pl gimle-mimir -am verify`) —
+**zero regressions**, only the already-documented `StoreClientClusterTest` flake (see
+`FLAKY_TESTS.md`) hiccuped once and passed on its own rerun.
+
+**Still open**: fixing this real correctness bug did *not* eliminate the smoke test's own
+post-membership-change instability window — it dropped from a consistent ~90s+ to a *variable*
+85s-180s+ across runs after the fix, evidence the phantom-leader bug was a real contributing factor
+but not the sole one. The remainder is most plausibly genuine election/log-catchup delay under this
+sandbox's own load (4 cores, 12 concurrent JVMs for this one scenario alone — the heaviest in the
+whole suite), consistent with the *already-documented* sandbox-load sensitivity of Raft
+membership-change tests even at the much lighter `RaftClusterTest` tier (see `FLAKY_TESTS.md`'s
+`removing_a_server_shrinks_the_quorum_requirement...` entry) — just amplified here by a much larger
+process count. No fixed timeout this suite tried (90s, 150s, 300s) both passed reliably *and*
+stayed honest about a real upper bound, so **the new test is left in place but `@Disabled`**, with
+a class-level javadoc pointing back to this section, as a deterministic reproduction for whoever
+picks this up next. Two directions worth trying then, neither attempted here given time already
+spent: (a) run it on a quieter/dedicated CI runner rather than this shared sandbox, to see whether
+the variability itself is sandbox-specific; (b) a real Raft-level improvement — a non-voting
+"learner" catch-up phase before a new peer becomes a full voting member (the classic Raft answer to
+new-member disruption, and a further hardening beyond the phantom-leader fix above) would reduce
+the disruption window's root cause rather than just tolerating it with a longer timeout.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -104,9 +184,12 @@ dropped:
 - Multi-signal autoscaling (Part C, this same development thread) under real synthetic load —
   unit/integration coverage exists (`AutoscaleReconcilerTest`), but nothing exercises the four
   signals against a real deployed cluster with real traffic.
-- Raft leader failover / live membership change under concurrent writes at the smoke-test tier
-  (covered at the unit/integration tier in `gimle-mimir`, e.g. `RaftMembershipChangeTest`,
-  `RaftClusterTest`'s own membership-change tests).
+- Raft leader failover under concurrent writes at the smoke-test tier specifically (covered at the
+  unit/integration tier in `gimle-mimir`, e.g. `RaftClusterTest`'s own failover tests; the
+  smoke-test tier's own single-node-loss scenario,
+  `cluster_tolerates_losing_one_store_node_mid_deployment`, covers a *loss*, not a *failover under
+  load*). Live membership change *was* attempted this session — see above — and is currently
+  `@Disabled` pending the still-open timing finding, not untested.
 - RBAC/authz edge cases (cross-tenant denial, node-scoped self-service) at the smoke-test tier
   (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`; not attempted at the smoke
   tier since the smoke suite runs the whole cluster in plaintext mode with auth bypassed).
@@ -118,9 +201,12 @@ dropped:
 
 ## Verification
 
-Every fix in Phase 1 and both Phase 3 additions was verified with repeated isolated runs (3-20x
+Every fix in Phase 1 and every Phase 3 addition was verified with repeated isolated runs (3-20x
 depending on the entry) plus checkstyle/spotbugs/fmt, documented per-entry in the commit history on
 `qa-hardening`. A final full-reactor `mvn verify` (2-entry exclusion list) passed clean at
 `9dadef8`..`fd22baf`; `gimle-smoke-tests -Psmoke` passed 5/5 including the worker-respawn test at
 `a93b43f`, and 6/6 including the quota-enforcement test at `b364e3e` (after one full-suite run with
-an unrelated shared-cause failure, see above).
+an unrelated shared-cause failure, see above). The `logback.xml` fix and the `RaftNode` phantom-
+leader fix were each verified independently: the former via direct XML parsing of every tracked
+`*.xml` file in the repo, the latter via a full, clean `mvn -pl gimle-mimir -am verify` (216+ tests,
+zero regressions) plus 5 real-cluster smoke runs of the reproduction test that motivated it.

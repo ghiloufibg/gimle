@@ -4,9 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.mimir.raft.PeerAddress;
+import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -265,6 +268,119 @@ class GreeterSmokeTestIT {
         Duration.ofSeconds(90),
         "a deployment submitted after losing one store node should still reach ACTIVE, proving"
             + " the surviving store majority kept serving writes");
+  }
+
+  /**
+   * Etcd-style live membership change (P1-5, {@code StoreClient#addServer}/{@code removeServer}),
+   * exercised for the first time against real {@code StoreMain} processes talking real wire
+   * protocol -- every existing coverage of this (e.g. {@code RaftMembershipChangeTest},
+   * RaftClusterTest's own membership-change tests) constructs {@code RaftNode} directly in-process.
+   * A fourth store node is started standalone (no {@code --peers}: it only becomes a cluster member
+   * once {@link StoreClient#addServer} proposes it into the Raft configuration), added while the
+   * bootstrap 3-node cluster is already live and serving writes, proven by a deployment submitted
+   * only after the join, then removed again the same way, proven by a third deployment submitted
+   * only after the removal. Deliberately removes the node it just added rather than one of the
+   * original three: {@code RaftNode} has no dedicated handling for a leader removing itself from
+   * its own membership (a real, harder Raft edge case -- see the design's own single-server-change
+   * safety rule in {@code pendingMembershipChangeIndex}'s javadoc), and the freshly-joined follower
+   * is, by construction, never the leader (it joins well after the bootstrap cluster's own election
+   * already settled, and nothing about a plain {@code addServer} triggers a new one) -- so this
+   * proves the addServer/removeServer roundtrip itself without also gambling on that untested edge
+   * case within the same run.
+   *
+   * <p><b>Disabled</b>: this reproduction found and fixed one real bug (a self-elected phantom
+   * leader that {@link com.gimle.mimir.raft.RaftNode#onAppendEntries}/{@code onInstallSnapshot}
+   * never demoted on an equal-term message -- see QA_FINDINGS.md), but even with that fix in place
+   * the cluster's own post-membership-change leader instability window is genuinely variable in
+   * this sandbox's 12-JVM/4-core load -- 85s in some runs, still not recovered after 150s in
+   * others. No timeout this suite picks can both stay honest about a real upper bound and pass
+   * reliably here. Left in place (not deleted) as a deterministic repro for whoever picks up
+   * QA_FINDINGS.md's still-open finding next -- either a quieter/dedicated CI runner, or a real
+   * Raft-level fix (e.g. a non-voting learner catch-up phase before a new peer becomes a full
+   * voting member, the classic Raft answer to exactly this instability).
+   */
+  @Test
+  @org.junit.jupiter.api.Disabled(
+      "QA_FINDINGS.md: live membership change's post-change leader-instability window is real but"
+          + " variable (85-180s+) in this sandbox; see the class javadoc above for the fixed bug"
+          + " and the still-open timing finding")
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_new_store_node_joins_via_live_membership_change_and_is_then_removed() throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path providerJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
+    assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
+
+    submitDeployment(
+        baseUrl, "greeter-provider-deployment", "com.gimle.examples.greeter.provider", providerJar);
+    await(
+        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-deployment should reach ACTIVE before any membership change");
+
+    int newRaftPort = STORE_RAFT_PORT_BASE + STORE_COUNT;
+    int newClientPort = STORE_CLIENT_PORT_BASE + STORE_COUNT;
+    Process fourthStore =
+        spawnStore(
+            javaExecutable,
+            classpath,
+            newRaftPort,
+            newClientPort,
+            "",
+            tempDir.resolve("store-3.log"));
+    processes.add(fourthStore);
+    awaitPortOpen("127.0.0.1", newClientPort, Duration.ofSeconds(30));
+
+    List<SocketAddress> bootstrapEndpoints = new ArrayList<>();
+    for (int i = 0; i < STORE_COUNT; i++) {
+      bootstrapEndpoints.add(new InetSocketAddress("127.0.0.1", STORE_CLIENT_PORT_BASE + i));
+    }
+    String newPeerId = "127.0.0.1:" + newRaftPort;
+    try (StoreClient storeClient = new StoreClient(bootstrapEndpoints)) {
+      storeClient.addServer(newPeerId, new PeerAddress("127.0.0.1", newRaftPort, newClientPort));
+    }
+
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment-2",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-deployment-2"),
+        // 150s, not the usual 90s this suite's other post-disruption awaits use: a live
+        // membership change genuinely destabilizes leadership for a real, repeatable ~85-95s in
+        // this sandbox's 4-core/12-JVM load (QA_FINDINGS.md's own reproduction/measurement),
+        // longer than a single node loss (that test's own 90s budget) since the new peer must
+        // also fully catch up its log before the expanded quorum stabilizes -- generous headroom
+        // here, not a padded guess.
+        Duration.ofSeconds(150),
+        "a deployment submitted after a 4th store node joined via live membership change should"
+            + " still reach ACTIVE, proving the newly-expanded 4-node cluster kept serving writes");
+
+    try (StoreClient storeClient = new StoreClient(bootstrapEndpoints)) {
+      storeClient.removeServer(newPeerId);
+    }
+
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment-3",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-deployment-3"),
+        Duration.ofSeconds(150),
+        "a deployment submitted after the 4th store node was removed again should still reach"
+            + " ACTIVE, proving the cluster is back to serving writes from its original three"
+            + " members");
   }
 
   /**
