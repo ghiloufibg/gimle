@@ -193,4 +193,45 @@ class DeploymentReconcilerRollingUpdateTest {
         store.listAssignmentsFor("orders-service").stream()
             .anyMatch(a -> a.instanceIndex() == 0 && a.moduleId().equals(v2.moduleId())));
   }
+
+  /**
+   * QA Phase 3 finding: a real node agent that has fetched a rolled-forward assignment but hasn't
+   * actually replaced the worker yet (or -- the real bug this reproduces -- never will, see {@code
+   * AgentMain#requiresReplacement}) can still be mid-heartbeat-cycle reporting the OLD instance as
+   * {@code ready} for that exact index. {@code isReady} must reject that stale-but-present
+   * observation by its {@code moduleId}, not just its {@code ready} flag, or {@link
+   * DeploymentReconciler#handleRollingUpdate} would clear {@code rollingIndex} and move on to
+   * migrating the next index while the first one is still silently running old code.
+   */
+  @Test
+  void a_ready_observation_still_reporting_the_old_moduleId_does_not_clear_the_rollout() {
+    StateStore store = new StateStore(tempDir.resolve("store-stale-heartbeat"));
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    registerNode(store, "node-a");
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 2, jarV1);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    markReady(store, "node-a", "orders-service", 1, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 2, jarV2);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce();
+    assertEquals(Optional.of(0), store.getRollingIndex("orders-service"));
+
+    // The stale heartbeat: still reports index 0 as ready, but on the OLD moduleId -- exactly what
+    // a node agent that silently kept the old worker running would keep sending forever.
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        Optional.of(0),
+        store.getRollingIndex("orders-service"),
+        "a ready-but-wrong-moduleId observation must not be mistaken for the rollout completing");
+    assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
+  }
 }

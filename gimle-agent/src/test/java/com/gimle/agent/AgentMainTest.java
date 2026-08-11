@@ -458,4 +458,59 @@ class AgentMainTest {
 
     assertFalse(reusable.isPresent());
   }
+
+  // ---- requiresReplacement: a rolling update's moduleId/artifactPath change at a fixed key ----
+
+  @Test
+  void a_moduleId_change_at_the_same_key_requires_replacement() {
+    ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
+    AssignedInstance assignedV1 = assignedInstance("provider-deployment", v1, Optional.empty());
+    SupervisedInstance existing = supervisedInstance(assignedV1, v1, null);
+
+    ModuleDescriptor v2 =
+        new ModuleDescriptor(
+            "provider",
+            Version.parse("2.0.0"),
+            List.of(),
+            List.of(),
+            IsolationTier.TIER_2,
+            REQUEST,
+            LIMIT,
+            HealthProbes.NONE,
+            Optional.empty());
+    AssignedInstance assignedV2 =
+        new AssignedInstance(
+            "provider-deployment", 0, v2.id(), "/does/not/matter.jar", Optional.empty());
+
+    assertTrue(AgentMain.requiresReplacement(assignedV2, existing));
+  }
+
+  @Test
+  void an_artifactPath_change_with_the_same_moduleId_requires_replacement() {
+    ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
+    AssignedInstance assignedOriginal =
+        assignedInstance("provider-deployment", v1, Optional.empty());
+    SupervisedInstance existing = supervisedInstance(assignedOriginal, v1, null);
+
+    AssignedInstance assignedRepublished =
+        new AssignedInstance(
+            "provider-deployment", 0, v1.id(), "/a/different/path.jar", Optional.empty());
+
+    assertTrue(AgentMain.requiresReplacement(assignedRepublished, existing));
+  }
+
+  @Test
+  void an_unchanged_assignment_at_the_same_key_never_requires_replacement() {
+    ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
+    AssignedInstance assigned = assignedInstance("provider-deployment", v1, Optional.empty());
+    SupervisedInstance existing = supervisedInstance(assigned, v1, null);
+
+    // A fresh AssignedInstance with identical field values, not the same object -- this is what a
+    // real re-fetch of unchanged desired state actually looks like.
+    AssignedInstance sameAssignmentAgain =
+        new AssignedInstance(
+            "provider-deployment", 0, v1.id(), "/does/not/matter.jar", Optional.empty());
+
+    assertFalse(AgentMain.requiresReplacement(sameAssignmentAgain, existing));
+  }
 }

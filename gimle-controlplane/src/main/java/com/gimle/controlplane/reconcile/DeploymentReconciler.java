@@ -218,6 +218,14 @@ public final class DeploymentReconciler {
             });
   }
 
+  /**
+   * True only once the node's own heartbeat reports THIS index as both {@code ready} and actually
+   * running {@code assignment}'s own {@code moduleId} -- checking {@code ready} alone would false-
+   * positive on the exact heartbeat cycle a rollout starts: the previous, still-{@code ready} old
+   * instance's last-received observation would otherwise look indistinguishable from the new one
+   * already having landed, letting {@link #handleRollingUpdate} clear {@code rollingIndex} and move
+   * on to the next index before the replacement has even been placed, let alone started.
+   */
   private boolean isReady(InstanceAssignment assignment) {
     return store
         .getNodeHeartbeat(assignment.nodeId())
@@ -229,6 +237,7 @@ public final class DeploymentReconciler {
             obs ->
                 obs.deploymentName().equals(assignment.deploymentName())
                     && obs.instanceIndex() == assignment.instanceIndex()
+                    && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
   }
 

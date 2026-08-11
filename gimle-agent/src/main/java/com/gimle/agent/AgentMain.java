@@ -723,6 +723,26 @@ public final class AgentMain {
     for (AssignedInstance assigned : assignments) {
       String key = instanceKey(assigned);
       currentKeys.add(key);
+      // instanceKey() is deploymentName#index alone -- a rolling update (DeploymentReconciler
+      // removing then immediately re-placing the very same index with a new moduleId, see its own
+      // javadoc) reuses that identical key, so without this check supervised.containsKey(key)
+      // below would read true and this loop would silently do nothing: the old worker keeps
+      // running the old code forever, and every heartbeat this agent sends keeps reporting the
+      // stale moduleId straight from the never-updated SupervisedInstance (see observationJson),
+      // since a rolling update never actually reaches the worker. Treat a changed moduleId or
+      // artifactPath at an already-supervised key as "stop the old one, then fall through to the
+      // ordinary start path below" -- the same teardown stopInstance already performs for an index
+      // no longer assigned at all.
+      SupervisedInstance current = supervised.get(key);
+      if (current != null && requiresReplacement(assigned, current)) {
+        log.info(
+            "instance {} reassigned from {} to {} -- stopping the old worker before starting the"
+                + " new one",
+            key,
+            current.assigned.moduleId(),
+            assigned.moduleId());
+        stopInstance(key, supervised, capacityTracker, instanceShippers);
+      }
       if (!supervised.containsKey(key)) {
         try {
           ModuleDescriptor descriptor =
@@ -1400,6 +1420,19 @@ public final class AgentMain {
 
   private static String instanceKey(AssignedInstance assigned) {
     return assigned.deploymentName() + "#" + assigned.instanceIndex();
+  }
+
+  /**
+   * True when {@code assigned} (the control plane's current desired state for this key) no longer
+   * matches what {@code existing} is actually running -- a {@code moduleId} change is a rolling
+   * update; an {@code artifactPath} change with the same {@code moduleId} is the same version
+   * republished at a different path. Either way {@code instanceKey} alone (deploymentName#index)
+   * can't tell the two assignments apart, so this is the check that decides whether an
+   * already-supervised key still needs replacing rather than being left alone.
+   */
+  static boolean requiresReplacement(AssignedInstance assigned, SupervisedInstance existing) {
+    return !existing.assigned.moduleId().equals(assigned.moduleId())
+        || !existing.assigned.artifactPath().equals(assigned.artifactPath());
   }
 
   private static String nextCorrelationId() {
