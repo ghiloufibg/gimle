@@ -191,6 +191,62 @@ and the Metrics screen specifically (real data now exists via Muninn per Part B,
 meaningful assertion there — a specific metric name/value rather than just "the page loaded" — was
 left for a follow-up given its more involved chart-rendering surface).
 
+### Real bug found and fixed: multi-signal autoscaling never actually worked outside unit tests
+
+Continuing the QA mission with a real load-generation tool (Gatling) against a real cluster
+surfaced a serious Part C regression: `DomainCodec.writeOptionalAutoscalePolicy`/
+`readOptionalAutoscalePolicy` were never updated when `AutoscalePolicy` gained its three optional
+multi-signal fields (`targetRequestRatePerSecond`/`targetErrorRatePercent`/`targetQueueDepth`).
+Both methods still only wrote/read the original three CPU-only fields, so **any autoscale policy
+configuring a non-CPU signal was silently truncated back to CPU-only the instant it crossed either
+wire this codec backs** — `StoreClient.propose` on the way in from `ApiServer`, and every Raft
+log/snapshot replication after that. In other words: Part C shipped, was unit-tested, and merged,
+but multi-signal autoscaling had never actually worked against a real deployed cluster, only
+against the in-process `StateStore` bypass `AutoscaleReconcilerTest` uses.
+
+**Reproduction, in three layers**:
+
+1. **New example module**: `gimle-examples/greeter-load-generator`, a real hosted module bridging
+   external HTTP load into the fabric — the wire protocol `ModuleContext#lookupService`'s
+   cross-worker proxy speaks has no client outside a hosted module, so an external tool can't call
+   `Greeter` directly. Every inbound HTTP request to `/call` on its fixed port (19077) does one
+   real, synchronous `lookupService(Greeter.class)` + `greet(...)` call against greeter-provider.
+2. **A real Gatling simulation**: `gimle-smoke-tests`' new `GreeterAutoscaleSimulation` (Java DSL,
+   `io.gatling:gatling-http-java`/`gatling-charts-highcharts` test-scope dependencies) drives
+   controllable-rate HTTP load at that bridge, spawned as its own JVM process
+   (`io.gatling.app.Gatling -s ...`, needing `--add-opens java.base/java.lang=ALL-UNNAMED` — a real,
+   documented Gatling requirement on modern JDKs, not optional) the same way every other cluster
+   component in this suite is spawned, mirroring the existing Playwright-as-subprocess precedent.
+3. **The new smoke test**: `a_deployment_scales_up_under_real_gatling_generated_request_rate_load`
+   deploys greeter-provider with `targetCpuUtilizationPercent: 200` (deliberately unreachable by
+   this workload, so CPU alone can never explain a scale-up) and `targetRequestRatePerSecond: 5.0`,
+   drives 20 req/s of real load for 60s, and asserts a second real instance gets placed.
+
+**Diagnosis**: a live probe script polling `GET /deployments/*` mid-run showed
+`requestRatePerSecond` genuinely reaching the real 20.0/s Gatling target (worker-measured, agent-
+heartbeated, control-plane-observed — the whole pipeline up to that point was correct), sustained
+for 48+ seconds — yet `effectiveReplicas` never moved off 1, and `AutoscaleReconciler`'s own
+change-only log line never fired even once. Tracing `AutoscaleReconciler` → `StoreReader`/
+`MutationSink` → `StoreClient`/`RaftNode` → `DomainCodec` (shared by both `RaftCodec`, the Raft log
+wire format, and `StoreCodec`, the client-facing wire format) found the exact drop point.
+
+**Fixed**: `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` now writes/reads all
+three optional fields (new `writeOptionalDouble`/`readOptionalDouble`/`writeOptionalInt`/
+`readOptionalInt` helpers, the same presence-boolean-then-value idiom `writeOptionalString` already
+used). **Also fixed the test gap that let this ship**: `StoreCodecTest`/`RaftCodecTest`'s shared
+`deploymentSpec()` fixtures used only the CPU-only 3-arg `AutoscalePolicy` constructor, so their
+existing generic round-trip equality check passed identically whether or not the codec touched the
+three new fields at all (`empty` round-trips correctly either way) — both now construct a policy
+with all three fields present, so a future regression here fails immediately in `gimle-mimir`'s own
+test suite rather than needing a real Gatling run to surface again.
+
+**Verification**: full `mvn -pl gimle-mimir -am verify` clean (only the two already-documented
+sandbox-load flakes, both self-resolved on rerun); the new smoke test passed 2/2 clean runs after
+the fix (53s/56s wall-clock) after failing consistently before it (both the original CPU-only
+symptom and one unrelated single-run resource-pressure stall placing the load-generator, which
+cleared on retry, consistent with this session's other real-cluster-under-load findings). Full
+`gimle-smoke-tests -Psmoke` run stays green with the new test included.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -200,9 +256,11 @@ dropped:
 - Rolling update / version-aware traffic cutover under a real multi-replica cluster (unit/
   integration coverage exists per `DeploymentReconcilerRollingUpdateTest`; no real-cluster
   end-to-end exercise).
-- Multi-signal autoscaling (Part C, this same development thread) under real synthetic load —
-  unit/integration coverage exists (`AutoscaleReconcilerTest`), but nothing exercises the four
-  signals against a real deployed cluster with real traffic.
+- Multi-signal autoscaling *was* attempted this session — see above — and found a real, now-fixed
+  bug; the CPU and request-rate signals are both proven end to end against a real cluster now,
+  error-rate and queue-depth remain unit/integration-only (`AutoscaleReconcilerTest`), since driving
+  real synthetic error or queueing conditions through the same greeter-load-generator bridge is a
+  separate scenario this session didn't build.
 - Raft leader failover under concurrent writes at the smoke-test tier specifically (covered at the
   unit/integration tier in `gimle-mimir`, e.g. `RaftClusterTest`'s own failover tests; the
   smoke-test tier's own single-node-loss scenario,

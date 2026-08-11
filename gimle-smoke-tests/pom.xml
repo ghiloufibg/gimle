@@ -68,6 +68,28 @@
       <artifactId>gimle-muninn</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      Real synthetic HTTP load for the multi-signal-autoscaling-under-real-load QA scenario
+      (GreeterSmokeTestIT#a_deployment_scales_up_under_real_gatling_generated_load): Gatling drives
+      real, controllable-rate HTTP traffic at greeter-load-generator (gimle-examples/), which turns
+      every request into one real fabric call to greeter-provider: the actual signal
+      AutoscaleReconciler's requestRatePerSecond target reads, not a synthetic stand-in for it.
+      gatling-charts-highcharts is the standard self-contained CLI runner aggregate (pulls in
+      gatling-app/gatling-core/gatling-http and the HTML report generator); gatling-http-java is the
+      Java DSL used to write the simulation itself.
+    -->
+    <dependency>
+      <groupId>io.gatling.highcharts</groupId>
+      <artifactId>gatling-charts-highcharts</artifactId>
+      <version>3.13.5</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.gatling</groupId>
+      <artifactId>gatling-http-java</artifactId>
+      <version>3.13.5</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
