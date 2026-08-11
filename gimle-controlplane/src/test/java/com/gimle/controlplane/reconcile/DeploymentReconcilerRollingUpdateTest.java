@@ -204,7 +204,7 @@ class DeploymentReconcilerRollingUpdateTest {
    * migrating the next index while the first one is still silently running old code.
    */
   @Test
-  void a_ready_observation_still_reporting_the_old_moduleId_does_not_clear_the_rollout() {
+  void a_ready_observation_still_reporting_the_old_module_id_does_not_clear_the_rollout() {
     StateStore store = new StateStore(tempDir.resolve("store-stale-heartbeat"));
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);

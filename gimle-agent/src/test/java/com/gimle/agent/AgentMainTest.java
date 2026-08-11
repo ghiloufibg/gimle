@@ -462,7 +462,7 @@ class AgentMainTest {
   // ---- requiresReplacement: a rolling update's moduleId/artifactPath change at a fixed key ----
 
   @Test
-  void a_moduleId_change_at_the_same_key_requires_replacement() {
+  void a_module_id_change_at_the_same_key_requires_replacement() {
     ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
     AssignedInstance assignedV1 = assignedInstance("provider-deployment", v1, Optional.empty());
     SupervisedInstance existing = supervisedInstance(assignedV1, v1, null);
@@ -486,7 +486,7 @@ class AgentMainTest {
   }
 
   @Test
-  void an_artifactPath_change_with_the_same_moduleId_requires_replacement() {
+  void an_artifact_path_change_with_the_same_module_id_requires_replacement() {
     ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
     AssignedInstance assignedOriginal =
         assignedInstance("provider-deployment", v1, Optional.empty());
