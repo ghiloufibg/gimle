@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>greeter-load-generator</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Example: greeter-load-generator</name>
+  <description>
+    A third companion to greeter-provider/greeter-consumer: a real, deployable Gimle module whose
+    only job is to translate inbound HTTP requests into real ModuleContext#lookupService calls
+    against greeter-provider's Greeter -- the bridge an external HTTP load generator (Gatling, in
+    gimle-smoke-tests' own real-cluster QA) needs to drive genuine, high-rate fabric traffic against
+    a deployed instance, since the fabric's own wire protocol has no client outside a hosted module.
+    Every inbound HTTP request is exactly one real cross-worker fabric call (both modules are
+    TIER_2, dedicated workers), so the request rate Gatling controls becomes greeter-provider's own
+    real, worker-reported requestRatePerSecond -- the actual signal AutoscaleReconciler's
+    multi-metric policy reads, not a synthetic stand-in for it. Same requires-static/addReads story
+    as greeter-provider -- see its own description.
+  </description>
+
+  <properties>
+    <!-- Sample/demo code, not part of Gimle's platform API surface: excluded from the aggregate
+         Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
+         entry and claudedocs/docs-site-design.md). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>
