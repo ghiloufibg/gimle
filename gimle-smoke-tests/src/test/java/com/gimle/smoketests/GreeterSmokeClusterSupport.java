@@ -467,6 +467,74 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * A minimal {@code TIER_1} module whose {@code onStart} deliberately leaves a platform thread
+   * running that {@code onStop} never interrupts -- the classic real-world classloader-leak bug
+   * pattern (a background thread that outlives the module that started it). The thread's own {@code
+   * Runnable} is a class loaded by this module's own {@link ModuleLayer}, so as long as the thread
+   * itself keeps running, that classloader stays reachable -- and therefore un-collectable -- on
+   * purpose, exactly what {@code WorkerRuntime}'s {@code LeakTracker} (wired into a real worker via
+   * {@code WorkerMain}) exists to catch. {@code TIER_1} rather than {@code TIER_2} deliberately:
+   * undeploying this module must not tear down its own worker process before {@code LeakTracker}'s
+   * detection window has a chance to fire, which only Tier 1 density's "worker survives as long as
+   * another instance shares it" guarantee provides -- see the caller's own anchor-module reasoning.
+   */
+  Path buildLeakyProviderJar(String version) {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.fixture.leaky {
+              requires static com.gimle.module;
+              exports com.gimle.fixture.leaky;
+            }
+            """)
+        .withClass(
+            "com.gimle.fixture.leaky.LeakyHooks",
+            """
+            package com.gimle.fixture.leaky;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class LeakyHooks implements ModuleLifecycleHooks {
+              static final class LeakyRunnable implements Runnable {
+                public void run() {
+                  while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                      Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                      return;
+                    }
+                  }
+                }
+              }
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                Thread.ofPlatform().name("leaky-module-thread").start(new LeakyRunnable());
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.fixture.leaky
+            version: %s
+            isolation:
+              tier: TIER_1
+            resources:
+              request:
+                memory: 16Mi
+                cpu: 10m
+              limit:
+                memory: 32Mi
+                cpu: 50m
+            lifecycle:
+              hooks: com.gimle.fixture.leaky.LeakyHooks
+            """
+                .formatted(version))
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "leaky-provider-" + version + ".jar");
+  }
+
+  /**
    * A real {@code greeter-provider} whose {@code greet} always sleeps ~300ms before returning --
    * paired with sustained concurrent (not just rate-limited) load, this is what actually builds a
    * real backlog on {@code WorkerRuntime}'s per-module {@code BoundedModuleScheduler} (concurrency
@@ -1398,6 +1466,34 @@ abstract class GreeterSmokeClusterSupport {
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       return response.statusCode() == 200 && response.body().contains(SECRET_VALUE);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * The generic shape {@link #consumerLogShowsAGreeting}/{@link #providerLogShowsTheSecret} are
+   * each a hardcoded special case of -- pulled out separately here rather than rewriting those two
+   * in terms of it, since neither is in this refactor's own path and both read fine as they are.
+   */
+  boolean instanceLogContains(
+      String baseUrl, String deploymentName, int instanceIndex, String category, String text) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create(
+                          baseUrl
+                              + "/logs/instances/"
+                              + deploymentName
+                              + "/"
+                              + instanceIndex
+                              + "?category="
+                              + category))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 && response.body().contains(text);
     } catch (Exception e) {
       return false;
     }

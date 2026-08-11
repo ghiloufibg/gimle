@@ -457,6 +457,47 @@ scenario (`SelfHealingIT#a_module_that_never_passes_its_own_liveness_check_exhau
 passed against a real cluster; a full `-Psmoke` run (15 tests, 1 pre-existing skip) passed clean
 end to end afterward.
 
+### Real bug found and fixed: classloader leak detection was never actually wired into the real worker
+
+Set out to add a real-cluster smoke test for classloader leak detection (CLAUDE.md's own framing:
+"first-class", a `PhantomReference` to a disposed module's loader, reported if it survives a
+configurable window) — research before writing the test surfaced that the whole mechanism was dead
+in production, not just untested at the real-cluster tier.
+
+**The bug**: `LeakTracker` (`gimle-module`) — the `PhantomReference`/`ReferenceQueue` detector,
+its periodic sweep, and the JFR-based `OldObjectSampleCorrelator` retaining-path walk — existed
+only inside `gimle-module`'s own unit tests. `WorkerMain` constructed its real `ModuleController`
+using the constructor overload whose `onDisposed` callback defaults to a no-op, so `LeakTracker
+#track` was never called on a real module disposal. A genuine leak in a real deployed module went
+completely undetected and unreported. Every worker JVM the agent spawns already carries the right
+JFR launch flag (`path-to-gc-roots=true`) for retaining-path attribution — only the tracker's own
+wiring was missing.
+
+**The fix**: `WorkerMain` now constructs a `LeakTracker` (30s detection window) and wires `LeakTracker
+#track` as `ModuleController`'s own `onDisposed` callback; a detected leak is logged via slf4j
+(module id, survival time, retaining path if attributed), landing in that worker's real
+`worker-platform.log` the same way every other platform log line already does.
+
+**New real-cluster smoke test** (`ClassloaderLeakIT`): a module whose `onStart` deliberately leaves
+a platform thread running that `onStop` never interrupts — the classic real-world leak bug pattern
+— is deployed, then redeployed once to force disposal of the leaking version. A second, unrelated
+`TIER_1` anchor module (the real, deliberately-inert `hello-module`) shares the same worker
+throughout, needed because `AgentMain` only kills a worker process outright when the instance being
+torn down is the *only* one hosted there (Tier 1 density's own survival guarantee) — without that
+anchor, the leaking instance's own worker (and the `LeakTracker` living inside it) would be killed
+together with it, before the detection window ever had a chance to fire. The test polls the shared
+worker's real `PLATFORM` log for `LeakTracker`'s own report line. Two mechanical fixture bugs hit
+and fixed along the way: a missing `TestModuleBuilder#dependsOn` (module-path resolution failure at
+compile time) and a missing `exports` in the fixture's own `module-info` (the platform couldn't
+reflectively instantiate the hooks class across the module boundary without it).
+
+**Verification**: `gimle-worker`/`gimle-agent`'s full test suites green after the wiring change; the
+new smoke test passed twice against a real cluster (73.5s, then 39.5s inside a full `-Psmoke` run);
+a full `-Psmoke` run (16 tests) passed with only the already-documented `QuotaIT` full-suite flake
+(confirmed clean in isolation, unrelated); a full-reactor `mvn verify` passed with only the
+already-documented `RaftClusterTlsTest` full-reactor-contention flake (confirmed clean in isolation,
+unrelated, and untouched by this change).
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission

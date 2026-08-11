@@ -16,6 +16,7 @@ import com.gimle.fabric.registry.FabricServiceRegistry;
 import com.gimle.fabric.transport.FabricServer;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
+import com.gimle.module.leak.LeakTracker;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ServiceRegistry;
@@ -56,6 +57,13 @@ import org.slf4j.LoggerFactory;
 public final class WorkerMain {
 
   private static final Logger log = LoggerFactory.getLogger(WorkerMain.class);
+
+  // How long a disposed module's classloader gets to actually be collected before
+  // LeakTracker reports it as leaked (CLAUDE.md's "Classloader leak detection is first-class").
+  // Long enough that ordinary GC latency under real load never produces a false positive; short
+  // enough that a genuine leak is caught well within a single redeploy-in-a-loop QA pass rather
+  // than only showing up as eventual metaspace exhaustion.
+  private static final Duration LEAK_DETECTION_WINDOW = Duration.ofSeconds(30);
 
   private WorkerMain() {}
 
@@ -161,6 +169,21 @@ public final class WorkerMain {
                           new ControlMessage.InstanceEventOccurred(
                               instanceEventFor(event, identity))));
         };
+    // Never closed: its two background threads are daemon/virtual, so they never hold the JVM
+    // open past a real shutdown, and this worker's own module churn is exactly what it needs to
+    // watch for the process's whole lifetime, not just some bounded window within it.
+    LeakTracker leakTracker =
+        new LeakTracker(
+            LEAK_DETECTION_WINDOW,
+            detected ->
+                log.warn(
+                    "classloader leak detected: module {} survived {} past its own undeploy{}",
+                    detected.id(),
+                    detected.survivalTime(),
+                    detected
+                        .retainingPath()
+                        .map(path -> "; retaining path: " + path)
+                        .orElse(" (no retaining path attributed)")));
     ModuleController controller =
         new ModuleController(
             registry,
@@ -169,6 +192,7 @@ public final class WorkerMain {
             interfaceLoader,
             Duration.ofSeconds(5),
             sink,
+            leakTracker::track,
             fabricRegistry);
     WorkerRuntime runtime =
         new WorkerRuntime(
