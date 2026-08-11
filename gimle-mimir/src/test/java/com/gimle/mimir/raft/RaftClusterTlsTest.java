@@ -35,6 +35,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
@@ -59,9 +60,14 @@ import org.junit.jupiter.api.parallel.Resources;
  * deterministic cross-CA handshake -- not a workaround, an actual exploit of how the config is
  * read.
  */
-// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
-// any other class holding the same lock, under class-level parallel execution (root pom.xml).
+// System.setProperty mutates a JVM-global; @ResourceLock excludes this class from running
+// concurrently with any other class holding the same lock. That alone isn't enough for a real
+// multi-node in-process Raft cluster with wall-clock @Timeout budgets, though: @Isolated is what
+// pauses the *whole* suite around this class, the same fix RaftClusterTest already needed (see its
+// own comment) for the identical "proposal did not commit within PT5S" failure shape -- CPU
+// contention from unrelated concurrent classes, not a shared-resource collision.
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
+@Isolated
 class RaftClusterTlsTest {
 
   private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";

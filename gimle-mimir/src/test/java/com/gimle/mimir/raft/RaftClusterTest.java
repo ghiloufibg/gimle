@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
@@ -355,6 +356,16 @@ class RaftClusterTest {
     ClusterNode leader = awaitLeader(cluster);
     ClusterNode follower = cluster.stream().filter(c -> c != leader).findFirst().orElseThrow();
 
+    // awaitLeader only confirms *some* node believes itself leader -- not that this specific
+    // follower has processed that leader's first heartbeat/AppendEntries yet (leaderHint is set
+    // on receipt of one, a separate event from the leader's own election). Without this, the
+    // propose below can race a genuinely-just-elected leader's first heartbeat: leaderHint is
+    // still null, and RaftNode#propose's rejection reports "leader unknown" rather than the
+    // leader's address, failing the assertion below on a correct implementation, not a bug in it.
+    awaitTrue(
+        () -> follower.raftNode().leaderHint().equals(Optional.of(leader.id())),
+        Duration.ofSeconds(5));
+
     GimleRaftException thrown =
         assertThrows(
             GimleRaftException.class,
@@ -388,12 +399,21 @@ class RaftClusterTest {
     ClusterNode farBehind = cluster.get(2);
     bringOnline(farBehind);
 
+    // RaftLog is deliberately not internally synchronized (see its own class javadoc) --
+    // RaftNode is its only intended caller, always under RaftNode's own lock. Reading
+    // snapshotLastIncludedIndex() from this test thread as a one-shot check immediately after a
+    // *different* condition (store.getTenant, a thread-safe ConcurrentHashMap read) succeeds
+    // established no happens-before edge for this plain field specifically -- both are written by
+    // the node's internal thread while applying InstallSnapshot, but only the ConcurrentHashMap
+    // write carries its own visibility guarantee to a reader on another thread. Folding this into
+    // the same polling predicate (matching this file's own awaitTrue idiom used everywhere else
+    // to observe background-thread state) is the fix, not a one-shot read.
     awaitTrue(
         () ->
             farBehind.store().getTenant("t").isPresent()
-                && farBehind.store().getTenant("t").get().quota().maxMemoryBytes() == 4,
+                && farBehind.store().getTenant("t").get().quota().maxMemoryBytes() == 4
+                && farBehind.raftLog().snapshotLastIncludedIndex() >= lastIndex,
         Duration.ofSeconds(10));
-    assertTrue(farBehind.raftLog().snapshotLastIncludedIndex() >= lastIndex);
   }
 
   // ---- P1-5: etcd-style live membership change ----

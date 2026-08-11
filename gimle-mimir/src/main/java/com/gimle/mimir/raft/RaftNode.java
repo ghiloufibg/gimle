@@ -50,7 +50,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
   private static final int ELECTION_TIMEOUT_MIN_MS = 150;
   private static final int ELECTION_TIMEOUT_MAX_MS = 300;
-  private static final Duration PROPOSE_TIMEOUT = Duration.ofSeconds(5);
+
+  /**
+   * Overridable via {@code -Dgimle.raft.proposeTimeoutSeconds} -- production default stays 5s
+   * unless explicitly configured, but a shared/loaded test sandbox can raise this without touching
+   * every call site: the root pom's surefire configuration sets it to a more generous value for
+   * exactly that reason. {@link #awaitAppliedThrowing} is the sole reader of the resolved value
+   * (via {@link #proposeTimeout}, captured once at construction).
+   */
+  private static final Duration PROPOSE_TIMEOUT =
+      Duration.ofSeconds(Long.getLong("gimle.raft.proposeTimeoutSeconds", 5));
 
   /** A concrete, tunable threshold for triggering log compaction, not left open-ended. */
   private static final long SNAPSHOT_THRESHOLD = 10_000;

@@ -197,7 +197,20 @@ class StoreClientClusterTest {
 
   private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
     awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
-    return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
+    ClusterNode leader =
+        cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
+    // A node believing itself leader doesn't mean every other node has processed that leader's
+    // first heartbeat/AppendEntries yet -- leaderHint is set on receipt of one, a separate event
+    // from the election itself. A StoreClient write immediately after this returns can otherwise
+    // race a follower whose leaderHint is still unset, exhausting its own redirect-retry budget
+    // against a "leader unknown" response instead of a real address to follow.
+    awaitTrue(
+        () ->
+            cluster.stream()
+                .allMatch(
+                    c -> c == leader || c.raftNode().leaderHint().equals(Optional.of(leader.id()))),
+        Duration.ofSeconds(5));
+    return leader;
   }
 
   private static List<SocketAddress> clientAddresses(List<ClusterNode> cluster) {
