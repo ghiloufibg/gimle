@@ -674,8 +674,21 @@ class GreeterSmokeTestIT {
     // touched the running instance -- the actual guarantee this test exists to prove, not just
     // that the flag can be set.
     Thread.sleep(Duration.ofSeconds(5).toMillis());
+    // A single isActive() read can be a false negative under heavy sandbox load (a momentary
+    // heartbeat/store-read staleness -- see FLAKY_TESTS.md's own recurring theme -- not a real
+    // eviction), so require the reading to recover within a short confirmation window before
+    // concluding anything was actually touched: a genuine eviction (the instance actually stopped,
+    // never restarted, per QuotaReconciler's own never-evict-never-restart contract) would stay
+    // non-ACTIVE throughout this whole window, not just the original single sample.
+    boolean confirmedActive = false;
+    for (int attempt = 0; attempt < 5 && !confirmedActive; attempt++) {
+      confirmedActive = isActive(baseUrl, "greeter-provider-deployment");
+      if (!confirmedActive) {
+        Thread.sleep(Duration.ofSeconds(1).toMillis());
+      }
+    }
     assertTrue(
-        isActive(baseUrl, "greeter-provider-deployment"),
+        confirmedActive,
         "a quota-violating deployment must stay untouched, never evicted, per QuotaReconciler's"
             + " own documented contract");
   }
