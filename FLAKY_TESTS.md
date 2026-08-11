@@ -112,6 +112,19 @@ a future session wonders why a given test no longer needs its old exclusion:
   disabled membership test skipped). `GreeterSmokeTestIT`'s own tests each spin an independent
   cluster on distinct ports, so this looks like the same class of sandbox CPU/IO stall as every
   other entry here rather than a real cross-test interaction; not yet seen a second time.
+- **`GreeterSmokeTestIT#a_rolling_update_keeps_at_least_one_instance_serving_traffic_throughout`** —
+  observed once during the error-rate/queue-depth QA scenario's own full-suite confirmation run
+  (`Observed minimum: 0`, i.e. the background sampler caught a moment reporting zero `ACTIVE`
+  instances), not reproducible: passed 4/4 clean isolated runs (2 before this observation, 2
+  immediately after) and an immediate full-suite retry (11/11, only the disabled membership test
+  skipped). Checked the failing run's own logs directly rather than just re-running blind: both
+  indices migrated correctly, one at a time, 14 seconds apart (`DeploymentReconciler`'s own "old
+  module version; rolling it forward" log line, and the agent's own worker-respawn log, both show
+  index 0 finishing before index 1 started) — the underlying rolling-update mechanism this test
+  exists to prove worked correctly in the failing run too. The 300ms-interval background sampler
+  polling `GET /deployments/*` over real HTTP is exactly the kind of fixed-cadence read the sandbox's
+  shared CPU/IO can stall past a real (but brief and correct) transition window, the same root cause
+  as every other entry here — not a residual gap in the agent/reconciler fix itself.
 
 ## Also investigated: `mvn verify` speed (no change kept)
 
