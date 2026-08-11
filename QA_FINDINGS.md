@@ -247,15 +247,69 @@ symptom and one unrelated single-run resource-pressure stall placing the load-ge
 cleared on retry, consistent with this session's other real-cluster-under-load findings). Full
 `gimle-smoke-tests -Psmoke` run stays green with the new test included.
 
+### Real bug found and fixed: rolling updates never actually reached the worker
+
+Continuing the QA mission onto rolling update / version-aware traffic cutover under real load
+surfaced a second serious real-cluster-only regression, this time in `gimle-agent`: a moduleId
+change at a fixed replica index — exactly what `DeploymentReconciler.handleRollingUpdate` does,
+removing then immediately re-placing the same index with the new `moduleId` — was **silently never
+applied**. The old worker process kept running the old code forever, and every heartbeat kept
+reporting the stale moduleId as if nothing had happened, so `DeploymentReconciler`'s own
+`rollingIndex` guard was fooled into thinking each migration had already completed.
+
+**Reproduction**: deployed 2 replicas of `greeter-provider` at v1.0.0, held sustained real Gatling
+HTTP load through `greeter-load-generator`'s fabric bridge the whole time, then submitted a real
+v1.1.0 build compiled on the fly by `TestModuleBuilder` (same technique
+`RealBundledHookAndProbeInvocationTest` already uses, avoiding a second committed example module
+just to bump one version number) under the same 2-replica deployment name. The test asserted both
+replicas eventually report `observation.moduleId.version == "1.1.0"` and that at least one instance
+stayed `ACTIVE` at every sampled moment throughout — genuine rolling behavior, not a full outage.
+
+**Diagnosis**: the control plane's own log showed both indices being flagged "on an old module
+version; rolling it forward" within seconds of each other, and both `PutAssignment` mutations
+landing with the new `moduleId` — but `agent.log` showed the exact same two worker PIDs, spawned
+once at cluster start, still alive and still answering `Greeter#greet` calls two minutes later,
+never respawned. Root cause: `AgentMain.reconcileAssignments` keys its supervised-instance map by
+`instanceKey` alone — `deploymentName + "#" + instanceIndex"`, deliberately omitting `moduleId` — so
+a re-fetched assignment whose `moduleId`/`artifactPath` changed but whose key stayed the same read
+as `supervised.containsKey(key) == true` and the loop did nothing further: no stop, no restart. The
+worker's `SupervisedInstance.assigned` field is `final`, so nothing else in the agent would ever
+notice the swap either, including the heartbeat builder, which reads `instance.assigned.moduleId()`
+straight off that same never-updated record.
+
+A second, independent gap compounded this: `DeploymentReconciler.isReady` only checked the
+heartbeat's `ready` flag for an index, not the `moduleId` it was actually reporting. Even with the
+agent bug fixed, a stale-but-present `ready` observation from the outgoing old instance — arriving
+on the exact heartbeat cycle a rollout starts, before the replacement has even been placed — could
+be mistaken for the new one having already landed, letting `handleRollingUpdate` clear
+`rollingIndex` and move on to the next index prematurely.
+
+**Fixed**: `AgentMain.reconcileAssignments` now detects a `moduleId`/`artifactPath` change at an
+already-supervised key (`requiresReplacement`, a small extracted, directly-testable predicate) and
+stops the old worker before falling through to the ordinary start path. `DeploymentReconciler
+.isReady` now also requires the observation's own `moduleId` to match the assignment's, not just
+its `ready` flag. New regression coverage: three `AgentMainTest` cases exercising
+`requiresReplacement` directly (moduleId change, artifactPath change, unchanged assignment), and a
+new `DeploymentReconcilerRollingUpdateTest` case constructing the exact stale-ready-wrong-moduleId
+heartbeat race and asserting `rollingIndex` is not cleared by it.
+
+**Verification**: `gimle-agent`/`gimle-controlplane` full module `mvn verify` both green (one
+unrelated, already-flaky `ApiServerMetricsTest` case self-resolved via Surefire's own automatic
+rerun, consistent with this session's other findings of pre-existing sandbox flakiness); the new
+smoke test passed 2/2 clean runs after the fix (67s/54s wall-clock) after hanging to a 3-minute
+timeout consistently before it. Full `gimle-smoke-tests -Psmoke` run stays green with the new test
+included.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
 were **not** attempted this session — listed here as open scope for a follow-up, not silently
 dropped:
 
-- Rolling update / version-aware traffic cutover under a real multi-replica cluster (unit/
-  integration coverage exists per `DeploymentReconcilerRollingUpdateTest`; no real-cluster
-  end-to-end exercise).
+- Rolling update / version-aware traffic cutover *was* attempted this session — see above — and
+  found a real, now-fixed bug; a single-replica rollout (guaranteed downtime, by
+  `DeploymentReconciler`'s own deliberately-minimal in-place-replacement design — see its javadoc)
+  remains untested at the smoke tier, only the 2-replica continuous-availability case.
 - Multi-signal autoscaling *was* attempted this session — see above — and found a real, now-fixed
   bug; the CPU and request-rate signals are both proven end to end against a real cluster now,
   error-rate and queue-depth remain unit/integration-only (`AutoscaleReconcilerTest`), since driving
