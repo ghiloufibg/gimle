@@ -373,6 +373,100 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * A real {@code greeter-provider} whose {@code LivenessProbe} always reports {@code isAlive() ==
+   * false} -- unlike {@link #buildFaultyProviderJar()} (which fails at *call* time), this module
+   * starts and serves normally but never passes its own liveness check, so {@code
+   * WorkerRuntime#onLivenessResult} accumulates consecutive failures past {@code
+   * livenessFailureThreshold} and drives its own module-tier {@code RestartTracker} (dispose +
+   * reinstantiate, {@code WorkerRuntime#newRestartTracker}) through repeated backoff-delayed
+   * restart attempts -- the module tier of the same escalation chain {@link
+   * #buildFaultyProviderJar()}'s worker-JVM-kill sibling test exercises one tier up. Once that
+   * tracker's budget (5 attempts / 60s window) is exhausted, {@code ModuleController#forceFailed}
+   * flips the instance's {@code lifecycleState} to {@code FAILED} for good -- there is no path back
+   * to {@code ACTIVE} without a fresh deploy. Built via {@link TestModuleBuilder}, same reasoning
+   * as {@link #buildProviderV2Jar()}.
+   */
+  Path buildAlwaysUnhealthyProviderJar() {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.examples.greeter.provider {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports com.gimle.examples.greeter.provider;
+              exports com.gimle.examples.greeter;
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.Greeter",
+            """
+            package com.gimle.examples.greeter;
+            public interface Greeter {
+              String greet(String name);
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderUnhealthyHooks",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.examples.greeter.Greeter;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class GreeterProviderUnhealthyHooks implements ModuleLifecycleHooks {
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.registerService(
+                    Greeter.class, name -> "Hello, " + name + "! (from unhealthy provider)");
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderAlwaysDeadLiveness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.LivenessProbe;
+            public final class GreeterProviderAlwaysDeadLiveness implements LivenessProbe {
+              public boolean isAlive() { return false; }
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderUnhealthyReadiness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.ReadinessProbe;
+            public final class GreeterProviderUnhealthyReadiness implements ReadinessProbe {
+              public boolean isReady() { return true; }
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.examples.greeter.provider
+            version: 1.0.0-unhealthy
+            isolation:
+              tier: TIER_2
+            resources:
+              request:
+                memory: 32Mi
+                cpu: 20m
+              limit:
+                memory: 64Mi
+                cpu: 100m
+            exports:
+              - service: com.gimle.examples.greeter.Greeter
+                version: 1.0.0
+            lifecycle:
+              hooks: com.gimle.examples.greeter.provider.GreeterProviderUnhealthyHooks
+            health:
+              liveness: com.gimle.examples.greeter.provider.GreeterProviderAlwaysDeadLiveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProviderUnhealthyReadiness
+            """)
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "greeter-provider-unhealthy.jar");
+  }
+
+  /**
    * A real {@code greeter-provider} whose {@code greet} always sleeps ~300ms before returning --
    * paired with sustained concurrent (not just rate-limited) load, this is what actually builds a
    * real backlog on {@code WorkerRuntime}'s per-module {@code BoundedModuleScheduler} (concurrency
@@ -1224,6 +1318,29 @@ abstract class GreeterSmokeClusterSupport {
         }
       }
       return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * Unlike {@link #isActive}, which requires every instance to agree, this only needs one: {@code
+   * ModuleController#forceFailed}'s {@code lifecycleState == FAILED} is a permanent, terminal
+   * escalation (no path back to {@code ACTIVE} without a fresh deploy), so a single instance
+   * reaching it is already the whole answer.
+   */
+  boolean hasFailedInstance(String baseUrl, String deploymentName) {
+    try {
+      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      for (Map<String, Object> instance : instances) {
+        Object observation = instance.get("observation");
+        if (observation instanceof Map<?, ?> obsMap
+            && "FAILED".equals(obsMap.get("lifecycleState"))) {
+          return true;
+        }
+      }
+      return false;
     } catch (Exception e) {
       return false;
     }

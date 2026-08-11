@@ -406,6 +406,57 @@ already-documented general Playwright-under-load flakiness (see FLAKY_TESTS.md).
 **Verification**: 3 further clean full runs of the integration test (Playwright suite included)
 after the diagnostic confirmed the backend was correct; the diagnostic code itself was then removed.
 
+### Real bug found and fixed: module-tier crash-loop backoff never actually gave up
+
+Set out to add a real-cluster smoke test for `WorkerRuntime`'s module-tier restart budget (P0-3:
+a module that keeps failing should eventually escalate to `FAILED` rather than restart forever) —
+building the fixture surfaced a genuine bug in the mechanism itself, not just a gap in coverage.
+
+**The bug**: a module whose `LivenessProbe` never recovers restarted *forever* instead of ever
+exhausting its budget and escalating. Root cause, confirmed with a fast in-process repro before
+touching production code (139 restart cycles in 20 seconds, budget never exhausted): each
+successful `stop()`/`resolve()`/`start()` cycle inside `WorkerRuntime#restartModule` replaced its
+own `RestartTracker` with a brand-new one — `stop()` drives the module through `UNINSTALLED`, which
+fires `onUninstalled` and removes the tracker; the following `start()` fires `onActive`, which finds
+nothing there and creates a fresh one. `attemptsInWindow` could therefore never accumulate past 1,
+independent of `tracker.recordSuccess()` being called (on the now-orphaned old instance) immediately
+after `start()` returned — with no stability confirmation at all, unlike `WorkerProcessSupervisor`'s
+own worker-tier equivalent, which deliberately waits `DEFAULT_STABLE_UPTIME_THRESHOLD` (10s) of
+genuine uptime before resetting its backoff.
+
+**The fix**: `restartModule`'s attempt now re-associates the *original* tracker back into
+`restartTrackers` after a successful restart (so accumulated attempt count survives the
+onUninstalled/onActive churn), and only resets it via a new `scheduleModuleStabilityConfirmation` —
+mirroring the worker-tier's own stability-confirmation pattern — which checks `tracker
+.attemptsInWindow()` is unchanged after `stableUptimeThreshold` before calling `recordSuccess()`.
+`stableUptimeThreshold` is now a constructor parameter (`WorkerRuntime.DEFAULT_STABLE_UPTIME_THRESHOLD`
+= 10s in production, matching the worker tier exactly), with the existing 8-arg/10-arg constructors
+preserved as overloads delegating to the new canonical one — no call site outside `gimle-worker`
+needed to change.
+
+**Regression tests** (`WorkerRuntimeTest`, fast/in-process): one proving a never-recovering module
+now genuinely exhausts its budget and lands in `ModuleState.FAILED` after exactly 5 restart attempts
+(not 6 — the 6th `restartModule()` call finds the budget already spent and never attempts a 6th
+cycle); one proving a module that recovers *before* its stability threshold elapses gets a genuinely
+fresh budget for its next failure spell, not a continuation of the first — asserted by the *total*
+restart-cycle count across both spells exceeding what a single un-reset budget of 5 could produce.
+
+**Also found and fixed a second, unrelated bug in the smoke-test fixture itself while chasing this**:
+the first real-cluster run of the new scenario failed identically before *and* after the
+`WorkerRuntime` fix, which briefly looked like the fix hadn't taken — cluster logs showed the real
+cause instead: `submitDeployment`'s convenience overload hardcodes `version: 1.0.0` in the manifest
+it submits, but the new fixture's own descriptor declares `1.0.0-unhealthy` (matching the existing
+`-faulty`/`-slow` naming convention `buildFaultyProviderJar`/`buildSlowProviderJar` already use) —
+a real moduleId mismatch, NACKed forever with "module not registered", so the module never even
+started. Switched to `submitDeploymentWithReplicas`'s version-aware overload, matching how every
+other non-default-version fixture in this suite is already submitted.
+
+**Verification**: `WorkerRuntimeTest`/`WorkerProcessSupervisorTest`/`ControlPlaneAgentWorkerIntegrationTest`
+(76 tests total across `gimle-worker`+`gimle-agent`) all green after the fix; the new smoke-test
+scenario (`SelfHealingIT#a_module_that_never_passes_its_own_liveness_check_exhausts_its_restart_budget_and_fails`)
+passed against a real cluster; a full `-Psmoke` run (15 tests, 1 pre-existing skip) passed clean
+end to end afterward.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission

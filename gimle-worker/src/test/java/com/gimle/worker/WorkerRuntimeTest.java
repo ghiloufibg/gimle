@@ -12,6 +12,7 @@ import com.gimle.module.integration.Greeter;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
+import com.gimle.module.lifecycle.ModuleState;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
@@ -278,6 +279,129 @@ class WorkerRuntimeTest {
     assertEquals(
         Optional.of("hello from provider"),
         f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));
+  }
+
+  /** Shared plumbing for the two restart-budget tests below -- only the tracked bits differ. */
+  private record BudgetFixture(
+      ModuleRegistry registry,
+      ModuleId id,
+      List<LifecycleEvent> events,
+      AtomicInteger exhaustedCount) {}
+
+  private BudgetFixture startBudgetFixture(
+      String name, int livenessFailureThreshold, Duration stableUptimeThreshold) {
+    Path jar = buildFixtureJar(name);
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    ModuleRegistry registry = new ModuleRegistry();
+    ModuleId id = registry.register(artifact);
+    ModuleResolver resolver = new ModuleResolver(registry);
+    ModuleLayer platform = PlatformLayer.bootOnly().layer();
+    ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
+    List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
+    AtomicInteger exhaustedCount = new AtomicInteger();
+
+    AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
+    Consumer<LifecycleEvent> sink =
+        event -> {
+          events.add(event);
+          WorkerRuntime runtime = runtimeRef.get();
+          if (runtime != null) {
+            runtime.onLifecycleEvent(event);
+          }
+        };
+    ModuleController controller =
+        new ModuleController(
+            registry,
+            resolver,
+            platform,
+            ClassLoader.getSystemClassLoader(),
+            Duration.ofMillis(50),
+            sink,
+            serviceRegistry);
+    WorkerRuntime runtime =
+        new WorkerRuntime(
+            controller,
+            registry,
+            serviceRegistry,
+            4,
+            Duration.ofMillis(20),
+            Duration.ofSeconds(1),
+            livenessFailureThreshold,
+            exhaustedId -> exhaustedCount.incrementAndGet(),
+            stableUptimeThreshold,
+            new InstanceIdentityRegistry(),
+            identity -> {});
+    runtimeRef.set(runtime);
+    controller.resolve(id);
+    controller.start(id);
+    return new BudgetFixture(registry, id, events, exhaustedCount);
+  }
+
+  private static long uninstalledCount(List<LifecycleEvent> events) {
+    return events.stream().filter(e -> e instanceof LifecycleEvent.Uninstalled).count();
+  }
+
+  /**
+   * Regression test for a real bug found while building a real-cluster smoke test for this exact
+   * scenario: a module that restarts cleanly every time but never passes its own liveness check
+   * used to restart forever, because each successful {@code stop()}/{@code start()} cycle replaced
+   * its {@link com.gimle.core.restart.RestartTracker} with a fresh one (via {@code onUninstalled}
+   * removing it and {@code onActive} recreating it), so {@code attemptsInWindow} never accumulated
+   * past 1 and the budget could never exhaust. A high {@code stableUptimeThreshold} keeps this
+   * fixture's own {@link #scheduleModuleStabilityConfirmation} from ever firing during the test.
+   */
+  @Test
+  void a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed() {
+    BudgetFixture f =
+        startBudgetFixture("com.gimle.fixture.neverrecovers", 2, Duration.ofMinutes(10));
+    ControllableLivenessProbe.ALIVE.set(false);
+
+    Await.atLeast(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
+
+    assertEquals(1, f.exhaustedCount().get());
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+    // The 6th restartModule() call finds the budget already exhausted and gives up before ever
+    // attempting a 6th stop()/start() cycle -- exactly 5 Uninstalled events, not 6.
+    assertEquals(5, uninstalledCount(f.events()));
+  }
+
+  /**
+   * The other half of the regression above: recovering (passing liveness again) must still reset
+   * the budget once the module has stayed stable for {@code stableUptimeThreshold}, so a module
+   * that fails, recovers, then fails again gets a genuinely fresh budget for its second failure
+   * spell rather than picking up where the first left off. A short threshold keeps this fast.
+   */
+  @Test
+  void a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget() {
+    BudgetFixture f = startBudgetFixture("com.gimle.fixture.recovers", 2, Duration.ofMillis(300));
+
+    ControllableLivenessProbe.ALIVE.set(false);
+    Await.atLeast(() -> uninstalledCount(f.events()) >= 2, Duration.ofSeconds(10));
+
+    ControllableLivenessProbe.ALIVE.set(true);
+    // Long enough for the in-flight restart to finish, the module to reach ACTIVE, and the
+    // stability confirmation (300ms) to actually fire and reset the tracker.
+    try {
+      Thread.sleep(1000);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    long uninstalledBeforeSecondSpell = uninstalledCount(f.events());
+
+    ControllableLivenessProbe.ALIVE.set(false);
+    Await.atLeast(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
+
+    // Without a genuine reset, the second spell alone would exhaust after exactly 5 more
+    // Uninstalled events (matching the test above) -- a fresh budget means the *total* across both
+    // spells exceeds 5, since the first spell already spent some of its own budget beforehand.
+    long totalUninstalled = uninstalledCount(f.events());
+    assertTrue(
+        totalUninstalled > 5,
+        "expected a fresh budget after recovery: total Uninstalled events "
+            + totalUninstalled
+            + " (first spell alone already produced "
+            + uninstalledBeforeSecondSpell
+            + ")");
   }
 
   @Test

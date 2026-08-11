@@ -38,6 +38,15 @@ public final class WorkerRuntime {
 
   private static final Logger log = LoggerFactory.getLogger(WorkerRuntime.class);
 
+  /**
+   * How long a module-tier restart must stay uneventful (no further {@code
+   * recordFailureAndCheckShouldRetry} against the same {@link RestartTracker}) before {@link
+   * #scheduleModuleStabilityConfirmation} resets its backoff budget -- matches {@code
+   * WorkerProcessSupervisor#DEFAULT_STABLE_UPTIME_THRESHOLD} one tier up, same reasoning: a restart
+   * attempt not throwing proves nothing about whether the module is actually healthy.
+   */
+  static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
+
   private final ModuleController controller;
   private final ModuleRegistry registry;
   private final ServiceRegistry serviceRegistry;
@@ -46,6 +55,7 @@ public final class WorkerRuntime {
   private final Duration probeTimeout;
   private final int livenessFailureThreshold;
   private final Consumer<ModuleId> onModuleRestartBudgetExhausted;
+  private final Duration stableUptimeThreshold;
   private final InstanceIdentityRegistry identityRegistry;
   private final Consumer<InstanceIdentity> onInstanceUninstalled;
 
@@ -74,6 +84,7 @@ public final class WorkerRuntime {
         probeTimeout,
         livenessFailureThreshold,
         onModuleRestartBudgetExhausted,
+        DEFAULT_STABLE_UPTIME_THRESHOLD,
         new InstanceIdentityRegistry(),
         identity -> {});
   }
@@ -95,6 +106,37 @@ public final class WorkerRuntime {
       Consumer<ModuleId> onModuleRestartBudgetExhausted,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
+    this(
+        controller,
+        registry,
+        serviceRegistry,
+        defaultMaxConcurrency,
+        probeInterval,
+        probeTimeout,
+        livenessFailureThreshold,
+        onModuleRestartBudgetExhausted,
+        DEFAULT_STABLE_UPTIME_THRESHOLD,
+        identityRegistry,
+        onInstanceUninstalled);
+  }
+
+  /**
+   * Same as the eight/ten-arg constructors, with an explicit {@code stableUptimeThreshold} (see
+   * {@link #DEFAULT_STABLE_UPTIME_THRESHOLD}) rather than the default -- for tests that need a
+   * shorter window than the production default to stay fast.
+   */
+  public WorkerRuntime(
+      ModuleController controller,
+      ModuleRegistry registry,
+      ServiceRegistry serviceRegistry,
+      int defaultMaxConcurrency,
+      Duration probeInterval,
+      Duration probeTimeout,
+      int livenessFailureThreshold,
+      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      Duration stableUptimeThreshold,
+      InstanceIdentityRegistry identityRegistry,
+      Consumer<InstanceIdentity> onInstanceUninstalled) {
     this.controller = controller;
     this.registry = registry;
     this.serviceRegistry = serviceRegistry;
@@ -103,6 +145,7 @@ public final class WorkerRuntime {
     this.probeTimeout = probeTimeout;
     this.livenessFailureThreshold = livenessFailureThreshold;
     this.onModuleRestartBudgetExhausted = onModuleRestartBudgetExhausted;
+    this.stableUptimeThreshold = stableUptimeThreshold;
     this.identityRegistry = identityRegistry;
     this.onInstanceUninstalled = onInstanceUninstalled;
   }
@@ -286,7 +329,15 @@ public final class WorkerRuntime {
               registry.register(artifact);
               controller.resolve(id);
               controller.start(id);
-              tracker.recordSuccess();
+              // controller.stop(id) above drove the module through UNINSTALLED, which fired
+              // onUninstalled() and removed this same tracker from restartTrackers; controller
+              // .start(id) then fired onActive(), which found nothing there and created a
+              // brand-new one. Put the ORIGINAL back -- the one carrying this cycle's actual
+              // attempt count -- so a subsequent restart within the same window sees real
+              // accumulated history instead of a falsely-fresh budget. Whether that history
+              // actually gets reset is scheduleModuleStabilityConfirmation's call, not this line's.
+              restartTrackers.put(id, tracker);
+              scheduleModuleStabilityConfirmation(id, tracker);
             } catch (RuntimeException e) {
               log.warn("module {} restart attempt failed: {}", id, e.getMessage());
             }
@@ -301,6 +352,35 @@ public final class WorkerRuntime {
     // itself. Restarting is worker-orchestration, not module request work, so it doesn't belong
     // on the module's own bounded concurrency budget anyway.
     Thread.ofVirtual().name("gimle-restart-" + id.name() + "-" + id.version()).start(attempt);
+  }
+
+  /**
+   * Only calls {@link RestartTracker#recordSuccess()} once the module has stayed on this same
+   * restart attempt -- no further {@code recordFailureAndCheckShouldRetry} call recorded against
+   * {@code tracker} in the meantime -- for {@link #stableUptimeThreshold}. Calling {@code
+   * recordSuccess()} immediately after {@code controller.start(id)} returns (the previous behavior)
+   * would defeat backoff escalation entirely for a module that starts cleanly every time but never
+   * becomes genuinely healthy: {@code start()} not throwing proves nothing about whether the module
+   * actually works, only {@link #onLivenessResult} finding out later does -- the same reasoning
+   * {@code WorkerProcessSupervisor}'s own {@code scheduleStabilityConfirmation} already applies one
+   * tier up, mirrored here rather than duplicated by coincidence.
+   */
+  private void scheduleModuleStabilityConfirmation(ModuleId id, RestartTracker tracker) {
+    int attemptsAtRestart = tracker.attemptsInWindow();
+    Thread.ofVirtual()
+        .name("gimle-restart-stability-" + id.name() + "-" + id.version())
+        .start(
+            () -> {
+              try {
+                Thread.sleep(stableUptimeThreshold);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              if (tracker.attemptsInWindow() == attemptsAtRestart) {
+                tracker.recordSuccess();
+              }
+            });
   }
 
   private static RestartTracker newRestartTracker() {

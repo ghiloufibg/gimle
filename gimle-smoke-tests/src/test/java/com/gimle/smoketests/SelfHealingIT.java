@@ -12,11 +12,12 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * Tiered self-healing (CLAUDE.md's own framing: module dispose+reinstantiate vs. worker {@code
- * destroyForcibly}+respawn vs. machine-level reschedule are three distinct recovery paths) at the
- * worker tier: {@code WorkerProcessSupervisor} (gimle-agent) actually respawns a killed worker
- * process and the deployment genuinely recovers to {@code ACTIVE}, not just that the agent's own
- * bookkeeping believes it should. A natural home for future self-healing scenarios too (e.g.
- * crash-loop backoff, restart-budget exhaustion) as they're added.
+ * destroyForcibly}+respawn vs. machine-level reschedule are three distinct recovery paths): the
+ * worker tier, where {@code WorkerProcessSupervisor} (gimle-agent) actually respawns a killed
+ * worker process and the deployment genuinely recovers to {@code ACTIVE}; and the module tier one
+ * level down, where a module that never passes its own liveness check exhausts its own
+ * dispose+reinstantiate restart budget and is escalated to {@code FAILED} for good instead of
+ * retrying forever.
  */
 @Tag("smoke")
 class SelfHealingIT extends GreeterSmokeClusterSupport {
@@ -78,5 +79,48 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
         "a new worker process should replace pid "
             + firstWorkerPid
             + " and the deployment should return to ACTIVE");
+  }
+
+  /**
+   * QA hardening pass, Phase 3: the module tier of the same escalation chain the test above
+   * exercises at the worker tier -- this module ({@link
+   * GreeterSmokeClusterSupport#buildAlwaysUnhealthyProviderJar()}) starts and serves normally but
+   * its own {@code LivenessProbe} always reports {@code isAlive() == false}, so {@code
+   * WorkerRuntime#onLivenessResult} drives its own module-tier {@code RestartTracker} (dispose +
+   * reinstantiate, never a worker-JVM respawn) through repeated backoff-delayed restart attempts.
+   * Proves the give-up path specifically: once that tracker's budget is exhausted, {@code
+   * ModuleController#forceFailed} flips the instance to {@code FAILED} for good, which is the real,
+   * observable end state {@code WorkerProcessSupervisorTest}'s own worker-tier equivalent only
+   * proves in-process via a package-private accessor.
+   */
+  @Test
+  @Timeout(value = 5, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_module_that_never_passes_its_own_liveness_check_exhausts_its_restart_budget_and_fails()
+      throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path unhealthyJar = buildAlwaysUnhealthyProviderJar();
+    // submitDeployment's own convenience overloads hardcode "version: 1.0.0" in the manifest they
+    // PUT, but this fixture's own descriptor declares "1.0.0-unhealthy" (matching the "-faulty"/
+    // "-slow" naming buildFaultyProviderJar/buildSlowProviderJar already use) -- submitting via
+    // the version-aware overload here is what actually resolves that moduleId, not an unrelated
+    // one the worker NACKs with "module not registered".
+    submitDeploymentWithReplicas(
+        baseUrl,
+        "greeter-unhealthy-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0-unhealthy",
+        unhealthyJar,
+        1);
+
+    await(
+        () -> hasFailedInstance(baseUrl, "greeter-unhealthy-deployment"),
+        Duration.ofSeconds(90),
+        "greeter-unhealthy-deployment should exhaust its restart budget and reach FAILED");
   }
 }
