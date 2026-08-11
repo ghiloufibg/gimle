@@ -300,6 +300,43 @@ smoke test passed 2/2 clean runs after the fix (67s/54s wall-clock) after hangin
 timeout consistently before it. Full `gimle-smoke-tests -Psmoke` run stays green with the new test
 included.
 
+### Error-rate and queue-depth autoscaling signals under real load: both work, platform behaves correctly
+
+Continuing the QA mission onto the last two Part C signals request rate's own real-cluster exercise
+had left unproven (see above -- CPU and request rate were both already covered, error rate and
+queue depth were still unit/integration-only). Unlike the previous two real-cluster autoscaling
+scenarios, this one found no new bug: both signals genuinely work end to end against a real
+cluster, first try, 2/2 clean runs each.
+
+**Error rate**: `buildFaultyProviderJar()` compiles a real `greeter-provider` on the fly (via
+`TestModuleBuilder`, same technique the rolling-update scenario's `buildProviderV2Jar()` already
+uses, rather than injecting fault behavior into the real, committed example module) whose `greet`
+deterministically throws every other call (~50%). The fabric server's own dispatch (`FabricServer
+#dispatch`) records each thrown exception as a real error against that instance's own
+`WorkerMetrics` -- exactly the `errorRatePerSecond` heartbeat signal `AutoscaleReconciler`'s
+`errorRatePercent` helper (errors/requests, not a raw count) reads. Deployed with
+`targetCpuUtilizationPercent: 200` (unreachable) and no request-rate target configured, so only
+`targetErrorRatePercent: 20.0` (comfortably under the real ~50%) can explain a scale-up. Driven by
+the existing open-model Gatling injection at a steady 10 req/s for 60s.
+
+**Queue depth**: `buildSlowProviderJar()` compiles a real provider whose `greet` always sleeps
+~300ms. A fixed request rate alone says nothing about how many requests are in flight at once, so
+building a real backlog on `WorkerRuntime`'s per-module `BoundedModuleScheduler` (concurrency bound
+4) needed a different load shape: `GreeterAutoscaleSimulation` gained a `gimle.load.concurrentUsers`
+knob switching it from Gatling's open model (fixed rate) to the closed model
+(`constantConcurrentUsers(n).during(...)`, holding exactly `n` requests continuously in flight,
+Gatling re-injecting a replacement the instant one completes). Driven at 20 concurrent users against
+the bound of 4, which sustains a real ~16-deep backlog -- `queueDepth` is reported straight off that
+scheduler (`WorkerMain#metricsReportLoop`). Deployed with the same unreachable CPU target, no
+request-rate or error-rate targets, and `targetQueueDepth: 2` (comfortably under the real backlog).
+
+**Verification**: both new smoke tests
+(`a_deployment_scales_up_under_real_error_rate_load`/`a_deployment_scales_up_under_real_queue_depth
+_load`) passed 2/2 clean isolated runs (52-54s wall-clock each), plus a full `gimle-smoke-tests
+-Psmoke` run alongside every other test in the suite. All four Part C signals (CPU, request rate,
+error rate, queue depth) are now proven end to end against a real cluster, not just
+`AutoscaleReconcilerTest`'s in-process bypass.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -311,10 +348,10 @@ dropped:
   `DeploymentReconciler`'s own deliberately-minimal in-place-replacement design — see its javadoc)
   remains untested at the smoke tier, only the 2-replica continuous-availability case.
 - Multi-signal autoscaling *was* attempted this session — see above — and found a real, now-fixed
-  bug; the CPU and request-rate signals are both proven end to end against a real cluster now,
-  error-rate and queue-depth remain unit/integration-only (`AutoscaleReconcilerTest`), since driving
-  real synthetic error or queueing conditions through the same greeter-load-generator bridge is a
-  separate scenario this session didn't build.
+  bug (request rate) plus confirmed correct behavior on the two remaining signals (error rate,
+  queue depth — see above). All four Part C signals (CPU, request rate, error rate, queue depth)
+  are now proven end to end against a real cluster, not just `AutoscaleReconcilerTest`'s in-process
+  bypass.
 - Raft leader failover under concurrent writes at the smoke-test tier specifically (covered at the
   unit/integration tier in `gimle-mimir`, e.g. `RaftClusterTest`'s own failover tests; the
   smoke-test tier's own single-node-loss scenario,
