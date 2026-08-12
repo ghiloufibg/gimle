@@ -76,13 +76,17 @@ Instrumentation nobody consumes is decoration, not observability.
    capturing. `SECRET` reads on Fafnir's own `/secrets/*` surface were already audited
    unconditionally before this item; the opt-in is what lets the control plane's general RBAC
    surface reach the same bar for whichever other resource kind a deployment actually needs it for.
-9. **Console UI for audit trail, Muninn's logs/metrics/traces, and autoscale policy.** None of the
-   audit logging, observability, or autoscaling work above shipped a console screen — the audit
-   trail, metrics/traces history, and the `autoscale:` manifest fields (the console's own
-   `DeploymentSpec`/`InstanceObservation` TypeScript types don't model any of them today) are all
-   API/CLI-only. Deliberate, not an oversight — UI work has its own review cost independent of the
-   backend design, the same deferral the secrets vault design made for Fafnir before its own
-   Secrets screen landed later.
+9. ~~**Console UI for audit trail, Muninn's logs/metrics/traces, and autoscale policy.**~~ **Done**
+   — see [Web console](../architecture/web-console.md#metrics-history-traces-and-audit-trail). A
+   process-scoped metrics-history time series on the Metrics screen, a new Traces screen, a new
+   Audit screen, and `autoscale:` policy display/editing on the deployment create/detail screens,
+   all backed by the real APIs this item's own dependencies already shipped — the console's
+   `DeploymentSpec`/`DeploymentSpecInput` TypeScript types now model `autoscale` too. Two honest
+   caveats, not gaps in this item's own scope: the Traces screen has no real data to show for any
+   process kind yet, since worker-tier trace shipping to Muninn remains
+   [Observability](../architecture/observability.md)'s own separate, still-open gap; the Audit
+   screen is only ever populated in TLS mode, since `requireAuthorized` only records an event once
+   it has resolved a real principal.
 10. ~~**Weighted/tunable multi-metric autoscaling.**~~ **Done** — see [Control
     plane](../architecture/control-plane.md#reconcilers). `AutoscalePolicy.CombinationMode.WEIGHTED`
     is an opt-in alternative to the original "worst signal wins" default
@@ -90,9 +94,8 @@ Instrumentation nobody consumes is decoration, not observability.
     every pre-existing policy gets): each configured signal's observed/target ratio is weighted and
     averaged into one blended ratio instead of taking the max of independently-computed candidates.
     Configured via `autoscale.mode`/the four per-signal weight fields in the deployment manifest
-    (see [Manifest schema](../reference/manifest-schema.md#deployment-manifest-autoscale)) — still
-    no CLI/console surface for tuning it beyond raw YAML, which remains item 9's separate,
-    still-open gap.
+    (see [Manifest schema](../reference/manifest-schema.md#deployment-manifest-autoscale)) — now
+    also tunable from the console's own deployment create screen (item 9), not raw YAML only.
 
 ## Priority 3: workload diversity
 
