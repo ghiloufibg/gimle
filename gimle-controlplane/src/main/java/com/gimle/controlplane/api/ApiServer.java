@@ -48,6 +48,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.StateMutation;
@@ -650,6 +651,7 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
+    spec.autoscale().ifPresent(policy -> specMap.put("autoscale", autoscaleToJson(policy)));
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
 
     List<Map<String, Object>> instances = new ArrayList<>();
@@ -668,6 +670,31 @@ public final class ApiServer implements AutoCloseable {
     status.put("unplacedCount", spec.replicas() - instances.size());
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.name()));
     return status;
+  }
+
+  /**
+   * Serializes an {@link AutoscalePolicy} onto the wire (roadmap item 9 -- the console's own {@code
+   * DeploymentSpec}/{@code DeploymentSpecInput} TypeScript types don't model this today precisely
+   * because it was never in this response to begin with). Mirrors {@link #auditEventToJson}'s
+   * style: required fields always written, every {@code Optional*} field written only via {@code
+   * ifPresent} so an unconfigured signal/weight is omitted from the JSON entirely rather than
+   * serialized as {@code null} -- the same "absent means not evaluated" convention {@link
+   * AutoscalePolicy}'s own javadoc documents for the record itself.
+   */
+  private static Map<String, Object> autoscaleToJson(AutoscalePolicy policy) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("minReplicas", policy.minReplicas());
+    map.put("maxReplicas", policy.maxReplicas());
+    map.put("targetCpuUtilizationPercent", policy.targetCpuUtilizationPercent());
+    policy.targetRequestRatePerSecond().ifPresent(v -> map.put("targetRequestRatePerSecond", v));
+    policy.targetErrorRatePercent().ifPresent(v -> map.put("targetErrorRatePercent", v));
+    policy.targetQueueDepth().ifPresent(v -> map.put("targetQueueDepth", v));
+    map.put("combinationMode", policy.combinationMode().name());
+    policy.cpuWeight().ifPresent(v -> map.put("cpuWeight", v));
+    policy.requestRateWeight().ifPresent(v -> map.put("requestRateWeight", v));
+    policy.errorRateWeight().ifPresent(v -> map.put("errorRateWeight", v));
+    policy.queueDepthWeight().ifPresent(v -> map.put("queueDepthWeight", v));
+    return map;
   }
 
   /**
