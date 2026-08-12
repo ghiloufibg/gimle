@@ -190,6 +190,54 @@ abstract class GreeterSmokeClusterSupport {
     }
   }
 
+  void cordonNode(String baseUrl, String nodeId) throws Exception {
+    setNodeCordon(baseUrl, nodeId, "cordon");
+  }
+
+  void uncordonNode(String baseUrl, String nodeId) throws Exception {
+    setNodeCordon(baseUrl, nodeId, "uncordon");
+  }
+
+  private void setNodeCordon(String baseUrl, String nodeId, String action) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/" + nodeId + "/" + action))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("node " + action + " failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * True once {@code GET /nodes} reports {@code nodeId}'s own {@code "cordoned"} field ({@code
+   * ApiServer}'s own node-listing response) matching {@code expected} -- a direct read of the API's
+   * own reported state, distinct from {@link #isActive}/{@link #deploymentStatus}'s
+   * deployment-scoped checks, since cordoning is a node-scoped flag with no deployment of its own.
+   */
+  boolean nodeCordonedIs(String baseUrl, String nodeId, boolean expected) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        return false;
+      }
+      List<Object> nodes = Json.asArray(Json.parse(response.body()));
+      for (Object entry : nodes) {
+        Map<String, Object> node = Json.asObject(entry);
+        if (nodeId.equals(node.get("nodeId"))) {
+          return Boolean.valueOf(expected).equals(node.get("cordoned"));
+        }
+      }
+      return false;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   /**
    * Compiles a real v1.1.0 {@code greeter-provider} at test run time via {@link TestModuleBuilder},
    * same module name as the committed v1.0.0 example (so {@code DeploymentReconciler} recognizes it

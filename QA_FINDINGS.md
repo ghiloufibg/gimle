@@ -578,6 +578,30 @@ only the two already-standing exclusions
 `WorkerProcessSupervisorTest#backoff_delay_escalates_across_repeated_crashes_then_gives_up`).
 `QuotaIT`'s own tenant-admission timing issue is left as open follow-up scope, not fixed here.
 
+### Node cordoning (P1-6): confirmed correct against a real cluster, no bug found
+
+Asked directly whether plaintext-mode real-cluster coverage was complete, a survey turned up four
+genuine gaps — not deferred choices, but subsystems nothing at the smoke-test tier had ever
+exercised. This is the first: node cordoning, previously proven only via `SchedulerTest`'s pure-unit
+fakes and `ApiServerTest`'s in-JVM HTTP round trip, never against a real multi-process cluster.
+
+New `NodeCordoningIT` (single-node topology, no fixture changes needed): deploys `greeter-provider`
+and lets it reach `ACTIVE`, cordons the node, then polls for 15s across several real
+`DeploymentReconciler` ticks proving the already-running instance is never evicted; submits a
+second, distinct deployment while cordoned and polls for 20s proving it never reaches `ACTIVE` (the
+sole tier-eligible candidate being cordoned means `Scheduler#place` throws `GimleSchedulingException
+#nodeCordoned` on every attempt); uncordons and confirms the pending deployment now places. Also
+asserts `GET /nodes`'s own `"cordoned"` field flips at the right points. Two new
+`GreeterSmokeClusterSupport` helpers (`cordonNode`/`uncordonNode`/`nodeCordonedIs`) mirror
+`putTenantQuota`'s existing shape for a POST-then-poll helper against a non-deployment endpoint.
+
+**Result: the mechanism works exactly as `Scheduler`'s own class javadoc describes, with no
+production bug found.** Verified with three isolated real-cluster runs (67.55s, 66.36s, 65.93s —
+stable timing, no flakiness), `gimle-controlplane`'s own module suite, a full `-Psmoke` run (18
+tests; one unrelated `RollingUpdateIT` failure traced to sandbox-timing contention from many
+back-to-back real-cluster runs this session, confirmed clean via an isolated re-run immediately
+after), and a full-reactor `mvn verify` (5:05) with only the two already-standing exclusions.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
