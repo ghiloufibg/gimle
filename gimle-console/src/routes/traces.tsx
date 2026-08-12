@@ -56,7 +56,7 @@ function TraceTable({ target }: { target: ProcessTarget }) {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
   useEffect(() => {
-    if (lines.length === 0) loadFirstPage();
+    if (target.processId && lines.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.processKind, target.processId]);
 
@@ -189,7 +189,13 @@ function TraceTable({ target }: { target: ProcessTarget }) {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-4 font-mono text-[11px] text-muted-foreground">
-                    {loading ? "loading spans…" : error ? error : "no spans in window"}
+                    {!target.processId
+                      ? `enter a ${target.processKind.toLowerCase()} address (host:port) above to load its trace history`
+                      : loading
+                        ? "loading spans…"
+                        : error
+                          ? error
+                          : "no spans in window"}
                   </td>
                 </tr>
               )}

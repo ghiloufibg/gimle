@@ -51,11 +51,20 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
   const stopLive = store((s) => s.stopLive);
 
   useEffect(() => {
-    if (lines.length === 0) loadFirstPage();
+    if (target.processId && lines.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.processKind, target.processId]);
 
   useEffect(() => () => stopLive(), [stopLive]);
+
+  if (!target.processId) {
+    return (
+      <p className="font-mono text-xs text-muted-foreground">
+        enter a {target.processKind.toLowerCase()} address (host:port) above to load its metrics
+        history
+      </p>
+    );
+  }
 
   const series: Series[] = useMemo(() => {
     const byName = new Map<string, MetricsHistoryLine[]>();
