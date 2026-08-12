@@ -83,10 +83,16 @@ Instrumentation nobody consumes is decoration, not observability.
    API/CLI-only. Deliberate, not an oversight — UI work has its own review cost independent of the
    backend design, the same deferral the secrets vault design made for Fafnir before its own
    Secrets screen landed later.
-10. **Weighted/tunable multi-metric autoscaling.** `AutoscaleReconciler`'s "worst signal wins" (see
-    [Control plane](../architecture/control-plane.md#reconcilers)) is the MVP heuristic, matching
-    Kubernetes HPA's own default algorithm — a configurable weighting scheme across signals is
-    future scope if the simple version proves insufficient in practice.
+10. ~~**Weighted/tunable multi-metric autoscaling.**~~ **Done** — see [Control
+    plane](../architecture/control-plane.md#reconcilers). `AutoscalePolicy.CombinationMode.WEIGHTED`
+    is an opt-in alternative to the original "worst signal wins" default
+    (`CombinationMode.WORST_SIGNAL`, matching Kubernetes HPA's own default algorithm, still what
+    every pre-existing policy gets): each configured signal's observed/target ratio is weighted and
+    averaged into one blended ratio instead of taking the max of independently-computed candidates.
+    Configured via `autoscale.mode`/the four per-signal weight fields in the deployment manifest
+    (see [Manifest schema](../reference/manifest-schema.md#deployment-manifest-autoscale)) — still
+    no CLI/console surface for tuning it beyond raw YAML, which remains item 9's separate,
+    still-open gap.
 
 ## Priority 3: workload diversity
 

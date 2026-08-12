@@ -145,6 +145,15 @@ public final class DomainCodec {
       writeOptionalDouble(out, p.targetRequestRatePerSecond());
       writeOptionalDouble(out, p.targetErrorRatePercent());
       writeOptionalInt(out, p.targetQueueDepth());
+      // combinationMode + the four per-signal weights (roadmap item 10) -- added in the same
+      // change that added the fields themselves, unlike the three multi-signal fields above,
+      // which is exactly what this method's own bug-fix history two paragraphs up warns against
+      // repeating: any new AutoscalePolicy field belongs here the moment it's added, not later.
+      out.writeUTF(p.combinationMode().name());
+      writeOptionalDouble(out, p.cpuWeight());
+      writeOptionalDouble(out, p.requestRateWeight());
+      writeOptionalDouble(out, p.errorRateWeight());
+      writeOptionalDouble(out, p.queueDepthWeight());
     }
   }
 
@@ -159,6 +168,12 @@ public final class DomainCodec {
     OptionalDouble targetRequestRatePerSecond = readOptionalDouble(in);
     OptionalDouble targetErrorRatePercent = readOptionalDouble(in);
     OptionalInt targetQueueDepth = readOptionalInt(in);
+    AutoscalePolicy.CombinationMode combinationMode =
+        AutoscalePolicy.CombinationMode.valueOf(in.readUTF());
+    OptionalDouble cpuWeight = readOptionalDouble(in);
+    OptionalDouble requestRateWeight = readOptionalDouble(in);
+    OptionalDouble errorRateWeight = readOptionalDouble(in);
+    OptionalDouble queueDepthWeight = readOptionalDouble(in);
     return Optional.of(
         new AutoscalePolicy(
             minReplicas,
@@ -166,7 +181,12 @@ public final class DomainCodec {
             targetCpuUtilizationPercent,
             targetRequestRatePerSecond,
             targetErrorRatePercent,
-            targetQueueDepth));
+            targetQueueDepth,
+            combinationMode,
+            cpuWeight,
+            requestRateWeight,
+            errorRateWeight,
+            queueDepthWeight));
   }
 
   public static void writeOptionalDouble(DataOutputStream out, OptionalDouble value)

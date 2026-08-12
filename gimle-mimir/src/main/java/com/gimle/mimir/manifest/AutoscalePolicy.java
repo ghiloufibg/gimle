@@ -10,12 +10,17 @@ import java.util.OptionalInt;
  * second top-level resource type for what one optional field covers.
  *
  * <p>{@code targetRequestRatePerSecond}/{@code targetErrorRatePercent}/{@code targetQueueDepth} are
- * additional, independently-optional scaling signals alongside the original CPU target -- {@link
- * com.gimle.controlplane.autoscale.AutoscaleReconciler} computes an ideal replica count per
- * configured signal and takes the worst (highest) one, the same "max wins" approach Kubernetes' own
- * HPA uses across multiple metrics rather than blending units together. Each defaults to "not
- * evaluated" when absent, so an existing CPU-only policy behaves identically to before these three
- * were added.
+ * additional, independently-optional scaling signals alongside the original CPU target. {@link
+ * #combinationMode} picks how {@link com.gimle.controlplane.autoscale.AutoscaleReconciler} combines
+ * whichever of those signals are actually configured into one ideal replica count: {@link
+ * CombinationMode#WORST_SIGNAL} (the default) computes an ideal replica count per configured signal
+ * and takes the highest one, the same "max wins" approach Kubernetes' own HPA uses across multiple
+ * metrics rather than blending units together; {@link CombinationMode#WEIGHTED} instead blends
+ * every configured signal's own observed/target ratio into one weighted average, using {@link
+ * #cpuWeight}/{@link #requestRateWeight}/{@link #errorRateWeight}/{@link #queueDepthWeight} (each
+ * defaulting to {@code 1.0} when its own signal is configured but its weight is not). Every
+ * optional field here defaults to "not evaluated"/"unweighted" when absent, so an existing CPU-only
+ * or worst-signal policy behaves identically to before weighting was added.
  */
 public record AutoscalePolicy(
     int minReplicas,
@@ -23,7 +28,18 @@ public record AutoscalePolicy(
     int targetCpuUtilizationPercent,
     OptionalDouble targetRequestRatePerSecond,
     OptionalDouble targetErrorRatePercent,
-    OptionalInt targetQueueDepth) {
+    OptionalInt targetQueueDepth,
+    CombinationMode combinationMode,
+    OptionalDouble cpuWeight,
+    OptionalDouble requestRateWeight,
+    OptionalDouble errorRateWeight,
+    OptionalDouble queueDepthWeight) {
+
+  /** How {@link #targetCpuUtilizationPercent} et al. combine into one ideal replica count. */
+  public enum CombinationMode {
+    WORST_SIGNAL,
+    WEIGHTED
+  }
 
   public AutoscalePolicy {
     if (minReplicas < 0) {
@@ -51,6 +67,20 @@ public record AutoscalePolicy(
       throw new IllegalArgumentException(
           "targetQueueDepth must be positive if present: " + targetQueueDepth.getAsInt());
     }
+    if (combinationMode == null) {
+      combinationMode = CombinationMode.WORST_SIGNAL;
+    }
+    requirePositiveIfPresent(cpuWeight, "cpuWeight");
+    requirePositiveIfPresent(requestRateWeight, "requestRateWeight");
+    requirePositiveIfPresent(errorRateWeight, "errorRateWeight");
+    requirePositiveIfPresent(queueDepthWeight, "queueDepthWeight");
+  }
+
+  private static void requirePositiveIfPresent(OptionalDouble weight, String fieldName) {
+    if (weight.isPresent() && weight.getAsDouble() <= 0) {
+      throw new IllegalArgumentException(
+          fieldName + " must be positive if present: " + weight.getAsDouble());
+    }
   }
 
   /** CPU-only shape, preserved for every call site that predates the three optional signals. */
@@ -62,5 +92,31 @@ public record AutoscalePolicy(
         OptionalDouble.empty(),
         OptionalDouble.empty(),
         OptionalInt.empty());
+  }
+
+  /**
+   * Pre-weighting canonical shape, preserved for every call site that predates {@link
+   * #combinationMode} and the four per-signal weights -- defaults to {@link
+   * CombinationMode#WORST_SIGNAL} with no weights, i.e. exactly today's behavior.
+   */
+  public AutoscalePolicy(
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      OptionalDouble targetRequestRatePerSecond,
+      OptionalDouble targetErrorRatePercent,
+      OptionalInt targetQueueDepth) {
+    this(
+        minReplicas,
+        maxReplicas,
+        targetCpuUtilizationPercent,
+        targetRequestRatePerSecond,
+        targetErrorRatePercent,
+        targetQueueDepth,
+        CombinationMode.WORST_SIGNAL,
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty());
   }
 }

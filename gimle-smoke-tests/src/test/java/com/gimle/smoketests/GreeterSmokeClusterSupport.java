@@ -1067,6 +1067,50 @@ abstract class GreeterSmokeClusterSupport {
       Optional<Double> targetErrorRatePercent,
       Optional<Integer> targetQueueDepth)
       throws Exception {
+    submitAutoscaleDeployment(
+        baseUrl,
+        deploymentName,
+        moduleName,
+        moduleVersion,
+        jar,
+        minReplicas,
+        maxReplicas,
+        targetCpuUtilizationPercent,
+        targetRequestRatePerSecond,
+        targetErrorRatePercent,
+        targetQueueDepth,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  /**
+   * Like the eleven-argument {@link #submitAutoscaleDeployment}, plus {@code mode} ({@code
+   * "worst-signal"}/{@code "weighted"}, roadmap item 10) and its four per-signal weights -- each
+   * independently optional, matching {@code AutoscalePolicy}'s own shape again: an absent weight
+   * simply defaults to {@code 1.0} inside {@code AutoscaleReconciler} once {@code mode} is {@code
+   * "weighted"}.
+   */
+  void submitAutoscaleDeployment(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String moduleVersion,
+      Path jar,
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      Optional<Double> targetRequestRatePerSecond,
+      Optional<Double> targetErrorRatePercent,
+      Optional<Integer> targetQueueDepth,
+      Optional<String> mode,
+      Optional<Double> cpuWeight,
+      Optional<Double> requestRateWeight,
+      Optional<Double> errorRateWeight,
+      Optional<Double> queueDepthWeight)
+      throws Exception {
     StringBuilder autoscaleBlock =
         new StringBuilder("autoscale:\n")
             .append("  minReplicas: ")
@@ -1085,6 +1129,14 @@ abstract class GreeterSmokeClusterSupport {
         value -> autoscaleBlock.append("  targetErrorRatePercent: ").append(value).append('\n'));
     targetQueueDepth.ifPresent(
         value -> autoscaleBlock.append("  targetQueueDepth: ").append(value).append('\n'));
+    mode.ifPresent(value -> autoscaleBlock.append("  mode: ").append(value).append('\n'));
+    cpuWeight.ifPresent(value -> autoscaleBlock.append("  cpuWeight: ").append(value).append('\n'));
+    requestRateWeight.ifPresent(
+        value -> autoscaleBlock.append("  requestRateWeight: ").append(value).append('\n'));
+    errorRateWeight.ifPresent(
+        value -> autoscaleBlock.append("  errorRateWeight: ").append(value).append('\n'));
+    queueDepthWeight.ifPresent(
+        value -> autoscaleBlock.append("  queueDepthWeight: ").append(value).append('\n'));
 
     String manifest =
         """

@@ -387,4 +387,109 @@ class AutoscaleReconcilerTest {
         store.getEffectiveReplicas("orders-service").orElseThrow(),
         "an unconfigured signal must never influence the scaling decision");
   }
+
+  @Test
+  void weighted_mode_blends_two_signals_instead_of_taking_the_max() {
+    StateStore store = new StateStore(tempDir.resolve("store-weighted-blend"));
+    Path jar = buildFixtureJar();
+    // CPU well under target (10% vs 50%, ratio 0.2) but request rate just over its own target (11
+    // vs 10 req/s, ratio 1.1). Under WORST_SIGNAL, max(0.2, 1.1) wins and drives a scale-up (see
+    // request_rate_alone_can_drive_scale_up_when_cpu_is_under_target above) -- but weighting CPU
+    // three times as heavily as request rate blends the two into (0.2*3 + 1.1*1)/4 = 0.425, well
+    // under 1.0, which drives a scale-*down* instead. Proves WEIGHTED genuinely combines signals
+    // rather than aliasing max().
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1,
+            5,
+            50,
+            OptionalDouble.of(10.0),
+            OptionalDouble.empty(),
+            OptionalInt.empty(),
+            AutoscalePolicy.CombinationMode.WEIGHTED,
+            OptionalDouble.of(3.0),
+            OptionalDouble.of(1.0),
+            OptionalDouble.empty(),
+            OptionalDouble.empty());
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 11.0, 0.0, 0);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(
+        1,
+        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        "heavily weighting CPU should pull the blended decision below what request rate alone"
+            + " would have driven under worst-signal-wins");
+  }
+
+  @Test
+  void weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average() {
+    StateStore store = new StateStore(tempDir.resolve("store-weighted-unweighted-average"));
+    Path jar = buildFixtureJar();
+    // CPU ratio 0.2 (10% vs 50% target), request-rate ratio 1.4 (14 vs 10 req/s target) -- neither
+    // weight configured, so both default to 1.0 and the blended ratio is a plain average: (0.2 +
+    // 1.4) / 2 = 0.8, under 1.0, which holds the current count. WORST_SIGNAL on these same
+    // observations would take max(0.2, 1.4) = 1.4 and scale up instead -- proving the default
+    // (unweighted) WEIGHTED mode is a genuinely distinct code path from WORST_SIGNAL, not an alias
+    // that happens to produce the same answer when no explicit weights are given.
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1,
+            5,
+            50,
+            OptionalDouble.of(10.0),
+            OptionalDouble.empty(),
+            OptionalInt.empty(),
+            AutoscalePolicy.CombinationMode.WEIGHTED,
+            OptionalDouble.empty(),
+            OptionalDouble.empty(),
+            OptionalDouble.empty(),
+            OptionalDouble.empty());
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 14.0, 0.0, 0);
+
+    new AutoscaleReconciler(store).reconcileOnce();
+
+    assertEquals(2, store.getEffectiveReplicas("orders-service").orElseThrow());
+  }
+
+  @Test
+  void weighted_mode_converges_to_the_clamped_ceiling_from_an_arbitrary_starting_replica_count() {
+    // Same "no history, only what's persisted now" scenario as
+    // converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count above, but for
+    // WEIGHTED mode blending two signals (not WORST_SIGNAL, and not a single trivial signal) --
+    // CLAUDE.md's reconciler-convergence requirement applies to the new combination mode too.
+    StateStore store = new StateStore(tempDir.resolve("store-weighted-convergence"));
+    Path jar = buildFixtureJar();
+    // CPU ratio 0.2 (10% vs 50% target, weight 1.0 default), queue-depth ratio 3.0 (15 vs target 5,
+    // weight 2.0) -- blended ratio (0.2*1 + 3.0*2)/(1+2) ~= 2.07, comfortably above 1.0, so this
+    // should climb to the maxReplicas ceiling regardless of where it started.
+    AutoscalePolicy policy =
+        new AutoscalePolicy(
+            1,
+            5,
+            50,
+            OptionalDouble.empty(),
+            OptionalDouble.empty(),
+            OptionalInt.of(5),
+            AutoscalePolicy.CombinationMode.WEIGHTED,
+            OptionalDouble.empty(),
+            OptionalDouble.empty(),
+            OptionalDouble.empty(),
+            OptionalDouble.of(2.0));
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas("orders-service", -3); // already below minReplicas=1
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 0.0, 0.0, 15);
+
+    AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
+    for (int i = 0; i < 15; i++) {
+      reconciler.reconcileOnce();
+    }
+
+    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+  }
 }

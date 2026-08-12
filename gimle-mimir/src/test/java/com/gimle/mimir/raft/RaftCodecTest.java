@@ -225,6 +225,43 @@ class RaftCodecTest {
   }
 
   @Test
+  void round_trips_a_weighted_autoscale_policy_with_every_weight_present() {
+    // Same historical-bug shape as deploymentSpec()'s own comment above: a WEIGHTED-mode policy
+    // with every weight populated makes it impossible for DomainCodec to silently drop
+    // combinationMode/the four weight fields the way it once dropped the three multi-signal
+    // targets, since "empty" alone would round-trip correctly whether or not the codec touches
+    // these fields at all.
+    DeploymentSpec spec =
+        new DeploymentSpec(
+            "greeter",
+            MODULE_ID,
+            "/artifacts/greeter.jar",
+            3,
+            PlacementConstraints.NONE,
+            Optional.of(
+                new AutoscalePolicy(
+                    1,
+                    5,
+                    80,
+                    OptionalDouble.of(50.0),
+                    OptionalDouble.of(5.0),
+                    OptionalInt.of(10),
+                    AutoscalePolicy.CombinationMode.WEIGHTED,
+                    OptionalDouble.of(1.0),
+                    OptionalDouble.of(3.0),
+                    OptionalDouble.of(2.0),
+                    OptionalDouble.of(1.5))),
+            Optional.empty(),
+            Optional.empty());
+    LogEntry original = logEntry(1L, new StateMutation.PutDeployment(spec));
+
+    byte[] bytes = RaftCodec.encodeLogEntry(original);
+    LogEntry decoded = RaftCodec.decodeLogEntry(bytes);
+
+    assertEquals(original, decoded);
+  }
+
+  @Test
   void round_trips_a_state_snapshot() {
     StateSnapshot snapshot =
         new StateSnapshot(

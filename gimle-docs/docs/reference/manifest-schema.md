@@ -74,6 +74,11 @@ autoscale:
   targetRequestRatePerSecond: 20.0
   targetErrorRatePercent: 5.0
   targetQueueDepth: 10
+  mode: weighted            # optional -- "worst-signal" (default) or "weighted"
+  cpuWeight: 1.0             # optional, only meaningful when mode: weighted
+  requestRateWeight: 3.0
+  errorRateWeight: 2.0
+  queueDepthWeight: 1.5
 ```
 
 | Field | Required | Meaning |
@@ -83,9 +88,21 @@ autoscale:
 | `targetRequestRatePerSecond` | no | Per-instance requests/sec target. Omit and this signal is never evaluated — an existing CPU-only policy scales exactly as before. |
 | `targetErrorRatePercent` | no | Target error rate as a percentage of that instance's own request volume (errors/sec ÷ requests/sec × 100), not a raw errors/sec count. |
 | `targetQueueDepth` | no | Per-instance queue depth target. |
+| `mode` | no | `worst-signal` (default, omit to get this) or `weighted` — see below. |
+| `cpuWeight` / `requestRateWeight` / `errorRateWeight` / `queueDepthWeight` | no | Only consulted when `mode: weighted`; each defaults to `1.0` when its own signal is configured but its weight is not. Must be positive if present, same as the target fields. |
 
-Each configured signal (CPU always, the other three only when present) independently proposes an
-ideal replica count from the same averaged, ready-instance observations; the highest one drives the
-scaling decision — see [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers)
-for the full "worst signal wins" mechanics. All three optional targets must be positive if present,
-same as `targetCpuUtilizationPercent`.
+Each configured signal (CPU always, the other three only when present) proposes its own
+observed/target ratio from the same averaged, ready-instance observations. `mode:` picks how those
+ratios combine into one scaling decision — see [Control plane §
+Reconcilers](../architecture/control-plane.md#reconcilers) for the full mechanics of both:
+
+- `worst-signal` (the default — omitting `mode:` entirely gets this, matching every manifest
+  written before `weighted` existed) — each signal independently proposes an ideal replica count,
+  and the highest one wins.
+- `weighted` — every configured signal's ratio is weighted and averaged into one blended ratio
+  first, then converted to a replica count exactly once.
+
+Flat keys (`cpuWeight`, not a nested per-signal block) were chosen deliberately to keep this
+schema's diff against the pre-weighting shape minimal and stay consistent with the flat style the
+other five fields already use, at the cost of a slightly less namespaced key set — a nested
+`cpu: {target: 50, weight: 1.0}`-style block was considered and rejected for that reason.

@@ -158,13 +158,28 @@ actions:
 `AutoscaleReconciler` folds up to four independently-optional signals into one scaling decision:
 CPU utilization (always evaluated), plus request rate, error rate, and queue depth, each evaluated
 only when its own `AutoscalePolicy` target is configured — an existing CPU-only policy scales
-exactly as it always has. Each configured signal proposes its own ideal replica count from the same
-ready-instance observations `HealthReconciler` already reads; the highest one wins ("worst signal
-wins," the same approach Kubernetes' own HPA takes across multiple metrics, rather than blending
-differently-shaped signals into one score), then feeds into the existing
-`[minReplicas, maxReplicas]` clamp and one-replica-per-tick damping unchanged. Error rate is
-evaluated as a percentage of that instance's own request volume (errors/sec ÷ requests/sec), not a
-raw errors/sec count.
+exactly as it always has. `AutoscalePolicy.CombinationMode` picks how those signals combine, from
+the same ready-instance observations `HealthReconciler` already reads:
+
+- `WORST_SIGNAL` (the default) — each configured signal proposes its own ideal replica count
+  independently, and the highest one wins ("worst signal wins," the same approach Kubernetes' own
+  HPA takes across multiple metrics, rather than blending differently-shaped signals into one
+  score).
+- `WEIGHTED` — instead of taking the max of independently-ceiled candidates, each configured
+  signal's own observed/target ratio is weighted (`cpuWeight`/`requestRateWeight`/
+  `errorRateWeight`/`queueDepthWeight`, each defaulting to `1.0` when its signal is configured but
+  its own weight is not) and averaged into a single blended ratio, which then goes through the
+  same replica-count rounding exactly once, rather than once per signal. An unweighted `WEIGHTED`
+  policy (no explicit weights at all) is a plain average across whichever signals are configured —
+  a genuinely distinct combination from `WORST_SIGNAL`'s max, not an alias that happens to agree
+  when weights are omitted.
+
+Either mode feeds into the existing `[minReplicas, maxReplicas]` clamp and one-replica-per-tick
+damping unchanged. Error rate is evaluated as a percentage of that instance's own request volume
+(errors/sec ÷ requests/sec), not a raw errors/sec count. Every pre-existing policy (constructed
+without a `CombinationMode` or weights at all) defaults to `WORST_SIGNAL` with no weights, so this
+is purely additive — tuning weights via a console UI remains a separate, still-open gap (see
+[Web console](./web-console.md) and the [roadmap](../contributing/roadmap.md)).
 
 :::note[Level-triggered, not edge-triggered]
 

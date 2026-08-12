@@ -76,6 +76,11 @@ public final class DeploymentManifestParser {
     OptionalDouble targetErrorRatePercent =
         optionalDoubleField(autoscale, "targetErrorRatePercent");
     OptionalInt targetQueueDepth = optionalIntField(autoscale, "targetQueueDepth");
+    AutoscalePolicy.CombinationMode combinationMode = parseCombinationMode(autoscale);
+    OptionalDouble cpuWeight = optionalDoubleField(autoscale, "cpuWeight");
+    OptionalDouble requestRateWeight = optionalDoubleField(autoscale, "requestRateWeight");
+    OptionalDouble errorRateWeight = optionalDoubleField(autoscale, "errorRateWeight");
+    OptionalDouble queueDepthWeight = optionalDoubleField(autoscale, "queueDepthWeight");
     try {
       return Optional.of(
           new AutoscalePolicy(
@@ -84,10 +89,37 @@ public final class DeploymentManifestParser {
               targetCpuUtilizationPercent,
               targetRequestRatePerSecond,
               targetErrorRatePercent,
-              targetQueueDepth));
+              targetQueueDepth,
+              combinationMode,
+              cpuWeight,
+              requestRateWeight,
+              errorRateWeight,
+              queueDepthWeight));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code autoscale.mode} is optional and defaults to {@code worst-signal} -- an absent value
+   * reproduces {@link AutoscalePolicy.CombinationMode#WORST_SIGNAL} exactly, matching every
+   * manifest written before {@code weighted} mode existed.
+   */
+  private static AutoscalePolicy.CombinationMode parseCombinationMode(Map<?, ?> autoscale) {
+    Object value = autoscale.get("mode");
+    if (value == null) {
+      return AutoscalePolicy.CombinationMode.WORST_SIGNAL;
+    }
+    if (!(value instanceof String s)) {
+      throw new GimleManifestException("'autoscale.mode' must be a string if present");
+    }
+    return switch (s) {
+      case "worst-signal" -> AutoscalePolicy.CombinationMode.WORST_SIGNAL;
+      case "weighted" -> AutoscalePolicy.CombinationMode.WEIGHTED;
+      default ->
+          throw new GimleManifestException(
+              "'autoscale.mode' must be 'worst-signal' or 'weighted', got: " + s);
+    };
   }
 
   /** {@code tenantId} is optional: absent means untenanted. */

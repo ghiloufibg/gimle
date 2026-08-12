@@ -273,4 +273,92 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             + " sustained request backlog, driven purely by the non-CPU/non-rate/non-error"
             + " targetQueueDepth signal");
   }
+
+  /**
+   * Roadmap item 10: {@code CombinationMode.WEIGHTED} under real load, blending two genuinely
+   * simultaneous signals rather than isolating one at a time the way the three scenarios above
+   * each deliberately do. Reuses {@link #buildSlowProviderJar()} and the same closed-injection
+   * concurrency Gatling drives for the queue-depth scenario above -- 20 concurrent ~300ms-each
+   * callers against a concurrency bound of 4 real, simultaneous request-rate <i>and</i>
+   * queue-depth signals, both configured with real, individually-reachable targets and different
+   * weights (queue depth weighted 3x request rate), proving the full weighted pipeline (manifest
+   * parse -&gt; wire codec -&gt; {@code AutoscaleReconciler}'s blended-ratio math) end to end
+   * against a real cluster, not just {@code AutoscaleReconcilerTest}'s in-process bypass.
+   */
+  @Test
+  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  void a_weighted_policy_blends_request_rate_and_queue_depth_signals_under_real_load()
+      throws Exception {
+    Path repoRoot = repoRoot();
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
+    String baseUrl = cluster.controlPlaneBaseUrls().get(0);
+
+    Path loadGeneratorJar =
+        repoRoot.resolve(
+            "gimle-examples/greeter-load-generator/target/greeter-load-generator-"
+                + GIMLE_VERSION
+                + ".jar");
+    assertTrue(
+        Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
+    Path slowProviderJar = buildSlowProviderJar();
+
+    submitDeployment(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar);
+    await(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+
+    submitAutoscaleDeployment(
+        baseUrl,
+        "greeter-provider-weighted-deployment",
+        "com.gimle.examples.greeter.provider",
+        "1.0.0-slow",
+        slowProviderJar,
+        /* minReplicas= */ 1,
+        /* maxReplicas= */ 2,
+        /* targetCpuUtilizationPercent= */ 200,
+        // Comfortably below what 20 concurrent 300ms-each closed-model callers actually sustain
+        // (~13 req/s and a ~16-deep backlog respectively against a concurrency bound of 4) -- both
+        // signals are genuinely, independently reachable, not just one carrying the other.
+        /* targetRequestRatePerSecond= */ Optional.of(5.0),
+        /* targetErrorRatePercent= */ Optional.empty(),
+        /* targetQueueDepth= */ Optional.of(2),
+        /* mode= */ Optional.of("weighted"),
+        /* cpuWeight= */ Optional.empty(),
+        /* requestRateWeight= */ Optional.of(1.0),
+        /* errorRateWeight= */ Optional.empty(),
+        /* queueDepthWeight= */ Optional.of(3.0));
+    await(
+        () -> isActive(baseUrl, "greeter-provider-weighted-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-provider-weighted-deployment should reach ACTIVE before any load is generated");
+    assertEquals(
+        1,
+        activeInstanceCount(baseUrl, "greeter-provider-weighted-deployment"),
+        "should start at exactly its declared 1 replica before load begins");
+
+    Process gatling =
+        spawnGatling(
+            javaExecutable,
+            classpath,
+            /* requestsPerSecond= */ 0,
+            /* durationSeconds= */ 60,
+            /* concurrentUsers= */ 20,
+            tempDir.resolve("gatling-weighted.log"));
+    processes.add(gatling);
+
+    await(
+        () -> activeInstanceCount(baseUrl, "greeter-provider-weighted-deployment") >= 2,
+        Duration.ofSeconds(120),
+        "greeter-provider-weighted-deployment should scale up from 1 to 2 replicas under real load,"
+            + " driven by CombinationMode.WEIGHTED blending the real request-rate and queue-depth"
+            + " signals together rather than evaluating either in isolation");
+  }
 }

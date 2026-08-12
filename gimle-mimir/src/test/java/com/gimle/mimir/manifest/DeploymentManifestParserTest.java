@@ -344,6 +344,84 @@ class DeploymentManifestParserTest {
   }
 
   @Test
+  void an_absent_mode_field_defaults_to_worst_signal_matching_pre_existing_manifests() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                  targetRequestRatePerSecond: 10.5
+                  targetErrorRatePercent: 5
+                  targetQueueDepth: 20
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(AutoscalePolicy.CombinationMode.WORST_SIGNAL, policy.combinationMode());
+    assertTrue(policy.cpuWeight().isEmpty());
+  }
+
+  @Test
+  void parses_a_weighted_autoscale_block_with_per_signal_weights() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                  targetRequestRatePerSecond: 10.5
+                  mode: weighted
+                  cpuWeight: 1.0
+                  requestRateWeight: 3.0
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(AutoscalePolicy.CombinationMode.WEIGHTED, policy.combinationMode());
+    assertEquals(1.0, policy.cpuWeight().orElseThrow());
+    assertEquals(3.0, policy.requestRateWeight().orElseThrow());
+    assertTrue(policy.errorRateWeight().isEmpty());
+    assertTrue(policy.queueDepthWeight().isEmpty());
+  }
+
+  @Test
+  void an_unrecognized_mode_value_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      mode: bogus
+                    """)));
+  }
+
+  @Test
   void zero_target_request_rate_throws() {
     assertThrows(
         GimleManifestException.class,
