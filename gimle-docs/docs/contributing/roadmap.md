@@ -50,16 +50,7 @@ Instrumentation nobody consumes is decoration, not observability.
    ("worst signal wins," matching Kubernetes' own HPA) driving the scaling decision — see
    [Control plane](../architecture/control-plane.md#reconcilers).
 
-6. **Prometheus/OTLP-compatible read translation for Muninn.** Muninn's own first-party ingest/read
-   APIs (`GET /metrics-history/*`, `GET /traces-history/*`) are deliberately not wire-compatible
-   with a Prometheus scrape or an OTLP collector — a considered trade-off (see
-   [Observability](../architecture/observability.md)), not an oversight: staying dependency-free
-   and self-contained (no `micrometer-registry-prometheus`/`opentelemetry-exporter-otlp`, no
-   operator-run collector) was preferred over out-of-the-box Grafana/Jaeger compatibility. **Why
-   it's worth building**: a thin read-side translation layer — Muninn's own stored data exposed as
-   a Prometheus-compatible scrape endpoint — would recover that ecosystem compatibility without
-   giving up the first-party ingest/storage path underneath it.
-7. ~~**p99/latency-histogram shipping.**~~ **Done** — see
+6. ~~**p99/latency-histogram shipping.**~~ **Done** — see
    [Observability](../architecture/observability.md). `ApiServerMetrics`/`FafnirMetrics`/
    `StoreMetrics`' request-latency `Timer`s now publish p50/p95/p99, and `MuninnShipper` ships each
    as a `"percentiles"` map alongside its existing `"measurements"`, readable back through the same
@@ -67,7 +58,7 @@ Instrumentation nobody consumes is decoration, not observability.
    config for local parity, but stays unshipped — worker-tier metrics/trace shipping remains the
    separate, still-open gap it always was (see [Observability](../architecture/observability.md)'s
    own note on why worker-tier shipping needs a new `ControlMessage` shape, not a counter delta).
-8. ~~**Audit trail coverage for read-only (`GET`) requests.**~~ **Done** — see [Authentication and
+7. ~~**Audit trail coverage for read-only (`GET`) requests.**~~ **Done** — see [Authentication and
    authorization](../architecture/authn-authz.md#audit-logging).
    `-Dgimle.controlplane.audit.readResourceKinds` opts specific resource kinds into READ-decision
    auditing, both allowed and denied, alongside the always-audited `WRITE`/`DELETE` — unset (the
@@ -76,7 +67,7 @@ Instrumentation nobody consumes is decoration, not observability.
    capturing. `SECRET` reads on Fafnir's own `/secrets/*` surface were already audited
    unconditionally before this item; the opt-in is what lets the control plane's general RBAC
    surface reach the same bar for whichever other resource kind a deployment actually needs it for.
-9. ~~**Console UI for audit trail, Muninn's logs/metrics/traces, and autoscale policy.**~~ **Done**
+8. ~~**Console UI for audit trail, Muninn's logs/metrics/traces, and autoscale policy.**~~ **Done**
    — see [Web console](../architecture/web-console.md#metrics-history-traces-and-audit-trail). A
    process-scoped metrics-history time series on the Metrics screen, a new Traces screen, a new
    Audit screen, and `autoscale:` policy display/editing on the deployment create/detail screens,
@@ -87,46 +78,57 @@ Instrumentation nobody consumes is decoration, not observability.
    [Observability](../architecture/observability.md)'s own separate, still-open gap; the Audit
    screen is only ever populated in TLS mode, since `requireAuthorized` only records an event once
    it has resolved a real principal.
-10. ~~**Weighted/tunable multi-metric autoscaling.**~~ **Done** — see [Control
-    plane](../architecture/control-plane.md#reconcilers). `AutoscalePolicy.CombinationMode.WEIGHTED`
-    is an opt-in alternative to the original "worst signal wins" default
-    (`CombinationMode.WORST_SIGNAL`, matching Kubernetes HPA's own default algorithm, still what
-    every pre-existing policy gets): each configured signal's observed/target ratio is weighted and
-    averaged into one blended ratio instead of taking the max of independently-computed candidates.
-    Configured via `autoscale.mode`/the four per-signal weight fields in the deployment manifest
-    (see [Manifest schema](../reference/manifest-schema.md#deployment-manifest-autoscale)) — now
-    also tunable from the console's own deployment create screen (item 9), not raw YAML only.
+9. ~~**Weighted/tunable multi-metric autoscaling.**~~ **Done** — see [Control
+   plane](../architecture/control-plane.md#reconcilers). `AutoscalePolicy.CombinationMode.WEIGHTED`
+   is an opt-in alternative to the original "worst signal wins" default
+   (`CombinationMode.WORST_SIGNAL`, matching Kubernetes HPA's own default algorithm, still what
+   every pre-existing policy gets): each configured signal's observed/target ratio is weighted and
+   averaged into one blended ratio instead of taking the max of independently-computed candidates.
+   Configured via `autoscale.mode`/the four per-signal weight fields in the deployment manifest
+   (see [Manifest schema](../reference/manifest-schema.md#deployment-manifest-autoscale)) — now
+   also tunable from the console's own deployment create screen (item 8), not raw YAML only.
 
 ## Priority 3: workload diversity
 
 Not every real workload is a stateless HTTP service.
 
-11. **Batch/scheduled workloads.** No Job/CronJob equivalent — Gimlé only models long-running
+10. **Batch/scheduled workloads.** No Job/CronJob equivalent — Gimlé only models long-running
     replicated deployments. **Why it's worth building**: run-to-completion is a fundamentally
     different lifecycle than run-forever, with different restart and scheduling semantics entirely.
-12. **Per-node placement.** No DaemonSet equivalent — "exactly one instance per node" isn't an
+11. **Per-node placement.** No DaemonSet equivalent — "exactly one instance per node" isn't an
     explicit scheduler mode, only resource-based bin-packing (see
     [Control plane](../architecture/control-plane.md)). **Why it's worth building**: a
     topology-driven placement constraint, genuinely different from the resource-driven one already
     built.
-13. **Stateful workload support.** Deliberately last, not because it's unimportant — persistent
-    storage with a lifecycle independent of the workload's own, plus ordered rollout and stable
-    identity, is arguably the single most educational feature in all of Kubernetes. It's last here
-    because it's the deepest rabbit hole, and Gimlé's module model today is inherently
-    stateless-friendly.
+12. **Stateful workload support.** Deliberately last among the workload-diversity items, not because
+    it's unimportant — persistent storage with a lifecycle independent of the workload's own, plus
+    ordered rollout and stable identity, is arguably the single most educational feature in all of
+    Kubernetes. It's last here because it's the deepest rabbit hole, and Gimlé's module model today
+    is inherently stateless-friendly.
 
 ## Priority 4: control-plane policy and fairness
 
-14. **Explicit, configurable disruption budgets.** The rolling-update bookkeeping already appears
+13. **Explicit, configurable disruption budgets.** The rolling-update bookkeeping already appears
     to replace one instance at a time — a reasonable implicit default — but there's no exposed,
     tunable "max unavailable" the way real clusters make this an explicit contract rather than an
     implementation detail.
-15. **Pluggable admission/policy.** Validation today is hardcoded (manifest schema checks, quota
+14. **Pluggable admission/policy.** Validation today is hardcoded (manifest schema checks, quota
     checks in [Multi-tenancy](../architecture/multi-tenancy.md)). No policy layer for
     organization-specific rules — the "policy as data, not code" pattern real clusters lean on
     heavily.
-16. **Priority and preemption.** No notion of a higher-priority deployment evicting a lower-priority
+15. **Priority and preemption.** No notion of a higher-priority deployment evicting a lower-priority
     one under resource pressure — a genuinely hard fairness-versus-urgency scheduling problem.
+16. **Prometheus/OTLP-compatible read translation for Muninn.** Muninn's own first-party ingest/read
+    APIs (`GET /metrics-history/*`, `GET /traces-history/*`) are deliberately not wire-compatible
+    with a Prometheus scrape or an OTLP collector — a considered trade-off (see
+    [Observability](../architecture/observability.md)), not an oversight: staying dependency-free
+    and self-contained (no `micrometer-registry-prometheus`/`opentelemetry-exporter-otlp`, no
+    operator-run collector) was preferred over out-of-the-box Grafana/Jaeger compatibility. Deferred
+    to last priority — it recovers ecosystem compatibility for existing data rather than closing a
+    cluster-mechanics gap the way the other Priority 4 items do. **Why it's worth building**: a thin
+    read-side translation layer — Muninn's own stored data exposed as a Prometheus-compatible scrape
+    endpoint — would recover that ecosystem compatibility without giving up the first-party
+    ingest/storage path underneath it.
 
 ## Acknowledged, deliberately not prioritized
 
