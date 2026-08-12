@@ -10,6 +10,7 @@ import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -49,6 +50,7 @@ public final class HealthReconciler {
   private final int maxAttemptsPerWindow;
   private final Duration window;
   private final MutationSink mutations;
+  private final Clock clock;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public HealthReconciler(StateStore store) {
@@ -84,6 +86,32 @@ public final class HealthReconciler {
       int maxAttemptsPerWindow,
       Duration window,
       MutationSink mutations) {
+    this(
+        store,
+        initialDelay,
+        multiplier,
+        cap,
+        maxAttemptsPerWindow,
+        window,
+        mutations,
+        Clock.systemUTC());
+  }
+
+  /**
+   * Every backoff deadline this reconciler compares against is measured from a single {@code now}
+   * read at the top of {@link #reconcileOnce}, so supplying that read is all a test needs to
+   * exercise the real production backoff schedule without waiting for it -- see {@code TestClock}
+   * in {@code gimle-core}'s test-jar.
+   */
+  public HealthReconciler(
+      StoreReader store,
+      Duration initialDelay,
+      double multiplier,
+      Duration cap,
+      int maxAttemptsPerWindow,
+      Duration window,
+      MutationSink mutations,
+      Clock clock) {
     this.store = store;
     this.initialDelay = initialDelay;
     this.multiplier = multiplier;
@@ -91,10 +119,11 @@ public final class HealthReconciler {
     this.maxAttemptsPerWindow = maxAttemptsPerWindow;
     this.window = window;
     this.mutations = mutations;
+    this.clock = clock;
   }
 
   public void reconcileOnce() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (InstanceAssignment assignment : store.listAssignments()) {
       ReconcilerInstanceState persisted = currentState(assignment);
       if (persisted.permanentlyFailed()) {

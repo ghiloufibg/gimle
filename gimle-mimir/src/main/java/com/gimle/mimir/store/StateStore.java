@@ -28,6 +28,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -58,6 +59,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 public final class StateStore implements StoreReader {
 
   private final Path root;
+  private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
@@ -111,7 +113,19 @@ public final class StateStore implements StoreReader {
   static final int MAX_AUDIT_EVENTS = 50_000;
 
   public StateStore(Path root) {
+    this(root, Clock.systemUTC());
+  }
+
+  /**
+   * Injectable-clock variant, for tests that need to reason about how <em>old</em> a heartbeat or a
+   * lease is. Those two are the only timestamps this store stamps itself; everything else it holds
+   * was timestamped by whoever proposed the mutation. Without this seam a test can advance a
+   * reconciler's clock but not the store's, so "this node has been silent for 20 seconds" is not
+   * expressible at all -- the heartbeat always looks like it arrived just now.
+   */
+  public StateStore(Path root, Clock clock) {
     this.root = root;
+    this.clock = clock;
     try {
       Files.createDirectories(deploymentsDir());
       Files.createDirectories(assignmentsDir());
@@ -255,7 +269,7 @@ public final class StateStore implements StoreReader {
    * follower's own copy here is never anything but empty, not merely stale.
    */
   public void putNodeHeartbeat(NodeHeartbeat heartbeat) {
-    Instant receivedAt = Instant.now();
+    Instant receivedAt = clock.instant();
     writeAtomically(heartbeatFile(heartbeat.nodeId()), heartbeatToYaml(heartbeat, receivedAt));
     nodeHeartbeats.put(heartbeat.nodeId(), new ObservedHeartbeat(heartbeat, receivedAt));
   }
@@ -287,7 +301,7 @@ public final class StateStore implements StoreReader {
    * won without a second round trip.
    */
   public LeaseGrant tryAcquireOrRenewLease(String name, String holderId, Duration ttl) {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Instant expiresAt = now.plus(ttl);
     LeaseState granted = new LeaseState(holderId, expiresAt);
     LeaseState[] result = new LeaseState[1];
@@ -315,7 +329,7 @@ public final class StateStore implements StoreReader {
   /** Empty if the lease is free or its current holder's grant has expired. */
   public Optional<String> getLeaseHolder(String name) {
     LeaseState current = leases.get(name);
-    if (current == null || current.expiresAt().isBefore(Instant.now())) {
+    if (current == null || current.expiresAt().isBefore(clock.instant())) {
       return Optional.empty();
     }
     return Optional.of(current.holderId());
