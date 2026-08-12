@@ -2,6 +2,7 @@ package com.gimle.core.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.core.time.TestClock;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Optional;
@@ -30,15 +31,28 @@ class SessionTokensTest {
   }
 
   @Test
-  void an_expired_token_is_rejected() throws InterruptedException {
+  void an_expired_token_is_rejected(TestClock clock) {
     SecretKey key = key();
-    String token = SessionTokens.issue("alice", key, Duration.ofMillis(1));
+    // A real session TTL, expired instantly rather than a 1ms token raced by a sleep.
+    Duration ttl = Duration.ofHours(8);
+    String token = SessionTokens.issue("alice", key, ttl, clock);
 
-    // Sleeping in a unit test is undesirable, so this is deliberately built with a 1ms TTL plus a
-    // short pause -- the one temporal case that cannot be verified without any elapsed time at all,
-    // same posture as CertificateAuthorityTest's own expired-certificate test.
-    Thread.sleep(50);
-    assertEquals(Optional.empty(), SessionTokens.verify(token, key));
+    clock.advance(ttl.plusMillis(1));
+
+    assertEquals(Optional.empty(), SessionTokens.verify(token, key, clock));
+  }
+
+  @Test
+  void a_token_is_still_accepted_at_the_last_millisecond_before_it_expires(TestClock clock) {
+    SecretKey key = key();
+    Duration ttl = Duration.ofHours(8);
+    String token = SessionTokens.issue("alice", key, ttl, clock);
+
+    // The expiry comparison is a strict >, so the expiry millisecond itself still verifies. Only
+    // virtual time can assert this side of the boundary at all.
+    clock.advance(ttl);
+
+    assertEquals(Optional.of("alice"), SessionTokens.verify(token, key, clock));
   }
 
   @Test

@@ -1,10 +1,11 @@
 package com.gimle.worker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.time.TestClock;
+import com.gimle.core.time.TestScheduler;
 import com.gimle.fabric.trace.TraceContext;
 import com.gimle.fabric.transport.FabricClient;
 import com.gimle.fabric.transport.FabricFrame;
@@ -23,7 +24,6 @@ import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.function.BooleanSupplier;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -44,6 +44,9 @@ import org.junit.jupiter.api.parallel.Resources;
 // any other class holding the same lock, under class-level parallel execution (root pom.xml).
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 class FabricServerTlsWatcherTest {
+
+  /** Exactly the interval {@code WorkerMain} starts its own watcher with. */
+  private static final Duration POLL_INTERVAL = Duration.ofSeconds(5);
 
   public interface Ping {
     String ping(String name);
@@ -95,8 +98,15 @@ class FabricServerTlsWatcherTest {
     // Baseline: the original material works before any rotation or watching starts.
     assertEquals("pong:before", callPing(address, "before"));
 
-    watcher = new FabricServerTlsWatcher();
-    watcher.start(server, Duration.ofMillis(20));
+    // The real poll interval WorkerMain uses, driven tick by tick rather than waited out.
+    TestScheduler scheduler = new TestScheduler(new TestClock());
+    watcher = new FabricServerTlsWatcher(scheduler);
+    watcher.start(server, POLL_INTERVAL);
+
+    assertEquals(
+        1,
+        scheduler.pendingTaskCount(),
+        "the watcher should have scheduled exactly one periodic poll");
 
     // Rotate: a fresh CA-signed leaf written over the *same* cert/key file paths -- exactly what
     // §4b's own rotation does, and what an agent-managed worker sees happen underneath it. No
@@ -110,16 +120,23 @@ class FabricServerTlsWatcherTest {
     overwritePem(keyFile, "PRIVATE KEY", rotatedKeyPair.getPrivate().getEncoded());
     overwritePem(certFile, "CERTIFICATE", rotatedLeaf.getEncoded());
 
-    // Give the watcher a bounded window (well beyond its own 20ms poll interval) to notice and
-    // reload; the listener must keep serving throughout, not just after reload settles.
-    awaitTrue(() -> canCallPing(address, "during"), Duration.ofSeconds(5));
+    // Exactly one poll. The tick runs on this thread and reloads synchronously, so by the time
+    // advance() returns the rebind has already happened -- no window to wait out.
+    assertEquals(1, scheduler.advance(POLL_INTERVAL));
+    assertEquals(
+        "pong:during",
+        callPing(address, "during"),
+        "the listener must keep serving on the rotated material");
 
-    // Several more poll cycles pass here for free (the assertions above already spent some), which
-    // also guards against a reload-every-tick bug: if the watcher kept rebinding on every tick
-    // instead of no-op'ing once mtime stops changing, connections would start flapping.
+    // The reload-every-tick guard, now asserted rather than inferred: with mtime unchanged, five
+    // further polls must rebind nothing at all. Previously this could only be approximated by
+    // pinging repeatedly and hoping a rebind would have been caught in the act.
     for (int i = 0; i < 5; i++) {
-      assertEquals("pong:steady-" + i, callPing(address, "steady-" + i));
-      Thread.sleep(20);
+      assertEquals(1, scheduler.advance(POLL_INTERVAL), "poll " + i + " should have fired once");
+      assertEquals(
+          "pong:steady-" + i,
+          callPing(address, "steady-" + i),
+          "an unchanged certificate file must not trigger a rebind");
     }
   }
 
@@ -127,14 +144,6 @@ class FabricServerTlsWatcherTest {
     FabricFrame response = FabricClient.call(address, invokePing(arg));
     FabricFrame.InvokeResponse invokeResponse = (FabricFrame.InvokeResponse) response;
     return (String) ObjectMarshalling.deserialize(invokeResponse.serializedReturn());
-  }
-
-  private static boolean canCallPing(InetSocketAddress address, String arg) {
-    try {
-      return ("pong:" + arg).equals(callPing(address, arg));
-    } catch (IOException e) {
-      return false;
-    }
   }
 
   private static FabricFrame.InvokeRequest invokePing(String arg) {
@@ -145,18 +154,6 @@ class FabricServerTlsWatcherTest {
         "ping",
         new String[] {"java.lang.String"},
         ObjectMarshalling.serialize(new Object[] {arg}));
-  }
-
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
   }
 
   private void configureTls(CertificateAuthority ca) throws Exception {

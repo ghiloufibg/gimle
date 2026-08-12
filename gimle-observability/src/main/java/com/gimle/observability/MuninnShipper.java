@@ -62,6 +62,15 @@ public final class MuninnShipper implements AutoCloseable {
   private volatile ScheduledExecutorService ticker;
   private volatile String logCursor;
 
+  /**
+   * When non-null, ticks are scheduled here instead of on a thread this class owns, and {@link
+   * #close()} leaves it alone -- whoever supplied it owns its lifecycle. Package-private, for the
+   * one caller that needs it: a test driving shipping tick by tick (see {@code TestScheduler} in
+   * {@code gimle-core}'s test-jar), so "no further tick fired" is an exact assertion rather than a
+   * pause and a hope. Production always gets the owned virtual-thread ticker below.
+   */
+  private final ScheduledExecutorService injectedTicker;
+
   public MuninnShipper(String muninnBaseAddress, String ingestPath, Duration tickInterval) {
     this(muninnBaseAddress, ingestPath, tickInterval, defaultSslContext());
   }
@@ -71,6 +80,17 @@ public final class MuninnShipper implements AutoCloseable {
       String ingestPath,
       Duration tickInterval,
       Optional<SSLContext> sslContext) {
+    this(muninnBaseAddress, ingestPath, tickInterval, sslContext, null);
+  }
+
+  /** See {@link #injectedTicker}. */
+  MuninnShipper(
+      String muninnBaseAddress,
+      String ingestPath,
+      Duration tickInterval,
+      Optional<SSLContext> sslContext,
+      ScheduledExecutorService injectedTicker) {
+    this.injectedTicker = injectedTicker;
     String scheme = sslContext.isPresent() ? "https" : "http";
     this.baseUri = URI.create(scheme + "://" + muninnBaseAddress);
     this.ingestPath = ingestPath;
@@ -123,8 +143,10 @@ public final class MuninnShipper implements AutoCloseable {
 
   private void startTicker(Runnable tick) {
     ScheduledExecutorService scheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> Thread.ofVirtual().name("gimle-muninn-shipper-" + ingestPath).unstarted(r));
+        injectedTicker != null
+            ? injectedTicker
+            : Executors.newSingleThreadScheduledExecutor(
+                r -> Thread.ofVirtual().name("gimle-muninn-shipper-" + ingestPath).unstarted(r));
     scheduler.scheduleAtFixedRate(tick, 0, tickInterval.toMillis(), TimeUnit.MILLISECONDS);
     this.ticker = scheduler;
   }
@@ -211,7 +233,7 @@ public final class MuninnShipper implements AutoCloseable {
   @Override
   public void close() {
     ScheduledExecutorService current = ticker;
-    if (current != null) {
+    if (current != null && current != injectedTicker) {
       current.shutdownNow();
     }
     httpClient.close();

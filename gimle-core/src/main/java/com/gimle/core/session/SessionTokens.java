@@ -9,8 +9,8 @@ import java.io.UncheckedIOException;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
@@ -43,7 +43,17 @@ public final class SessionTokens {
   private SessionTokens() {}
 
   public static String issue(String username, SecretKey signingKey, Duration ttl) {
-    long expiresAtEpochMilli = Instant.now().plus(ttl).toEpochMilli();
+    return issue(username, signingKey, ttl, Clock.systemUTC());
+  }
+
+  /**
+   * Injectable-clock variant, paired with {@link #verify(String, SecretKey, Clock)}. The two
+   * instants this class compares -- the expiry stamped into the token and "now" at verification --
+   * are the only time it reads, so supplying both lets a test expire a token issued with its real
+   * production TTL instead of a millisecond one raced by a sleep.
+   */
+  public static String issue(String username, SecretKey signingKey, Duration ttl, Clock clock) {
+    long expiresAtEpochMilli = clock.instant().plus(ttl).toEpochMilli();
     byte[] payload = encodePayload(username, expiresAtEpochMilli);
     byte[] tag = hmac(payload, signingKey);
     byte[] token = new byte[payload.length + tag.length];
@@ -58,6 +68,11 @@ public final class SessionTokens {
    * comparison here must be constant-time), or it has expired.
    */
   public static Optional<String> verify(String token, SecretKey signingKey) {
+    return verify(token, signingKey, Clock.systemUTC());
+  }
+
+  /** See {@link #issue(String, SecretKey, Duration, Clock)} for why this overload exists. */
+  public static Optional<String> verify(String token, SecretKey signingKey, Clock clock) {
     byte[] decoded;
     try {
       decoded = Base64.getUrlDecoder().decode(token);
@@ -77,7 +92,7 @@ public final class SessionTokens {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
       String username = in.readUTF();
       long expiresAtEpochMilli = in.readLong();
-      if (Instant.now().toEpochMilli() > expiresAtEpochMilli) {
+      if (clock.instant().toEpochMilli() > expiresAtEpochMilli) {
         return Optional.empty();
       }
       return Optional.of(username);

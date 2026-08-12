@@ -26,10 +26,24 @@ public final class FabricServerTlsWatcher implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(FabricServerTlsWatcher.class);
 
-  private final ScheduledExecutorService ticker =
-      Executors.newSingleThreadScheduledExecutor(
-          r -> Thread.ofVirtual().name("gimle-fabric-tls-watcher").unstarted(r));
+  private final ScheduledExecutorService ticker;
   private volatile FileTime lastSeen;
+
+  public FabricServerTlsWatcher() {
+    this(
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-fabric-tls-watcher").unstarted(r)));
+  }
+
+  /**
+   * Injectable-ticker variant. Polling is the whole mechanism here, so a test that cannot control
+   * when a tick happens can only ever wait a while and hope -- and in particular cannot assert the
+   * property that matters most, that a tick with an unchanged mtime reloads <em>nothing</em>. See
+   * {@code TestScheduler} in {@code gimle-core}'s test-jar.
+   */
+  public FabricServerTlsWatcher(ScheduledExecutorService ticker) {
+    this.ticker = ticker;
+  }
 
   public void start(FabricServer server, Duration pollInterval) {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {

@@ -22,6 +22,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import java.nio.file.Files;
@@ -656,13 +657,20 @@ class StateStoreTest {
   }
 
   @Test
-  void a_different_holder_is_granted_once_the_lease_has_expired() throws InterruptedException {
-    StateStore store = new StateStore(tempDir.resolve("lease-expired"));
-    store.tryAcquireOrRenewLease("reconciler-leader", "node-a:8080", Duration.ofMillis(1));
-    Thread.sleep(50); // comfortably past the 1ms TTL
+  void a_different_holder_is_granted_once_the_lease_has_expired(TestClock clock) {
+    // The real 10-second TTL ControlPlaneMain uses, not a 1ms stand-in raced by a sleep -- and
+    // asserted on both sides of the expiry, which a sleeping test cannot do.
+    StateStore store = new StateStore(tempDir.resolve("lease-expired"), clock);
+    Duration ttl = Duration.ofSeconds(10);
+    store.tryAcquireOrRenewLease("reconciler-leader", "node-a:8080", ttl);
 
-    LeaseGrant grant =
-        store.tryAcquireOrRenewLease("reconciler-leader", "node-b:8081", Duration.ofSeconds(10));
+    clock.advance(ttl);
+    assertFalse(
+        store.tryAcquireOrRenewLease("reconciler-leader", "node-b:8081", ttl).granted(),
+        "a lease is held right up to its expiry instant, not until just before it");
+
+    clock.advance(Duration.ofMillis(1));
+    LeaseGrant grant = store.tryAcquireOrRenewLease("reconciler-leader", "node-b:8081", ttl);
 
     assertTrue(grant.granted());
     assertEquals("node-b:8081", grant.holderId());

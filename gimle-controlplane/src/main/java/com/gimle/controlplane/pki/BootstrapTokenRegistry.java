@@ -1,6 +1,7 @@
 package com.gimle.controlplane.pki;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -22,13 +23,27 @@ public final class BootstrapTokenRegistry {
 
   private final ConcurrentMap<String, Instant> tokenExpiry = new ConcurrentHashMap<>();
   private final SecureRandom random = new SecureRandom();
+  private final Clock clock;
+
+  public BootstrapTokenRegistry() {
+    this(Clock.systemUTC());
+  }
+
+  /**
+   * Injectable-clock variant. Both instants this class compares -- a token's expiry and "now" at
+   * consumption -- come from here, so a test can expire a token issued with its real production TTL
+   * rather than issuing one with a millisecond TTL and racing it with a sleep.
+   */
+  public BootstrapTokenRegistry(Clock clock) {
+    this.clock = clock;
+  }
 
   /** Issues a new token valid for {@code ttl}, encoded URL-safe so it's easy to copy/paste. */
   public String issue(Duration ttl) {
     byte[] bytes = new byte[TOKEN_BYTES];
     random.nextBytes(bytes);
     String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    tokenExpiry.put(token, Instant.now().plus(ttl));
+    tokenExpiry.put(token, clock.instant().plus(ttl));
     return token;
   }
 
@@ -45,7 +60,7 @@ public final class BootstrapTokenRegistry {
     tokenExpiry.computeIfPresent(
         token,
         (key, expiry) -> {
-          if (expiry.isAfter(Instant.now())) {
+          if (expiry.isAfter(clock.instant())) {
             removed[0] = expiry;
           }
           return null;

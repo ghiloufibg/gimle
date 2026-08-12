@@ -3,6 +3,7 @@ package com.gimle.controlplane.pki;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.time.TestClock;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
@@ -23,13 +24,28 @@ class BootstrapTokenRegistryTest {
   }
 
   @Test
-  void expired_token_cannot_be_consumed() throws InterruptedException {
-    BootstrapTokenRegistry registry = new BootstrapTokenRegistry();
-    String token = registry.issue(Duration.ofMillis(1));
+  void expired_token_cannot_be_consumed(TestClock clock) {
+    // The real 5-minute TTL an operator would issue, rather than a 1ms one raced by a sleep.
+    BootstrapTokenRegistry registry = new BootstrapTokenRegistry(clock);
+    Duration ttl = Duration.ofMinutes(5);
+    String token = registry.issue(ttl);
 
-    Thread.sleep(20);
+    clock.advance(ttl);
 
-    assertFalse(registry.tryConsume(token));
+    assertFalse(
+        registry.tryConsume(token),
+        "a token is invalid from its expiry instant onward, not one tick later");
+  }
+
+  @Test
+  void a_token_is_still_valid_right_up_to_its_expiry(TestClock clock) {
+    BootstrapTokenRegistry registry = new BootstrapTokenRegistry(clock);
+    Duration ttl = Duration.ofMinutes(5);
+    String token = registry.issue(ttl);
+
+    clock.advance(ttl.minusNanos(1));
+
+    assertTrue(registry.tryConsume(token));
   }
 
   @Test
