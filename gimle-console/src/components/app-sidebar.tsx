@@ -9,6 +9,8 @@ import {
   Settings,
   KeyRound,
   BarChart3,
+  Activity,
+  ScrollText,
   LogOut,
 } from "lucide-react";
 
@@ -32,6 +34,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 const items = [
   { title: "Overview", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
+  { title: "Traces", url: "/traces", icon: Activity },
   { title: "Topology", url: "/topology", icon: Network },
   { title: "Deployments", url: "/deployments", icon: Boxes },
   { title: "Instances", url: "/instances", icon: Cpu },
@@ -39,6 +42,7 @@ const items = [
   { title: "Tenants", url: "/tenants", icon: Users },
   { title: "Config", url: "/config", icon: Settings },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
+  { title: "Audit", url: "/audit", icon: ScrollText },
 ];
 
 export function AppSidebar() {

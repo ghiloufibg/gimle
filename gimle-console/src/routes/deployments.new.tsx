@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import type { AutoscalePolicy } from "@/types";
 
 export const Route = createFileRoute("/deployments/new")({
   head: () => ({
@@ -41,6 +42,48 @@ function NewDeployment() {
     replicas: "1",
     tenantId: "NONE",
   });
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [auto, setAuto] = useState({
+    minReplicas: "1",
+    maxReplicas: "5",
+    targetCpuUtilizationPercent: "70",
+    targetRequestRatePerSecond: "",
+    targetErrorRatePercent: "",
+    targetQueueDepth: "",
+    combinationMode: "WORST_SIGNAL" as AutoscalePolicy["combinationMode"],
+    cpuWeight: "",
+    requestRateWeight: "",
+    errorRateWeight: "",
+    queueDepthWeight: "",
+  });
+
+  function buildAutoscale(): AutoscalePolicy | undefined {
+    if (!autoOpen) return undefined;
+    const num = (v: string) => (v.trim() === "" ? undefined : Number(v));
+    const policy: AutoscalePolicy = {
+      minReplicas: Number(auto.minReplicas) || 1,
+      maxReplicas: Number(auto.maxReplicas) || 1,
+      targetCpuUtilizationPercent: Number(auto.targetCpuUtilizationPercent) || 0,
+      combinationMode: auto.combinationMode,
+    };
+    const rr = num(auto.targetRequestRatePerSecond);
+    if (rr !== undefined) policy.targetRequestRatePerSecond = rr;
+    const er = num(auto.targetErrorRatePercent);
+    if (er !== undefined) policy.targetErrorRatePercent = er;
+    const qd = num(auto.targetQueueDepth);
+    if (qd !== undefined) policy.targetQueueDepth = qd;
+    if (auto.combinationMode === "WEIGHTED") {
+      const cw = num(auto.cpuWeight);
+      if (cw !== undefined) policy.cpuWeight = cw;
+      const rw = num(auto.requestRateWeight);
+      if (rw !== undefined) policy.requestRateWeight = rw;
+      const ew = num(auto.errorRateWeight);
+      if (ew !== undefined) policy.errorRateWeight = ew;
+      const qw = num(auto.queueDepthWeight);
+      if (qw !== undefined) policy.queueDepthWeight = qw;
+    }
+    return policy;
+  }
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -60,6 +103,7 @@ function NewDeployment() {
         artifactPath: form.artifactPath,
         replicas: Math.max(1, parseInt(form.replicas, 10) || 1),
         tenantId: form.tenantId === "NONE" ? null : form.tenantId,
+        autoscale: buildAutoscale(),
       });
       toast.success(`Created ${form.name}`);
       navigate({ to: "/deployments/$name", params: { name: form.name } });
@@ -151,6 +195,123 @@ function NewDeployment() {
               </SelectContent>
             </Select>
           </div>
+        </div>
+        <div className="border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={() => setAutoOpen((v) => !v)}
+            className="hud-label text-primary"
+          >
+            {autoOpen ? "▾" : "▸"} Autoscale (optional)
+          </button>
+          {autoOpen && (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Min replicas</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={auto.minReplicas}
+                    onChange={(e) => setAuto({ ...auto, minReplicas: e.target.value })}
+                    className="h-9 font-mono text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Max replicas</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={auto.maxReplicas}
+                    onChange={(e) => setAuto({ ...auto, maxReplicas: e.target.value })}
+                    className="h-9 font-mono text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Target CPU %</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={auto.targetCpuUtilizationPercent}
+                    onChange={(e) =>
+                      setAuto({ ...auto, targetCpuUtilizationPercent: e.target.value })
+                    }
+                    className="h-9 font-mono text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Target req/s</Label>
+                  <Input
+                    value={auto.targetRequestRatePerSecond}
+                    onChange={(e) =>
+                      setAuto({ ...auto, targetRequestRatePerSecond: e.target.value })
+                    }
+                    className="h-9 font-mono text-sm"
+                    placeholder="optional"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Target error %</Label>
+                  <Input
+                    value={auto.targetErrorRatePercent}
+                    onChange={(e) => setAuto({ ...auto, targetErrorRatePercent: e.target.value })}
+                    className="h-9 font-mono text-sm"
+                    placeholder="optional"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Target queue depth</Label>
+                  <Input
+                    value={auto.targetQueueDepth}
+                    onChange={(e) => setAuto({ ...auto, targetQueueDepth: e.target.value })}
+                    className="h-9 font-mono text-sm"
+                    placeholder="optional"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Combination mode</Label>
+                <Select
+                  value={auto.combinationMode}
+                  onValueChange={(v) =>
+                    setAuto({ ...auto, combinationMode: v as AutoscalePolicy["combinationMode"] })
+                  }
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="WORST_SIGNAL">WORST_SIGNAL</SelectItem>
+                    <SelectItem value="WEIGHTED">WEIGHTED</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {auto.combinationMode === "WEIGHTED" && (
+                <div className="grid grid-cols-4 gap-3">
+                  {(
+                    [
+                      ["cpuWeight", "CPU w"],
+                      ["requestRateWeight", "Req w"],
+                      ["errorRateWeight", "Err w"],
+                      ["queueDepthWeight", "Queue w"],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <div key={k} className="grid gap-1.5">
+                      <Label className="text-xs">{label}</Label>
+                      <Input
+                        value={auto[k]}
+                        onChange={(e) => setAuto({ ...auto, [k]: e.target.value })}
+                        className="h-9 font-mono text-sm"
+                        placeholder="optional"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="submit" size="sm" disabled={saving}>

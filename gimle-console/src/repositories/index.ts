@@ -7,6 +7,9 @@ import { HttpConfigRepository } from "./http/config";
 import { HttpSecretsRepository } from "./http/secrets";
 import { HttpLogsRepository } from "./http/logs";
 import { HttpAuthRepository } from "./http/auth";
+import { HttpMetricsHistoryRepository } from "./http/metricsHistory";
+import { HttpTracesHistoryRepository } from "./http/tracesHistory";
+import { HttpAuditRepository } from "./http/audit";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const instancesRepo = new HttpInstancesRepository(deploymentsRepo);
@@ -16,3 +19,6 @@ export const configRepo = new HttpConfigRepository();
 export const secretsRepo = new HttpSecretsRepository();
 export const logsRepo = new HttpLogsRepository();
 export const authRepo = new HttpAuthRepository();
+export const metricsHistoryRepo = new HttpMetricsHistoryRepository();
+export const tracesRepo = new HttpTracesHistoryRepository();
+export const auditRepo = new HttpAuditRepository();
