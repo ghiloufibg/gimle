@@ -627,6 +627,64 @@ the full-suite run and both confirmed clean via an immediate isolated re-run, th
 sandbox-timing-contention pattern already documented above for `RollingUpdateIT`), and a
 full-reactor `mvn verify` (5:39) with only the two already-standing exclusions.
 
+### Real bug found and fixed: a deployment could permanently deadlock and never roll forward again
+
+Third of the four plaintext-mode gaps identified this session: `ClassloaderLeakIT` proves exactly
+one redeploy cycle survives cleanly, and CLAUDE.md's own "mandatory acceptance test"
+(redeploy-in-a-loop, flat metaspace) exists only at the `gimle-module` unit tier
+(`RedeployLoopFlatMetaspaceTest`/`RedeployLoopDriver`) — repeated redeploys had never run against a
+real multi-process cluster. Building the new smoke test surfaced a genuine, serious bug in
+`DeploymentReconciler`'s rolling-update state machine, not just a coverage gap.
+
+**The bug**: `handleRollingUpdate`'s condition for clearing an in-flight `rollingIndex` required the
+replacement instance's own module version to equal the deployment spec's *live* `moduleId()` — but
+`spec` is read fresh on every reconcile tick, so it can already have raced ahead to a newer
+submission by the time this check runs (an operator or pipeline submitting a second version bump
+before the first migration's readiness was even observed). Once that equality failed to hold for a
+given index, it could never hold again for that index, since nothing else advances `spec`. With
+`rollingIndex.isPresent()` gating an early return that skips all further mismatch detection, this
+permanently deadlocked the deployment — not just the in-flight migration, but every rollout
+submitted afterward, forever. Root-caused via `RedeployStabilityIT`'s first real-cluster failure
+(timed out waiting for cycle 3 of 8) by reading the `@TempDir(cleanup=NEVER)`-persisted store state
+directly off disk: `rolling/<name>.yaml` showed the index still set, `assignments/<name>/0.yaml`
+showed the instance already sitting on the version *before* the one actually submitted, and the
+node's own heartbeat confirmed that instance had been genuinely `ACTIVE` and ready the whole time —
+proving the clear condition, not the redeploy mechanism itself, was stuck.
+
+**The fix**: removed the `current.get().moduleId().equals(spec.moduleId())` clause from the clear
+condition, leaving only `current.isPresent() && isReady(current.get())`. `isReady` already
+independently confirms the live heartbeat's own observation matches the assignment's *own recorded*
+`moduleId` (not the spec's) — the only check "did this specific migration step land" actually
+needs. Once cleared, the very next tick's mismatch scan below picks up whatever the spec's current
+version is on its own, so rollouts now chain instead of deadlocking on the first one a newer
+submission races ahead of.
+
+**Regression test** (`DeploymentReconcilerRollingUpdateTest`, fast/in-process): a fifth test
+reproducing the exact race — index 0 migrates v1→v2, becomes ready, but a v3 submission lands
+before the next tick clears the rollout — proving the clear still fires for the completed v1→v2
+step even though `spec` has already moved on, and that the subsequent v2→v3 migration then starts
+and completes cleanly on its own tick, chaining rather than deadlocking. All 4 pre-existing tests in
+the file continued to pass unchanged.
+
+**Process note, not a second bug**: the first two real-cluster re-verification attempts after
+applying the fix *also* failed, at different, later cycles each time (6 and then 3 of 8) — this
+briefly looked like a second, subtler bug (deep investigation went as far as temporary diagnostic
+logging inside `handleRollingUpdate` and a defensive `ScheduledExecutorService` hardening change in
+`ControlPlaneMain` before the real cause was found). The actual cause was simpler: those
+re-verification runs invoked `gimle-smoke-tests` as a separate `-pl` build, which resolves
+`gimle-controlplane` from the local Maven repository, not the reactor's freshly compiled classes —
+and the fixed jar had only ever been `verify`'d, never `install`'d, so every "re-verification" was
+silently re-testing the pre-fix code. Once actually installed, the fix passed cleanly on every
+subsequent run. The diagnostic logging and the unrelated `ScheduledExecutorService` hardening were
+both reverted before commit, keeping this change scoped to the one confirmed defect.
+
+**Verification**: `DeploymentReconcilerRollingUpdateTest` (5/5) and `gimle-controlplane`'s full
+module suite (153/153) both green; `RedeployStabilityIT` passed 9 times in a row against a real
+cluster once the fix was properly installed (isolated runs and as part of the full suite alike,
+~101-119s each, all 8 redeploy cycles completing every time); a full `-Psmoke` run (12 IT classes,
+1 pre-existing skip) passed clean; a full-reactor `mvn verify` (5:42) with only the two
+already-standing exclusions passed clean.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission

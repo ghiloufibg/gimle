@@ -173,12 +173,26 @@ public final class DeploymentReconciler {
 
   /**
    * If a rollout is already in flight for this deployment, checks whether the replacement at that
-   * index has both landed with the new {@code moduleId} and reported ready -- clearing {@code
-   * rollingIndex} once it has, otherwise leaving everything untouched (a stalled rollout blocks
-   * only itself, never other indices). Only once no rollout is in flight does it look for a new
-   * mismatch to start, picking the lowest such index and removing its stale assignment so the
-   * caller's ordinary missing-index placement logic re-places it with the current spec's {@code
-   * moduleId} -- the exact same placement path a fresh scale-up already uses.
+   * index has landed and reported ready for whatever {@code moduleId} it was actually placed at --
+   * clearing {@code rollingIndex} once it has, otherwise leaving everything untouched (a stalled
+   * rollout blocks only itself, never other indices). Only once no rollout is in flight does it
+   * look for a new mismatch to start, picking the lowest such index and removing its stale
+   * assignment so the caller's ordinary missing-index placement logic re-places it with the current
+   * spec's {@code moduleId} -- the exact same placement path a fresh scale-up already uses.
+   *
+   * <p>Deliberately does <em>not</em> also require {@code current.get().moduleId()} to equal {@code
+   * spec.moduleId()} here -- a real-cluster finding (see {@code RedeployStabilityIT} /
+   * QA_FINDINGS.md): {@code spec} is this method's caller's live, current snapshot, which can
+   * already have raced ahead to a newer version by the time this tick runs (an operator or pipeline
+   * submitting a second version before this index's first migration was confirmed ready). Gating
+   * the clear on matching that possibly-newer spec meant the equality could never pass again for
+   * this index once it had, permanently deadlocking the deployment -- every future tick took this
+   * same early-return branch forever, since nothing else can ever clear {@code rollingIndex}.
+   * {@link #isReady} already independently confirms the live heartbeat's own observation matches
+   * {@code current}'s own recorded {@code moduleId} (not the spec's), which is the only check "did
+   * this specific migration step land" actually needs -- once cleared, the very next tick's
+   * mismatch scan below picks up any newer spec on its own, chaining rollouts instead of
+   * deadlocking on one.
    */
   private void handleRollingUpdate(DeploymentSpec spec) {
     Optional<Integer> rollingIndex = store.getRollingIndex(spec.name());
@@ -188,9 +202,7 @@ public final class DeploymentReconciler {
           store.listAssignmentsFor(spec.name()).stream()
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
-      if (current.isPresent()
-          && current.get().moduleId().equals(spec.moduleId())
-          && isReady(current.get())) {
+      if (current.isPresent() && isReady(current.get())) {
         mutations.propose(new StateMutation.ClearRollingIndex(spec.name()));
       }
       // Either still waiting for the replacement to become ready, or it was already removed and

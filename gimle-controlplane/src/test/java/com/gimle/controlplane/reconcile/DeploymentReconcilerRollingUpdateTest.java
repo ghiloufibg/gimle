@@ -234,4 +234,62 @@ class DeploymentReconcilerRollingUpdateTest {
         "a ready-but-wrong-moduleId observation must not be mistaken for the rollout completing");
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
   }
+
+  /**
+   * QA hardening real-cluster finding (confirmed against a real cluster via {@code
+   * RedeployStabilityIT}, see QA_FINDINGS.md): {@code handleRollingUpdate}'s clear condition used
+   * to also require the in-flight index's assignment to match the *live* {@code spec.moduleId()} --
+   * but {@code spec} is read fresh on every tick, so a third version submitted before the second
+   * version's readiness was observed raced ahead of that equality check. Once it could never pass
+   * again for that index, {@code rollingIndex} stayed set forever and every future tick took the
+   * early-return branch, permanently blocking this deployment from ever rolling forward again --
+   * not just stalling the in-flight migration (already covered above), but deadlocking the *next*
+   * one too, indefinitely.
+   */
+  @Test
+  void
+      a_version_submitted_while_the_prior_rollout_is_still_confirming_does_not_deadlock_future_rollouts() {
+    StateStore store = new StateStore(tempDir.resolve("store-chained-rollout"));
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    registerNode(store, "node-a");
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 1, jarV1);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 1, jarV2);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward to v2
+    assertEquals(Optional.of(0), store.getRollingIndex("orders-service"));
+
+    // Index 0 becomes ready on v2 -- but a THIRD version is submitted before the next reconcile
+    // tick runs, racing ahead of the check that would otherwise have cleared rollingIndex.
+    markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    Path jarV3 = buildFixtureJar();
+    DeploymentSpec v3 = deployment("orders-service", 1, jarV3);
+    store.putDeployment(v3);
+
+    reconciler.reconcileOnce(); // must still clear: index 0 IS ready, just not yet on v3
+    assertEquals(
+        Optional.empty(),
+        store.getRollingIndex("orders-service"),
+        "a completed migration must clear rollingIndex even if a newer version was submitted"
+            + " before this tick ran -- otherwise this deployment can never roll forward again");
+
+    reconciler.reconcileOnce(); // a fresh tick now detects the v2->v3 mismatch and starts rolling
+    assertEquals(Optional.of(0), store.getRollingIndex("orders-service"));
+    assertEquals(v3.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
+
+    markReady(store, "node-a", "orders-service", 0, v3.moduleId());
+    reconciler.reconcileOnce();
+    assertEquals(
+        Optional.empty(),
+        store.getRollingIndex("orders-service"),
+        "the chained rollout should also complete cleanly, proving rollouts chain instead of"
+            + " deadlocking on the first one a newer submission races ahead of");
+  }
 }
