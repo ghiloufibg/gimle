@@ -1,5 +1,6 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.codec.Frames;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.fabric.trace.TraceContext;
 import java.io.ByteArrayOutputStream;
@@ -56,11 +57,7 @@ public final class FabricCodec {
   }
 
   public static void write(OutputStream out, FabricFrame frame) throws IOException {
-    byte[] body = encodeBody(frame);
-    DataOutputStream data = new DataOutputStream(out);
-    data.writeInt(body.length);
-    data.write(body);
-    data.flush();
+    Frames.writeFrame(out, encodeBody(frame));
   }
 
   /**

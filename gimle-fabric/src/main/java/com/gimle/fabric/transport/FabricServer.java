@@ -25,10 +25,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.StandardProtocolFamily;
+import java.net.StandardSocketOptions;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.Channels;
 import java.nio.channels.ServerSocketChannel;
@@ -194,6 +196,10 @@ public final class FabricServer implements AutoCloseable {
       SocketChannel connection;
       try {
         connection = serverChannel.accept();
+        if (connection.getLocalAddress() instanceof InetSocketAddress) {
+          // TCP only -- a Unix domain socket has no Nagle to disable, and rejects the option.
+          connection.setOption(StandardSocketOptions.TCP_NODELAY, true);
+        }
       } catch (IOException e) {
         if (!closed) {
           log.warn("fabric server accept loop failed: {}", e.getMessage());
@@ -209,6 +215,7 @@ public final class FabricServer implements AutoCloseable {
       Socket connection;
       try {
         connection = serverSocket.accept();
+        connection.setTcpNoDelay(true); // see FabricClient: the response half of the round trip
       } catch (IOException e) {
         if (!closed) {
           log.warn("fabric server accept loop failed: {}", e.getMessage());

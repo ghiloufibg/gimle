@@ -98,6 +98,7 @@ public final class StoreTransport implements AutoCloseable {
       Socket connection;
       try {
         connection = serverSocket.accept();
+        connection.setTcpNoDelay(true); // see StoreConnection: the response half of the round trip
       } catch (IOException e) {
         if (!closed) {
           log.warn("store transport accept loop failed: {}", e.getMessage());

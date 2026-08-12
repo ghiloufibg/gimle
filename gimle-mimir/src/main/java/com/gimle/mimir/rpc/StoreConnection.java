@@ -61,6 +61,9 @@ public final class StoreConnection implements AutoCloseable {
     if (socket == null || socket.isClosed()) {
       socket = socketFactory().createSocket();
       socket.connect(address);
+      // Strict request/response over a long-lived connection: Nagle has nothing useful to batch
+      // here, and left on it adds a delayed-ACK stall to every single call.
+      socket.setTcpNoDelay(true);
     }
     return socket;
   }

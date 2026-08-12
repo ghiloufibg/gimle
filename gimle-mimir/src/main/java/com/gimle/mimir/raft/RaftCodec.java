@@ -2,6 +2,7 @@ package com.gimle.mimir.raft;
 
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.codec.Frames;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.protocol.AuditEvent;
@@ -96,11 +97,7 @@ public final class RaftCodec {
   // ---- top-level RaftRpc framing (length-prefixed, matching FabricCodec) ----
 
   public static void write(OutputStream out, RaftRpc rpc) throws IOException {
-    byte[] body = encodeRpcBody(rpc);
-    DataOutputStream data = new DataOutputStream(out);
-    data.writeInt(body.length);
-    data.write(body);
-    data.flush();
+    Frames.writeFrame(out, encodeRpcBody(rpc));
   }
 
   /**

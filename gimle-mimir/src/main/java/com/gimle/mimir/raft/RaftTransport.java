@@ -101,6 +101,7 @@ public final class RaftTransport implements AutoCloseable {
       Socket connection;
       try {
         connection = serverSocket.accept();
+        connection.setTcpNoDelay(true); // see PeerConnection: the response half of the round trip
       } catch (IOException e) {
         if (!closed) {
           log.warn("raft transport accept loop failed: {}", e.getMessage());

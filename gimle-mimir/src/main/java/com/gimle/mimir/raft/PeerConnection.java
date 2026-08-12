@@ -75,6 +75,9 @@ public final class PeerConnection implements RaftPeerClient, AutoCloseable {
     if (socket == null || socket.isClosed()) {
       socket = socketFactory().createSocket();
       socket.connect(address);
+      // Raft heartbeats every 50ms: a Nagle-induced delayed-ACK stall is comparable to the whole
+      // heartbeat interval, so leaving it on directly destabilises election and commit timing.
+      socket.setTcpNoDelay(true);
     }
     return socket;
   }

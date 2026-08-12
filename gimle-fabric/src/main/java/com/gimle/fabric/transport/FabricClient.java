@@ -12,6 +12,7 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
 import java.net.StandardProtocolFamily;
+import java.net.StandardSocketOptions;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
@@ -72,10 +73,13 @@ public final class FabricClient {
     }
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       SocketChannel channel = SocketChannel.open();
+      // One request, one response, then close: Nagle can only ever delay the response half here.
+      channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
       return callOverChannel(endpoint, channel, request, timeout);
     }
     SocketFactory factory = SslContexts.forMutualTls(TlsSettings.fromConfig()).getSocketFactory();
     Socket socket = factory.createSocket();
+    socket.setTcpNoDelay(true);
     return callOverSocket(endpoint, socket, request, timeout);
   }
 

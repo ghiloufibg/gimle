@@ -2,6 +2,7 @@ package com.gimle.mimir.rpc;
 
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.codec.Frames;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.protocol.AuditEvent;
@@ -104,11 +105,7 @@ public final class StoreCodec {
   }
 
   public static void write(OutputStream out, StoreRpc rpc) throws IOException {
-    byte[] body = encodeBody(rpc);
-    DataOutputStream data = new DataOutputStream(out);
-    data.writeInt(body.length);
-    data.write(body);
-    data.flush();
+    Frames.writeFrame(out, encodeBody(rpc));
   }
 
   /**
