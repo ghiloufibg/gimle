@@ -1,5 +1,6 @@
 package com.gimle.fabric.breaker;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
@@ -35,6 +36,7 @@ public final class CircuitBreaker {
   private final int windowSize;
   private final double errorRateThreshold;
   private final Duration cooldown;
+  private final Clock clock;
   private final boolean[] window;
 
   private int index;
@@ -45,6 +47,16 @@ public final class CircuitBreaker {
   private int consecutiveOpens;
 
   public CircuitBreaker(int windowSize, double errorRateThreshold, Duration cooldown) {
+    this(windowSize, errorRateThreshold, cooldown, Clock.systemUTC());
+  }
+
+  /**
+   * Cooldown expiry is the one thing this class reads a clock for, so injecting one is all a test
+   * needs to exercise the real production cooldown (seconds) without waiting for it -- see {@code
+   * TestClock} in {@code gimle-core}'s test-jar. Production always uses the {@link
+   * Clock#systemUTC()} default above.
+   */
+  public CircuitBreaker(int windowSize, double errorRateThreshold, Duration cooldown, Clock clock) {
     if (windowSize <= 0) {
       throw new IllegalArgumentException("windowSize must be positive: " + windowSize);
     }
@@ -55,6 +67,7 @@ public final class CircuitBreaker {
     this.windowSize = windowSize;
     this.errorRateThreshold = errorRateThreshold;
     this.cooldown = cooldown;
+    this.clock = clock;
     this.window = new boolean[windowSize];
   }
 
@@ -92,7 +105,7 @@ public final class CircuitBreaker {
   }
 
   private void transitionIfCooldownElapsed() {
-    if (state == State.OPEN && !Instant.now().isBefore(openedAt.plus(effectiveCooldown()))) {
+    if (state == State.OPEN && !clock.instant().isBefore(openedAt.plus(effectiveCooldown()))) {
       state = State.HALF_OPEN;
       halfOpenTrialInFlight = false;
     }
@@ -150,7 +163,7 @@ public final class CircuitBreaker {
 
   private void open() {
     state = State.OPEN;
-    openedAt = Instant.now();
+    openedAt = clock.instant();
     halfOpenTrialInFlight = false;
     consecutiveOpens = Math.min(consecutiveOpens + 1, MAX_BACKOFF_SHIFT + 1);
   }

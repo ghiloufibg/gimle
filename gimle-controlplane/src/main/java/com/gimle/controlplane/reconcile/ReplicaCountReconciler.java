@@ -9,6 +9,7 @@ import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
@@ -53,6 +54,7 @@ public final class ReplicaCountReconciler {
   private final Duration nodeDarkTimeout;
   private final Duration placementGracePeriod;
   private final MutationSink mutations;
+  private final Clock clock;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public ReplicaCountReconciler(StateStore store, Duration nodeDarkTimeout) {
@@ -65,19 +67,41 @@ public final class ReplicaCountReconciler {
     this(store, nodeDarkTimeout, placementGracePeriod, mutation -> mutation.applyTo(store));
   }
 
+  /**
+   * Test-only convenience, with an injectable clock: every duration this reconciler compares
+   * against ({@code nodeDarkTimeout}, {@code placementGracePeriod}) is measured from a single
+   * {@code now} read at the top of {@link #reconcileOnce}, so supplying that read is all a test
+   * needs to exercise the real production timeouts without waiting for them -- see {@code
+   * TestClock} in {@code gimle-core}'s test-jar.
+   */
+  public ReplicaCountReconciler(
+      StateStore store, Duration nodeDarkTimeout, Duration placementGracePeriod, Clock clock) {
+    this(store, nodeDarkTimeout, placementGracePeriod, mutation -> mutation.applyTo(store), clock);
+  }
+
   public ReplicaCountReconciler(
       StoreReader store,
       Duration nodeDarkTimeout,
       Duration placementGracePeriod,
       MutationSink mutations) {
+    this(store, nodeDarkTimeout, placementGracePeriod, mutations, Clock.systemUTC());
+  }
+
+  public ReplicaCountReconciler(
+      StoreReader store,
+      Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
+      MutationSink mutations,
+      Clock clock) {
     this.store = store;
     this.nodeDarkTimeout = nodeDarkTimeout;
     this.placementGracePeriod = placementGracePeriod;
     this.mutations = mutations;
+    this.clock = clock;
   }
 
   public void reconcileOnce() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Set<String> currentKeys = new HashSet<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
       currentKeys.add(key(assignment.deploymentName(), assignment.instanceIndex()));

@@ -8,6 +8,7 @@ import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
@@ -26,6 +27,23 @@ class ReplicaCountReconcilerTest {
 
   private static final ModuleId ORDERS =
       new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+
+  /**
+   * The genuine production values {@code ControlPlaneMain} configures ({@code NODE_DARK_TIMEOUT},
+   * passed for both), rather than the millisecond stand-ins these tests used to compress them to so
+   * a {@code Thread.sleep} could outrun them. A {@link TestClock} makes the real 15s as cheap to
+   * cross as a 50ms fake, and exactly rather than approximately.
+   */
+  private static final Duration NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
+
+  /**
+   * Deliberately well inside {@link #NODE_DARK_TIMEOUT}, preserving the relationship the original
+   * millisecond values had (50ms grace against a 15s dark timeout): advancing past the grace period
+   * must not also age the heartbeat into darkness, or a test meant to isolate the grace-period
+   * mechanic would really be exercising the dark-timeout one. Production happens to configure both
+   * to the same 15s, which is why this is stated here rather than reused from there.
+   */
+  private static final Duration GRACE_PERIOD = Duration.ofSeconds(5);
 
   private static boolean hasAssignment(StateStore store, String deploymentName, int index) {
     return store.listAssignmentsFor(deploymentName).stream()
@@ -70,8 +88,7 @@ class ReplicaCountReconcilerTest {
   }
 
   @Test
-  void a_brand_new_assignment_not_yet_mentioned_survives_within_the_grace_period()
-      throws InterruptedException {
+  void a_brand_new_assignment_not_yet_mentioned_survives_within_the_grace_period() {
     // The bug this grace period fixes: a freshly-placed assignment is, by construction, never in
     // any heartbeat sent before the owning agent has fetched and started it. Removing on the very
     // first "not mentioned yet" tick would undo the placement before the agent had a chance to act
@@ -81,47 +98,48 @@ class ReplicaCountReconcilerTest {
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
 
+    TestClock clock = TestClock.startingNow();
     ReplicaCountReconciler reconciler =
-        new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofMillis(200));
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
     reconciler.reconcileOnce();
     assertTrue(
         hasAssignment(store, "orders-service", 0),
         "should survive the first tick, within the grace period");
 
-    Thread.sleep(50);
+    clock.advance(GRACE_PERIOD.minusSeconds(1));
     reconciler.reconcileOnce();
     assertTrue(hasAssignment(store, "orders-service", 0), "still within the grace period");
   }
 
   @Test
-  void an_unmentioned_assignment_is_removed_once_the_grace_period_elapses()
-      throws InterruptedException {
+  void an_unmentioned_assignment_is_removed_once_the_grace_period_elapses() {
     StateStore store = new StateStore(tempDir.resolve("grace-period-expires"));
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
 
+    TestClock clock = TestClock.startingNow();
     ReplicaCountReconciler reconciler =
-        new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofMillis(50));
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
     reconciler.reconcileOnce(); // starts the grace period
     assertTrue(hasAssignment(store, "orders-service", 0));
 
-    Thread.sleep(80);
+    clock.advance(GRACE_PERIOD.plusSeconds(1));
     reconciler.reconcileOnce(); // grace period elapsed: now it removes it
 
     assertFalse(hasAssignment(store, "orders-service", 0));
   }
 
   @Test
-  void becoming_confirmed_within_the_grace_period_cancels_the_pending_removal()
-      throws InterruptedException {
+  void becoming_confirmed_within_the_grace_period_cancels_the_pending_removal() {
     StateStore store = new StateStore(tempDir.resolve("recovers-within-grace"));
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
 
+    TestClock clock = TestClock.startingNow();
     ReplicaCountReconciler reconciler =
-        new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofMillis(50));
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
     reconciler.reconcileOnce(); // starts the grace period
 
     store.putNodeHeartbeat(
@@ -130,7 +148,7 @@ class ReplicaCountReconcilerTest {
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
             List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true))));
 
-    Thread.sleep(80); // past what would have been the grace-period deadline
+    clock.advance(GRACE_PERIOD.plusSeconds(1)); // past what would have been the deadline
     reconciler.reconcileOnce();
 
     assertTrue(
@@ -150,8 +168,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void
-      an_assignment_whose_nodes_heartbeat_has_gone_stale_is_removed_even_if_it_mentions_the_instance()
-          throws InterruptedException {
+      an_assignment_whose_nodes_heartbeat_has_gone_stale_is_removed_even_if_it_mentions_the_instance() {
     StateStore store = new StateStore(tempDir.resolve("stale-heartbeat"));
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
@@ -160,9 +177,11 @@ class ReplicaCountReconcilerTest {
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
             List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true))));
 
-    Thread.sleep(60); // let the heartbeat age past a deliberately tiny dark timeout
+    // The heartbeat's own receivedAt is stamped by StateStore with the system clock, so the clock
+    // is anchored at real now and advanced past the real production dark timeout from there.
+    TestClock clock = TestClock.startingNow().advance(NODE_DARK_TIMEOUT.plusSeconds(1));
 
-    immediateReconciler(store, Duration.ofMillis(20)).reconcileOnce();
+    new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, Duration.ZERO, clock).reconcileOnce();
 
     assertFalse(hasAssignment(store, "orders-service", 0));
   }
@@ -187,8 +206,7 @@ class ReplicaCountReconcilerTest {
   }
 
   @Test
-  void grace_period_state_survives_a_reconciler_reconstruction_against_the_same_store()
-      throws InterruptedException {
+  void grace_period_state_survives_a_reconciler_reconstruction_against_the_same_store() {
     // Simulates a reconciler-leader failover: a fresh ReplicaCountReconciler instance, backed by
     // the same on-disk store, must resume the already-elapsing grace-period timer rather than
     // restarting it, which would delay a legitimate reschedule.
@@ -198,8 +216,9 @@ class ReplicaCountReconcilerTest {
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
 
+    TestClock clock = TestClock.startingNow();
     ReplicaCountReconciler original =
-        new ReplicaCountReconciler(store, Duration.ofSeconds(15), Duration.ofMillis(80));
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
     original.reconcileOnce(); // starts the grace period
     assertTrue(hasAssignment(store, "orders-service", 0));
 
@@ -207,9 +226,9 @@ class ReplicaCountReconcilerTest {
     // reconciler against it -- no in-memory state carries over except what was persisted.
     StateStore reopened = new StateStore(dir);
     ReplicaCountReconciler resumed =
-        new ReplicaCountReconciler(reopened, Duration.ofSeconds(15), Duration.ofMillis(80));
+        new ReplicaCountReconciler(reopened, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
 
-    Thread.sleep(100); // past the original grace-period deadline, not a fresh one
+    clock.advance(GRACE_PERIOD.plusSeconds(1)); // past the original deadline, not a fresh one
     resumed.reconcileOnce();
 
     assertFalse(

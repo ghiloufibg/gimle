@@ -1,1 +1,2 @@
 com.gimle.core.logging.TestMdcExtension
+com.gimle.core.time.TestClockExtension
