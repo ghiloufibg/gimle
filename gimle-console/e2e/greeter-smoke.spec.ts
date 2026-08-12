@@ -127,6 +127,36 @@ test("metrics screen shows a real, data-specific instance count, not just an emp
   }).toPass({ timeout: 30_000 });
 });
 
+test("metrics history shows real shipped time-series data for the control plane", async ({
+  page,
+}) => {
+  // The Metrics screen's "Process time series" section defaults to CONTROLPLANE with no manual
+  // input needed: ProcessPicker derives that default from window.location.host, which -- because
+  // the console is served by the exact control-plane replica the Playwright suite navigated to,
+  // same-origin -- is exactly that replica's own selfApiAddress (the address its own MuninnShipper
+  // ships metrics under every 5s). By the time this suite runs (after both deployments already
+  // reached ACTIVE), several batches have already shipped.
+  await expect(async () => {
+    await page.goto("/console/metrics");
+    await expect(page.getByText("gimle.controlplane.request.count").first()).toBeVisible({
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
+});
+
+test("audit trail screen loads and queries the real backend without crashing", async ({ page }) => {
+  // Unlike every other real-data assertion in this file, this one deliberately does NOT assert a
+  // non-empty result: GreeterSmokeClusterSupport's cluster runs in plaintext mode (design doc's own
+  // authn-authz posture -- ApiServer#requireAuthorized bypasses auth entirely without TLS, the same
+  // reason SMOKE_OPERATOR_USERNAME/PASSWORD above works via an *unauthenticated* PUT /accounts/*),
+  // and requireAuthorized only ever calls recordAuditEvent after resolving a real principal, which
+  // never happens without TLS -- so this cluster's audit trail is genuinely, correctly always empty.
+  // The real assertion here is that GET /audit round-trips (200, not a crash) and the empty state
+  // renders correctly, not that data exists that this cluster topology can never produce.
+  await page.goto("/console/audit");
+  await expect(page.getByText("no audit events match")).toBeVisible({ timeout: 10_000 });
+});
+
 test("logs screen live-tails the consumer's real fabric call to the provider", async ({ page }) => {
   await page.goto(
     "/console/logs?kind=instance&deploymentName=greeter-consumer-deployment&instanceIndex=0&category=APPLICATION",
