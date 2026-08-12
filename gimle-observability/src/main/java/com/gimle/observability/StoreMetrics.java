@@ -32,7 +32,11 @@ public final class StoreMetrics {
 
   public void recordRequest(String rpcKind, Duration latency, boolean error) {
     Tags tags = Tags.of("rpc", rpcKind);
-    Timer.builder("gimle.store.request.latency").tags(tags).register(registry).record(latency);
+    Timer.builder("gimle.store.request.latency")
+        .tags(tags)
+        .publishPercentiles(0.5, 0.95, 0.99)
+        .register(registry)
+        .record(latency);
     Counter.builder("gimle.store.request.count").tags(tags).register(registry).increment();
     if (error) {
       Counter.builder("gimle.store.request.errors").tags(tags).register(registry).increment();

@@ -190,6 +190,68 @@ class MuninnShipperTest {
 
   @Test
   @Timeout(10)
+  void a_timer_built_with_percentiles_ships_a_percentiles_map_in_its_ndjson_line(TestClock clock)
+      throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    Timer timer =
+        Timer.builder("gimle.test.latency.p99")
+            .publishPercentiles(0.5, 0.95, 0.99)
+            .register(registry);
+    timer.record(Duration.ofMillis(5));
+    timer.record(Duration.ofMillis(15));
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    shipper.startShippingMetrics(registry);
+
+    scheduler.runUntilIdle();
+    assertEquals(1, receivedBodies.size());
+    String body = receivedBodies.get(0);
+    assertTrue(body.contains("\"percentiles\""));
+    assertTrue(body.contains("\"0.5\""));
+    assertTrue(body.contains("\"0.95\""));
+    assertTrue(body.contains("\"0.99\""));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_timer_built_without_percentiles_ships_no_percentiles_key(TestClock clock)
+      throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    Timer.builder("gimle.test.latency.plain").register(registry).record(Duration.ofMillis(5));
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    shipper.startShippingMetrics(registry);
+
+    scheduler.runUntilIdle();
+    // Backward-compat pin for the change in MuninnShipper#meterToJsonLine: a Timer that never opted
+    // into publishPercentiles(...) must ship exactly the same line shape as before this feature.
+    assertEquals(1, receivedBodies.size());
+    assertTrue(receivedBodies.get(0).contains("gimle.test.latency.plain"));
+    assertTrue(
+        receivedBodies.stream().noneMatch(body -> body.contains("\"percentiles\"")),
+        "a percentile-less timer must not gain a percentiles key");
+  }
+
+  @Test
+  @Timeout(10)
   void ship_trace_batch_is_a_one_shot_post_with_no_periodic_ticking(TestClock clock)
       throws Exception {
     List<String> receivedBodies = new CopyOnWriteArrayList<>();

@@ -106,6 +106,34 @@ class MuninnServerMetricsIngestTest {
 
   @Test
   @Timeout(10)
+  void an_ingested_timer_with_percentiles_round_trips_the_percentiles_map() throws Exception {
+    String timerLine =
+        Json.write(
+            Map.of(
+                "timestamp", "2026-08-10T10:00:01Z",
+                "name", "gimle.controlplane.request.latency",
+                "type", "TIMER",
+                "tags", Map.of("endpoint", "deployments"),
+                "measurements", Map.of("COUNT", 3.0, "TOTAL_TIME", 0.045, "MAX", 0.02),
+                "percentiles", Map.of("0.5", 0.01, "0.95", 0.02, "0.99", 0.025)));
+
+    HttpResponse<String> ingestResponse =
+        post("/ingest/metrics/CONTROLPLANE/127.0.0.1:8080", timerLine + "\n");
+    assertEquals(200, ingestResponse.statusCode());
+
+    HttpResponse<String> readResponse = get("/metrics/CONTROLPLANE/127.0.0.1:8080");
+    assertEquals(200, readResponse.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(readResponse.body()));
+    List<Map<String, Object>> lines = Json.asObjectList(body.get("lines"));
+    assertEquals(1, lines.size());
+    Map<String, Object> percentiles = Json.asObject(lines.get(0).get("percentiles"));
+    assertEquals(0.01, percentiles.get("0.5"));
+    assertEquals(0.02, percentiles.get("0.95"));
+    assertEquals(0.025, percentiles.get("0.99"));
+  }
+
+  @Test
+  @Timeout(10)
   void a_malformed_metrics_batch_is_rejected_entirely() throws Exception {
     String validLine =
         Json.write(

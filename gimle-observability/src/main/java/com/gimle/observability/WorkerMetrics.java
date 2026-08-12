@@ -42,7 +42,11 @@ public final class WorkerMetrics {
 
   public void recordRequest(ModuleId id, Duration latency, boolean error) {
     Tags tags = tagsFor(id);
-    Timer.builder("gimle.module.request.latency").tags(tags).register(registry).record(latency);
+    Timer.builder("gimle.module.request.latency")
+        .tags(tags)
+        .publishPercentiles(0.5, 0.95, 0.99)
+        .register(registry)
+        .record(latency);
     Counter.builder("gimle.module.request.count").tags(tags).register(registry).increment();
     if (error) {
       Counter.builder("gimle.module.request.errors").tags(tags).register(registry).increment();

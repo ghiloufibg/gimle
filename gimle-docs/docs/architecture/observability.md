@@ -25,22 +25,31 @@ real request-rate/error-rate figures (not just CPU/memory), plus each module's c
 `BoundedModuleScheduler` queue depth — all three travel through `ControlMessage.MetricsReport` to
 the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
 already rides. The control plane exposes a `GET /metrics` per-deployment rollup (average request
-rate, average error rate, instance count) built from that same observation data. Not yet shipped:
-p99/latency-histogram data — `WorkerMetrics`' `Timer`s already record it, but percentile
-computation and shipping it off-worker is materially more plumbing than a counter delta and remains
-a future item.
+rate, average error rate, instance count) built from that same observation data. `WorkerMetrics`'
+own request-latency `Timer` is now built with `publishPercentiles(0.5, 0.95, 0.99)` too, for local
+parity with the three process-tier registries below — but, matching the "worker metrics stay
+local-registry-only" note two paragraphs down, that percentile data is never shipped anywhere on
+its own; it only becomes externally visible once/if worker-tier shipping itself is built.
 
 `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir` each carry their own analogous per-process
 `MeterRegistry` (`ApiServerMetrics`/`FafnirMetrics`/`StoreMetrics` — request/RPC count, latency,
 error count, tagged by endpoint+verb or RPC kind), and ship it to Muninn (see
 [Node topology](./node-topology.md#muninn)) via a periodic `MuninnShipper` when a Muninn endpoint
-is configured, readable back through `GET /metrics-history/{processKind}/{processId}`. **Worker
-JVM metrics are explicitly not part of this**: `WorkerMetrics` above stays local-registry-only,
-shipped nowhere — only a worker's *logs* reach Muninn, relayed by its supervising node agent (see
-[Node topology](./node-topology.md#muninn)), not its metrics or traces. Extending metrics/trace
-shipping down to the worker tier itself is a real, acknowledged gap, not an oversight: the
-agent↔worker control channel would need a new message shape for a full `MeterRegistry` snapshot,
-materially more plumbing than the existing `ControlMessage.MetricsReport`'s few scalar fields.
+is configured, readable back through `GET /metrics-history/{processKind}/{processId}`. Each of
+these three registries' own request-latency `Timer` is built with `publishPercentiles(0.5, 0.95,
+0.99)`, and `MuninnShipper#meterToJsonLine` special-cases any `Timer` meter to call its
+`HistogramSnapshot#percentileValues()` and ship the result as a `"percentiles"` map alongside the
+existing `"measurements"` map (`{"0.5": ..., "0.95": ..., "0.99": ...}`, in seconds) — readable back
+through the same `/metrics-history/*` route unchanged, since `MuninnDayFileStore` stores each
+shipped line as opaque JSON. A `Timer` that was never built with `publishPercentiles(...)` ships
+exactly as before (no `"percentiles"` key at all), so this is purely additive. **Worker JVM metrics
+are explicitly not part of this**: `WorkerMetrics` above stays local-registry-only, shipped
+nowhere — only a worker's *logs* reach Muninn, relayed by its supervising node agent (see
+[Node topology](./node-topology.md#muninn)), not its metrics or traces, p99s included. Extending
+metrics/trace shipping down to the worker tier itself is a real, acknowledged gap, not an
+oversight: the agent↔worker control channel would need a new message shape for a full
+`MeterRegistry` snapshot, materially more plumbing than the existing `ControlMessage.MetricsReport`'s
+few scalar fields.
 
 ## Tracing: `GimleTracing`
 

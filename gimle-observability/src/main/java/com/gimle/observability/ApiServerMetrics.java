@@ -35,6 +35,7 @@ public final class ApiServerMetrics {
     Tags tags = tagsFor(endpoint, verb);
     Timer.builder("gimle.controlplane.request.latency")
         .tags(tags)
+        .publishPercentiles(0.5, 0.95, 0.99)
         .register(registry)
         .record(latency);
     Counter.builder("gimle.controlplane.request.count").tags(tags).register(registry).increment();

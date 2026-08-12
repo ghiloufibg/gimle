@@ -23,6 +23,24 @@ class StoreMetricsTest {
   }
 
   @Test
+  void request_latency_timer_publishes_percentiles_for_muninn_shipping() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    StoreMetrics metrics = new StoreMetrics(registry);
+
+    metrics.recordRequest("GetTenant", Duration.ofMillis(12), false);
+
+    assertEquals(
+        3,
+        registry
+            .find("gimle.store.request.latency")
+            .timer()
+            .takeSnapshot()
+            .percentileValues()
+            .length,
+        "expected p50/p95/p99 to be configured on the request-latency timer");
+  }
+
+  @Test
   void record_request_with_error_also_increments_error_counter() {
     StoreMetrics metrics = new StoreMetrics(new SimpleMeterRegistry());
 

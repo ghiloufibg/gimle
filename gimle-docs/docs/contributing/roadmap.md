@@ -59,9 +59,14 @@ Instrumentation nobody consumes is decoration, not observability.
    it's worth building**: a thin read-side translation layer — Muninn's own stored data exposed as
    a Prometheus-compatible scrape endpoint — would recover that ecosystem compatibility without
    giving up the first-party ingest/storage path underneath it.
-7. **p99/latency-histogram shipping.** `WorkerMetrics`' `Timer`s already record the raw data;
-   percentile computation and shipping it off-worker is materially more plumbing than a counter
-   delta and remains unbuilt — see [Observability](../architecture/observability.md).
+7. ~~**p99/latency-histogram shipping.**~~ **Done** — see
+   [Observability](../architecture/observability.md). `ApiServerMetrics`/`FafnirMetrics`/
+   `StoreMetrics`' request-latency `Timer`s now publish p50/p95/p99, and `MuninnShipper` ships each
+   as a `"percentiles"` map alongside its existing `"measurements"`, readable back through the same
+   `GET /metrics-history/*` route unchanged. `WorkerMetrics`' own `Timer` gained the same percentile
+   config for local parity, but stays unshipped — worker-tier metrics/trace shipping remains the
+   separate, still-open gap it always was (see [Observability](../architecture/observability.md)'s
+   own note on why worker-tier shipping needs a new `ControlMessage` shape, not a counter delta).
 8. **Audit trail coverage for read-only (`GET`) requests.** Today's audit trail only records
    `WRITE`/`DELETE` decisions (see [Authentication and
    authorization](../architecture/authn-authz.md#audit-logging)), matching Kubernetes' own default
