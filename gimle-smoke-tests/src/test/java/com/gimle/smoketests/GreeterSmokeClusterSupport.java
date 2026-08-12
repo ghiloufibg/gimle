@@ -149,6 +149,25 @@ abstract class GreeterSmokeClusterSupport {
         .findFirst();
   }
 
+  /**
+   * Every live worker descendant, not just the first -- the same match predicate as {@link
+   * #findWorkerDescendant}, needed by anything asserting how many real worker JVMs the agent
+   * currently supervises (e.g. Tier 1 density packing, where several module instances sharing one
+   * worker should collapse to a single match here).
+   */
+  static List<ProcessHandle> findWorkerDescendants(Process agentProcess) {
+    return agentProcess
+        .descendants()
+        .filter(
+            handle ->
+                handle
+                    .info()
+                    .commandLine()
+                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains("/workers/"))
+                    .orElse(false))
+        .toList();
+  }
+
   /** What a test needs to talk to a freshly-started store-cluster + control-plane-replica set. */
   record SmokeCluster(
       List<Process> storeProcesses,
@@ -694,6 +713,60 @@ abstract class GreeterSmokeClusterSupport {
                 .formatted(version))
         .dependsOn(compileJars.toArray(Path[]::new))
         .build(tempDir, "leaky-provider-" + version + ".jar");
+  }
+
+  /**
+   * A minimal, deliberately inert real {@code TIER_1} module, parameterized by module name so it
+   * can be built several times as genuinely distinct modules -- {@code AgentMain
+   * #findReusableTier1Worker}'s own {@code noModuleConflict} check unconditionally refuses to pack
+   * two replicas of the *same* module onto one worker, so proving density packing for real needs
+   * several different module identities, not several deployments of one. {@code moduleName} doubles
+   * as the Java module name and the sole package it exports, matching every other fixture in this
+   * class.
+   */
+  Path buildInertTier1ModuleJar(String moduleName, String version) {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module %s {
+              requires static com.gimle.module;
+              exports %s;
+            }
+            """
+                .formatted(moduleName, moduleName))
+        .withClass(
+            moduleName + ".InertHooks",
+            """
+            package %s;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class InertHooks implements ModuleLifecycleHooks {
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {}
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """
+                .formatted(moduleName))
+        .withDescriptor(
+            """
+            name: %s
+            version: %s
+            isolation:
+              tier: TIER_1
+            resources:
+              request:
+                memory: 16Mi
+                cpu: 10m
+              limit:
+                memory: 32Mi
+                cpu: 50m
+            lifecycle:
+              hooks: %s.InertHooks
+            """
+                .formatted(moduleName, version, moduleName))
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, moduleName + "-" + version + ".jar");
   }
 
   /**

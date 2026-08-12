@@ -602,6 +602,31 @@ tests; one unrelated `RollingUpdateIT` failure traced to sandbox-timing contenti
 back-to-back real-cluster runs this session, confirmed clean via an isolated re-run immediately
 after), and a full-reactor `mvn verify` (5:05) with only the two already-standing exclusions.
 
+### Tier 1 density packing (P1-1): confirmed correct against a real cluster, no bug found
+
+Second of the four plaintext-mode gaps identified this session: the `MAX_TIER1_DENSITY` cap
+(`AgentMain#findReusableTier1Worker`) was previously proven only by `AgentMainTest`'s in-process
+fakes, never against real worker JVMs. `ClassloaderLeakIT` already incidentally packs two different
+real `TIER_1` modules onto one worker as a side effect of needing a stable anchor, confirming the
+reuse mechanism works end to end for two modules — this proves the cap itself.
+
+New `Tier1DensityIT`: deploys four distinct, untenanted `TIER_1` fixture modules (`buildInertTier1ModuleJar`,
+a new `GreeterSmokeClusterSupport` helper — module name doubles as package name, parameterized so
+five calls produce five genuinely different module identities, since `findReusableTier1Worker`'s
+`noModuleConflict` check unconditionally refuses to pack two replicas of the *same* module),
+confirms all four collapse onto a single real worker process via a new `findWorkerDescendants`
+helper (the existing `findWorkerDescendant`, pluralized to return every match instead of the
+first), then deploys a fifth distinct module and confirms it genuinely spawns a second worker
+process rather than packing onto the first.
+
+**Result: the density cap works exactly as `AgentMainTest`'s own in-process assertion describes,
+with no production bug found.** Verified with three isolated real-cluster runs (61.57s, 69.32s,
+71.34s), `gimle-agent`'s own module suite, a full `-Psmoke` run (19 tests; `Tier1DensityIT` itself
+passed clean, but two unrelated tests — `QuotaIT` and, this time, `NodeCordoningIT` — failed only in
+the full-suite run and both confirmed clean via an immediate isolated re-run, the same
+sandbox-timing-contention pattern already documented above for `RollingUpdateIT`), and a
+full-reactor `mvn verify` (5:39) with only the two already-standing exclusions.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
