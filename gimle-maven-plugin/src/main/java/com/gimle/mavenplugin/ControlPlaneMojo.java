@@ -49,6 +49,15 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.controlplane.transportProtocol")
   private String transportProtocol;
 
+  /**
+   * Comma-separated {@code ResourceKind} names to opt into READ-decision audit-trail coverage
+   * (roadmap item 8) -- unset by default, matching {@code ApiServer}'s own pre-existing behavior of
+   * only auditing {@code WRITE}/{@code DELETE}. See {@code
+   * gimle-docs/docs/architecture/authn-authz.md}'s Audit logging section.
+   */
+  @Parameter(property = "gimle.controlplane.audit.readResourceKinds")
+  private String auditReadResourceKinds;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -63,6 +72,9 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     command.add(javaExecutable());
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
+    }
+    if (auditReadResourceKinds != null && !auditReadResourceKinds.isBlank()) {
+      command.add("-Dgimle.controlplane.audit.readResourceKinds=" + auditReadResourceKinds);
     }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));

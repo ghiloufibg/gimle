@@ -196,16 +196,28 @@ Every `WRITE`/`DELETE` decision `requireAuthorized` makes — allowed or denied 
 queryable, cluster-wide audit trail (`AuditEvent`), reusing `gimle-mimir`'s existing Raft-replicated
 storage rather than a second one: the same mechanism `InstanceEvent` already proved for a per-
 instance lifecycle timeline, generalized to a cluster-wide trail with a single retention cap instead
-of a per-key one. `READ` verbs and a bare `401` (no principal resolved at all) are deliberately not
-captured — matching Kubernetes' own default audit policy, where a page-load's worth of `GET`s would
+of a per-key one. `READ` verbs and a bare `401` (no principal resolved at all) are not captured by
+default — matching Kubernetes' own default audit policy, where a page-load's worth of `GET`s would
 dwarf the mutating-action volume actually worth recording, and there being no principal to attribute
 an unauthenticated attempt to.
 
-Fafnir's own `/secrets/*` surface feeds the same trail: `FafnirServer.authorizeSecrets` proposes an
-`AuditEvent` through its own `StoreClient` alongside the existing `com.gimle.fafnir.audit` SLF4J
-logger line (kept for an operator tailing that process's own log directly) — including the
-`GROUP_NODES` self-service read branch, which bypasses `Authorizer.authorize` entirely but still
-computes an `allowed` boolean worth recording.
+`-Dgimle.controlplane.audit.readResourceKinds` (comma-separated `ResourceKind` names, e.g.
+`CONFIG,SECRET`) opts specific resource kinds into READ-decision auditing too, both allowed and
+denied — for the rare deployment that genuinely needs it. Unset (the default) reproduces the exact
+pre-existing behavior: `requireAuthorized`'s own audit gate only fires unconditionally for
+`WRITE`/`DELETE`, plus `READ` when the request's resource kind is in this set. A bare `401` is still
+never captured either way, opt-in or not — there's still no principal to attribute it to. Note that
+opting a hot, frequently-read resource kind (e.g. `CONFIG`) into this accelerates rotation against
+the flat, cluster-wide 50,000-event retention cap below.
+
+Fafnir's own `/secrets/*` surface is the prior art this opt-in generalizes, and needs no
+configuration at all: `FafnirServer.authorizeSecrets` proposes an `AuditEvent` through its own
+`StoreClient` alongside the existing `com.gimle.fafnir.audit` SLF4J logger line (kept for an
+operator tailing that process's own log directly) unconditionally for every verb, `READ` included —
+covering the `GROUP_NODES` self-service read branch too, which bypasses `Authorizer.authorize`
+entirely but still computes an `allowed` boolean worth recording. `SECRET` reads have always been
+audited; the opt-in above is what lets an operator bring another resource kind's reads up to that
+same bar on the control plane's own general RBAC surface.
 
 Reading the trail is itself access-controlled, the same "who can grant access is itself an
 access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —

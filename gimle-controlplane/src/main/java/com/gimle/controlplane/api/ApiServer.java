@@ -141,6 +141,14 @@ public final class ApiServer implements AutoCloseable {
   // precisely because it's not secret-value material Fafnir's own security boundary is about.
   private final SecretKey sessionSigningKey;
   private final Authorizer authorizer;
+  // Per-resource-kind opt-in for auditing READ decisions too (roadmap item 8) -- WRITE/DELETE are
+  // always audited (see #requireAuthorized), but a console page-load's worth of GETs would dwarf
+  // the mutating-action volume by default, matching Kubernetes' own Metadata-level audit policy.
+  // Empty (the default: no property set) reproduces that exact pre-existing behavior. Comma-
+  // separated ResourceKind names, e.g. "-Dgimle.controlplane.audit.readResourceKinds=CONFIG,SECRET".
+  private final Set<ResourceKind> auditReadResourceKinds =
+      parseAuditReadResourceKinds(
+          System.getProperty("gimle.controlplane.audit.readResourceKinds", ""));
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
   // avoids HttpClient spending a round trip on an upgrade negotiation that could never succeed.
   private final HttpClient agentHttpClient =
@@ -2677,7 +2685,9 @@ public final class ApiServer implements AutoCloseable {
       return false;
     }
     boolean authorized = authorizer.authorize(principal.get(), resource, verb, tenant, targetId);
-    if (verb == Verb.WRITE || verb == Verb.DELETE) {
+    if (verb == Verb.WRITE
+        || verb == Verb.DELETE
+        || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
       recordAuditEvent(principal.get(), resource, verb, tenant, targetId, authorized);
     }
     if (!authorized) {
@@ -2685,6 +2695,24 @@ public final class ApiServer implements AutoCloseable {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Parses {@code gimle.controlplane.audit.readResourceKinds} into the set {@link
+   * #requireAuthorized} checks a {@link Verb#READ} decision's resource kind against -- blank (the
+   * property's own default) yields an empty set, reproducing the pre-existing "reads are never
+   * audited" behavior exactly. An unknown {@link ResourceKind} name fails fast at startup rather
+   * than silently auditing nothing for it.
+   */
+  private static Set<ResourceKind> parseAuditReadResourceKinds(String csv) {
+    if (csv.isBlank()) {
+      return Set.of();
+    }
+    Set<ResourceKind> kinds = new LinkedHashSet<>();
+    for (String name : csv.split(",")) {
+      kinds.add(ResourceKind.valueOf(name.trim()));
+    }
+    return Set.copyOf(kinds);
   }
 
   private void recordAuditEvent(

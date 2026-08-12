@@ -63,6 +63,7 @@ network (see `mvn gimle:store` above) rather than embedding one.
 | `gimle.controlplane.secretKeyPath` | `${project.build.directory}/gimle-state/secret.key` | Where this replica's own AES-256 secrets master key persists to disk. |
 | `gimle.controlplane.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
 | `gimle.controlplane.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+| `gimle.controlplane.audit.readResourceKinds` | *(unset, no READ auditing)* | Comma-separated `ResourceKind` names to opt into READ-decision audit-trail coverage — see [Authentication and authorization § Audit logging](../architecture/authn-authz.md#audit-logging). |
 
 ```bash
 mvn gimle:controlplane -Dgimle.controlplane.port=8081

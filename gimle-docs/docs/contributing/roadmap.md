@@ -67,13 +67,15 @@ Instrumentation nobody consumes is decoration, not observability.
    config for local parity, but stays unshipped — worker-tier metrics/trace shipping remains the
    separate, still-open gap it always was (see [Observability](../architecture/observability.md)'s
    own note on why worker-tier shipping needs a new `ControlMessage` shape, not a counter delta).
-8. **Audit trail coverage for read-only (`GET`) requests.** Today's audit trail only records
-   `WRITE`/`DELETE` decisions (see [Authentication and
-   authorization](../architecture/authn-authz.md#audit-logging)), matching Kubernetes' own default
-   audit policy (`Metadata` level by default) for the same reason: a `GET /deployments` from every
-   console page-load would dwarf the mutating-action volume audit logging is meant to capture.
-   **Why it's worth building**: a per-resource-kind opt-in for read auditing, for the rare
-   deployment that genuinely needs it.
+8. ~~**Audit trail coverage for read-only (`GET`) requests.**~~ **Done** — see [Authentication and
+   authorization](../architecture/authn-authz.md#audit-logging).
+   `-Dgimle.controlplane.audit.readResourceKinds` opts specific resource kinds into READ-decision
+   auditing, both allowed and denied, alongside the always-audited `WRITE`/`DELETE` — unset (the
+   default) reproduces Kubernetes' own default `Metadata`-level audit policy exactly, since a `GET
+   /deployments` from every console page-load would otherwise dwarf the mutating-action volume worth
+   capturing. `SECRET` reads on Fafnir's own `/secrets/*` surface were already audited
+   unconditionally before this item; the opt-in is what lets the control plane's general RBAC
+   surface reach the same bar for whichever other resource kind a deployment actually needs it for.
 9. **Console UI for audit trail, Muninn's logs/metrics/traces, and autoscale policy.** None of the
    audit logging, observability, or autoscaling work above shipped a console screen — the audit
    trail, metrics/traces history, and the `autoscale:` manifest fields (the console's own

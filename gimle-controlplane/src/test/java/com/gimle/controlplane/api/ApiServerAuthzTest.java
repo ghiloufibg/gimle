@@ -65,6 +65,8 @@ class ApiServerAuthzTest {
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
   private static final String CA_KEY_FILE_PROPERTY = "gimle.pki.caKeyFile";
+  private static final String AUDIT_READ_RESOURCE_KINDS_PROPERTY =
+      "gimle.controlplane.audit.readResourceKinds";
 
   @TempDir(cleanup = CleanupMode.NEVER)
   private Path tempDir;
@@ -78,6 +80,7 @@ class ApiServerAuthzTest {
     System.clearProperty(KEY_FILE_PROPERTY);
     System.clearProperty(CA_FILE_PROPERTY);
     System.clearProperty(CA_KEY_FILE_PROPERTY);
+    System.clearProperty(AUDIT_READ_RESOURCE_KINDS_PROPERTY);
   }
 
   /**
@@ -488,6 +491,100 @@ class ApiServerAuthzTest {
       assertEquals(3, listAuditEvents(store).size());
       assertEquals("DELETE", listAuditEvents(store).get(0).verb());
     }
+  }
+
+  /**
+   * Roadmap item 8: {@code gimle.controlplane.audit.readResourceKinds} opts a resource kind into
+   * READ-decision auditing too, both allowed and denied -- but only for the kind(s) named, and a
+   * bare 401 stays unaudited regardless, exactly like the WRITE/DELETE path already pinned above.
+   * Uses {@code DEPLOYMENT} (not {@code CONFIG}, unlike the WRITE/DELETE test above) because {@code
+   * GET /config/*} is the one list endpoint in this class that bypasses {@link
+   * ApiServer#requireAuthorized} entirely for its own per-entry access-control reasons (see {@code
+   * handleListConfig}'s own javadoc) -- {@code GET /deployments} is a uniform, {@code
+   * requireAuthorized}-gated READ like every other resource kind's list endpoint.
+   */
+  @Test
+  void configured_read_resource_kinds_are_audited_allowed_and_denied_reads() throws Exception {
+    System.setProperty(AUDIT_READ_RESOURCE_KINDS_PROPERTY, "DEPLOYMENT");
+
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    byte[] passwordHash = PasswordHashes.hash("pw".toCharArray());
+    store.putAccount(new Account("reader", passwordHash));
+    store.putAccount(new Account("no-permissions", passwordHash));
+    store.putRole(
+        new Role(
+            "deployment-reader",
+            java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("reader"), "deployment-reader"));
+    // Deliberately no role binding for "no-permissions" -- every request it makes below is denied.
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String readerCookie = login(client, baseUrl, "reader", "pw");
+      String noPermissionsCookie = login(client, baseUrl, "no-permissions", "pw");
+
+      // An allowed READ on the opted-in kind (DEPLOYMENT) is now audited.
+      assertEquals(200, getDeployments(client, baseUrl, readerCookie).statusCode());
+      List<AuditEvent> afterAllowedRead = listAuditEvents(store);
+      assertEquals(1, afterAllowedRead.size());
+      assertEquals("reader", afterAllowedRead.get(0).principal());
+      assertEquals("DEPLOYMENT", afterAllowedRead.get(0).resourceKind());
+      assertEquals("READ", afterAllowedRead.get(0).verb());
+      assertTrue(afterAllowedRead.get(0).allowed());
+
+      // A READ on a kind that isn't opted in (NODE) still produces nothing, proving the opt-in is
+      // per-resource-kind, not "audit every READ now that the property is set at all".
+      assertEquals(403, getNodes(client, baseUrl, noPermissionsCookie).statusCode());
+      assertEquals(1, listAuditEvents(store).size(), "NODE is not an opted-in kind");
+
+      // A denied READ on the opted-in kind (no-permissions has no DEPLOYMENT:READ) is audited too.
+      assertEquals(403, getDeployments(client, baseUrl, noPermissionsCookie).statusCode());
+      List<AuditEvent> afterDeniedRead = listAuditEvents(store);
+      assertEquals(2, afterDeniedRead.size());
+      AuditEvent deniedRead = afterDeniedRead.get(0);
+      assertEquals("no-permissions", deniedRead.principal());
+      assertEquals("DEPLOYMENT", deniedRead.resourceKind());
+      assertEquals("READ", deniedRead.verb());
+      assertFalse(deniedRead.allowed());
+
+      // A bare 401 (no principal at all) is still never audited, opt-in or not.
+      HttpRequest unauthenticated =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/deployments")).GET().build();
+      assertEquals(
+          401, client.send(unauthenticated, HttpResponse.BodyHandlers.discarding()).statusCode());
+      assertEquals(2, listAuditEvents(store).size());
+    }
+  }
+
+  private static HttpResponse<Void> getDeployments(HttpClient client, String baseUrl, String cookie)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments"))
+            .header("Cookie", cookie)
+            .GET()
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.discarding());
+  }
+
+  private static HttpResponse<Void> getNodes(HttpClient client, String baseUrl, String cookie)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).header("Cookie", cookie).GET().build();
+    return client.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
   private static List<AuditEvent> listAuditEvents(StateStore store) {
