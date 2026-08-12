@@ -16,6 +16,9 @@ import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -50,9 +53,19 @@ public final class DeploymentReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(DeploymentReconciler.class);
 
+  /**
+   * How stale a node's last heartbeat may be before this reconciler stops treating it as somewhere
+   * an instance could be placed. Matches {@code ReplicaCountReconciler}'s own node-dark timeout --
+   * the two have to agree, or one would release an assignment the other immediately re-places on
+   * the same silent node.
+   */
+  public static final Duration DEFAULT_NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
+
   private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
+  private final Duration nodeDarkTimeout;
+  private final Clock clock;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DeploymentReconciler(StateStore store, Scheduler scheduler) {
@@ -60,9 +73,20 @@ public final class DeploymentReconciler {
   }
 
   public DeploymentReconciler(StoreReader store, Scheduler scheduler, MutationSink mutations) {
+    this(store, scheduler, mutations, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
+  }
+
+  public DeploymentReconciler(
+      StoreReader store,
+      Scheduler scheduler,
+      MutationSink mutations,
+      Duration nodeDarkTimeout,
+      Clock clock) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;
+    this.nodeDarkTimeout = nodeDarkTimeout;
+    this.clock = clock;
   }
 
   public void reconcileOnce() {
@@ -283,11 +307,21 @@ public final class DeploymentReconciler {
                       .add(tenantId));
     }
 
+    Instant now = clock.instant();
     List<NodeCandidate> candidates = new ArrayList<>();
     for (NodeRegistration registration : store.listNodeRegistrations()) {
       Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
       if (heartbeat.isEmpty()) {
         continue; // no capacity report yet; not a placement candidate until it heartbeats
+      }
+      if (hasGoneDark(heartbeat.get(), now)) {
+        // A node that has stopped heartbeating is not merely a neutral candidate, it is an
+        // attractive one: its last report is frozen at whatever capacity it had while alive, and
+        // ReplicaCountReconciler has just released its assignments, so it looks like the emptiest
+        // machine in the cluster. Placing here would re-place an instance onto a machine that is
+        // not answering -- and since that placement is never confirmed, the two reconcilers would
+        // trade release and re-place forever while the deployment stays down.
+        continue;
       }
       candidates.add(
           new NodeCandidate(
@@ -299,5 +333,9 @@ public final class DeploymentReconciler {
               store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;
+  }
+
+  private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
+    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
   }
 }

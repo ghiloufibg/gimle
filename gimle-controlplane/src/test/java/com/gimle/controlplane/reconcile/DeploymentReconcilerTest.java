@@ -12,6 +12,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -19,6 +20,7 @@ import com.gimle.mimir.store.StateStore;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -73,6 +75,47 @@ class DeploymentReconcilerTest {
             nodeId,
             new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
             List.of()));
+  }
+
+  /**
+   * A node whose last heartbeat has aged past the dark timeout must drop out of placement entirely.
+   *
+   * <p>This is not a marginal filter. A dead node's heartbeat is frozen at whatever capacity it
+   * reported while alive, and {@code ReplicaCountReconciler} has just released its assignments, so
+   * it looks like the emptiest machine in the cluster -- an actively *preferred* candidate. Since a
+   * placement there is never confirmed, the two reconcilers would then trade release and re-place
+   * forever while the deployment stays down but looks scheduled.
+   */
+  @Test
+  void a_node_whose_heartbeat_has_gone_stale_is_no_longer_a_placement_candidate(TestClock clock) {
+    StateStore store = new StateStore(tempDir.resolve("store-dark-node"), clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDeployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+
+    DeploymentReconciler reconciler =
+        new DeploymentReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            clock);
+
+    // Right up to the timeout the node is still live and still takes placement.
+    clock.advance(DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT);
+    reconciler.reconcileOnce();
+    assertEquals(1, store.listAssignmentsFor("orders-service").size());
+
+    // Past it, with the assignment released the way ReplicaCountReconciler would release it, the
+    // gap must stay open rather than being refilled on the same silent node.
+    store.removeAssignment("orders-service", 0);
+    clock.advance(Duration.ofSeconds(1));
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.listAssignmentsFor("orders-service").isEmpty(),
+        "a node that has stopped heartbeating must not be re-selected for placement");
   }
 
   @Test

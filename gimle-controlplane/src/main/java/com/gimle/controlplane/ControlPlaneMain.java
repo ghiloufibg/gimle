@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -141,7 +142,8 @@ public final class ControlPlaneMain {
 
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler =
-        new DeploymentReconciler(storeClient, scheduler, storeClient);
+        new DeploymentReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
     ReplicaCountReconciler replicaCountReconciler =
         new ReplicaCountReconciler(storeClient, NODE_DARK_TIMEOUT, NODE_DARK_TIMEOUT, storeClient);
     HealthReconciler healthReconciler =

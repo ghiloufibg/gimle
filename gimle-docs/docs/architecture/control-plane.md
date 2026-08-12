@@ -119,6 +119,15 @@ label set on both sides, no key/value structure. A node's labels are set once at
 the `gimle.node.labels` system property (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and
 reported at registration alongside its isolation-tier support.
 
+A node whose last heartbeat is older than the node-dark timeout (15s) is not a placement candidate
+at all, regardless of what that last heartbeat said. This matters more than it first looks: a node
+that has stopped answering still reports whatever capacity it had when it was alive, and once its
+assignments are released it holds none — so a load-aware scheduler would otherwise see the emptiest
+machine in the cluster and place there by preference. Excluding it is what lets machine-level
+self-healing actually complete: the reconciler that releases a dead node's assignments and the one
+that re-places them use the same timeout, so a released instance moves to a node that is genuinely
+answering rather than bouncing back onto the dead one.
+
 An operator can also cordon a node (`gimle cordon <nodeId>` / `gimle uncordon <nodeId>`, or
 `POST /nodes/{id}/cordon`/`/uncordon`) to exclude it from future placement — evaluated as the
 scheduler's first filter stage, right after isolation-tier support and before anti-affinity,
