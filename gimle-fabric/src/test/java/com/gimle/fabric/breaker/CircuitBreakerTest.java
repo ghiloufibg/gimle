@@ -92,6 +92,50 @@ class CircuitBreakerTest {
   }
 
   @Test
+  void repeated_reopens_double_the_effective_cooldown() throws InterruptedException {
+    CircuitBreaker breaker = new CircuitBreaker(2, 0.5, Duration.ofMillis(20));
+    breaker.recordFailure();
+    breaker.recordFailure();
+    assertEquals(CircuitBreaker.State.OPEN, breaker.state());
+
+    Thread.sleep(30);
+    assertTrue(breaker.allowRequest(), "the base cooldown elapsed; the first trial is allowed");
+    breaker.recordFailure(); // the trial fails -> re-opens, effective cooldown now 2x base (40ms)
+
+    Thread.sleep(30); // past the base cooldown, but not past the doubled one
+    assertFalse(
+        breaker.allowRequest(),
+        "only the base cooldown has elapsed since the re-open; the doubled one has not");
+
+    Thread.sleep(30); // now comfortably past the doubled 40ms cooldown too
+    assertTrue(breaker.allowRequest(), "the doubled cooldown has now elapsed");
+  }
+
+  @Test
+  void a_successful_half_open_trial_resets_the_backoff_to_the_base_cooldown()
+      throws InterruptedException {
+    CircuitBreaker breaker = new CircuitBreaker(2, 0.5, Duration.ofMillis(20));
+    breaker.recordFailure();
+    breaker.recordFailure();
+    Thread.sleep(30);
+    assertTrue(breaker.allowRequest());
+    breaker.recordFailure(); // re-opens; backoff now doubled to 40ms
+
+    Thread.sleep(50); // past the doubled cooldown
+    assertTrue(breaker.allowRequest());
+    breaker.recordSuccess(); // closes; backoff resets to the base
+
+    breaker.recordFailure();
+    breaker.recordFailure();
+    assertEquals(CircuitBreaker.State.OPEN, breaker.state());
+    Thread.sleep(30); // only the base 20ms cooldown, not a doubled one, need elapse
+    assertTrue(
+        breaker.allowRequest(),
+        "the successful close reset the backoff; the base cooldown applies again, not a"
+            + " continuation of the earlier doubling");
+  }
+
+  @Test
   void rejects_invalid_construction_arguments() {
     org.junit.jupiter.api.Assertions.assertThrows(
         IllegalArgumentException.class, () -> new CircuitBreaker(0, 0.5, Duration.ofMillis(1)));

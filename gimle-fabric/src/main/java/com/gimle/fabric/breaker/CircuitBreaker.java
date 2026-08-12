@@ -7,10 +7,20 @@ import java.util.Arrays;
 /**
  * Per-endpoint sliding-window error-rate breaker: closed under normal operation, opens once the
  * error rate over the last {@code windowSize} calls crosses {@code errorRateThreshold}, half-opens
- * after {@code cooldown} to let exactly one trial call through, and closes again on that trial's
- * success or re-opens on its failure. An open breaker removes an endpoint from {@code
+ * after a cooldown to let exactly one trial call through, and closes again on that trial's success
+ * or re-opens on its failure. An open breaker removes an endpoint from {@code
  * FabricServiceRegistry}'s remote-tier candidate lists -- this class implements outlier ejection at
  * the registry level, rather than as a separate component layered on top.
+ *
+ * <p>Each re-open doubles the cooldown actually applied (capped at {@code 2^MAX_BACKOFF_SHIFT}
+ * times the base value), reset back to the base on a successful close. Without this, a caller whose
+ * own request cadence happens to land on the same order as the base cooldown -- not a contrived
+ * case; it's exactly what {@code gimle-examples}' own committed consumer/provider pair does with
+ * production defaults, a fixed 5s cooldown against a fixed 5s call interval -- keeps re-admitting a
+ * still-broken endpoint into the half-open trial on almost every call, so the observed failure rate
+ * converges back toward the pre-breaker steady state instead of being suppressed. Envoy's own
+ * outlier detection applies the identical {@code base_ejection_time * ejections_count} shape for
+ * the same reason.
  */
 public final class CircuitBreaker {
 
@@ -19,6 +29,8 @@ public final class CircuitBreaker {
     OPEN,
     HALF_OPEN
   }
+
+  private static final int MAX_BACKOFF_SHIFT = 4; // caps effective cooldown at 16x the base
 
   private final int windowSize;
   private final double errorRateThreshold;
@@ -30,6 +42,7 @@ public final class CircuitBreaker {
   private State state = State.CLOSED;
   private Instant openedAt;
   private boolean halfOpenTrialInFlight;
+  private int consecutiveOpens;
 
   public CircuitBreaker(int windowSize, double errorRateThreshold, Duration cooldown) {
     if (windowSize <= 0) {
@@ -79,10 +92,19 @@ public final class CircuitBreaker {
   }
 
   private void transitionIfCooldownElapsed() {
-    if (state == State.OPEN && !Instant.now().isBefore(openedAt.plus(cooldown))) {
+    if (state == State.OPEN && !Instant.now().isBefore(openedAt.plus(effectiveCooldown()))) {
       state = State.HALF_OPEN;
       halfOpenTrialInFlight = false;
     }
+  }
+
+  /**
+   * The base {@link #cooldown}, doubled per consecutive re-open, capped at {@code
+   * 2^MAX_BACKOFF_SHIFT} times the base -- see this class's own javadoc.
+   */
+  private Duration effectiveCooldown() {
+    int shift = Math.min(Math.max(0, consecutiveOpens - 1), MAX_BACKOFF_SHIFT);
+    return cooldown.multipliedBy(1L << shift);
   }
 
   public synchronized void recordSuccess() {
@@ -130,10 +152,12 @@ public final class CircuitBreaker {
     state = State.OPEN;
     openedAt = Instant.now();
     halfOpenTrialInFlight = false;
+    consecutiveOpens = Math.min(consecutiveOpens + 1, MAX_BACKOFF_SHIFT + 1);
   }
 
   private void close() {
     state = State.CLOSED;
+    consecutiveOpens = 0;
     Arrays.fill(window, true);
     index = 0;
     count = 0;

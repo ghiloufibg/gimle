@@ -498,6 +498,86 @@ a full `-Psmoke` run (16 tests) passed with only the already-documented `QuotaIT
 already-documented `RaftClusterTlsTest` full-reactor-contention flake (confirmed clean in isolation,
 unrelated, and untouched by this change).
 
+### Real bug found and fixed: a persistently-failing remote endpoint's circuit breaker converges back toward its pre-breaker failure rate
+
+Set out to add a real-cluster smoke test for the service fabric's circuit breaker (CLAUDE.md's own
+framing: "circuit breaking/outlier ejection at the registry level") — two real bugs surfaced in the
+production `CircuitBreaker` itself while building the fixture, plus two fixture-only mistakes along
+the way, all confirmed via repeated real-cluster runs rather than assumed from a single failure.
+
+**The bug**: `CircuitBreaker`'s `HALF_OPEN` cooldown was a fixed duration (production default: 5s),
+re-applied identically on every re-open. A caller whose own request cadence happens to land on the
+same order as that cooldown — not a contrived case; it's exactly what the shipped
+`gimle-examples/greeter-consumer`'s own 5s call interval does against the shipped 5s default — sees
+the endpoint re-admitted into `HALF_OPEN` on almost every subsequent call, so the observed failure
+rate converges back toward the pre-breaker ~50% steady state instead of being suppressed. Confirmed
+directly: a first real-cluster run showed a perfectly alternating success/failure pattern sustained
+for the test's full 400s budget, never settling into a run of consecutive successes.
+
+**The fix**: `CircuitBreaker` now doubles its effective cooldown on each consecutive re-open (capped
+at 16x the base), resetting back to the base on a successful close — the same
+`base_ejection_time * ejections_count` shape Envoy's own outlier detection uses, for the same
+reason. New `CircuitBreakerTest` cases cover the doubling and the reset-on-close.
+
+**A second, more consequential bug found while chasing why the breaker still never appeared to
+open even after the above fix**: the fixture module built to simulate a persistently-broken replica
+had its `greet()` implementation `Thread.sleep(60_000)` before throwing, deliberately outlasting
+`FabricClient#DEFAULT_TIMEOUT` (5s) so the caller's own read timeout — not an application throw —
+is what should trip the breaker (see the third bullet below). That 60-second block, held on every
+call inside `BoundedModuleScheduler`'s own concurrency-bounded pool, let several calls pile up
+concurrently and destabilized the instance badly enough to repeatedly trigger a real dispose +
+redeploy cycle — confirmed directly via the module's own
+`Stopping`/`Uninstalled`/`Resolved`/`Starting`/`Active` churn in its `worker-platform.log`, roughly
+every 90-110s, entirely unrelated to either `LivenessProbe` or `ReadinessProbe` (both trivially
+`true` in the fixture). Each redeploy assigns the module a new `workerId`, and `ServiceEndpoint`
+(the `CircuitBreaker` map key) embeds it — so every redeploy silently reset the breaker's own
+accumulated failure history back to a fresh, `CLOSED` instance, which is what actually explained the
+sustained alternation, not the cooldown-doubling gap the first fix alone addressed. Fixed by
+shortening the fixture's sleep to 8s (comfortably past the 5s timeout, without the pileup) — the
+fixture never needed a full minute, only to outlast the client's own timeout.
+
+**Two more, smaller issues, both confirmed and fixed along the way**:
+- `FabricServiceRegistry#invokeRemote`'s own P2-6 app-error-vs-transport-error split (an already
+  existing, deliberate distinction — see that method's own javadoc) scores a method that merely
+  *throws* as `breaker.recordSuccess()`, "proof the endpoint was reachable and answered, not a
+  transport failure" — so the fixture's first version (throwing immediately, no sleep) could never
+  open the breaker no matter how many application-level failures occurred. This is why the fixture
+  needs the sleep-then-throw shape in the first place, not a plain throw.
+- The test's own log-parsing logic (`ServiceFabricIT#breakerHasExcludedTheBrokenReplica`) treated
+  `fetchInstanceLog`'s response body as newline-separated text (`log.lines()`), but `AgentLogServer
+  #respondPage` actually returns one compact JSON object (`{"lines":[{...},{...}]}`) with no
+  embedded newlines — so `log.lines()` always produced exactly one "line" containing every message
+  concatenated together, which made the assertion's own success-counting logic structurally always
+  zero regardless of what the breaker actually did underneath. Fixed by parsing the JSON properly
+  via `gimle-core`'s existing `Json.parse`/`Json.asObjectList` rather than treating the body as raw
+  text.
+
+**A separate real gap found and fixed in the shared smoke-test fixture itself, not specific to this
+scenario**: `GreeterSmokeClusterSupport#spawnAgent` never scoped the agent's `-Dgimle.log.root` to
+the test's own `@TempDir`, unlike every other process this fixture spawns (store, fafnir, muninn,
+control plane) — it silently defaulted to `gimle-logs` relative to the forked test JVM's own CWD
+(`gimle-smoke-tests/`'s own module root), the same physical directory across every separate `mvn
+verify` invocation in the same checkout. Real log files (keyed only by deployment name/instance
+index, with no per-run boundary) accumulated on disk indefinitely across runs — caught directly via
+a genuinely corrupted assertion reading 24 stale log lines from an entirely different, earlier test
+run mixed into what should have been a fresh instance log. Fixed by passing
+`-Dgimle.log.root=<tempDir>/gimle-logs` to the agent, matching the tempDir-scoping convention every
+other spawned process already follows; the stale accumulated directories from this session's own
+runs were deleted as part of the fix.
+
+**Verification**: `gimle-fabric`'s full test suite (96 tests, including the two new
+`CircuitBreakerTest` cases) green after the production fix; the new smoke test
+(`ServiceFabricIT#a_circuit_breaker_excludes_a_consistently_failing_replica_after_real_failures`)
+passed against a real cluster in both an isolated run (166.1s) and inside a full `-Psmoke` run
+(164.6s); a full `-Psmoke` run (17 tests) passed with one unrelated failure —
+`QuotaIT` failed with `409 unknown tenantId` in both the full-suite run and a subsequent isolated
+re-run, a pre-existing issue in tenant-quota admission timing this session's diff never touches (no
+change here reads or writes tenant/quota state); a full-reactor `mvn verify` passed clean (5:19) with
+only the two already-standing exclusions
+(`RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`,
+`WorkerProcessSupervisorTest#backoff_delay_escalates_across_repeated_crashes_then_gives_up`).
+`QuotaIT`'s own tenant-admission timing issue is left as open follow-up scope, not fixed here.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission

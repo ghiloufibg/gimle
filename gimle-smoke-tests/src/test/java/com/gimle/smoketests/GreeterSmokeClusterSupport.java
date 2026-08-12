@@ -373,6 +373,120 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * A real {@code greeter-provider} whose {@code greet} hangs well past {@code FabricClient
+   * #DEFAULT_TIMEOUT} (5s) on <em>every</em> call, rather than throwing. Deliberately not the shape
+   * {@link #buildFaultyProviderJar()} uses: {@code FabricServiceRegistry#invokeRemote}'s own P2-6
+   * app-error-vs-transport-error split (see its javadoc) scores a method that merely *throws* as
+   * {@code breaker.recordSuccess()} -- "proof the endpoint was reachable and answered, not a
+   * transport failure" -- so it can never open the breaker no matter how many calls fail that way.
+   * Only the {@link java.io.IOException} branch (a genuine dispatch failure -- here, the caller's
+   * own read timeout firing on a response that never comes) reaches {@code recordFailure()}, so
+   * this fixture has to actually cause one. Exports the same {@code Greeter} service/version as the
+   * real committed provider so both are genuine, simultaneously eligible candidates for the same
+   * lookup -- the point being to prove the breaker excludes this one specifically, in a real
+   * separate worker process, not a same-JVM mock.
+   *
+   * <p>The sleep only needs to outlast {@code FabricClient#DEFAULT_TIMEOUT} (5s), not run for a
+   * long time -- an earlier version slept a full 60s, which (with the real consumer calling every
+   * 5s) let several calls pile up concurrently inside {@code BoundedModuleScheduler}'s own
+   * concurrency bound, each one occupying a permit and a blocked virtual thread for a full minute.
+   * That pileup was enough to destabilize the instance and repeatedly trigger a real dispose +
+   * redeploy cycle unrelated to the circuit breaker -- confirmed via the module's own
+   * Stopping/Uninstalled/Resolved/Starting/Active churn in {@code worker-platform.log}, well
+   * outside anything either {@code LivenessProbe} or {@code ReadinessProbe} here ever reports (both
+   * always {@code true}) -- which reset the endpoint's {@code ServiceEndpoint} identity (and
+   * therefore its {@code CircuitBreaker}'s accumulated state) on every cycle. A few seconds past
+   * the timeout gets the same genuine {@link java.io.IOException} without the pileup.
+   */
+  Path buildAlwaysBrokenProviderJar() {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module com.gimle.examples.greeter.provider {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports com.gimle.examples.greeter.provider;
+              exports com.gimle.examples.greeter;
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.Greeter",
+            """
+            package com.gimle.examples.greeter;
+            public interface Greeter {
+              String greet(String name);
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderBrokenHooks",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.examples.greeter.Greeter;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            public final class GreeterProviderBrokenHooks implements ModuleLifecycleHooks {
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.registerService(
+                    Greeter.class,
+                    name -> {
+                      try {
+                        Thread.sleep(8_000);
+                      } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                      }
+                      throw new IllegalStateException("unreachable: caller times out first");
+                    });
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderBrokenLiveness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.LivenessProbe;
+            public final class GreeterProviderBrokenLiveness implements LivenessProbe {
+              public boolean isAlive() { return true; }
+            }
+            """)
+        .withClass(
+            "com.gimle.examples.greeter.provider.GreeterProviderBrokenReadiness",
+            """
+            package com.gimle.examples.greeter.provider;
+            import com.gimle.module.probe.ReadinessProbe;
+            public final class GreeterProviderBrokenReadiness implements ReadinessProbe {
+              public boolean isReady() { return true; }
+            }
+            """)
+        .withDescriptor(
+            """
+            name: com.gimle.examples.greeter.provider
+            version: 1.0.0-broken
+            isolation:
+              tier: TIER_2
+            resources:
+              request:
+                memory: 32Mi
+                cpu: 20m
+              limit:
+                memory: 64Mi
+                cpu: 100m
+            exports:
+              - service: com.gimle.examples.greeter.Greeter
+                version: 1.0.0
+            lifecycle:
+              hooks: com.gimle.examples.greeter.provider.GreeterProviderBrokenHooks
+            health:
+              liveness: com.gimle.examples.greeter.provider.GreeterProviderBrokenLiveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProviderBrokenReadiness
+            """)
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, "greeter-provider-broken.jar");
+  }
+
+  /**
    * A real {@code greeter-provider} whose {@code LivenessProbe} always reports {@code isAlive() ==
    * false} -- unlike {@link #buildFaultyProviderJar()} (which fails at *call* time), this module
    * starts and serves normally but never passes its own liveness check, so {@code
@@ -1205,6 +1319,17 @@ abstract class GreeterSmokeClusterSupport {
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
+            // Every other process this fixture spawns (store, fafnir, muninn, control plane) is
+            // already given a tempDir-scoped path for its own state/logs -- the agent (and, through
+            // it, every worker it supervises: buildWorkerCommand's own -Dgimle.log.root scopes a
+            // worker under the agent's own root) was the one exception, silently defaulting to
+            // "gimle-logs" relative to whatever the forked test JVM's own CWD happens to be (this
+            // module's own root directory, not per-test). That left real log files physically
+            // accumulating on disk across every separate `mvn verify` invocation in the same
+            // checkout, keyed only by deployment name/instance index with no per-run boundary --
+            // found via a genuinely corrupted assertion in ServiceFabricIT reading 24 stale lines
+            // from an earlier run mixed into what should have been a fresh log.
+            "-Dgimle.log.root=" + tempDir.resolve("gimle-logs"),
             "-cp",
             classpath,
             "com.gimle.agent.AgentMain",
@@ -1496,6 +1621,35 @@ abstract class GreeterSmokeClusterSupport {
       return response.statusCode() == 200 && response.body().contains(text);
     } catch (Exception e) {
       return false;
+    }
+  }
+
+  /**
+   * Like {@link #instanceLogContains}, but returns the raw body for a caller that needs more than a
+   * single substring check -- e.g. counting or ordering matches across the whole log, the way a
+   * circuit-breaker-exclusion assertion needs to (see {@code ServiceFabricIT}) -- rather than
+   * adding another narrow, single-purpose helper per caller.
+   */
+  String fetchInstanceLog(
+      String baseUrl, String deploymentName, int instanceIndex, String category) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create(
+                          baseUrl
+                              + "/logs/instances/"
+                              + deploymentName
+                              + "/"
+                              + instanceIndex
+                              + "?category="
+                              + category))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 ? response.body() : "";
+    } catch (Exception e) {
+      return "";
     }
   }
 
