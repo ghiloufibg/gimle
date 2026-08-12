@@ -74,6 +74,14 @@ abstract class GreeterSmokeClusterSupport {
 
   static final String GOSSIP_ADDRESS = "127.0.0.1:19090";
 
+  // Two additional gossip addresses, used only by GossipFailureDetectionIT's extra two agents --
+  // verified clear of every other port range in this file: STORE_RAFT_PORT_BASE (19080-19082),
+  // STORE_CLIENT_PORT_BASE (19091-19093), CONTROLPLANE_PORT_BASE (18080+), FAFNIR_PORT_BASE
+  // (19060-19061), MUNINN_PORT (19070), and GOSSIP_ADDRESS itself (19090).
+  static final String GOSSIP_ADDRESS_NODE2 = "127.0.0.1:19100";
+
+  static final String GOSSIP_ADDRESS_NODE3 = "127.0.0.1:19101";
+
   static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
 
   // The one tenant this suite exercises the real secret round trip for: an untenanted deployment
@@ -168,11 +176,17 @@ abstract class GreeterSmokeClusterSupport {
         .toList();
   }
 
-  /** What a test needs to talk to a freshly-started store-cluster + control-plane-replica set. */
+  /**
+   * What a test needs to talk to a freshly-started store-cluster + control-plane-replica set.
+   * {@code agentProcesses} holds just the one agent {@link #startCluster} itself spawns -- {@code
+   * startCluster} stays single-agent, keeping its blast radius on every other {@code *IT} class at
+   * zero. A test that needs more agents (e.g. {@code GossipFailureDetectionIT}) spawns them
+   * directly via {@link #spawnAgent} and tracks them itself.
+   */
   record SmokeCluster(
       List<Process> storeProcesses,
       List<String> controlPlaneBaseUrls,
-      Process agentProcess,
+      List<Process> agentProcesses,
       String muninnEndpoint) {}
 
   void putTenantQuota(
@@ -249,6 +263,34 @@ abstract class GreeterSmokeClusterSupport {
         Map<String, Object> node = Json.asObject(entry);
         if (nodeId.equals(node.get("nodeId"))) {
           return Boolean.valueOf(expected).equals(node.get("cordoned"));
+        }
+      }
+      return false;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * True once {@code GET /nodes} lists {@code nodeId} at all -- {@code AgentMain#register} sends
+   * this HTTP call only after {@code GossipMember#join} has already returned, so this is a real,
+   * pollable proxy for "this agent's own gossip join handshake against its seed has completed," not
+   * just "the process is running."
+   */
+  boolean nodeRegistered(String baseUrl, String nodeId) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        return false;
+      }
+      List<Object> nodes = Json.asArray(Json.parse(response.body()));
+      for (Object entry : nodes) {
+        Map<String, Object> node = Json.asObject(entry);
+        if (nodeId.equals(node.get("nodeId"))) {
+          return true;
         }
       }
       return false;
@@ -1272,14 +1314,17 @@ abstract class GreeterSmokeClusterSupport {
         spawnAgent(
             javaExecutable,
             classpath,
+            "smoke-node-1",
             GOSSIP_ADDRESS,
+            "-",
             controlPlaneBaseUrls.get(0),
             fafnirEndpoints.get(0),
             muninnEndpoint,
             tempDir.resolve("agent.log"));
     processes.add(agentProcess);
 
-    return new SmokeCluster(storeProcesses, controlPlaneBaseUrls, agentProcess, muninnEndpoint);
+    return new SmokeCluster(
+        storeProcesses, controlPlaneBaseUrls, List.of(agentProcess), muninnEndpoint);
   }
 
   static String storePeersSpecExcluding(int excludeIndex) {
@@ -1429,7 +1474,9 @@ abstract class GreeterSmokeClusterSupport {
   Process spawnAgent(
       String javaExecutable,
       String classpath,
+      String nodeId,
       String gossipAddress,
+      String seedsSpec,
       String controlPlaneBaseUrl,
       String fafnirEndpoint,
       String muninnEndpoint,
@@ -1450,14 +1497,19 @@ abstract class GreeterSmokeClusterSupport {
             // checkout, keyed only by deployment name/instance index with no per-run boundary --
             // found via a genuinely corrupted assertion in ServiceFabricIT reading 24 stale lines
             // from an earlier run mixed into what should have been a fresh log.
-            "-Dgimle.log.root=" + tempDir.resolve("gimle-logs"),
+            //
+            // Scoped by nodeId, not shared across every agent this fixture might spawn -- load-
+            // bearing, not cosmetic: a second or third agent (GossipFailureDetectionIT) would
+            // otherwise write its own agent-platform.log to the exact same file as the first,
+            // interleaving both processes' JSON output and making log-based polling unreliable.
+            "-Dgimle.log.root=" + tempDir.resolve("gimle-logs-" + nodeId),
             "-cp",
             classpath,
             "com.gimle.agent.AgentMain",
-            "smoke-node-1",
+            nodeId,
             controlPlaneBaseUrl,
             gossipAddress,
-            "-",
+            seedsSpec,
             javaExecutable,
             "-cp",
             classpath,
@@ -1741,6 +1793,21 @@ abstract class GreeterSmokeClusterSupport {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       return response.statusCode() == 200 && response.body().contains(text);
     } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * Like {@link #instanceLogContains}, but for a real agent process's own stdout-redirected log
+   * file on disk rather than an instance's log served through the control plane's {@code /logs/*}
+   * API -- {@code GossipMember}'s own membership/failure-detection log lines (see {@code
+   * GossipFailureDetectionIT}) have no HTTP surface anywhere in this codebase, so reading the file
+   * directly is the only way to observe them.
+   */
+  static boolean agentLogContains(Path logFile, String text) {
+    try {
+      return Files.readString(logFile, StandardCharsets.UTF_8).contains(text);
+    } catch (IOException e) {
       return false;
     }
   }

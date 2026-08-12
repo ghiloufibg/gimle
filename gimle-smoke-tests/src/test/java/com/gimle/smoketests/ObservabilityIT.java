@@ -68,7 +68,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
     // shipper dies with it, and only whatever Muninn already received survives.
     Thread.sleep(Duration.ofSeconds(8).toMillis());
 
-    killWithDescendants(cluster.agentProcess());
+    killWithDescendants(cluster.agentProcesses().get(0));
 
     await(
         () -> providerLogShowsTheSecret(baseUrl),

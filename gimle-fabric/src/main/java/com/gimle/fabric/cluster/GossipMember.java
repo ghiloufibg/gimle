@@ -762,6 +762,7 @@ public final class GossipMember implements AutoCloseable {
     if (!adopt) {
       return;
     }
+    MemberStatus previousStatus = current == null ? null : current.status();
     members.put(incoming.id().nodeId(), incoming);
     if (incoming.status() == MemberStatus.SUSPECT) {
       suspectedSince.putIfAbsent(incoming.id().nodeId(), Instant.now());
@@ -774,6 +775,21 @@ public final class GossipMember implements AutoCloseable {
       deadSince.remove(incoming.id().nodeId());
     }
     markChanged(incoming.id().nodeId());
+    // Real-cluster QA finding (see GossipFailureDetectionIT / QA_FINDINGS.md): {@link
+    // #markSuspect}/{@link #markDead} are the only places that log a status transition, but both
+    // fire only for a status *this node itself* locally detected via its own probe timeout --
+    // a node that instead learns of a peer's SUSPECT/DEAD status secondhand, via an incoming
+    // message's piggyback or an anti-entropy sync, adopted it silently right here with no log
+    // line at all. That left an operator grepping cluster logs for "is now DEAD" with an
+    // incomplete picture: only whichever node(s) happened to directly detect a failure ever said
+    // so, even though every other node's own membership table was updated correctly. Same exact
+    // wording as markSuspect/markDead precisely so a single substring search catches a status
+    // change regardless of how this node learned it -- deliberately still scoped to SUSPECT/DEAD
+    // only (not ALIVE), matching those two methods' own existing noise-level convention.
+    if (previousStatus != incoming.status()
+        && (incoming.status() == MemberStatus.SUSPECT || incoming.status() == MemberStatus.DEAD)) {
+      log.info("{}: member {} is now {}", self.nodeId(), incoming.id().nodeId(), incoming.status());
+    }
   }
 
   private void refuteIfNeeded(MemberState claimAboutSelf) {

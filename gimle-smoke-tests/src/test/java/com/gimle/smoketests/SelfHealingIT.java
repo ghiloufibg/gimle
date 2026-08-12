@@ -59,7 +59,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
         "greeter-provider-deployment should reach ACTIVE before the worker is killed");
 
     ProcessHandle firstWorker =
-        findWorkerDescendant(cluster.agentProcess())
+        findWorkerDescendant(cluster.agentProcesses().get(0))
             .orElseThrow(
                 () -> new AssertionError("expected a live WorkerMain descendant of the agent"));
     long firstWorkerPid = firstWorker.pid();
@@ -67,7 +67,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
 
     await(
         () -> {
-          Optional<ProcessHandle> current = findWorkerDescendant(cluster.agentProcess());
+          Optional<ProcessHandle> current = findWorkerDescendant(cluster.agentProcesses().get(0));
           // Both halves matter: a *new* worker process (proof the supervisor actually respawned
           // one, not that the old one lingers) that has *also* brought the deployment back to
           // ACTIVE (proof the respawned worker is genuinely healthy, not just alive).

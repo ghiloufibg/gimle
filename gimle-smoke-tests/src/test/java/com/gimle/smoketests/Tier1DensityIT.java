@@ -55,7 +55,7 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
     // own heartbeat-derived state) and ProcessHandle#descendants() (a direct OS process-tree
     // walk) are observed through two different channels.
     await(
-        () -> findWorkerDescendants(cluster.agentProcess()).size() == 1,
+        () -> findWorkerDescendants(cluster.agentProcesses().get(0)).size() == 1,
         Duration.ofSeconds(15),
         "four distinct untenanted TIER_1 modules should share exactly one worker process");
 
@@ -69,7 +69,7 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
         fifthModule + "-deployment should reach ACTIVE");
 
     await(
-        () -> findWorkerDescendants(cluster.agentProcess()).size() == 2,
+        () -> findWorkerDescendants(cluster.agentProcesses().get(0)).size() == 2,
         Duration.ofSeconds(15),
         "a fifth distinct TIER_1 module should genuinely spawn a new worker once"
             + " MAX_TIER1_DENSITY is reached, not pack onto the same worker as the first four");

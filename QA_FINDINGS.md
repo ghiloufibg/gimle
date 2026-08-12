@@ -685,6 +685,71 @@ cluster once the fix was properly installed (isolated runs and as part of the fu
 1 pre-existing skip) passed clean; a full-reactor `mvn verify` (5:42) with only the two
 already-standing exclusions passed clean.
 
+### Real bug found and fixed: a node that learned of a peer's death via gossip never said so
+
+Fourth and last of the plaintext-mode real-cluster gaps identified this session: every existing
+smoke test runs a single-node topology (`GreeterSmokeClusterSupport#spawnAgent` was called exactly
+once, hardcoded `smoke-node-1` with no other seeds), so `GossipMember`'s real membership/failure-
+detection machinery had never run across real, separate agent processes before — only proven by
+`GossipMemberTest`'s in-process fakes.
+
+**Fixture work**: `spawnAgent` gained `nodeId`/`seedsSpec` parameters (replacing the hardcoded
+literals) and its `-Dgimle.log.root=` is now scoped per node id — load-bearing, not cosmetic: a
+second or third agent would otherwise interleave its own `agent-platform.log` with the first's.
+`SmokeCluster.agentProcess` (singular) became `agentProcesses()` (a `List<Process>` holding just
+the one agent `startCluster` itself spawns), with every existing call site
+(`ObservabilityIT`/`SelfHealingIT`/`Tier1DensityIT`/`RedeployStabilityIT`) updated to
+`.agentProcesses().get(0)`. New `GossipFailureDetectionIT` spawns two *additional* real agents on
+top of the normal one-node cluster — three total, deliberately: with only two, `GossipMember`'s
+indirect ping-req relay path is never exercised — both seeded off node 1 alone, relying on SWIM's
+own full-state anti-entropy sync (P2-8) to converge the complete table, then hard-kills the third
+and polls both survivors' own log files for `"member smoke-node-3 is now DEAD"`.
+
+**A real test-construction race, fixed first, not a production bug**: the first attempts failed
+with node 2 logging `"its single configured seed ... is unreachable; treating this as a legitimate
+empty-cluster start"` — `startCluster` returns the instant node 1's process is *forked*, with no
+wait for anything agent-specific (only the control plane's own HTTP port), so spawning node 2/3
+immediately after it raced node 1's own gossip listener bind. Fixed by waiting for node 1's own
+control-plane registration first (which `AgentMain#main` only sends *after*
+`GossipMember#start`/`#join` both return) before any other node tries to seed off it.
+
+**The real bug**: `GossipMember#mergeOne` — the path that adopts a peer's status *learned
+secondhand*, via an incoming message's piggyback or an anti-entropy sync, as opposed to detecting
+it directly via this node's own probe timeout — updated `members`/`suspectedSince`/`deadSince`
+correctly but logged nothing at all, ever. Only `markSuspect`/`markDead` (the *direct-detection*
+path) had a log statement. Found via `GossipFailureDetectionIT`'s own repeated real-cluster
+failures: node 1 (which happened to directly probe and detect node 3's death) reliably logged
+`"member smoke-node-3 is now DEAD"`, but node 2 — which correctly knew about the death internally,
+confirmed by temporary diagnostic logging showing a real `mergeOne` adoption of the `DEAD` status —
+never produced that line, so the test's own log-based assertion (matching an operator's own
+realistic way of checking a cluster's gossip state) timed out waiting for it. Not a convergence
+failure and not a flake: the membership table was correct the whole time; only the log trail was
+silently incomplete for every node except whichever one happened to detect a failure first.
+
+**The fix**: `mergeOne` now logs `"{self}: member {id} is now {status}"` — the exact same wording
+`markSuspect`/`markDead` already use, deliberately, so a single substring search catches a status
+change regardless of whether this node detected it directly or learned it from a peer — on a
+genuine status transition into SUSPECT or DEAD (guarded by comparing against the previous status,
+matching `markSuspect`/`markDead`'s own existing "log actual transitions only" convention; ALIVE
+transitions stay silent, same as before).
+
+**Verification**: `gimle-fabric`'s own module suite (88/88, including `GossipMemberTest`'s 11 tests
+and `GossipMemberDtlsTest`'s 4 with zero regressions) and `gimle-agent`'s (40/40) both green;
+`GossipFailureDetectionIT` passed 3 times in a row against a real cluster once both fixes (the test
+race and the production logging gap) were in place, consistently landing in the 4-11s range from
+kill to both survivors' own `"is now DEAD"` log line (well inside the 60s-per-node budget, 60s
+chosen the same way `ClassloaderLeakIT`'s 90s window was — generous real-sandbox headroom over a
+measured, not just theoretical, convergence time); `ObservabilityIT`/`SelfHealingIT` individually
+re-verified given they're the two process-killing tests touched by the `agentProcess()` ->
+`agentProcesses()` rename; a full `-Psmoke` run (13 IT classes, 1 pre-existing skip) passed clean;
+a full-reactor `mvn verify` (5:38) with only the two already-standing exclusions passed clean.
+
+This closes out all four scenarios identified at the start of this session's plaintext-mode
+real-cluster QA pass (node cordoning, Tier 1 density packing, repeated-redeploy stability,
+gossip/SWIM failure detection): two genuine production bugs found and fixed (the rolling-update
+deadlock, this gossip logging gap), two mechanisms (node cordoning, Tier 1 density packing)
+confirmed correct with no bug found.
+
 ### Scope explicitly not covered this session
 
 Given real time constraints, the following real-cluster scenarios named in the original QA mission
@@ -698,8 +763,20 @@ dropped:
   remain untested there (covered at the unit/integration tier, e.g. `ApiServerAuthzTest`) — the
   smoke suite runs the whole cluster in plaintext mode with auth bypassed, so exercising this
   properly needs a second, TLS+auth-enabled cluster variant, a bigger lift than any single scenario
-  above and not attempted this session. This is now the only item remaining on the original QA
-  mission's real-cluster scope list.
+  above and not attempted this session.
+- Node cordoning, Tier 1 density packing, repeated-redeploy stability, and gossip/SWIM failure
+  detection — the four gaps identified partway through this session, once real-cluster coverage was
+  audited directly — are now all covered too; see the four entries above this one.
+- Two items newly identified, not attempted, while covering repeated-redeploy stability: the full
+  remote-metaspace acceptance test CLAUDE.md itself calls "mandatory" (redeploy-in-a-loop, flat
+  metaspace) exists only at the `gimle-module` unit tier today (`RedeployLoopFlatMetaspaceTest`)
+  — `RedeployStabilityIT` is an explicitly lighter real-cluster substitute, not that test moved up a
+  tier, since nothing in this codebase reads a separately-launched worker process's own metaspace
+  remotely. And the dead-code JFR per-module attribution (`ThreadNameJfrAttributor`) and metaspace
+  gauge (`WorkerMetrics#recordMetaspaceBytes`) remain unwired into `WorkerMain` — new production
+  instrumentation, not a test-only change, so out of scope for a QA pass on its own.
+- RBAC/authz edge cases above are now the only item remaining on the *original* QA mission's
+  real-cluster scope list.
 
 ## Verification
 

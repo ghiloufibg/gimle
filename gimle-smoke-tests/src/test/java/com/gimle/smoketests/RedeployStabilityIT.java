@@ -88,7 +88,7 @@ class RedeployStabilityIT extends GreeterSmokeClusterSupport {
         "the subject module should still be ACTIVE after " + REDEPLOY_CYCLES + " redeploys");
     assertEquals(
         1,
-        findWorkerDescendants(cluster.agentProcess()).size(),
+        findWorkerDescendants(cluster.agentProcesses().get(0)).size(),
         "the anchor and the repeatedly-redeployed subject should have shared exactly one real"
             + " worker process throughout -- proof this ran on one long-lived worker, not that"
             + " each redeploy silently landed on a fresh one");
