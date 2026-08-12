@@ -23,10 +23,29 @@ import java.util.function.Consumer;
  */
 public final class ProbeLoop implements AutoCloseable {
 
-  private final ScheduledExecutorService ticker =
-      Executors.newSingleThreadScheduledExecutor(
-          r -> Thread.ofVirtual().name("gimle-probe-loop-ticker").unstarted(r));
+  private final ScheduledExecutorService ticker;
   private final Map<String, ScheduledFuture<?>> scheduled = new ConcurrentHashMap<>();
+
+  public ProbeLoop() {
+    this(
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-probe-loop-ticker").unstarted(r)));
+  }
+
+  /**
+   * Accepts the ticker rather than always owning one, so a test can supply a deterministic
+   * scheduler and drive ticks by advancing virtual time instead of sleeping past real ones -- see
+   * {@code TestScheduler} in {@code gimle-core}'s test-jar. Production uses the no-arg constructor
+   * above and its own virtual-thread ticker, unchanged.
+   *
+   * <p>Note this virtualizes only tick *scheduling*. Each tick still runs its check on the module's
+   * own {@link BoundedModuleScheduler} and bounds it with a real {@code Future#get} timeout, which
+   * is deliberate: that timeout is the thing protecting the platform from a hung probe, and a test
+   * that wants to prove it fires has to let it fire for real.
+   */
+  public ProbeLoop(ScheduledExecutorService ticker) {
+    this.ticker = ticker;
+  }
 
   /** Back-compat: first tick fires one {@code interval} after this call, as before P2-4. */
   public void start(
