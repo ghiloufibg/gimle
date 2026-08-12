@@ -1,4 +1,4 @@
-import type { Deployment, DeploymentInstance, DeploymentSpecInput, Page } from "@/types";
+import type { AutoscalePolicy, Deployment, DeploymentInstance, DeploymentSpecInput, Page } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
 import { requestJson, requestOk, requestOkYaml } from "./apiClient";
 
@@ -26,6 +26,7 @@ interface RawDeployment {
     artifactPath: string;
     replicas: number;
     tenantId?: string | null;
+    autoscale?: AutoscalePolicy;
   };
   instances: RawDeploymentInstance[];
   unplacedCount: number;
@@ -55,8 +56,36 @@ function mapDeployment(raw: RawDeployment): Deployment {
   };
 }
 
+/** Emits `key: value` at the given indent only when value is set -- every autoscale field past
+ * the three required ones is optional on the wire (DeploymentManifestParser.parseAutoscale). */
+function optionalNumberLine(indent: number, key: string, value: number | undefined): string[] {
+  return value === undefined ? [] : [`${" ".repeat(indent)}${key}: ${value}`];
+}
+
+function autoscaleYaml(a: AutoscalePolicy): string[] {
+  const lines = [
+    "autoscale:",
+    `  minReplicas: ${a.minReplicas}`,
+    `  maxReplicas: ${a.maxReplicas}`,
+    `  targetCpuUtilizationPercent: ${a.targetCpuUtilizationPercent}`,
+    ...optionalNumberLine(2, "targetRequestRatePerSecond", a.targetRequestRatePerSecond),
+    ...optionalNumberLine(2, "targetErrorRatePercent", a.targetErrorRatePercent),
+    ...optionalNumberLine(2, "targetQueueDepth", a.targetQueueDepth),
+    `  mode: ${a.combinationMode === "WEIGHTED" ? "weighted" : "worst-signal"}`,
+  ];
+  if (a.combinationMode === "WEIGHTED") {
+    lines.push(
+      ...optionalNumberLine(2, "cpuWeight", a.cpuWeight),
+      ...optionalNumberLine(2, "requestRateWeight", a.requestRateWeight),
+      ...optionalNumberLine(2, "errorRateWeight", a.errorRateWeight),
+      ...optionalNumberLine(2, "queueDepthWeight", a.queueDepthWeight),
+    );
+  }
+  return lines;
+}
+
 function toManifestYaml(spec: DeploymentSpecInput): string {
-  // Hand-rolled, not a YAML library: five known fields, fixed shape -- matches this project's
+  // Hand-rolled, not a YAML library: known fields, fixed shape -- matches this project's
   // "hand-roll it, it's small" convention (gimle-core's own Json.java). Double-quoted scalars via
   // JSON.stringify's escaping are valid YAML string syntax, so this is safe against special
   // characters in names/paths without needing a real YAML serializer.
@@ -70,6 +99,7 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
     `replicas: ${spec.replicas}`,
   ];
   if (spec.tenantId) lines.push(`tenantId: ${q(spec.tenantId)}`);
+  if (spec.autoscale) lines.push(...autoscaleYaml(spec.autoscale));
   return lines.join("\n") + "\n";
 }
 

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useDeploymentsStore } from "@/stores/useDeploymentsStore";
-import { PageContainer, PageHeader } from "@/components/page-shell";
+import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { LifecycleBadge, StatusBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
 import { fmtBytes, fmtMillicores } from "@/lib/format";
 import { Trash2, FileText } from "lucide-react";
 import { toast } from "sonner";
+import type { AutoscalePolicy } from "@/types";
 
 export const Route = createFileRoute("/deployments/$name")({
   head: ({ params }) => ({
@@ -134,6 +135,8 @@ function DeploymentDetail() {
       <div className="mb-6 rounded border border-border bg-muted/30 p-2 text-xs font-mono break-all">
         {d.spec.artifactPath}
       </div>
+
+      {d.spec.autoscale && <AutoscalePanel policy={d.spec.autoscale} />}
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -255,5 +258,80 @@ function Field({
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className={`mt-1 text-sm ${mono ? "font-mono" : ""} ${toneClass}`}>{value}</div>
     </div>
+  );
+}
+
+/** Read-only view of the deployment's autoscale policy (absent on a deployment with a fixed
+ * replica count -- the common case). */
+function AutoscalePanel({ policy }: { policy: AutoscalePolicy }) {
+  const targets: Array<[string, string]> = [
+    ["cpu utilization", `${policy.targetCpuUtilizationPercent}%`],
+  ];
+  if (policy.targetRequestRatePerSecond !== undefined)
+    targets.push(["request rate", `${policy.targetRequestRatePerSecond} req/s`]);
+  if (policy.targetErrorRatePercent !== undefined)
+    targets.push(["error rate", `${policy.targetErrorRatePercent}%`]);
+  if (policy.targetQueueDepth !== undefined)
+    targets.push(["queue depth", String(policy.targetQueueDepth)]);
+
+  const weights: Array<[string, string]> =
+    policy.combinationMode === "WEIGHTED"
+      ? (
+          [
+            ["cpu", policy.cpuWeight],
+            ["request rate", policy.requestRateWeight],
+            ["error rate", policy.errorRateWeight],
+            ["queue depth", policy.queueDepthWeight],
+          ] as Array<[string, number | undefined]>
+        )
+          .filter(([, v]) => v !== undefined)
+          .map(([k, v]) => [k, String(v)] as [string, string])
+      : [];
+
+  return (
+    <Panel
+      title="Autoscale"
+      className="mb-6"
+      aside={
+        <span className="hud-label text-muted-foreground">
+          {policy.combinationMode === "WEIGHTED" ? "weighted" : "worst signal"}
+        </span>
+      }
+    >
+      <div className="grid grid-cols-1 gap-px bg-primary/10 md:grid-cols-3">
+        <div className="bg-background p-3">
+          <p className="hud-label mb-1 text-muted-foreground">replica bounds</p>
+          <p className="font-mono text-sm text-signal tabular-nums">
+            {policy.minReplicas} — {policy.maxReplicas}
+          </p>
+        </div>
+        <div className="bg-background p-3">
+          <p className="hud-label mb-1 text-muted-foreground">target signals</p>
+          <ul className="space-y-0.5">
+            {targets.map(([k, v]) => (
+              <li key={k} className="flex justify-between gap-3 font-mono text-[11px]">
+                <span className="text-muted-foreground">{k}</span>
+                <span className="tabular-nums text-foreground">{v}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="bg-background p-3">
+          <p className="hud-label mb-1 text-muted-foreground">weights</p>
+          {weights.length === 0 ? (
+            <p className="font-mono text-[11px] text-muted-foreground">n/a — worst-signal mode</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {weights.map(([k, v]) => (
+                <li key={k} className="flex justify-between gap-3 font-mono text-[11px]">
+                  <span className="text-muted-foreground">{k}</span>
+                  <span className="tabular-nums text-foreground">{v}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Panel>
   );
 }

@@ -276,14 +276,14 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
 
   /**
    * Roadmap item 10: {@code CombinationMode.WEIGHTED} under real load, blending two genuinely
-   * simultaneous signals rather than isolating one at a time the way the three scenarios above
-   * each deliberately do. Reuses {@link #buildSlowProviderJar()} and the same closed-injection
+   * simultaneous signals rather than isolating one at a time the way the three scenarios above each
+   * deliberately do. Reuses {@link #buildSlowProviderJar()} and the same closed-injection
    * concurrency Gatling drives for the queue-depth scenario above -- 20 concurrent ~300ms-each
-   * callers against a concurrency bound of 4 real, simultaneous request-rate <i>and</i>
-   * queue-depth signals, both configured with real, individually-reachable targets and different
-   * weights (queue depth weighted 3x request rate), proving the full weighted pipeline (manifest
-   * parse -&gt; wire codec -&gt; {@code AutoscaleReconciler}'s blended-ratio math) end to end
-   * against a real cluster, not just {@code AutoscaleReconcilerTest}'s in-process bypass.
+   * callers against a concurrency bound of 4 real, simultaneous request-rate <i>and</i> queue-depth
+   * signals, both configured with real, individually-reachable targets and different weights (queue
+   * depth weighted 3x request rate), proving the full weighted pipeline (manifest parse -&gt; wire
+   * codec -&gt; {@code AutoscaleReconciler}'s blended-ratio math) end to end against a real
+   * cluster, not just {@code AutoscaleReconcilerTest}'s in-process bypass.
    */
   @Test
   @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)

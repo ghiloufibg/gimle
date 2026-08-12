@@ -120,6 +120,87 @@ class ApiServerTest {
     assertEquals(3L, status.get("unplacedCount"));
   }
 
+  private static String deploymentYamlWithAutoscale(String name) {
+    return """
+        name: %s
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 2
+        autoscale:
+          minReplicas: 1
+          maxReplicas: 5
+          targetCpuUtilizationPercent: 50
+          targetRequestRatePerSecond: 20.0
+          targetErrorRatePercent: 5.0
+          targetQueueDepth: 10
+          mode: weighted
+          cpuWeight: 1.0
+          requestRateWeight: 3.0
+          errorRateWeight: 2.0
+          queueDepthWeight: 1.5
+        """
+        .formatted(name);
+  }
+
+  // Roadmap item 9: the console reads the deployment JSON this test asserts on to build its own
+  // Autoscale panel -- before deploymentStatus() put this on the wire, the field was accepted by
+  // PUT (DeploymentManifestParser) but silently dropped from every GET response.
+  @Test
+  void put_then_get_a_deployment_round_trips_its_autoscale_policy() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        deploymentYamlWithAutoscale("orders-service")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    Map<String, Object> autoscale = Json.asObject(spec.get("autoscale"));
+    assertEquals(1L, autoscale.get("minReplicas"));
+    assertEquals(5L, autoscale.get("maxReplicas"));
+    assertEquals(50L, autoscale.get("targetCpuUtilizationPercent"));
+    assertEquals(20.0, autoscale.get("targetRequestRatePerSecond"));
+    assertEquals(5.0, autoscale.get("targetErrorRatePercent"));
+    assertEquals(10L, autoscale.get("targetQueueDepth"));
+    assertEquals("WEIGHTED", autoscale.get("combinationMode"));
+    assertEquals(1.0, autoscale.get("cpuWeight"));
+    assertEquals(3.0, autoscale.get("requestRateWeight"));
+    assertEquals(2.0, autoscale.get("errorRateWeight"));
+    assertEquals(1.5, autoscale.get("queueDepthWeight"));
+  }
+
+  // A deployment submitted with no autoscale: block (the common case, and every manifest written
+  // before this field existed) must not gain a synthesized "autoscale" key -- ifPresent means
+  // ifPresent, not "default it in."
+  @Test
+  void a_deployment_with_no_autoscale_block_has_no_autoscale_key_on_the_wire() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    Map<String, Object> spec = Json.asObject(Json.asObject(Json.parse(get.body())).get("spec"));
+    assertFalse(spec.containsKey("autoscale"));
+  }
+
   @Test
   void put_with_a_manifest_name_mismatch_is_rejected() throws Exception {
     HttpResponse<String> put =

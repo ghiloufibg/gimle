@@ -35,6 +35,7 @@ export interface DeploymentSpec {
   artifactPath: string;
   replicas: number;
   tenantId: string | null;
+  autoscale?: AutoscalePolicy;
 }
 
 export interface DeploymentSpecInput {
@@ -43,6 +44,7 @@ export interface DeploymentSpecInput {
   artifactPath: string;
   replicas: number;
   tenantId: string | null;
+  autoscale?: AutoscalePolicy;
 }
 
 export interface Deployment {
@@ -167,4 +169,94 @@ export interface Page<T> {
 export interface Principal {
   username: string;
   groups: string[];
+}
+
+/* ---------------------------------------------------------------------------
+ * Process-scoped history (metrics + traces) -- GET /metrics-history/*, GET /traces-history/*
+ * ------------------------------------------------------------------------ */
+
+// The four processKind values Muninn actually receives -- no discovery API exists for this list,
+// see components/process-picker.tsx's own note on why it's hardcoded rather than fetched.
+export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT";
+
+export interface ProcessTarget {
+  processKind: ProcessKind;
+  processId: string;
+}
+
+/** Envelope returned by GET /metrics-history/* and GET /traces-history/* -- identical shape to
+ * GET /logs/* (Page<T> above is a different, cursor-only shape used by every other list screen). */
+export interface HistoryEnvelope<T> {
+  lines: T[];
+  olderCursor: string | null;
+  newerCursor: string | null;
+}
+
+export interface MetricsHistoryLine {
+  timestamp: string;
+  name: string;
+  type: string;
+  tags: Record<string, string>;
+  measurements: Record<string, number>;
+  /** Only present on some TIMER-typed lines. Keys are string fractions ("0.5", "0.95", "0.99"). */
+  percentiles?: Record<string, number>;
+}
+
+export interface TraceSpanLine {
+  timestamp: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId: string;
+  name: string;
+  kind: string;
+  status: string;
+  /** Arbitrary span attributes are flattened directly onto the object by MuninnSpanExporter. */
+  [attr: string]: unknown;
+}
+
+/* ---------------------------------------------------------------------------
+ * Audit trail -- GET /audit
+ * ------------------------------------------------------------------------ */
+
+export type AuditVerb = "READ" | "WRITE" | "DELETE";
+
+export interface AuditEvent {
+  id: string;
+  principal: string;
+  groups: string[];
+  resourceKind: string;
+  verb: AuditVerb;
+  tenantId?: string;
+  targetId?: string;
+  allowed: boolean;
+  occurredAtEpochMilli: number;
+}
+
+export interface AuditFilter {
+  principal?: string;
+  resource?: string;
+  tenant?: string;
+  /** ISO-8601 instant. */
+  since?: string;
+  limit?: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * Autoscale policy -- optional field on DeploymentSpec/DeploymentSpecInput above
+ * ------------------------------------------------------------------------ */
+
+export type AutoscaleCombinationMode = "WORST_SIGNAL" | "WEIGHTED";
+
+export interface AutoscalePolicy {
+  minReplicas: number;
+  maxReplicas: number;
+  targetCpuUtilizationPercent: number;
+  targetRequestRatePerSecond?: number;
+  targetErrorRatePercent?: number;
+  targetQueueDepth?: number;
+  combinationMode: AutoscaleCombinationMode;
+  cpuWeight?: number;
+  requestRateWeight?: number;
+  errorRateWeight?: number;
+  queueDepthWeight?: number;
 }

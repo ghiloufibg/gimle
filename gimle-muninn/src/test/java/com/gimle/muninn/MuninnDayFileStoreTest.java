@@ -100,4 +100,29 @@ class MuninnDayFileStoreTest {
     assertTrue(store.readAfter("logs/nodes/never-seen/PLATFORM", null).isEmpty());
     assertTrue(store.readOlder("logs/nodes/never-seen/PLATFORM", null, 10).lines().isEmpty());
   }
+
+  // A processId is a host:port string for every process kind except AGENT (design doc Part
+  // B/O-9/O-11) -- e.g. "metrics/CONTROLPLANE/127.0.0.1:8080". java.nio.file.Path on Windows
+  // reserves ':' for drive letters and throws InvalidPathException anywhere else in a path, which
+  // previously made this a hard 400 on every real Windows-hosted control-plane/store/fafnir
+  // replica's own metrics/traces (AGENT's plain nodeId never contains a colon, so it alone worked
+  // by accident). Round-tripping here is the regression test for that fix -- on a
+  // non-Windows CI runner this passed even before the fix, so this needs to keep passing
+  // everywhere, not just prove "no crash on Windows."
+  @Test
+  void a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error()
+      throws Exception {
+    store.appendLines(
+        "metrics/CONTROLPLANE/127.0.0.1:8080", List.of(line("2026-08-10T10:00:00Z", "sample")));
+
+    List<Map<String, Object>> lines = store.readAfter("metrics/CONTROLPLANE/127.0.0.1:8080", null);
+    assertEquals(1, lines.size());
+    assertEquals("sample", lines.get(0).get("message"));
+
+    // The on-disk layout is an implementation detail (nothing reads a directory name back into a
+    // processId), but asserting it directly here is what actually distinguishes "fixed" from
+    // "happened not to throw" -- the sanitized directory must exist, the literal-colon one must
+    // not.
+    assertTrue(Files.isDirectory(tempDir.resolve("metrics/CONTROLPLANE/127.0.0.1_8080")));
+  }
 }

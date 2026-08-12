@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Cell,
   Pie,
@@ -13,12 +13,15 @@ import {
   ZAxis,
 } from "recharts";
 
+import { AXIS, ChartTooltip } from "@/components/chart-kit";
+import { MetricsHistoryPanel } from "@/components/metrics-history-panel";
 import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-shell";
+import { ProcessPicker, defaultProcessTarget } from "@/components/process-picker";
 import { fmtBytes, fmtMillicores, isStale } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useOverviewStore } from "@/stores/useOverviewStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
-import type { LifecycleState } from "@/types";
+import type { LifecycleState, ProcessTarget } from "@/types";
 
 export const Route = createFileRoute("/metrics")({
   head: () => ({
@@ -59,29 +62,6 @@ const LIFECYCLE_COLOR: Record<LifecycleState, string> = {
   UNINSTALLED: "var(--status-bad)",
 };
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: Record<string, unknown> }> }) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload as Record<string, unknown>;
-  const rows = (p.__tip as Array<[string, string]>) ?? [];
-  return (
-    <div className="hud-panel rounded-sm border border-primary/30 bg-background/95 px-2 py-1.5 font-mono text-[10px]">
-      <div className="mb-0.5 text-signal">{String(p.__label ?? "")}</div>
-      {rows.map(([k, v]) => (
-        <div key={k} className="flex justify-between gap-3 text-muted-foreground">
-          <span className="uppercase tracking-widest">{k}</span>
-          <span className="tabular-nums text-foreground">{v}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-const AXIS = {
-  stroke: "var(--status-muted)",
-  fontSize: 10,
-  fontFamily: "var(--font-mono, monospace)",
-} as const;
-
 /** Horizontal used-vs-allowance bullet row. */
 function Bullet({
   label,
@@ -117,6 +97,7 @@ function Bullet({
 
 function Metrics() {
   const s = useOverviewStore();
+  const [historyTarget, setHistoryTarget] = useState<ProcessTarget>(defaultProcessTarget);
   const tenants = useTenantsStore((t) => t.items);
   const loadTenants = useTenantsStore((t) => t.loadFirstPage);
 
@@ -526,6 +507,20 @@ function Metrics() {
           </div>
         </Panel>
       </div>
+
+      <section className="mt-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 pb-3">
+          <div>
+            <div className="hud-label mb-1">Gimlé // Metrics history</div>
+            <h2 className="text-lg font-light tracking-tight text-foreground">Process time series</h2>
+          </div>
+          <ProcessPicker value={historyTarget} onChange={setHistoryTarget} />
+        </div>
+        <MetricsHistoryPanel
+          key={`${historyTarget.processKind}:${historyTarget.processId}`}
+          target={historyTarget}
+        />
+      </section>
 
       {s.allLoading && instances.length === 0 && (
         <p className="mt-4 font-mono text-xs text-muted-foreground">loading metrics…</p>

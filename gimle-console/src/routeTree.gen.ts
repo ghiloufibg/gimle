@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TracesRouteImport } from './routes/traces'
 import { Route as TopologyRouteImport } from './routes/topology'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as MetricsRouteImport } from './routes/metrics'
@@ -16,6 +17,7 @@ import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigRouteImport } from './routes/config'
+import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TenantsIndexRouteImport } from './routes/tenants.index'
 import { Route as NodesIndexRouteImport } from './routes/nodes.index'
@@ -27,6 +29,11 @@ import { Route as DeploymentsNewRouteImport } from './routes/deployments.new'
 import { Route as DeploymentsNameRouteImport } from './routes/deployments.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
 
+const TracesRoute = TracesRouteImport.update({
+  id: '/traces',
+  path: '/traces',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TopologyRoute = TopologyRouteImport.update({
   id: '/topology',
   path: '/topology',
@@ -60,6 +67,11 @@ const ControlplaneRoute = ControlplaneRouteImport.update({
 const ConfigRoute = ConfigRouteImport.update({
   id: '/config',
   path: '/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuditRoute = AuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -115,6 +127,7 @@ const InstancesNameIdxRoute = InstancesNameIdxRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
@@ -122,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/metrics': typeof MetricsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
+  '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -134,6 +148,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
@@ -141,6 +156,7 @@ export interface FileRoutesByTo {
   '/metrics': typeof MetricsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
+  '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -154,6 +170,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
@@ -161,6 +178,7 @@ export interface FileRoutesById {
   '/metrics': typeof MetricsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
+  '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
@@ -175,6 +193,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/audit'
     | '/config'
     | '/controlplane'
     | '/login'
@@ -182,6 +201,7 @@ export interface FileRouteTypes {
     | '/metrics'
     | '/secrets'
     | '/topology'
+    | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -194,6 +214,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/audit'
     | '/config'
     | '/controlplane'
     | '/login'
@@ -201,6 +222,7 @@ export interface FileRouteTypes {
     | '/metrics'
     | '/secrets'
     | '/topology'
+    | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -213,6 +235,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/audit'
     | '/config'
     | '/controlplane'
     | '/login'
@@ -220,6 +243,7 @@ export interface FileRouteTypes {
     | '/metrics'
     | '/secrets'
     | '/topology'
+    | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
     | '/nodes/$nodeId'
@@ -233,6 +257,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuditRoute: typeof AuditRoute
   ConfigRoute: typeof ConfigRoute
   ControlplaneRoute: typeof ControlplaneRoute
   LoginRoute: typeof LoginRoute
@@ -240,6 +265,7 @@ export interface RootRouteChildren {
   MetricsRoute: typeof MetricsRoute
   SecretsRoute: typeof SecretsRoute
   TopologyRoute: typeof TopologyRoute
+  TracesRoute: typeof TracesRoute
   DeploymentsNameRoute: typeof DeploymentsNameRoute
   DeploymentsNewRoute: typeof DeploymentsNewRoute
   NodesNodeIdRoute: typeof NodesNodeIdRoute
@@ -253,6 +279,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/traces': {
+      id: '/traces'
+      path: '/traces'
+      fullPath: '/traces'
+      preLoaderRoute: typeof TracesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/topology': {
       id: '/topology'
       path: '/topology'
@@ -300,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/config'
       fullPath: '/config'
       preLoaderRoute: typeof ConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/audit': {
+      id: '/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuditRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -377,6 +417,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuditRoute: AuditRoute,
   ConfigRoute: ConfigRoute,
   ControlplaneRoute: ControlplaneRoute,
   LoginRoute: LoginRoute,
@@ -384,6 +425,7 @@ const rootRouteChildren: RootRouteChildren = {
   MetricsRoute: MetricsRoute,
   SecretsRoute: SecretsRoute,
   TopologyRoute: TopologyRoute,
+  TracesRoute: TracesRoute,
   DeploymentsNameRoute: DeploymentsNameRoute,
   DeploymentsNewRoute: DeploymentsNewRoute,
   NodesNodeIdRoute: NodesNodeIdRoute,
