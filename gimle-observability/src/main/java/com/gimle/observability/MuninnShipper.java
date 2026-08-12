@@ -198,7 +198,8 @@ public final class MuninnShipper implements AutoCloseable {
     }
     line.put("measurements", measurements);
     // Meter#measure()'s generic Statistic iteration above never yields percentiles -- those live on
-    // Timer's own HistogramSnapshot, reachable only via takeSnapshot(). Scoped to Timer specifically
+    // Timer's own HistogramSnapshot, reachable only via takeSnapshot(). Scoped to Timer
+    // specifically
     // (not the broader HistogramSupport interface DistributionSummary also implements): no
     // DistributionSummary meter exists in this codebase today, and ValueAtPercentile's
     // nanosecond-based value conversion is only meaningful for a time-based meter, matching the

@@ -110,12 +110,18 @@ class MuninnServerMetricsIngestTest {
     String timerLine =
         Json.write(
             Map.of(
-                "timestamp", "2026-08-10T10:00:01Z",
-                "name", "gimle.controlplane.request.latency",
-                "type", "TIMER",
-                "tags", Map.of("endpoint", "deployments"),
-                "measurements", Map.of("COUNT", 3.0, "TOTAL_TIME", 0.045, "MAX", 0.02),
-                "percentiles", Map.of("0.5", 0.01, "0.95", 0.02, "0.99", 0.025)));
+                "timestamp",
+                "2026-08-10T10:00:01Z",
+                "name",
+                "gimle.controlplane.request.latency",
+                "type",
+                "TIMER",
+                "tags",
+                Map.of("endpoint", "deployments"),
+                "measurements",
+                Map.of("COUNT", 3.0, "TOTAL_TIME", 0.045, "MAX", 0.02),
+                "percentiles",
+                Map.of("0.5", 0.01, "0.95", 0.02, "0.99", 0.025)));
 
     HttpResponse<String> ingestResponse =
         post("/ingest/metrics/CONTROLPLANE/127.0.0.1:8080", timerLine + "\n");

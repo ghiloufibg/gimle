@@ -145,7 +145,8 @@ public final class ApiServer implements AutoCloseable {
   // always audited (see #requireAuthorized), but a console page-load's worth of GETs would dwarf
   // the mutating-action volume by default, matching Kubernetes' own Metadata-level audit policy.
   // Empty (the default: no property set) reproduces that exact pre-existing behavior. Comma-
-  // separated ResourceKind names, e.g. "-Dgimle.controlplane.audit.readResourceKinds=CONFIG,SECRET".
+  // separated ResourceKind names, e.g.
+  // "-Dgimle.controlplane.audit.readResourceKinds=CONFIG,SECRET".
   private final Set<ResourceKind> auditReadResourceKinds =
       parseAuditReadResourceKinds(
           System.getProperty("gimle.controlplane.audit.readResourceKinds", ""));

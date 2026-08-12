@@ -583,7 +583,10 @@ class ApiServerAuthzTest {
   private static HttpResponse<Void> getNodes(HttpClient client, String baseUrl, String cookie)
       throws IOException, InterruptedException {
     HttpRequest request =
-        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).header("Cookie", cookie).GET().build();
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes"))
+            .header("Cookie", cookie)
+            .GET()
+            .build();
     return client.send(request, HttpResponse.BodyHandlers.discarding());
   }
 
