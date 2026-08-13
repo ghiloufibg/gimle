@@ -50,6 +50,7 @@ class ControlMessageCodecTest {
         new ControlMessage.TracesSnapshot(
             "worker-1", "{\"traceId\":\"abc\",\"name\":\"do-something\"}"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
+        new ControlMessage.RenameInstance("corr-3b", ID, "orders-service", 1),
         new ControlMessage.ResolveModule("corr-4", ID),
         new ControlMessage.ResolveModule("corr-4b", ID, "/var/gimle/volumes/orders-statefulset/0"),
         new ControlMessage.StartModule("corr-5", ID),

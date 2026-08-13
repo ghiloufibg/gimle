@@ -12,7 +12,14 @@ conventions elsewhere try to avoid.
 
 A deployment optionally carries a `tenantId`. The quota constraint: the sum of
 `resourceRequest × replicas` across every deployment sharing that `tenantId` must not exceed the
-tenant's quota.
+tenant's quota. Admission specifically checks against `resourceRequest × (replicas + maxSurge)` —
+`DeploymentSpec#maxCommittedInstances()` — rather than `replicas` alone: a rollout with a nonzero
+`disruption.maxSurge` (see [Manifest schema § Deployment manifest:
+disruption](../reference/manifest-schema.md#deployment-manifest-disruption)) can transiently run
+more than `replicas` instances, and admission has to reject a submission that couldn't stay within
+quota even briefly, not just at steady state. `QuotaReconciler`'s own continuous check (below) still
+sums plain `replicas` — a transient surge overshoot it would otherwise flag is expected to self-heal
+within one reconcile tick as the rollout completes, not something worth a standing violation for.
 
 ## Enforcement: checked at admission, and continuously
 
@@ -31,6 +38,22 @@ codebase does unprompted. Instead, it marks the offending deployment's status as
 (`StateStore.putQuotaViolation`, read by the API server's deployment status surface) and logs a
 warning — a human operator resolves an over-quota tenant explicitly, the reconciler only surfaces
 the problem.
+
+## Policy rules
+
+Admission checks two independent things: `TenantQuotaPlugin`'s aggregate resource math (above), and
+`PolicyConfigPlugin`'s organization-specific rules — the roadmap's literal "policy as data, not code"
+answer. A policy rule is a plain, unencrypted tenant-scoped config entry (below), not a new schema:
+`gimle set config <tenantId> policy.maxReplicasPerDeployment <n>` caps how many replicas *any single*
+deployment for that tenant may declare — a per-deployment sizing ceiling, independent of (and checked
+alongside) `TenantQuotaPlugin`'s own tenant-wide resource-billing math. Absent the config entry (the
+common case — no policy configured), no ceiling applies; a tenant opts in per rule, per key.
+
+`policy.maxReplicasPerDeployment` is the one rule this plugin enforces today — adding another means
+adding another key/check to `PolicyConfigPlugin` itself, not a schema change, so the mechanism is
+"policy as data" for the rules that exist, while the *set* of possible rules is still code. A
+malformed value, or an entry mistakenly written `--encrypted` (a policy rule is never a secret),
+both reject the submission outright rather than silently skip enforcement.
 
 ## Tenant-scoped config
 

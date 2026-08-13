@@ -17,7 +17,7 @@ same data the [CLI](../reference/cli-reference.md) reads, not a parallel source 
 | Screen | Shows |
 |---|---|
 | Overview | Landing dashboard summarizing cluster state at a glance. |
-| Deployments | List/create/inspect deployments — the UI equivalent of `gimle get/apply/delete deployment`. Create/detail also expose the optional `autoscale:` policy (below). |
+| Deployments | List/create/inspect deployments — the UI equivalent of `gimle get/apply/delete deployment`. Create/detail also expose the optional `autoscale:` policy and `disruption:` budget (below). |
 | Instances | Per-instance detail: lifecycle state, health, resource usage. |
 | Nodes | Registered node agents and their reported capacity — the UI equivalent of `gimle get nodes`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
@@ -67,6 +67,13 @@ when in `weighted` mode), and an optional, collapsible sub-form on the create sc
 change was needed for creation — the console already builds deployment manifests as hand-rolled
 YAML and PUTs them, and `DeploymentManifestParser` already accepted an `autoscale:` block — only
 `ApiServer.deploymentStatus`'s JSON serialization needed to start including it on the read side.
+
+The `disruption:` budget (see [Manifest schema § Deployment manifest:
+disruption](../reference/manifest-schema.md#deployment-manifest-disruption)) followed the exact
+same template: an optional, collapsible `maxUnavailable`/`maxSurge` sub-form on the create screen,
+and a read-only panel on the detail screen when a deployment has one. Unlike `autoscale:`,
+`disruption:` had *never* been on the wire at all before this — `ApiServer.deploymentStatus` gained
+its first `disruption` key here, not merely a later addition to an existing one.
 
 ## Logs: live tailing and crash dumps
 

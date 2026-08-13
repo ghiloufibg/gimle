@@ -428,6 +428,17 @@ public final class WorkerMain {
           channel.send(new ControlMessage.Nack(m.correlationId(), String.valueOf(e.getMessage())));
         }
       }
+      case ControlMessage.RenameInstance m -> {
+        // Overwrites this ModuleId's InstanceIdentityRegistry entry in place -- the exact same
+        // register() call InstallModule's own case above makes, just with a new instanceIndex.
+        // mdcTagsFor reads the registry live on every command, so this instance's logging picks
+        // up the new identity on its very next tagged line with no other propagation needed; the
+        // module itself is never touched (no resolve/start/stop), matching this message's whole
+        // point -- retarget, don't restart.
+        identityRegistry.register(
+            m.id(), new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
+        channel.send(new ControlMessage.Ack(m.correlationId()));
+      }
       case ControlMessage.ResolveModule m ->
           runCommand(
               m.correlationId(),

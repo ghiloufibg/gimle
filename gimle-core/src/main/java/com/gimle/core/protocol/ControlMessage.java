@@ -138,6 +138,16 @@ public sealed interface ControlMessage {
     }
   }
 
+  /**
+   * Retargets an already-installed instance's placement identity in place -- {@code
+   * DeploymentReconciler#handleSurge}'s promotion step, moving a proven-healthy surge instance onto
+   * its permanent index without a restart. Updates only what {@link InstallModule}'s own {@code
+   * deploymentName}/{@code instanceIndex} log-tagging identity established (via {@code
+   * InstanceIdentityRegistry}); the module itself is never resolved, started, or stopped again.
+   */
+  record RenameInstance(String correlationId, ModuleId id, String deploymentName, int instanceIndex)
+      implements ControlMessage {}
+
   record StartModule(String correlationId, ModuleId id) implements ControlMessage {}
 
   record StopModule(String correlationId, ModuleId id) implements ControlMessage {}

@@ -31,6 +31,7 @@ import java.io.UncheckedIOException;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -328,6 +329,16 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return Set.copyOf(
         ((StoreRpc.IntSetResult) sendRead(new StoreRpc.ListRollingIndices(deploymentName)))
             .values());
+  }
+
+  public Map<Integer, Integer> getSurgeIndices(String deploymentName) {
+    StoreRpc.IntIntMapResult r =
+        (StoreRpc.IntIntMapResult) sendRead(new StoreRpc.ListSurgeIndices(deploymentName));
+    Map<Integer, Integer> result = new LinkedHashMap<>();
+    for (int i = 0; i < r.surgeIndices().size(); i++) {
+      result.put(r.surgeIndices().get(i), r.targetIndices().get(i));
+    }
+    return Map.copyOf(result);
   }
 
   public Optional<ReconcilerInstanceState> getReconcilerInstanceState(

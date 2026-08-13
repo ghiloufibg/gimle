@@ -177,6 +177,32 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #findWorkerDescendant}, but for one specific instance key ({@code
+   * deploymentName#instanceIndex}) rather than just "any" worker -- needed once more than one
+   * worker JVM is live under the same agent at once (e.g. mid-surge, where the old-version and
+   * surge-version workers both run concurrently). {@code AgentMain#startInstance} scopes each
+   * worker's own {@code -Dgimle.log.root=} flag to {@code workers/<key>} using the key it was
+   * *spawned* under, and that flag is never rewritten afterward -- in particular, {@code
+   * AgentMain#renameInPlace} only re-keys the agent's own in-memory bookkeeping and notifies the
+   * already-running worker over its control channel, never touching the live process's command
+   * line. So matching on the spawn-time key here still finds a promoted worker after promotion,
+   * which is exactly what proves it's still the same OS process: the same key keeps resolving to
+   * the same {@link ProcessHandle#pid()} across the whole rename.
+   */
+  static Optional<ProcessHandle> findWorkerDescendantForKey(Process agentProcess, String key) {
+    return agentProcess
+        .descendants()
+        .filter(
+            handle ->
+                handle
+                    .info()
+                    .commandLine()
+                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains(key))
+                    .orElse(false))
+        .findFirst();
+  }
+
+  /**
    * What a test needs to talk to a freshly-started store-cluster + control-plane-replica set.
    * {@code agentProcesses} holds just the one agent {@link #startCluster} itself spawns -- {@code
    * startCluster} stays single-agent, keeping its blast radius on every other {@code *IT} class at
@@ -1013,6 +1039,85 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #submitDeploymentWithReplicas}, plus an explicit {@code disruption:} block ({@code
+   * maxUnavailable}/{@code maxSurge}) -- the default budget every other submission helper in this
+   * class implies ({@code maxUnavailable: 1}, {@code maxSurge: 0}) never exercises {@code
+   * DeploymentReconciler#handleSurge} at all, so a surge-specific scenario needs this instead.
+   */
+  void submitDeploymentWithReplicasAndDisruption(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String version,
+      Path jar,
+      int replicas,
+      int maxUnavailable,
+      int maxSurge)
+      throws Exception {
+    String manifest =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        replicas: %d
+        disruption:
+          maxUnavailable: %d
+          maxSurge: %d
+        """
+            .formatted(
+                deploymentName,
+                moduleName,
+                version,
+                jar.toAbsolutePath(),
+                replicas,
+                maxUnavailable,
+                maxSurge);
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
+                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("deployment submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * Like {@link #submitDeploymentWithReplicasWithRetry}, but for {@link
+   * #submitDeploymentWithReplicasAndDisruption} -- same transient-503-during-election retry
+   * reasoning.
+   */
+  void submitDeploymentWithReplicasAndDisruptionWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String version,
+      Path jar,
+      int replicas,
+      int maxUnavailable,
+      int maxSurge,
+      Duration timeout)
+      throws Exception {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (true) {
+      try {
+        submitDeploymentWithReplicasAndDisruption(
+            baseUrl, deploymentName, moduleName, version, jar, replicas, maxUnavailable, maxSurge);
+        return;
+      } catch (AssertionError e) {
+        if (System.nanoTime() > deadline) {
+          throw e;
+        }
+        Thread.sleep(500);
+      }
+    }
+  }
+
+  /**
    * True once exactly {@code expectedCount} of {@code deploymentName}'s real placed instances
    * report both {@code lifecycleState == ACTIVE} and {@code observation.moduleId.version ==
    * version} -- unlike {@link #isActive}, this also checks the *version* actually running, which is
@@ -1610,8 +1715,8 @@ abstract class GreeterSmokeClusterSupport {
   /**
    * Like {@link #submitDeployment(String, String, String, Path, Optional)}, but for a submission
    * expected to be rejected at admission -- returns the raw response instead of failing on a
-   * non-200, so the caller can assert on the rejection itself ({@code ApiServer#checkTenantQuota}'s
-   * own 409, in this suite's case).
+   * non-200, so the caller can assert on the rejection itself ({@code TenantQuotaPlugin}'s own 409,
+   * in this suite's case).
    */
   HttpResponse<String> submitDeploymentExpectingRejection(
       String baseUrl, String deploymentName, String moduleName, Path jar, String tenantId)
@@ -1893,6 +1998,28 @@ abstract class GreeterSmokeClusterSupport {
       return response.statusCode() == 200 ? response.body() : "";
     } catch (Exception e) {
       return "";
+    }
+  }
+
+  /**
+   * Like {@link #instanceLogContains}, but for the node agent's own platform log via the real
+   * {@code /logs/nodes/{nodeId}} proxy route, rather than a hosted module instance's log -- {@code
+   * AgentMain}'s own reconciliation log lines (e.g. the pinned-promotion rename line {@code
+   * AgentMainTest} covers at the unit level) describe the agent's own bookkeeping, so they only
+   * ever land in {@code agent-platform.log}, never in any instance's own log.
+   */
+  boolean agentPlatformLogContains(String baseUrl, String nodeId, String text) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/logs/nodes/" + nodeId + "?category=PLATFORM"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 && response.body().contains(text);
+    } catch (Exception e) {
+      return false;
     }
   }
 

@@ -74,6 +74,13 @@ public final class ControlMessageCodec {
               escape(m.artifactPath()),
               escape(m.deploymentName()),
               Integer.toString(m.instanceIndex()));
+      case ControlMessage.RenameInstance m ->
+          line(
+              "RENAME",
+              m.correlationId(),
+              encodeId(m.id()),
+              escape(m.deploymentName()),
+              Integer.toString(m.instanceIndex()));
       case ControlMessage.ResolveModule m ->
           line("RESOLVE", m.correlationId(), encodeId(m.id()), escape(m.dataDirectory()));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
@@ -162,6 +169,12 @@ public final class ControlMessageCodec {
           new ControlMessage.InstallModule(
               field(fields, 1),
               unescape(field(fields, 2)),
+              unescape(field(fields, 3)),
+              Integer.parseInt(field(fields, 4)));
+      case "RENAME" ->
+          new ControlMessage.RenameInstance(
+              field(fields, 1),
+              decodeId(field(fields, 2)),
               unescape(field(fields, 3)),
               Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->

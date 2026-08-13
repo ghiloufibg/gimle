@@ -42,6 +42,7 @@ public record StateSnapshot(
     Map<String, String> statefulSetIndexNodes,
     List<NodeRegistration> nodeRegistrations,
     Map<String, Set<Integer>> rollingIndices,
+    Map<String, Map<Integer, Integer>> surgeIndices,
     Map<String, Integer> effectiveReplicas,
     List<Tenant> tenants,
     Set<String> quotaViolatingDeployments,
@@ -80,6 +81,12 @@ public record StateSnapshot(
         rollingIndices.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+    // Map.copyOf alone only makes the outer map immutable, not each entry's own Map value -- same
+    // deep-copy reasoning as rollingDaemonSetNodes/rollingIndices above.
+    surgeIndices =
+        surgeIndices.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Map.copyOf(e.getValue())));
     effectiveReplicas = Map.copyOf(effectiveReplicas);
     tenants = List.copyOf(tenants);
     quotaViolatingDeployments = Set.copyOf(quotaViolatingDeployments);

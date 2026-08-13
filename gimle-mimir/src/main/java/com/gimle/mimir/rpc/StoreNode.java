@@ -6,6 +6,7 @@ import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.StateStore;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -111,6 +112,8 @@ public final class StoreNode implements StoreRpcHandler {
           intResult(store.getEffectiveReplicas(r.deploymentName()));
       case StoreRpc.ListRollingIndices r ->
           new StoreRpc.IntSetResult(List.copyOf(store.getRollingIndices(r.deploymentName())));
+      case StoreRpc.ListSurgeIndices r ->
+          surgeIndicesResult(store.getSurgeIndices(r.deploymentName()));
       case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
@@ -306,6 +309,16 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.IntResult(true, v))
         .orElseGet(() -> new StoreRpc.IntResult(false, 0));
+  }
+
+  private static StoreRpc.IntIntMapResult surgeIndicesResult(Map<Integer, Integer> surgeToTarget) {
+    List<Integer> surgeIndices = new ArrayList<>();
+    List<Integer> targetIndices = new ArrayList<>();
+    for (Map.Entry<Integer, Integer> entry : surgeToTarget.entrySet()) {
+      surgeIndices.add(entry.getKey());
+      targetIndices.add(entry.getValue());
+    }
+    return new StoreRpc.IntIntMapResult(surgeIndices, targetIndices);
   }
 
   private static StoreRpc.ReconcilerInstanceStateResult reconcilerInstanceStateResult(

@@ -6,17 +6,18 @@ package com.gimle.mimir.manifest;
  * previously hardcoded "one index/node at a time" into an operator-tunable count, the same way
  * {@link AutoscalePolicy} generalized a previously-fixed replica count.
  *
- * <p>{@code maxSurge} is not implemented yet -- provisioning a replacement before removing the
- * original needs its own synthetic-index bookkeeping and interacts with tenant quota admission,
- * deliberately scoped out of this first pass. The field exists on this record purely so the shape
- * is already forward-compatible with a later change that does implement it; both {@link
- * DeploymentManifestParser} and {@link DaemonSetManifestParser} reject a nonzero {@code maxSurge}
- * outright today, rather than silently accepting and then ignoring it -- the same "reject outright
- * rather than look like it did something" posture {@link DaemonSetManifestParser} already takes for
- * {@code placement.antiAffinity}. On a {@link DaemonSetSpec} specifically, {@code maxSurge} would
- * additionally be meaningless even once implemented elsewhere: a DaemonSet is already exactly one
- * instance per eligible node by definition, so there is no "extra" instance a rollout could ever
- * provision ahead of removing the old one.
+ * <p>{@code maxSurge} (provisioning a replacement before removing the original) is implemented for
+ * {@link DeploymentSpec} only, via {@code DeploymentReconciler#handleSurge}'s synthetic index range
+ * above {@code replicas} -- {@link DeploymentManifestParser} accepts a nonzero value.
+ * Admission-time tenant quota accounting is surge-aware too: {@link
+ * DeploymentSpec#maxCommittedInstances()} charges a tenant's quota for the peak {@code replicas +
+ * maxSurge} a rollout could transiently reach, not just the steady-state {@code replicas}. {@link
+ * DaemonSetManifestParser} still rejects a nonzero {@code maxSurge} outright, the same "reject
+ * outright rather than look like it did something" posture it already takes for {@code
+ * placement.antiAffinity} -- deliberately permanent, not a scoped-out first pass: a {@link
+ * DaemonSetSpec} is already exactly one instance per eligible node by definition, so there is no
+ * "extra" instance a rollout could ever provision ahead of removing the old one, on any
+ * implementation.
  */
 public record DisruptionBudget(int maxUnavailable, int maxSurge) {
 

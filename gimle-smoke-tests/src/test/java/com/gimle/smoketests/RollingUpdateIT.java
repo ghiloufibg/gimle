@@ -14,13 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Rolling update / version-aware traffic cutover under real load, both replica-count regimes {@code
- * DeploymentReconciler#handleRollingUpdate}'s own deliberately-minimal in-place-replacement design
- * (one index migrated at a time, no {@code maxSurge}/{@code maxUnavailable} surge-then-drain)
- * implies: a 2-replica rollout demonstrates genuine continuous availability (at least one instance
- * {@code ACTIVE} throughout), while a 1-replica rollout demonstrates the real, documented downtime
- * tradeoff instead -- both against a real v1.1.0 build compiled on the fly by {@link
- * TestModuleBuilder} rather than a second, near-duplicate committed example module.
+ * Rolling update / version-aware traffic cutover under real load, both replica-count regimes the
+ * default disruption budget (no {@code disruption:} block submitted -- {@code maxUnavailable: 1},
+ * {@code maxSurge: 0}, in-place one-index-at-a-time replacement) implies: a 2-replica rollout
+ * demonstrates genuine continuous availability (at least one instance {@code ACTIVE} throughout),
+ * while a 1-replica rollout demonstrates the real, documented downtime tradeoff instead -- both
+ * against a real v1.1.0 build compiled on the fly by {@link TestModuleBuilder} rather than a
+ * second, near-duplicate committed example module.
  */
 @Tag("smoke")
 class RollingUpdateIT extends GreeterSmokeClusterSupport {
@@ -31,10 +31,10 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
    * build of the same module (compiled on the fly by {@link TestModuleBuilder} -- see {@link
    * #buildProviderV2Jar()} -- rather than committing a second, near-duplicate example module) while
    * Gatling drives sustained real HTTP traffic through {@code greeter-load-generator}'s real fabric
-   * call the whole time. {@link
-   * com.gimle.controlplane.reconcile.DeploymentReconciler#handleRollingUpdate} (see its own
-   * javadoc) is deliberately minimal: one index migrated at a time, in place, no {@code
-   * maxSurge}/{@code maxUnavailable} surge-then-drain -- so this is only a genuine "rolling", not
+   * call the whole time. No {@code disruption:} block is submitted, so this exercises {@code
+   * DeploymentReconciler#handleRollingUpdate}'s default budget -- {@code maxUnavailable: 1}, {@code
+   * maxSurge: 0}, one index migrated in place at a time -- rather than the surge path {@code
+   * DeploymentReconcilerSurgeTest} covers separately; this is only a genuine "rolling", not
    * "recreate", test with 2+ replicas: while one index is mid-migration the other stays untouched
    * and keeps serving. A background virtual-thread sampler polls the deployment's real observed
    * instance count/version throughout the whole rollout window and asserts at least one instance
@@ -148,16 +148,17 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
 
   /**
    * The single-replica counterpart to the 2-replica test above -- confirms the documented tradeoff
-   * is real, not just documented. {@link
-   * com.gimle.controlplane.reconcile.DeploymentReconciler#handleRollingUpdate}'s own javadoc is
-   * explicit that this is in-place index replacement (kill old at that index, then place new at the
-   * same index), never additive surge-then-drain, so a single-replica deployment WILL see real
-   * downtime during a migration -- only a multi-replica deployment (the test above) can demonstrate
-   * continuous availability. This test asserts the opposite inequality from that one: real,
-   * observed downtime (the sampler must catch at least one moment with zero {@code ACTIVE}
-   * instances), and that the deployment still fully converges to the new version afterward --
-   * proving the tradeoff is exactly as costly as documented, not silently worse (e.g. never
-   * recovering) or silently better (e.g. a surge the docs don't claim to provide).
+   * is real, not just documented. No {@code disruption:} block is submitted here either, so this is
+   * still {@code DeploymentReconciler#handleRollingUpdate}'s default in-place index replacement
+   * (kill old at that index, then place new at the same index) -- with only one replica and no
+   * {@code maxSurge} configured to provision a second instance ahead of removal, a single-replica
+   * deployment WILL see real downtime during a migration; only a multi-replica deployment (the test
+   * above) can demonstrate continuous availability under the default budget. This test asserts the
+   * opposite inequality from that one: real, observed downtime (the sampler must catch at least one
+   * moment with zero {@code ACTIVE} instances), and that the deployment still fully converges to
+   * the new version afterward -- proving the tradeoff is exactly as costly as documented, not
+   * silently worse (e.g. never recovering) or silently better (e.g. a surge this deployment never
+   * asked for).
    */
   @Test
   @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)

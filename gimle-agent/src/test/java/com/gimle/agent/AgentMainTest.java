@@ -10,6 +10,7 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
+import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.io.IOException;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -554,5 +556,109 @@ class AgentMainTest {
             "provider-deployment", 0, v1.id(), "/does/not/matter.jar", Optional.empty());
 
     assertFalse(AgentMain.requiresReplacement(sameAssignmentAgain, existing));
+  }
+
+  // ---- findRenameSource / renameInPlace: surge promotion retargeting an already-running worker
+  // instance in place, no restart -- see DeploymentReconciler#handleSurge's own promotion step ----
+
+  private static AssignedInstance renamedAssignment(
+      String deploymentName, int instanceIndex, ModuleDescriptor descriptor, int renamedFrom) {
+    return new AssignedInstance(
+        deploymentName,
+        instanceIndex,
+        descriptor.id(),
+        "/does/not/matter.jar",
+        Optional.empty(),
+        OptionalInt.of(renamedFrom));
+  }
+
+  @Test
+  void find_rename_source_finds_the_already_supervised_instance_at_the_hinted_index() {
+    ModuleDescriptor v2 = descriptor("orders", IsolationTier.TIER_2);
+    AssignedInstance surgeAssigned = assignedInstance("orders-service", v2, Optional.empty());
+    SupervisedInstance surgeInstance = supervisedInstance(surgeAssigned, v2, null);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("orders-service#5", surgeInstance);
+
+    AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+
+    Optional<SupervisedInstance> source = AgentMain.findRenameSource(renamed, supervised);
+
+    assertTrue(source.isPresent());
+    assertEquals(surgeInstance, source.get());
+  }
+
+  @Test
+  void find_rename_source_is_empty_without_a_rename_hint() {
+    ModuleDescriptor v2 = descriptor("orders", IsolationTier.TIER_2);
+    AssignedInstance freshlyPlaced = assignedInstance("orders-service", v2, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+
+    assertFalse(AgentMain.findRenameSource(freshlyPlaced, supervised).isPresent());
+  }
+
+  @Test
+  void find_rename_source_falls_back_when_the_hinted_source_key_is_not_supervised() {
+    ModuleDescriptor v2 = descriptor("orders", IsolationTier.TIER_2);
+    AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+
+    // No "orders-service#5" entry at all -- a genuine race (already renamed on a previous poll,
+    // or the source is simply gone) -- the safe fallback is "nothing to rename from", never a
+    // thrown exception, so the caller's ordinary start path can proceed unaffected.
+    assertFalse(AgentMain.findRenameSource(renamed, supervised).isPresent());
+  }
+
+  @Test
+  void find_rename_source_falls_back_when_the_source_runs_a_different_module() {
+    ModuleDescriptor v1 = descriptor("orders", IsolationTier.TIER_2);
+    ModuleDescriptor v2 =
+        new ModuleDescriptor(
+            "orders",
+            Version.parse("2.0.0"),
+            List.of(),
+            List.of(),
+            IsolationTier.TIER_2,
+            REQUEST,
+            LIMIT,
+            HealthProbes.NONE,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty());
+    AssignedInstance staleAssigned = assignedInstance("orders-service", v1, Optional.empty());
+    SupervisedInstance staleInstance = supervisedInstance(staleAssigned, v1, null);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("orders-service#5", staleInstance);
+
+    // The hint points at index 5, but whatever is actually running there is still v1 -- not a
+    // healthy surge instance proven on v2, so this must not be mistaken for a legitimate rename.
+    AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+
+    assertFalse(AgentMain.findRenameSource(renamed, supervised).isPresent());
+  }
+
+  @Test
+  void rename_in_place_rekeys_supervised_and_shippers_and_updates_the_assigned_identity() {
+    ModuleDescriptor v2 = descriptor("orders", IsolationTier.TIER_2);
+    // Index 5, matching the "orders-service#5" key below -- assignedInstance()'s own helper
+    // hardcodes index 0, which is fine for requiresReplacement-only tests (moduleId/artifactPath
+    // only) but not here, since renameInPlace derives its own "old key" from this exact field.
+    AssignedInstance surgeAssigned =
+        new AssignedInstance(
+            "orders-service", 5, v2.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, null);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("orders-service#5", instance);
+    Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
+    instanceShippers.put("orders-service#5", List.of());
+
+    AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+    AgentMain.renameInPlace("orders-service#1", renamed, instance, supervised, instanceShippers);
+
+    assertFalse(supervised.containsKey("orders-service#5"));
+    assertEquals(instance, supervised.get("orders-service#1"));
+    assertEquals(renamed, instance.assigned);
+    assertFalse(instanceShippers.containsKey("orders-service#5"));
+    assertTrue(instanceShippers.containsKey("orders-service#1"));
   }
 }

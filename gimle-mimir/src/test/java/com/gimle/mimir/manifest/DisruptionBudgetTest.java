@@ -6,9 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link DisruptionBudget} validation and defaulting -- manifest-level parsing/rejection (the
- * {@code maxSurge}-not-implemented-yet and DaemonSet {@code maxSurge}-meaningless rejections) is
- * covered by {@code DeploymentManifestParserTest}/{@code DaemonSetManifestParserTest} instead.
+ * {@link DisruptionBudget} validation and defaulting -- manifest-level parsing (Deployment now
+ * accepts a nonzero {@code maxSurge}; DaemonSet's own permanent {@code maxSurge}-meaningless
+ * rejection) is covered by {@code DeploymentManifestParserTest}/{@code DaemonSetManifestParserTest}
+ * instead.
  */
 class DisruptionBudgetTest {
 

@@ -1,5 +1,9 @@
 package com.gimle.controlplane.api;
 
+import com.gimle.controlplane.admission.AdmissionChain;
+import com.gimle.controlplane.admission.AdmissionDecision;
+import com.gimle.controlplane.admission.PolicyConfigPlugin;
+import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
@@ -7,7 +11,6 @@ import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
-import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
@@ -23,7 +26,6 @@ import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
@@ -53,6 +55,7 @@ import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -150,6 +153,14 @@ public final class ApiServer implements AutoCloseable {
   // any public constructor parameter (no test/caller has ever needed to inject a custom
   // registry); a same-package test reads it back through #metrics().
   private final ApiServerMetrics metrics = new ApiServerMetrics();
+  // The ordered admission chain a PUT /deployments submission runs through before it's proposed
+  // to the store -- today the tenant-quota check {@code checkTenantQuota} used to perform inline,
+  // plus {@code PolicyConfigPlugin}'s opt-in organization-specific rules -- a real extension point
+  // new plugins can join without ApiServer growing another hardcoded check. Not exposed through any
+  // public constructor parameter, same reasoning as {@code metrics} above: no test/caller has ever
+  // needed to inject a custom plugin list.
+  private final AdmissionChain<DeploymentSpec> deploymentAdmissionChain =
+      new AdmissionChain<>(List.of(new TenantQuotaPlugin(), new PolicyConfigPlugin()));
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
@@ -569,13 +580,17 @@ public final class ApiServer implements AutoCloseable {
     // catches an unreadable artifact every tick regardless.
     Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
     DeploymentSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
-    Optional<String> quotaRejection = checkTenantQuota(spec, artifact);
-    if (quotaRejection.isPresent()) {
-      respond(exchange, 409, quotaRejection.get());
-      return;
+    AdmissionDecision<DeploymentSpec> decision =
+        deploymentAdmissionChain.admit(
+            ResourceKind.DEPLOYMENT, Verb.WRITE, spec, storeClient, artifact);
+    switch (decision) {
+      case AdmissionDecision.Reject<DeploymentSpec> reject ->
+          respond(exchange, 409, reject.reason());
+      case AdmissionDecision.Allow<DeploymentSpec> allow -> {
+        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
+        respond(exchange, 200, "ok");
+      }
     }
-    storeClient.propose(new StateMutation.PutDeployment(spec));
-    respond(exchange, 200, "ok");
   }
 
   private static Optional<ModuleArtifact> readArtifactIfPossible(String artifactPath) {
@@ -597,48 +612,6 @@ public final class ApiServer implements AutoCloseable {
         spec.tenantId(),
         sha256,
         spec.disruption());
-  }
-
-  /**
-   * Admission-time quota check: absent if the deployment is untenanted (no check to run) or would
-   * keep the tenant within quota; present with a rejection reason otherwise. {@code artifact} is
-   * already read by the caller (once, for every deployment regardless of tenancy, to compute {@link
-   * DeploymentSpec#artifactSha256}) -- reused here rather than reading the same jar a second time.
-   * An unreadable artifact rejects the submission outright for a *tenanted* deployment specifically
-   * (unlike {@code DeploymentReconciler}, which just retries next tick with nothing yet at stake),
-   * since admission can't safely let a submission through it has no way to verify against the
-   * tenant's quota.
-   */
-  private Optional<String> checkTenantQuota(
-      DeploymentSpec spec, Optional<ModuleArtifact> artifact) {
-    if (spec.tenantId().isEmpty()) {
-      return Optional.empty();
-    }
-    String tenantId = spec.tenantId().get();
-    Optional<Tenant> tenant = storeClient.getTenant(tenantId);
-    if (tenant.isEmpty()) {
-      return Optional.of("unknown tenantId: " + tenantId);
-    }
-    if (artifact.isEmpty()) {
-      return Optional.of(
-          "cannot verify tenant quota: artifact unreadable at " + spec.artifactPath());
-    }
-    ModuleDescriptor descriptor = artifact.get().descriptor();
-    TenantUsage.Usage existing = TenantUsage.currentlyAssigned(storeClient, tenantId, spec.name());
-    TenantUsage.Usage withThisSubmission =
-        existing.plus(
-            descriptor.resourceRequest().memoryBytes() * spec.replicas(),
-            descriptor.resourceRequest().cpuMillicores() * spec.replicas(),
-            spec.replicas());
-    if (withThisSubmission.exceeds(tenant.get().quota())) {
-      return Optional.of(
-          "deployment "
-              + spec.name()
-              + " would push tenant "
-              + tenantId
-              + " past its resource quota");
-    }
-    return Optional.empty();
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
@@ -734,7 +707,7 @@ public final class ApiServer implements AutoCloseable {
     // from the submitted manifest, always recomputed server-side at admission.
     Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
     JobSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
-    // No tenant-quota check here (unlike handlePutDeployment's checkTenantQuota): TenantUsage's
+    // No tenant-quota check here (unlike handlePutDeployment's admission chain): TenantUsage's
     // accounting model is deployment-replica-shaped (resourceRequest * replicas) and has no Job
     // equivalent yet -- a tenanted Job is accepted regardless of that tenant's quota today, a
     // real, undocumented-elsewhere gap worth flagging here rather than silently matching
@@ -1310,6 +1283,7 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
     spec.autoscale().ifPresent(policy -> specMap.put("autoscale", autoscaleToJson(policy)));
+    spec.disruption().ifPresent(budget -> specMap.put("disruption", disruptionToJson(budget)));
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
 
     List<Map<String, Object>> instances = new ArrayList<>();
@@ -1352,6 +1326,13 @@ public final class ApiServer implements AutoCloseable {
     policy.requestRateWeight().ifPresent(v -> map.put("requestRateWeight", v));
     policy.errorRateWeight().ifPresent(v -> map.put("errorRateWeight", v));
     policy.queueDepthWeight().ifPresent(v -> map.put("queueDepthWeight", v));
+    return map;
+  }
+
+  private static Map<String, Object> disruptionToJson(DisruptionBudget budget) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("maxUnavailable", budget.maxUnavailable());
+    map.put("maxSurge", budget.maxSurge());
     return map;
   }
 
@@ -1541,7 +1522,8 @@ public final class ApiServer implements AutoCloseable {
               assignment.instanceIndex(),
               moduleId,
               artifactPath,
-              spec.get().tenantId());
+              spec.get().tenantId(),
+              assignment.renamedFromInstanceIndex());
       assigned.add(assignedInstanceToJson(instance));
     }
     // Job runs reuse this exact same AssignedInstance wire shape --
@@ -1897,6 +1879,9 @@ public final class ApiServer implements AutoCloseable {
     map.put("moduleId", moduleIdToJson(instance.moduleId()));
     map.put("artifactPath", instance.artifactPath());
     instance.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
+    if (instance.renamedFromInstanceIndex().isPresent()) {
+      map.put("renamedFromInstanceIndex", instance.renamedFromInstanceIndex().getAsInt());
+    }
     return map;
   }
 

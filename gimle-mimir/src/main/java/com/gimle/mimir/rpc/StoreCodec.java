@@ -138,6 +138,8 @@ public final class StoreCodec {
   private static final byte TAG_STATEFULSET_ASSIGNMENT_LIST_RESULT = 86;
   private static final byte TAG_INT_SET_RESULT = 87;
   private static final byte TAG_STRING_SET_RESULT = 88;
+  private static final byte TAG_LIST_SURGE_INDICES = 89;
+  private static final byte TAG_INT_INT_MAP_RESULT = 90;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -305,6 +307,10 @@ public final class StoreCodec {
           out.writeByte(TAG_LIST_ROLLING_INDICES);
           out.writeUTF(v.deploymentName());
         }
+        case StoreRpc.ListSurgeIndices v -> {
+          out.writeByte(TAG_LIST_SURGE_INDICES);
+          out.writeUTF(v.deploymentName());
+        }
         case StoreRpc.GetNodeHeartbeat v -> {
           out.writeByte(TAG_GET_NODE_HEARTBEAT);
           out.writeUTF(v.nodeId());
@@ -453,6 +459,14 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (int value : v.values()) {
             out.writeInt(value);
+          }
+        }
+        case StoreRpc.IntIntMapResult v -> {
+          out.writeByte(TAG_INT_INT_MAP_RESULT);
+          out.writeInt(v.surgeIndices().size());
+          for (int i = 0; i < v.surgeIndices().size(); i++) {
+            out.writeInt(v.surgeIndices().get(i));
+            out.writeInt(v.targetIndices().get(i));
           }
         }
         case StoreRpc.StringSetResult v -> {
@@ -661,6 +675,7 @@ public final class StoreCodec {
         case TAG_GET_NODE_REGISTRATION -> new StoreRpc.GetNodeRegistration(in.readUTF());
         case TAG_GET_EFFECTIVE_REPLICAS -> new StoreRpc.GetEffectiveReplicas(in.readUTF());
         case TAG_LIST_ROLLING_INDICES -> new StoreRpc.ListRollingIndices(in.readUTF());
+        case TAG_LIST_SURGE_INDICES -> new StoreRpc.ListSurgeIndices(in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
             new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
@@ -843,6 +858,16 @@ public final class StoreCodec {
             values.add(in.readInt());
           }
           yield new StoreRpc.IntSetResult(values);
+        }
+        case TAG_INT_INT_MAP_RESULT -> {
+          int count = in.readInt();
+          List<Integer> surgeIndices = new ArrayList<>();
+          List<Integer> targetIndices = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            surgeIndices.add(in.readInt());
+            targetIndices.add(in.readInt());
+          }
+          yield new StoreRpc.IntIntMapResult(surgeIndices, targetIndices);
         }
         case TAG_STRING_SET_RESULT -> {
           int count = in.readInt();

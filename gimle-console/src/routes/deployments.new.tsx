@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import type { AutoscalePolicy } from "@/types";
+import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
 export const Route = createFileRoute("/deployments/new")({
   head: () => ({
@@ -56,6 +56,11 @@ function NewDeployment() {
     errorRateWeight: "",
     queueDepthWeight: "",
   });
+  const [disruptionOpen, setDisruptionOpen] = useState(false);
+  const [disruption, setDisruption] = useState({
+    maxUnavailable: "1",
+    maxSurge: "0",
+  });
 
   function buildAutoscale(): AutoscalePolicy | undefined {
     if (!autoOpen) return undefined;
@@ -85,6 +90,14 @@ function NewDeployment() {
     return policy;
   }
 
+  function buildDisruption(): DisruptionBudget | undefined {
+    if (!disruptionOpen) return undefined;
+    return {
+      maxUnavailable: Math.max(1, Number(disruption.maxUnavailable) || 1),
+      maxSurge: Math.max(0, Number(disruption.maxSurge) || 0),
+    };
+  }
+
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
   }, [tenants.length, loadTenants]);
@@ -104,6 +117,7 @@ function NewDeployment() {
         replicas: Math.max(1, parseInt(form.replicas, 10) || 1),
         tenantId: form.tenantId === "NONE" ? null : form.tenantId,
         autoscale: buildAutoscale(),
+        disruption: buildDisruption(),
       });
       toast.success(`Created ${form.name}`);
       navigate({ to: "/deployments/$name", params: { name: form.name } });
@@ -323,6 +337,43 @@ function NewDeployment() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+        <div className="border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={() => setDisruptionOpen((v) => !v)}
+            className="hud-label text-primary"
+          >
+            {disruptionOpen ? "▾" : "▸"} Disruption budget (optional)
+          </button>
+          {disruptionOpen && (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Max unavailable</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={disruption.maxUnavailable}
+                    onChange={(e) =>
+                      setDisruption({ ...disruption, maxUnavailable: e.target.value })
+                    }
+                    className="h-9 font-mono text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Max surge</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={disruption.maxSurge}
+                    onChange={(e) => setDisruption({ ...disruption, maxSurge: e.target.value })}
+                    className="h-9 font-mono text-sm"
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>

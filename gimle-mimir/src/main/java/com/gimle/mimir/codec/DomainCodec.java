@@ -440,6 +440,7 @@ public final class DomainCodec {
     out.writeUTF(assignment.nodeId());
     writeModuleId(out, assignment.moduleId());
     out.writeUTF(assignment.artifactPath());
+    writeOptionalInt(out, assignment.renamedFromInstanceIndex());
   }
 
   public static InstanceAssignment readInstanceAssignment(DataInputStream in) throws IOException {
@@ -448,7 +449,9 @@ public final class DomainCodec {
     String nodeId = in.readUTF();
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
-    return new InstanceAssignment(deploymentName, instanceIndex, nodeId, moduleId, artifactPath);
+    OptionalInt renamedFromInstanceIndex = readOptionalInt(in);
+    return new InstanceAssignment(
+        deploymentName, instanceIndex, nodeId, moduleId, artifactPath, renamedFromInstanceIndex);
   }
 
   public static void writeNodeRegistration(DataOutputStream out, NodeRegistration registration)

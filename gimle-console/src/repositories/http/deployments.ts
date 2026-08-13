@@ -3,6 +3,7 @@ import type {
   Deployment,
   DeploymentInstance,
   DeploymentSpecInput,
+  DisruptionBudget,
   Page,
 } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
@@ -33,6 +34,7 @@ interface RawDeployment {
     replicas: number;
     tenantId?: string | null;
     autoscale?: AutoscalePolicy;
+    disruption?: DisruptionBudget;
   };
   instances: RawDeploymentInstance[];
   unplacedCount: number;
@@ -90,6 +92,14 @@ function autoscaleYaml(a: AutoscalePolicy): string[] {
   return lines;
 }
 
+function disruptionYaml(d: DisruptionBudget): string[] {
+  return [
+    "disruption:",
+    `  maxUnavailable: ${d.maxUnavailable}`,
+    `  maxSurge: ${d.maxSurge}`,
+  ];
+}
+
 function toManifestYaml(spec: DeploymentSpecInput): string {
   // Hand-rolled, not a YAML library: known fields, fixed shape -- matches this project's
   // "hand-roll it, it's small" convention (gimle-core's own Json.java). Double-quoted scalars via
@@ -97,8 +107,8 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
   // characters in names/paths without needing a real YAML serializer.
   const q = (s: string) => JSON.stringify(s);
   const lines = [
-    // Every manifest now requires kind: (priority-3 design doc §2) -- the control plane rejects
-    // a PUT /deployments/* body without it.
+    // Every manifest now requires kind: -- the control plane rejects a PUT /deployments/* body
+    // without it.
     `kind: Deployment`,
     `name: ${q(spec.name)}`,
     `module:`,
@@ -109,14 +119,15 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
   ];
   if (spec.tenantId) lines.push(`tenantId: ${q(spec.tenantId)}`);
   if (spec.autoscale) lines.push(...autoscaleYaml(spec.autoscale));
+  if (spec.disruption) lines.push(...disruptionYaml(spec.disruption));
   return lines.join("\n") + "\n";
 }
 
 export class HttpDeploymentsRepository implements DeploymentsRepository {
   private cache: Deployment[] | null = null;
 
-  /** Shared with HttpInstancesRepository so both screens read the same snapshot (see §4a: never
-   * two independent GET /deployments calls that could race and briefly disagree). */
+  /** Shared with HttpInstancesRepository so both screens read the same snapshot -- avoids two
+   * independent GET /deployments calls that could race and briefly disagree. */
   async all(forceRefresh: boolean): Promise<Deployment[]> {
     if (forceRefresh || this.cache === null) {
       const raw = await requestJson<RawDeployment[]>("GET", "/deployments");

@@ -19,10 +19,16 @@ import java.util.Optional;
  * worker's {@code Hello} handshake -- the addressing needed to advertise a dialable {@link
  * com.gimle.fabric.catalog.ServiceEndpoint} once this instance later reports a {@code
  * ServiceRegistered}.
+ *
+ * <p>{@code assigned} is not {@code final}: {@code AgentMain}'s rename branch (a {@link
+ * AssignedInstance#renamedFromInstanceIndex()} hint matching an already-supervised key) updates it
+ * in place to retarget this exact same live instance onto a new index, without touching {@link
+ * #supervisor}/{@link #connection}/{@link #lifecycleState} or any other field here -- the whole
+ * point of a rename is that nothing about the running process itself changes.
  */
 final class SupervisedInstance {
 
-  final AssignedInstance assigned;
+  volatile AssignedInstance assigned;
   final WorkerProcessSupervisor supervisor;
   final ControlChannelServer server;
   final ModuleDescriptor descriptor;

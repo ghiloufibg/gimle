@@ -93,6 +93,7 @@ public sealed interface StoreRpc {
           GetNodeRegistration,
           GetEffectiveReplicas,
           ListRollingIndices,
+          ListSurgeIndices,
           GetNodeHeartbeat,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
@@ -121,6 +122,7 @@ public sealed interface StoreRpc {
           StatefulSetAssignmentListResult,
           StringResult,
           IntSetResult,
+          IntIntMapResult,
           StringSetResult,
           TenantResult,
           RoleResult,
@@ -253,6 +255,8 @@ public sealed interface StoreRpc {
 
   record ListRollingIndices(String deploymentName) implements Request {}
 
+  record ListSurgeIndices(String deploymentName) implements Request {}
+
   record GetReconcilerInstanceState(String deploymentName, int instanceIndex) implements Request {}
 
   record ListReconcilerInstanceStates() implements Request {}
@@ -348,6 +352,14 @@ public sealed interface StoreRpc {
    * in flight," matching {@code StoreReader#getRollingIndices}'s own empty-set-not-Optional shape.
    */
   record IntSetResult(List<Integer> values) implements Response {}
+
+  /**
+   * The (surgeIndex -&gt; targetIndex) mapping for {@link ListSurgeIndices} -- parallel lists
+   * rather than a single {@code Map}-typed field, matching every other list-shaped {@code Response}
+   * record's wire shape; {@code surgeIndices.get(i)} maps to {@code targetIndices.get(i)}.
+   */
+  record IntIntMapResult(List<Integer> surgeIndices, List<Integer> targetIndices)
+      implements Response {}
 
   /** The node-keyed counterpart to {@link IntSetResult}, for {@link ListRollingDaemonSetNodes}. */
   record StringSetResult(List<String> values) implements Response {}

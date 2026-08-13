@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -109,6 +110,8 @@ public interface StoreReader {
   Optional<Integer> getEffectiveReplicas(String deploymentName);
 
   Set<Integer> getRollingIndices(String deploymentName);
+
+  Map<Integer, Integer> getSurgeIndices(String deploymentName);
 
   /**
    * Leader-local; a {@code StoreClient} implementation routes this through the current leader

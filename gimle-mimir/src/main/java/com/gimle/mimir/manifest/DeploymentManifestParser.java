@@ -74,9 +74,10 @@ public final class DeploymentManifestParser {
   }
 
   /**
-   * {@code maxSurge} is parsed and rejected outright if nonzero -- see {@link DisruptionBudget}'s
-   * own javadoc for why: it isn't implemented by {@code DeploymentReconciler} yet, and accepting it
-   * silently would look like it did something.
+   * Unlike {@link DaemonSetManifestParser#parseDisruptionBudget}, a nonzero {@code maxSurge} is
+   * accepted here -- {@code DeploymentReconciler#handleSurge} implements it via a synthetic index
+   * range above {@code replicas}, a mechanism a DaemonSet's one-instance-per-node placement has no
+   * equivalent of. See {@link DisruptionBudget}'s own javadoc for the full reasoning.
    */
   static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
     Object disruptionObj = root.get("disruption");
@@ -88,10 +89,6 @@ public final class DeploymentManifestParser {
     }
     int maxUnavailable = optionalDisruptionIntField(disruption, "maxUnavailable").orElse(1);
     int maxSurge = optionalDisruptionIntField(disruption, "maxSurge").orElse(0);
-    if (maxSurge != 0) {
-      throw new GimleManifestException(
-          "'disruption.maxSurge' is not implemented yet -- omit it or set it to 0");
-    }
     try {
       return Optional.of(new DisruptionBudget(maxUnavailable, maxSurge));
     } catch (IllegalArgumentException e) {
