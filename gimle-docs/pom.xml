@@ -38,6 +38,11 @@
          maven-javadoc-plugin pluginManagement entry for why a <reportOutputDirectory> override
          doesn't take effect here. -->
     <gimle.docs.javadocDir>${maven.multiModuleProjectDirectory}/target/reports/apidocs</gimle.docs.javadocDir>
+    <!-- Overrides the root .mvn/maven-build-cache-config.xml's global enabled=true: this
+         module's real inputs (*.ts/*.tsx/package.json/bun.lock, plus the aggregate Javadoc this
+         module copies in from outside its own tree) are invisible to that config's
+         *.java/*.xml/*.yaml/*.properties glob. -->
+    <maven.build.cache.enabled>false</maven.build.cache.enabled>
   </properties>
 
   <build>

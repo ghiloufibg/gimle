@@ -19,3 +19,21 @@ no containers, no external orchestrator, no non-Java runtime.
     mvn verify
 
 Requires JDK 25 and Bun on `PATH`.
+
+### Faster local builds
+
+`.mvn/maven.config` already sets `-T 1C` (one reactor thread per core) for every invocation, and
+the Maven Build Cache Extension (`.mvn/extensions.xml`) skips recompiling/retesting a module
+whose inputs haven't changed since the last build, keyed off actual source content, not
+timestamps (`.mvn/maven-build-cache-config.xml`; opted out for `gimle-smoke-tests` and the
+Bun-built `gimle-console`/`gimle-fafnir-console`/`gimle-docs`, whose real inputs or cacheable
+behavior a source-hash can't see — see the `maven.build.cache.enabled` override in each of those
+modules' own `pom.xml`). Both apply automatically; nothing extra to opt into.
+
+On top of that, for iterating on one module:
+
+- `mvn -pl gimle-worker -am test` — build and test only `gimle-worker` and the modules it depends
+  on, skipping the rest of the reactor entirely.
+- [`mvnd`](https://github.com/apache/maven-mvnd) (the Maven Daemon) as a drop-in `mvn` replacement
+  — keeps a warm JVM resident across invocations, which matters most for a tight edit/build loop on
+  one machine; not applicable in CI, where every run starts a fresh runner.

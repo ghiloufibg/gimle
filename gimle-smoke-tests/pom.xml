@@ -34,6 +34,12 @@
          Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
          entry and claudedocs/docs-site-design.md). -->
     <maven.javadoc.skip>true</maven.javadoc.skip>
+    <!-- Overrides the root .mvn/maven-build-cache-config.xml's global enabled=true: this
+         module's cacheable behavior depends on whether -Psmoke is active (a plain verify runs
+         no *IT.java at all; -Psmoke runs the full real-cluster suite), which the build cache's
+         source-fingerprint hash has no visibility into. A cache hit recorded under one profile
+         state and replayed under the other would silently skip tests that needed to run. -->
+    <maven.build.cache.enabled>false</maven.build.cache.enabled>
   </properties>
 
   <dependencies>

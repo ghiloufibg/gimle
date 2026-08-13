@@ -22,6 +22,14 @@
     SPA at console/** inside this module's own jar, for gimle-controlplane to depend on and serve.
   </description>
 
+  <properties>
+    <!-- Overrides the root .mvn/maven-build-cache-config.xml's global enabled=true: this
+         module's real inputs are *.ts/*.tsx/package.json/bun.lock, invisible to that config's
+         *.java/*.xml/*.yaml/*.properties glob, so the build cache would see "nothing changed"
+         on a genuine frontend source edit and replay a stale dist/**. -->
+    <maven.build.cache.enabled>false</maven.build.cache.enabled>
+  </properties>
+
   <build>
     <plugins>
       <plugin>

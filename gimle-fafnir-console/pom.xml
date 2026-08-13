@@ -24,6 +24,13 @@
     two never collide on a classpath that somehow carried both.
   </description>
 
+  <properties>
+    <!-- Same reasoning as gimle-console's own maven.build.cache.enabled override: this module's
+         real inputs (*.ts/*.tsx/package.json/bun.lock) are invisible to the root build-cache
+         config's *.java/*.xml/*.yaml/*.properties glob. -->
+    <maven.build.cache.enabled>false</maven.build.cache.enabled>
+  </properties>
+
   <build>
     <plugins>
       <plugin>
