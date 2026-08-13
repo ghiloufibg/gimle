@@ -8,7 +8,6 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -16,7 +15,6 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -124,31 +122,16 @@ class SslContextsIntegrationTest {
         CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
     X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
 
-    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
-    Path keyFile =
-        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+    Path certFile = writePem(commonName + "-cert.pem", Pem.encodeCertificate(leaf));
+    Path keyFile = writePem(commonName + "-key.pem", Pem.encodePrivateKey(keyPair.getPrivate()));
+    Path caFile = writePem(commonName + "-ca.pem", Pem.encodeCertificate(ca.certificate()));
 
     return new TlsSettings(certFile, keyFile, caFile);
   }
 
-  private Path writePem(String fileName, String label, byte[] derBytes) throws IOException {
-    String base64 =
-        Base64.getMimeEncoder(64, System.lineSeparator().getBytes(StandardCharsets.US_ASCII))
-            .encodeToString(derBytes);
-    String pem =
-        "-----BEGIN "
-            + label
-            + "-----"
-            + System.lineSeparator()
-            + base64
-            + System.lineSeparator()
-            + "-----END "
-            + label
-            + "-----"
-            + System.lineSeparator();
+  private Path writePem(String fileName, String pemContent) throws IOException {
     Path path = tempDir.resolve(fileName);
-    Files.writeString(path, pem);
+    Files.writeString(path, pemContent);
     return path;
   }
 

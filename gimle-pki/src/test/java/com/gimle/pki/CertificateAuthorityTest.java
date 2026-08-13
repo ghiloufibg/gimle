@@ -13,11 +13,14 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.Test;
@@ -75,20 +78,20 @@ class CertificateAuthorityTest {
         CertificateSigningRequests.generate(
             leafKeyPair,
             new X500Name("CN=controlplane"),
-            java.util.List.of("localhost", "controlplane.internal"));
+            List.of("localhost", "controlplane.internal"));
 
     X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
 
-    java.util.Collection<java.util.List<?>> sans = leaf.getSubjectAlternativeNames();
+    Collection<List<?>> sans = leaf.getSubjectAlternativeNames();
     assertTrue(sans != null && !sans.isEmpty(), "leaf must carry the requested SAN extension");
-    java.util.Set<String> dnsNames = new java.util.LinkedHashSet<>();
-    for (java.util.List<?> entry : sans) {
+    Set<String> dnsNames = new LinkedHashSet<>();
+    for (List<?> entry : sans) {
       // GeneralName tag 2 == dNSName, matching java.security.cert's own SAN encoding.
       if (((Number) entry.get(0)).intValue() == 2) {
         dnsNames.add((String) entry.get(1));
       }
     }
-    assertEquals(java.util.Set.of("localhost", "controlplane.internal"), dnsNames);
+    assertEquals(Set.of("localhost", "controlplane.internal"), dnsNames);
   }
 
   @Test
@@ -219,7 +222,7 @@ class CertificateAuthorityTest {
     X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(365));
 
     Path pemFile = tempDir.resolve("leaf.pem");
-    Files.writeString(pemFile, toPem(leaf));
+    Files.writeString(pemFile, Pem.encodeCertificate(leaf));
 
     Process process;
     try {
@@ -291,18 +294,6 @@ class CertificateAuthorityTest {
         () ->
             ca.signCertificateRequest(
                 tamperedCsr, new X500Name("O=gimle:nodes,CN=attacker"), Duration.ofDays(1)));
-  }
-
-  private static String toPem(X509Certificate certificate) throws CertificateEncodingException {
-    String base64 =
-        java.util.Base64.getMimeEncoder(64, System.lineSeparator().getBytes())
-            .encodeToString(certificate.getEncoded());
-    return "-----BEGIN CERTIFICATE-----"
-        + System.lineSeparator()
-        + base64
-        + System.lineSeparator()
-        + "-----END CERTIFICATE-----"
-        + System.lineSeparator();
   }
 
   private static KeyPair generateRsaKeyPair() throws NoSuchAlgorithmException {
