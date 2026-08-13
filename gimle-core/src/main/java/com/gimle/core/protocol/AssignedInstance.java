@@ -49,6 +49,18 @@ public record AssignedInstance(
     }
   }
 
+  /** Back-compat: defaults {@code tenantId} and {@code renamedFromInstanceIndex} to empty. */
+  public AssignedInstance(
+      String deploymentName, int instanceIndex, ModuleId moduleId, String artifactPath) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        artifactPath,
+        Optional.empty(),
+        OptionalInt.empty());
+  }
+
   /** Back-compat: defaults {@code renamedFromInstanceIndex} to {@code OptionalInt.empty()}. */
   public AssignedInstance(
       String deploymentName,
@@ -57,10 +69,5 @@ public record AssignedInstance(
       String artifactPath,
       Optional<String> tenantId) {
     this(deploymentName, instanceIndex, moduleId, artifactPath, tenantId, OptionalInt.empty());
-  }
-
-  public AssignedInstance(
-      String deploymentName, int instanceIndex, ModuleId moduleId, String artifactPath) {
-    this(deploymentName, instanceIndex, moduleId, artifactPath, Optional.empty());
   }
 }

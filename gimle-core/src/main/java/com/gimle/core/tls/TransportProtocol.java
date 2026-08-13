@@ -1,5 +1,7 @@
 package com.gimle.core.tls;
 
+import java.util.Locale;
+
 /**
  * The cluster-wide {@code gimle.transport.protocol} setting: a single switch for every
  * network-exposed transport (API server, Raft peer RPC, gossip, fabric cross-machine), not a
@@ -25,7 +27,7 @@ public enum TransportProtocol {
     if (value == null || value.isBlank()) {
       return PLAINTEXT;
     }
-    return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+    return switch (value.trim().toLowerCase(Locale.ROOT)) {
       case "plaintext" -> PLAINTEXT;
       case "tls", "ssl/tls" -> TLS;
       default ->

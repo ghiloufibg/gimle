@@ -9,11 +9,13 @@ import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -271,7 +273,7 @@ public final class TestScheduler implements ScheduledExecutorService {
         Instant dueAt,
         Duration repeatEvery,
         boolean fixedRate) {
-      super(callable != null ? callable : java.util.concurrent.Executors.callable(runnable, null));
+      super(callable != null ? callable : Executors.callable(runnable, null));
       this.dueAt = dueAt;
       this.repeatEvery = repeatEvery;
       this.fixedRate = fixedRate;
@@ -329,7 +331,7 @@ public final class TestScheduler implements ScheduledExecutorService {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("interrupted reading an already-completed task's result", e);
-    } catch (ExecutionException | java.util.concurrent.TimeoutException e) {
+    } catch (ExecutionException | TimeoutException e) {
       throw new IllegalStateException(
           "task had not completed -- advance() past its due time first", e);
     }

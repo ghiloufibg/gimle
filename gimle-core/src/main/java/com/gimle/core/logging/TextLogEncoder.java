@@ -49,8 +49,7 @@ public final class TextLogEncoder extends EncoderBase<ILoggingEvent> {
     Map<String, String> mdc = event.getMDCPropertyMap();
     String deploymentName = mdc.get(InstanceMdcKeys.DEPLOYMENT_NAME);
     String instanceIndex = mdc.get(InstanceMdcKeys.INSTANCE_INDEX);
-    boolean isApplication =
-        deploymentName != null && !deploymentName.isEmpty() && instanceIndex != null;
+    boolean isApplication = InstanceMdcKeys.isApplicationCategory(mdc);
 
     String levelColor = colorForLevel(c, event.getLevel().toString());
     String time = TIME_FORMAT.format(Instant.ofEpochMilli(event.getTimeStamp()));

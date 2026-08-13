@@ -1,6 +1,7 @@
 package com.gimle.core.module;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
@@ -99,6 +100,6 @@ class ModuleDescriptorTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
-    assertDoesNotThrow(descriptor::id);
+    assertEquals(new ModuleId("com.gimle.example.orders", Version.parse("1.4.2")), descriptor.id());
   }
 }

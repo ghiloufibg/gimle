@@ -3,12 +3,13 @@ package com.gimle.core.protocol;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
-import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -44,13 +45,14 @@ class ControlMessageCodecTest {
             "127.0.0.1",
             9000),
         new ControlMessage.Pong("corr-2"),
+        new ControlMessage.ConfigDelivered("db.password", "hunter2", true),
         new ControlMessage.MetricsSnapshot(
             "worker-1",
             "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),
         new ControlMessage.TracesSnapshot(
             "worker-1", "{\"traceId\":\"abc\",\"name\":\"do-something\"}"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
-        new ControlMessage.RenameInstance("corr-3b", ID, "orders-service", 1),
+        new ControlMessage.RenameInstance("corr-9", ID, "orders-service", 1),
         new ControlMessage.ResolveModule("corr-4", ID),
         new ControlMessage.ResolveModule("corr-4b", ID, "/var/gimle/volumes/orders-statefulset/0"),
         new ControlMessage.StartModule("corr-5", ID),
@@ -67,7 +69,7 @@ class ControlMessageCodecTest {
                 0,
                 InstanceEventKind.TRANSITION_FAILED,
                 "transition ACTIVE -> STOPPING failed",
-                java.util.Optional.of("java.lang.IllegalStateException: boom with spaces"),
+                Optional.of("java.lang.IllegalStateException: boom with spaces"),
                 2_000L)));
   }
 
@@ -151,8 +153,14 @@ class ControlMessageCodecTest {
   @Test
   void all_variants_list_is_exhaustive_sanity_check() {
     // Guards against silently forgetting to add a new ControlMessage subtype to the round-trip
-    // coverage above when the sealed hierarchy grows.
-    List<Class<?>> permitted = List.of(ControlMessage.class.getPermittedSubclasses());
-    assertTrue(permitted.size() >= 18, "expected at least the 18 currently-known variants");
+    // coverage above when the sealed hierarchy grows: every permitted subclass must have at least
+    // one representative in allMessageVariants(), computed fresh each run so this can't go stale.
+    Set<Class<?>> permitted = Set.of(ControlMessage.class.getPermittedSubclasses());
+    Set<Class<?>> covered =
+        allMessageVariants().map(Object::getClass).collect(Collectors.toUnmodifiableSet());
+    assertEquals(
+        permitted,
+        covered,
+        "every permitted ControlMessage subtype must appear in allMessageVariants()");
   }
 }

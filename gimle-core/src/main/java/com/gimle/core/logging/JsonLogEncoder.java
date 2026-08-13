@@ -42,8 +42,7 @@ public final class JsonLogEncoder extends EncoderBase<ILoggingEvent> {
     Map<String, String> mdc = event.getMDCPropertyMap();
     String deploymentName = mdc.get(InstanceMdcKeys.DEPLOYMENT_NAME);
     String instanceIndexText = mdc.get(InstanceMdcKeys.INSTANCE_INDEX);
-    boolean isApplication =
-        deploymentName != null && !deploymentName.isEmpty() && instanceIndexText != null;
+    boolean isApplication = InstanceMdcKeys.isApplicationCategory(mdc);
 
     Map<String, Object> line = new LinkedHashMap<>();
     line.put("timestamp", Instant.ofEpochMilli(event.getTimeStamp()).toString());

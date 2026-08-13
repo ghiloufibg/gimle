@@ -37,7 +37,9 @@ public record InstanceEvent(
     if (message == null) {
       throw new IllegalArgumentException("message must not be null");
     }
-    causeSummary = causeSummary == null ? Optional.empty() : causeSummary;
+    if (causeSummary == null) {
+      throw new IllegalArgumentException("causeSummary must be Optional.empty(), not null");
+    }
   }
 
   public InstanceEvent(

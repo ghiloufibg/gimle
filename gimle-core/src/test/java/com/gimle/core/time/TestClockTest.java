@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -119,7 +120,7 @@ class TestClockTest {
     AtomicInteger failures = new AtomicInteger();
 
     List<Thread> workers =
-        java.util.stream.IntStream.range(0, threads)
+        IntStream.range(0, threads)
             .mapToObj(
                 i ->
                     Thread.ofVirtual()

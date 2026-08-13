@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class PasswordHashesTest {
@@ -24,7 +25,7 @@ class PasswordHashesTest {
   void two_hashes_of_the_same_password_differ_because_of_the_random_salt() {
     byte[] first = PasswordHashes.hash("same password".toCharArray());
     byte[] second = PasswordHashes.hash("same password".toCharArray());
-    assertNotEquals(java.util.Arrays.toString(first), java.util.Arrays.toString(second));
+    assertNotEquals(Arrays.toString(first), Arrays.toString(second));
     assertTrue(PasswordHashes.verify("same password".toCharArray(), first));
     assertTrue(PasswordHashes.verify("same password".toCharArray(), second));
   }
