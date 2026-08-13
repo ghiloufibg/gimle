@@ -5,31 +5,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
-import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.integration.Greeter;
-import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ModuleState;
-import com.gimle.module.lifecycle.ServiceRegistry;
-import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
-import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import com.gimle.worker.testsupport.Await;
 import com.gimle.worker.testsupport.ControllableLivenessProbe;
 import com.gimle.worker.testsupport.ControllableReadinessProbe;
+import com.gimle.worker.testsupport.WiredWorkerRuntime;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -54,14 +48,6 @@ class WorkerRuntimeTest {
     ControllableLivenessProbe.LAST_MDC.set(null);
     ControllableReadinessProbe.READY.set(true);
   }
-
-  private record Fixture(
-      ModuleRegistry registry,
-      ModuleController controller,
-      WorkerRuntime runtime,
-      ServiceRegistry serviceRegistry,
-      ModuleId id,
-      List<LifecycleEvent> events) {}
 
   private Path buildFixtureJar(String name) {
     String uniqueName = name + (counter++);
@@ -94,52 +80,14 @@ class WorkerRuntimeTest {
         .build(tempDir, uniqueName + ".jar");
   }
 
-  private Fixture startFixture(String name, int livenessFailureThreshold) {
-    Path jar = buildFixtureJar(name);
-    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
-    ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
-    ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.bootOnly().layer();
-    ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
-    List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
-
-    AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
-    Consumer<LifecycleEvent> sink =
-        event -> {
-          events.add(event);
-          WorkerRuntime runtime = runtimeRef.get();
-          if (runtime != null) {
-            runtime.onLifecycleEvent(event);
-          }
-        };
-
-    ModuleController controller =
-        new ModuleController(
-            registry,
-            resolver,
-            platform,
-            ClassLoader.getSystemClassLoader(),
-            Duration.ofMillis(50),
-            sink,
-            serviceRegistry);
-
-    WorkerRuntime runtime =
-        new WorkerRuntime(
-            controller,
-            registry,
-            serviceRegistry,
-            4,
-            Duration.ofMillis(20),
-            Duration.ofSeconds(1),
-            livenessFailureThreshold,
-            exhaustedId -> {});
-    runtimeRef.set(runtime);
-
-    controller.resolve(id);
-    controller.start(id);
-
-    return new Fixture(registry, controller, runtime, serviceRegistry, id, events);
+  private WiredWorkerRuntime.Result startFixture(String name, int livenessFailureThreshold) {
+    return WiredWorkerRuntime.start(
+        buildFixtureJar(name),
+        livenessFailureThreshold,
+        Optional.empty(),
+        exhaustedId -> {},
+        new InstanceIdentityRegistry(),
+        identity -> {});
   }
 
   private static long activeTransitionCount(List<LifecycleEvent> events) {
@@ -161,59 +109,31 @@ class WorkerRuntimeTest {
    */
   private IdentityFixture startFixtureWithIdentity(String name) {
     Path jar = buildFixtureJar(name);
-    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
-    ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
-    ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.bootOnly().layer();
-    ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
-
+    // The identity is registered against the artifact's own id before the module ever resolves,
+    // the same ordering WorkerMain itself uses (register the identity, then resolve/start) -- so
+    // this reads the id straight off the artifact rather than delegating jar-reading to
+    // WiredWorkerRuntime.start, which only registers the artifact into its own internal registry.
+    ModuleId id = ModuleArtifactReader.read(jar).id();
     InstanceIdentity identity = new InstanceIdentity("orders-service", 3, Optional.of("acme"));
     InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();
     identityRegistry.register(id, identity);
     AtomicInteger uninstallCount = new AtomicInteger();
     AtomicReference<InstanceIdentity> uninstalledIdentity = new AtomicReference<>();
 
-    AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
-    Consumer<LifecycleEvent> sink =
-        event -> {
-          WorkerRuntime runtime = runtimeRef.get();
-          if (runtime != null) {
-            runtime.onLifecycleEvent(event);
-          }
-        };
-
-    ModuleController controller =
-        new ModuleController(
-            registry,
-            resolver,
-            platform,
-            ClassLoader.getSystemClassLoader(),
-            Duration.ofMillis(50),
-            sink,
-            serviceRegistry);
-
-    WorkerRuntime runtime =
-        new WorkerRuntime(
-            controller,
-            registry,
-            serviceRegistry,
-            4,
-            Duration.ofMillis(20),
-            Duration.ofSeconds(1),
+    WiredWorkerRuntime.Result result =
+        WiredWorkerRuntime.start(
+            jar,
             99,
+            Optional.empty(),
             exhaustedId -> {},
             identityRegistry,
             instanceIdentity -> {
               uninstallCount.incrementAndGet();
               uninstalledIdentity.set(instanceIdentity);
             });
-    runtimeRef.set(runtime);
 
-    controller.resolve(id);
-    controller.start(id);
-
-    return new IdentityFixture(controller, id, identity, uninstallCount, uninstalledIdentity);
+    return new IdentityFixture(
+        result.controller(), result.id(), identity, uninstallCount, uninstalledIdentity);
   }
 
   @Test
@@ -242,7 +162,7 @@ class WorkerRuntimeTest {
 
   @Test
   void on_active_registers_the_modules_service_and_it_is_immediately_lookupable() {
-    Fixture f = startFixture("com.gimle.fixture.service", 2);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.service", 2);
 
     assertEquals(
         Optional.of("hello from provider"),
@@ -251,7 +171,7 @@ class WorkerRuntimeTest {
 
   @Test
   void repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active() {
-    Fixture f = startFixture("com.gimle.fixture.restart", 2);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.restart", 2);
     assertEquals(1, activeTransitionCount(f.events()));
 
     ControllableLivenessProbe.ALIVE.set(false);
@@ -290,51 +210,16 @@ class WorkerRuntimeTest {
 
   private BudgetFixture startBudgetFixture(
       String name, int livenessFailureThreshold, Duration stableUptimeThreshold) {
-    Path jar = buildFixtureJar(name);
-    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
-    ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
-    ModuleResolver resolver = new ModuleResolver(registry);
-    ModuleLayer platform = PlatformLayer.bootOnly().layer();
-    ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
-    List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
     AtomicInteger exhaustedCount = new AtomicInteger();
-
-    AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
-    Consumer<LifecycleEvent> sink =
-        event -> {
-          events.add(event);
-          WorkerRuntime runtime = runtimeRef.get();
-          if (runtime != null) {
-            runtime.onLifecycleEvent(event);
-          }
-        };
-    ModuleController controller =
-        new ModuleController(
-            registry,
-            resolver,
-            platform,
-            ClassLoader.getSystemClassLoader(),
-            Duration.ofMillis(50),
-            sink,
-            serviceRegistry);
-    WorkerRuntime runtime =
-        new WorkerRuntime(
-            controller,
-            registry,
-            serviceRegistry,
-            4,
-            Duration.ofMillis(20),
-            Duration.ofSeconds(1),
+    WiredWorkerRuntime.Result result =
+        WiredWorkerRuntime.start(
+            buildFixtureJar(name),
             livenessFailureThreshold,
+            Optional.of(stableUptimeThreshold),
             exhaustedId -> exhaustedCount.incrementAndGet(),
-            stableUptimeThreshold,
             new InstanceIdentityRegistry(),
             identity -> {});
-    runtimeRef.set(runtime);
-    controller.resolve(id);
-    controller.start(id);
-    return new BudgetFixture(registry, id, events, exhaustedCount);
+    return new BudgetFixture(result.registry(), result.id(), result.events(), exhaustedCount);
   }
 
   private static long uninstalledCount(List<LifecycleEvent> events) {
@@ -406,7 +291,7 @@ class WorkerRuntimeTest {
 
   @Test
   void a_readiness_failure_marks_the_service_unready_without_stopping_the_module() {
-    Fixture f = startFixture("com.gimle.fixture.readiness", 99);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.readiness", 99);
 
     ControllableReadinessProbe.READY.set(false);
     Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
@@ -417,7 +302,7 @@ class WorkerRuntimeTest {
 
   @Test
   void a_module_becomes_lookupable_again_when_its_readiness_probe_recovers() {
-    Fixture f = startFixture("com.gimle.fixture.readiness.recovery", 99);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.readiness.recovery", 99);
 
     ControllableReadinessProbe.READY.set(false);
     Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
@@ -434,7 +319,7 @@ class WorkerRuntimeTest {
 
   @Test
   void stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry() {
-    Fixture f = startFixture("com.gimle.fixture.stopping", 99);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.stopping", 99);
     assertEquals(
         Optional.of("hello from provider"),
         f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));

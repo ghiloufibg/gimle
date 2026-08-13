@@ -38,6 +38,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -98,16 +99,7 @@ public final class WorkerMain {
     // invariant stays true regardless of whether this instance has a tenant.
     Optional<String> tenantId = args[1].isBlank() ? Optional.empty() : Optional.of(args[1]);
 
-    // Read fresh by JsonLogEncoder on every event (process-global, not thread-local, so this is
-    // safe however early other threads start logging) and by the two file appenders attached
-    // just below, which need the actual path now rather than at logback.xml parse time (which
-    // already happened, before this line, via the CONSOLE appender).
-    System.setProperty("gimle.process.role", "WORKER");
-    System.setProperty("gimle.node.id", nodeId);
-    Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
-    GimleLogging.attachPlatformFileAppender(logRoot.resolve("worker-platform.log"));
-    InstanceLogCloser instanceLogCloser =
-        GimleLogging.attachInstanceSiftingAppender(logRoot.resolve("instances"));
+    InstanceLogCloser instanceLogCloser = setUpLogging(nodeId);
 
     UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[2]));
     ControlChannelClient channel =
@@ -140,55 +132,142 @@ public final class WorkerMain {
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
-    // Forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker it
-    // spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
-    // launched by hand outside the agent.
-    boolean defaultDenyCrossTenant =
-        Boolean.parseBoolean(System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
     FabricServiceRegistry fabricRegistry =
-        new FabricServiceRegistry(
-            selfNode,
-            workerId,
-            taggedLocal,
-            catalog,
-            owner -> registry.artifact(owner).descriptor().exports(),
-            message -> sendQuietly(channel, message),
-            interfaceLoader,
-            5,
-            0.5,
-            Duration.ofSeconds(5),
-            tenantId,
-            0.5,
-            defaultDenyCrossTenant);
+        buildFabricRegistry(
+            selfNode, workerId, taggedLocal, catalog, registry, channel, interfaceLoader, tenantId);
 
     // Every module this worker currently has ACTIVE -- fed to the metrics-reporter loop below,
     // which has no other way to know which module ids to report against (ModuleRegistry exposes
     // no "list everything" query, only lookups by a name/id it's told).
     Set<ModuleId> activeModules = ConcurrentHashMap.newKeySet();
+    ControllerAndRuntime controllerAndRuntime =
+        buildControllerAndRuntime(
+            registry,
+            resolver,
+            platform,
+            interfaceLoader,
+            fabricRegistry,
+            channel,
+            identityRegistry,
+            instanceLogCloser,
+            activeModules);
+    ModuleController controller = controllerAndRuntime.controller();
+    WorkerRuntime runtime = controllerAndRuntime.runtime();
+
+    // Constructed only now that controller/runtime exist: FabricServer routes an inbound call's
+    // actual invocation through the target module's own ModuleContext (drain-visible in-flight
+    // count) and BoundedModuleScheduler (real concurrency bound, not just probe checks), both of
+    // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
+    WorkerMetrics workerMetrics = new WorkerMetrics();
+    FabricBinding fabricBinding =
+        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime, workerMetrics);
+    FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
+    startBackgroundWork(
+        fabricBinding.server(), channel, workerId, activeModules, workerMetrics, runtime);
+
+    channel.send(
+        new ControlMessage.Hello(
+            workerId,
+            pid,
+            fabricEndpoints.udsPath(),
+            fabricEndpoints.tcpAddress().getHostString(),
+            fabricEndpoints.tcpAddress().getPort()));
+
+    Optional<ControlMessage> received;
+    while ((received = channel.receive()).isPresent()) {
+      handle(
+          received.get(),
+          registry,
+          controller,
+          channel,
+          catalog,
+          identityRegistry,
+          tenantId,
+          workerId,
+          workerMetrics);
+    }
+    log.info("control channel closed by agent; shutting down");
+  }
+
+  /**
+   * Sets the process-global properties {@code JsonLogEncoder} and the file appenders below need,
+   * then attaches this worker's own platform log file plus the per-instance sifting appender.
+   */
+  private static InstanceLogCloser setUpLogging(String nodeId) {
+    // Read fresh by JsonLogEncoder on every event (process-global, not thread-local, so this is
+    // safe however early other threads start logging) and by the two file appenders attached
+    // just below, which need the actual path now rather than at logback.xml parse time (which
+    // already happened, before this line, via the CONSOLE appender).
+    System.setProperty("gimle.process.role", "WORKER");
+    System.setProperty("gimle.node.id", nodeId);
+    Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
+    GimleLogging.attachPlatformFileAppender(logRoot.resolve("worker-platform.log"));
+    return GimleLogging.attachInstanceSiftingAppender(logRoot.resolve("instances"));
+  }
+
+  /**
+   * Builds this worker's {@link FabricServiceRegistry}, tuned with the circuit-breaker/ejection
+   * constants every worker uses today (no per-deployment override exists yet).
+   */
+  private static FabricServiceRegistry buildFabricRegistry(
+      MemberId selfNode,
+      String workerId,
+      ServiceRegistry taggedLocal,
+      ServiceCatalog catalog,
+      ModuleRegistry registry,
+      ControlChannelClient channel,
+      ClassLoader interfaceLoader,
+      Optional<String> tenantId) {
+    // Forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker it
+    // spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
+    // launched by hand outside the agent.
+    boolean defaultDenyCrossTenant =
+        Boolean.parseBoolean(System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
+    // Circuit-breaker tuning for cross-worker/cross-machine calls this registry proxies: trip
+    // after BREAKER_WINDOW_SIZE outcomes with an error rate at or above
+    // BREAKER_ERROR_RATE_THRESHOLD,
+    // stay open for BREAKER_COOLDOWN before probing again.
+    int breakerWindowSize = 5;
+    double breakerErrorRateThreshold = 0.5;
+    Duration breakerCooldown = Duration.ofSeconds(5);
+    // The panic-mode ceiling on how much of a service's replica pool outlier-ejection may remove
+    // at once, distinct from breakerErrorRateThreshold despite sharing the same 0.5 value here --
+    // see FabricServiceRegistry.DEFAULT_MAX_EJECTION_PERCENT for why that default was chosen.
+    double maxEjectionPercent = 0.5;
+    return new FabricServiceRegistry(
+        selfNode,
+        workerId,
+        taggedLocal,
+        catalog,
+        owner -> registry.artifact(owner).descriptor().exports(),
+        message -> sendQuietly(channel, message),
+        interfaceLoader,
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        tenantId,
+        maxEjectionPercent,
+        defaultDenyCrossTenant);
+  }
+
+  /**
+   * Wires the lifecycle sink, leak tracker, {@link ModuleController}, and {@link WorkerRuntime}
+   * together -- the sink needs a reference to the runtime it's feeding before that runtime exists,
+   * hence the {@link AtomicReference} set only once construction below completes.
+   */
+  private static ControllerAndRuntime buildControllerAndRuntime(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platform,
+      ClassLoader interfaceLoader,
+      FabricServiceRegistry fabricRegistry,
+      ControlChannelClient channel,
+      InstanceIdentityRegistry identityRegistry,
+      InstanceLogCloser instanceLogCloser,
+      Set<ModuleId> activeModules) {
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
-        event -> {
-          runtimeRef.get().onLifecycleEvent(event);
-          if (event instanceof LifecycleEvent.Active active) {
-            activeModules.add(active.id());
-          } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
-            activeModules.remove(uninstalled.id());
-          } else if (event instanceof LifecycleEvent.Completed completed) {
-            // A COMPLETED Job stops accumulating metricsReportLoop's per-tick CPU/memory report --
-            // it's done, not still running work worth reporting, the same reasoning Uninstalled
-            // already gets above.
-            activeModules.remove(completed.id());
-          }
-          sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
-          identityRegistry
-              .lookup(event.id())
-              .ifPresent(
-                  identity ->
-                      sendQuietly(
-                          channel,
-                          new ControlMessage.InstanceEventOccurred(
-                              instanceEventFor(event, identity))));
-        };
+        event -> handleLifecycleEvent(event, runtimeRef, activeModules, channel, identityRegistry);
     // Never closed: its two background threads are daemon/virtual, so they never hold the JVM
     // open past a real shutdown, and this worker's own module churn is exactly what it needs to
     // watch for the process's whole lifetime, not just some bounded window within it.
@@ -214,61 +293,88 @@ public final class WorkerMain {
             sink,
             leakTracker::track,
             fabricRegistry);
+    // How many virtual threads a module's BoundedModuleScheduler runs concurrently by default,
+    // and the liveness/readiness probe cadence every module is checked against once ACTIVE.
+    int defaultMaxConcurrency = 4;
+    Duration probeInterval = Duration.ofSeconds(1);
+    Duration probeTimeout = Duration.ofSeconds(2);
+    int livenessFailureThreshold = 3;
     WorkerRuntime runtime =
         new WorkerRuntime(
             controller,
             registry,
             fabricRegistry,
-            4,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            3,
+            defaultMaxConcurrency,
+            probeInterval,
+            probeTimeout,
+            livenessFailureThreshold,
             id -> log.error("module {} exhausted its restart budget; awaiting worker restart", id),
             identityRegistry,
             identity ->
                 instanceLogCloser.closeInstance(
                     identity.deploymentName(), identity.instanceIndex()));
     runtimeRef.set(runtime);
+    return new ControllerAndRuntime(controller, runtime);
+  }
 
-    // Constructed only now that controller/runtime exist: FabricServer routes an inbound call's
-    // actual invocation through the target module's own ModuleContext (drain-visible in-flight
-    // count) and BoundedModuleScheduler (real concurrency bound, not just probe checks), both of
-    // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
-    WorkerMetrics workerMetrics = new WorkerMetrics();
-    FabricBinding fabricBinding =
-        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime, workerMetrics);
-    FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
+  /**
+   * Starts every background thread a worker keeps running for its whole lifetime: the fabric TLS
+   * cert-rotation watcher, the autoscaling-facing per-module metrics reporter, and the Muninn
+   * NDJSON relay -- none of these ever join back into {@link #main}'s own thread.
+   */
+  private static void startBackgroundWork(
+      FabricServer fabricServer,
+      ControlChannelClient channel,
+      String workerId,
+      Set<ModuleId> activeModules,
+      WorkerMetrics workerMetrics,
+      WorkerRuntime runtime) {
     FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
-    tlsWatcher.start(fabricBinding.server(), Duration.ofSeconds(5));
+    tlsWatcher.start(fabricServer, Duration.ofSeconds(5));
     Thread.ofVirtual()
         .name("gimle-metrics-reporter")
         .start(() -> metricsReportLoop(channel, activeModules, workerMetrics, runtime));
     Thread.ofVirtual()
         .name("gimle-muninn-metrics-relay")
         .start(() -> muninnMetricsRelayLoop(channel, workerId, workerMetrics));
+  }
 
-    channel.send(
-        new ControlMessage.Hello(
-            workerId,
-            pid,
-            fabricEndpoints.udsPath(),
-            fabricEndpoints.tcpAddress().getHostString(),
-            fabricEndpoints.tcpAddress().getPort()));
+  /**
+   * The {@link ModuleController}/{@link WorkerRuntime} pair {@link #buildControllerAndRuntime}
+   * wires together.
+   */
+  private record ControllerAndRuntime(ModuleController controller, WorkerRuntime runtime) {}
 
-    Optional<ControlMessage> received;
-    while ((received = channel.receive()).isPresent()) {
-      handle(
-          received.get(),
-          registry,
-          controller,
-          channel,
-          catalog,
-          identityRegistry,
-          tenantId,
-          workerId,
-          workerMetrics);
+  /**
+   * The {@code ModuleController}/{@code WorkerRuntime} lifecycle sink: relays every state
+   * transition to the agent, keeps {@code activeModules} (what {@link #metricsReportLoop} reports
+   * against) in sync, and emits a durable {@link InstanceEvent} once an identity is registered.
+   */
+  private static void handleLifecycleEvent(
+      LifecycleEvent event,
+      AtomicReference<WorkerRuntime> runtimeRef,
+      Set<ModuleId> activeModules,
+      ControlChannelClient channel,
+      InstanceIdentityRegistry identityRegistry) {
+    runtimeRef.get().onLifecycleEvent(event);
+    if (event instanceof LifecycleEvent.Active active) {
+      activeModules.add(active.id());
+    } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
+      activeModules.remove(uninstalled.id());
+    } else if (event instanceof LifecycleEvent.Completed completed) {
+      // A COMPLETED Job stops accumulating metricsReportLoop's per-tick CPU/memory report -- it's
+      // done, not still running work worth reporting, the same reasoning Uninstalled already gets
+      // above.
+      activeModules.remove(completed.id());
     }
-    log.info("control channel closed by agent; shutting down");
+    sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
+    identityRegistry
+        .lookup(event.id())
+        .ifPresent(
+            identity ->
+                sendQuietly(
+                    channel,
+                    new ControlMessage.InstanceEventOccurred(instanceEventFor(event, identity))));
   }
 
   private static final Duration METRICS_REPORT_INTERVAL = Duration.ofSeconds(5);
@@ -429,8 +535,10 @@ public final class WorkerMain {
         }
       }
       case ControlMessage.RenameInstance m -> {
-        // Overwrites this ModuleId's InstanceIdentityRegistry entry in place -- the exact same
-        // register() call InstallModule's own case above makes, just with a new instanceIndex.
+        // Overwrites this ModuleId's InstanceIdentityRegistry entry in place -- the same
+        // register() call InstallModule's own case above makes when it has a deployment name,
+        // just with a new instanceIndex and made unconditionally here (a rename always targets an
+        // already-identified instance, so there's no "blank name" case to guard against).
         // mdcTagsFor reads the registry live on every command, so this instance's logging picks
         // up the new identity on its very next tagged line with no other propagation needed; the
         // module itself is never touched (no resolve/start/stop), matching this message's whole
@@ -565,7 +673,7 @@ public final class WorkerMain {
    */
   private static InstanceEvent instanceEventFor(LifecycleEvent event, InstanceIdentity identity) {
     long occurredAtEpochMilli = event.at().toEpochMilli();
-    String id = java.util.UUID.randomUUID().toString();
+    String id = UUID.randomUUID().toString();
     return switch (event) {
       case LifecycleEvent.Installed ignored ->
           new InstanceEvent(

@@ -14,6 +14,8 @@ import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.File;
+import java.lang.module.Configuration;
+import java.lang.module.ModuleFinder;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -169,11 +171,11 @@ class RealBundledHookAndProbeInvocationTest {
 
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ClassLoader parentLoader = ClassLoader.getSystemClassLoader();
-    java.lang.module.Configuration cf =
-        java.lang.module.Configuration.resolve(
-            java.lang.module.ModuleFinder.of(jar),
+    Configuration cf =
+        Configuration.resolve(
+            ModuleFinder.of(jar),
             List.of(platform.configuration()),
-            java.lang.module.ModuleFinder.of(),
+            ModuleFinder.of(),
             List.of("com.gimle.fixture.bundledprobes"));
     ModuleLayer.Controller controller =
         ModuleLayer.defineModulesWithOneLoader(cf, List.of(platform), parentLoader);

@@ -5,11 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.ControlMessage;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
+import java.nio.channels.Channels;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -122,19 +128,15 @@ class ControlChannelClientTest {
   }
 
   private static String readLine(SocketChannel channel) throws IOException {
-    java.io.BufferedReader reader =
-        new java.io.BufferedReader(
-            new java.io.InputStreamReader(
-                java.nio.channels.Channels.newInputStream(channel),
-                java.nio.charset.StandardCharsets.UTF_8));
+    BufferedReader reader =
+        new BufferedReader(
+            new InputStreamReader(Channels.newInputStream(channel), StandardCharsets.UTF_8));
     return reader.readLine();
   }
 
   private static void writeLine(SocketChannel channel, String line) throws IOException {
-    java.io.Writer writer =
-        new java.io.OutputStreamWriter(
-            java.nio.channels.Channels.newOutputStream(channel),
-            java.nio.charset.StandardCharsets.UTF_8);
+    Writer writer =
+        new OutputStreamWriter(Channels.newOutputStream(channel), StandardCharsets.UTF_8);
     writer.write(line);
     writer.write("\n");
     writer.flush();
