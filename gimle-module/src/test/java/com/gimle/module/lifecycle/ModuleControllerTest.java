@@ -168,8 +168,8 @@ class ModuleControllerTest {
   }
 
   @Test
-  void uninstall_from_failed_state_succeeds() {
-    Fixture f = fixtureFor("com.gimle.fixture.uninstall_failed");
+  void uninstall_from_installed_state_succeeds() {
+    Fixture f = fixtureFor("com.gimle.fixture.uninstall_installed");
     // Force into FAILED via an illegal path is awkward; instead resolve fine, then simulate
     // FAILED by directly driving a resolve failure is covered above — here we exercise
     // uninstall() directly from INSTALLED, which the FAILED/INSTALLED/RESOLVED group all share.

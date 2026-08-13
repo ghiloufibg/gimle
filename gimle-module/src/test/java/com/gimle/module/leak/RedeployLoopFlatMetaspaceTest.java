@@ -6,21 +6,22 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.module.lifecycle.ModuleController;
+import com.gimle.module.testsupport.SubprocessTestSupport;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.yaml.snakeyaml.Yaml;
 
 /**
  * The mandatory redeploy-in-a-loop-with-flat-metaspace acceptance test. Runs {@link
@@ -63,8 +64,20 @@ class RedeployLoopFlatMetaspaceTest {
     ModuleId id = ModuleArtifactReader.read(jar).id();
     assertEquals("com.gimle.fixture.redeployloop", id.name());
 
-    String javaExecutable = javaExecutable();
-    String classpath = buildClasspath();
+    String javaExecutable = SubprocessTestSupport.javaExecutable();
+    String classpath =
+        SubprocessTestSupport.buildClasspath(
+            List.of(
+                ModuleId.class,
+                ModuleController.class,
+                RedeployLoopDriver.class,
+                Yaml.class,
+                // ModuleController logs every lifecycle transition (a real fix, not incidental --
+                // TransitionFailed's cause used to be dropped even from this worker's own log);
+                // slf4j API is now a real class-init-time dependency of a class this subprocess
+                // loads, not just a compile-time one satisfied by gimle-core's own logging setup
+                // elsewhere.
+                Logger.class));
 
     ProcessBuilder pb =
         new ProcessBuilder(
@@ -137,58 +150,5 @@ class RedeployLoopFlatMetaspaceTest {
             + max
             + " over samples "
             + latterHalf.stream().map(s -> s[0] + "->" + s[1]).toList());
-  }
-
-  /**
-   * The path to the {@code java} launcher that started this JVM — asked of the runtime itself
-   * ({@link ProcessHandle}) rather than guessed from {@code os.name}, so there's no platform-name
-   * string matching to get wrong or to need updating for a platform the check didn't anticipate.
-   * Falls back to probing both conventional launcher filenames against the filesystem (still no OS
-   * check — just "which of these files exists") for the rare environment where {@link
-   * ProcessHandle.Info#command()} isn't populated.
-   */
-  private static String javaExecutable() {
-    Optional<String> command = ProcessHandle.current().info().command();
-    if (command.isPresent()) {
-      return command.get();
-    }
-    Path javaBin = Path.of(System.getProperty("java.home"), "bin");
-    for (String candidate : List.of("java", "java.exe")) {
-      Path path = javaBin.resolve(candidate);
-      if (Files.isRegularFile(path)) {
-        return path.toString();
-      }
-    }
-    throw new IllegalStateException("could not locate the java launcher under " + javaBin);
-  }
-
-  private static String buildClasspath() throws IOException {
-    List<Path> entries =
-        List.of(
-            modulePathEntryOf(com.gimle.core.module.ModuleId.class),
-            modulePathEntryOf(com.gimle.module.lifecycle.ModuleController.class),
-            modulePathEntryOf(RedeployLoopDriver.class),
-            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class),
-            // ModuleController logs every lifecycle transition (a real fix, not incidental --
-            // TransitionFailed's cause used to be dropped even from this worker's own log); slf4j
-            // API is now a real class-init-time dependency of a class this subprocess loads, not
-            // just a compile-time one satisfied by gimle-core's own logging setup elsewhere.
-            modulePathEntryOf(org.slf4j.Logger.class));
-    StringBuilder cp = new StringBuilder();
-    for (Path entry : entries) {
-      if (cp.length() > 0) {
-        cp.append(java.io.File.pathSeparator);
-      }
-      cp.append(entry.toAbsolutePath());
-    }
-    return cp.toString();
-  }
-
-  private static Path modulePathEntryOf(Class<?> anchor) {
-    try {
-      return Path.of(anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
-    } catch (java.net.URISyntaxException e) {
-      throw new IllegalStateException(e);
-    }
   }
 }

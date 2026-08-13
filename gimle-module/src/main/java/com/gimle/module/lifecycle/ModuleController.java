@@ -42,6 +42,10 @@ public final class ModuleController {
 
   private static final Logger log = LoggerFactory.getLogger(ModuleController.class);
 
+  /** The default {@code onDisposed} for a caller that doesn't care about layer disposal. */
+  private static final BiConsumer<ModuleId, ModuleLayerHandle> NO_OP_ON_DISPOSED =
+      (id, handle) -> {};
+
   private final ModuleRegistry registry;
   private final ModuleResolver resolver;
   private final ModuleLayer platformLayer;
@@ -76,7 +80,7 @@ public final class ModuleController {
         parentLoader,
         drainTimeout,
         eventSink,
-        (id, handle) -> {},
+        NO_OP_ON_DISPOSED,
         new SimpleServiceRegistry());
   }
 
@@ -114,7 +118,7 @@ public final class ModuleController {
         parentLoader,
         drainTimeout,
         eventSink,
-        (id, handle) -> {},
+        NO_OP_ON_DISPOSED,
         serviceRegistry);
   }
 

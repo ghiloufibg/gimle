@@ -3,21 +3,23 @@ package com.gimle.module.leak;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.gimle.core.module.ModuleId;
+import com.gimle.module.lifecycle.ModuleController;
+import com.gimle.module.testsupport.SubprocessTestSupport;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.yaml.snakeyaml.Yaml;
 
 /**
  * F-01 acceptance test: {@code OldObjectSampleCorrelator} can only surface a retaining path when
@@ -57,8 +59,17 @@ class RetainingPathAttributionTest {
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.retaining", "1.0.0"))
             .build(tempDir, "retaining.jar");
 
-    String javaExecutable = javaExecutable();
-    String classpath = buildClasspath();
+    String javaExecutable = SubprocessTestSupport.javaExecutable();
+    String classpath =
+        SubprocessTestSupport.buildClasspath(
+            List.of(
+                ModuleId.class,
+                ModuleController.class,
+                RetainingPathDriver.class,
+                Yaml.class,
+                // See RedeployLoopFlatMetaspaceTest's identical entry: ModuleController now logs
+                // every lifecycle transition, making slf4j API a real class-init-time dependency.
+                Logger.class));
 
     ProcessBuilder pb =
         new ProcessBuilder(
@@ -101,48 +112,5 @@ class RetainingPathAttributionTest {
         allLines.stream().anyMatch(l -> l.startsWith("RETAINING_PATH_PRESENT")),
         "expected a non-empty retaining path when the worker JVM enables path-to-gc-roots; output:\n"
             + String.join("\n", allLines));
-  }
-
-  private static String javaExecutable() {
-    Optional<String> command = ProcessHandle.current().info().command();
-    if (command.isPresent()) {
-      return command.get();
-    }
-    Path javaBin = Path.of(System.getProperty("java.home"), "bin");
-    for (String candidate : List.of("java", "java.exe")) {
-      Path path = javaBin.resolve(candidate);
-      if (Files.isRegularFile(path)) {
-        return path.toString();
-      }
-    }
-    throw new IllegalStateException("could not locate the java launcher under " + javaBin);
-  }
-
-  private static String buildClasspath() throws IOException {
-    List<Path> entries =
-        List.of(
-            modulePathEntryOf(com.gimle.core.module.ModuleId.class),
-            modulePathEntryOf(com.gimle.module.lifecycle.ModuleController.class),
-            modulePathEntryOf(RetainingPathDriver.class),
-            modulePathEntryOf(org.yaml.snakeyaml.Yaml.class),
-            // See RedeployLoopFlatMetaspaceTest's identical entry: ModuleController now logs
-            // every lifecycle transition, making slf4j API a real class-init-time dependency.
-            modulePathEntryOf(org.slf4j.Logger.class));
-    StringBuilder cp = new StringBuilder();
-    for (Path entry : entries) {
-      if (cp.length() > 0) {
-        cp.append(java.io.File.pathSeparator);
-      }
-      cp.append(entry.toAbsolutePath());
-    }
-    return cp.toString();
-  }
-
-  private static Path modulePathEntryOf(Class<?> anchor) {
-    try {
-      return Path.of(anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
-    } catch (java.net.URISyntaxException e) {
-      throw new IllegalStateException(e);
-    }
   }
 }
