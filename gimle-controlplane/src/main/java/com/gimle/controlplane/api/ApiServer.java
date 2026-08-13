@@ -6,6 +6,7 @@ import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
+import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
@@ -49,12 +50,20 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
-import com.gimle.mimir.manifest.DeploymentManifestParser;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ManifestParser;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
 import com.gimle.pki.CertificateAuthority;
@@ -85,6 +94,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -121,6 +131,11 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
   private final StoreClient storeClient;
+  // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
+  // than taking a constructor parameter -- CronJobReconciler is genuinely stateless beyond that,
+  // so a fresh materialization decision per /cronjobs/{name}/trigger call needs no shared instance
+  // with ControlPlaneMain's own scheduled-tick reconciler, only the same store.
+  private final CronJobReconciler cronJobReconciler;
   // gimle-fafnir owns the master key ring and every encrypt/decrypt/rotate operation now -- this
   // client is a thin, pure-HTTP caller against it (design doc Phase A), replacing the in-process
   // SecretCipher/KeyFileManager/KeyRing calls this field's predecessor made directly.
@@ -242,6 +257,7 @@ public final class ApiServer implements AutoCloseable {
       SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
+    this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.sessionSigningKey = sessionSigningKey;
@@ -255,6 +271,14 @@ public final class ApiServer implements AutoCloseable {
   private void registerContexts(HttpServer target) throws IOException {
     target.createContext("/deployments/", instrument("deployments", this::handleDeployment));
     target.createContext("/deployments", instrument("deployments", this::handleDeploymentsList));
+    target.createContext("/jobs/", instrument("jobs", this::handleJob));
+    target.createContext("/jobs", instrument("jobs", this::handleJobsList));
+    target.createContext("/cronjobs/", instrument("cronjobs", this::handleCronJob));
+    target.createContext("/cronjobs", instrument("cronjobs", this::handleCronJobsList));
+    target.createContext("/daemonsets/", instrument("daemonsets", this::handleDaemonSet));
+    target.createContext("/daemonsets", instrument("daemonsets", this::handleDaemonSetsList));
+    target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
+    target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -521,7 +545,18 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
-    DeploymentSpec parsedSpec = DeploymentManifestParser.parse(exchange.getRequestBody());
+    // Every manifest now requires kind: (priority-3 design doc §2) -- ManifestParser is what
+    // enforces that at this, the real operator-facing admission surface; DeploymentManifestParser
+    // itself stays kind-agnostic (see its own updated javadoc), still used directly only by
+    // StateStore's own reload-on-restart path and this class's parser-shape unit tests.
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof DeploymentSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /deployments route (expected kind:" + " Deployment)");
+      return;
+    }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
@@ -643,6 +678,631 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  // ---- /jobs/{name}, /jobs (priority-3 design doc §3e) ----
+
+  private void handleJob(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/jobs/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing job name");
+        return;
+      }
+      // Unscoped for every verb, matching handleDeployment's own identical documented gap above.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+            handlePutJob(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+            handleGetJob(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
+            handleDeleteJob(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("job request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutJob(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof JobSpec parsedSpec)) {
+      respond(exchange, 400, "manifest kind does not match /jobs route (expected kind: Job)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    // P2-18-equivalent, same reasoning as handlePutDeployment's own identical step: never trusted
+    // from the submitted manifest, always recomputed server-side at admission.
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    JobSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here (unlike handlePutDeployment's checkTenantQuota): TenantUsage's
+    // accounting model is deployment-replica-shaped (resourceRequest * replicas) and has no Job
+    // equivalent yet -- a tenanted Job is accepted regardless of that tenant's quota today, a
+    // real, undocumented-elsewhere gap worth flagging here rather than silently matching
+    // handlePutDeployment's shape without actually doing the check.
+    storeClient.propose(new StateMutation.PutJobSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static JobSpec withArtifactSha256(JobSpec spec, Optional<String> sha256) {
+    return new JobSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.placement(),
+        spec.activeDeadline(),
+        spec.backoffLimit(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetJob(HttpExchange exchange, String name) throws IOException {
+    Optional<JobSpec> spec = storeClient.getJobSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such job: " + name);
+      return;
+    }
+    respondJson(exchange, 200, jobStatus(spec.get()));
+  }
+
+  private void handleDeleteJob(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveJobSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every job, in the same shape {@link #handleGetJob} returns for one. */
+  private void handleJobsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, storeClient.listJobSpecs().stream().map(this::jobStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("jobs list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> jobStatus(JobSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    spec.activeDeadline().ifPresent(d -> specMap.put("activeDeadlineSeconds", d.toSeconds()));
+    specMap.put("backoffLimit", spec.backoffLimit());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    // "RUNNING" mirrors JobPhase's own default (StateStore#getJobPhase's javadoc: absent means
+    // not yet terminal) -- a job with no explicit phase recorded yet is running, not stateless.
+    status.put("phase", storeClient.getJobPhase(spec.name()).map(Enum::name).orElse("RUNNING"));
+
+    storeClient.listJobRunsFor(spec.name()).stream()
+        .max(Comparator.comparingInt(JobRun::attempt))
+        .ifPresent(
+            run -> {
+              Map<String, Object> runMap = new LinkedHashMap<>();
+              runMap.put("attempt", run.attempt());
+              runMap.put("nodeId", run.nodeId());
+              findObservationForJobRun(run)
+                  .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+              status.put("currentRun", runMap);
+            });
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForJobRun(JobRun run) {
+    return storeClient
+        .getNodeHeartbeat(run.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(run.jobName())
+                                && obs.instanceIndex() == run.attempt())
+                    .findFirst());
+  }
+
+  // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger (priority-3 design doc §3e) ----
+
+  private void handleCronJob(HttpExchange exchange) {
+    try {
+      String path = exchange.getRequestURI().getPath();
+      String tail = path.substring("/cronjobs/".length());
+      int slash = tail.indexOf('/');
+      String name = slash < 0 ? tail : tail.substring(0, slash);
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing cronjob name");
+        return;
+      }
+      if (slash >= 0) {
+        String action = tail.substring(slash + 1);
+        if (!"trigger".equals(action)) {
+          respond(exchange, 404, "unknown cronjob endpoint: " + action);
+          return;
+        }
+        if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+          handleCronJobTrigger(exchange, name);
+        }
+        return;
+      }
+      // Unscoped for every verb, matching handleJob's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+            handlePutCronJob(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+            handleGetCronJob(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
+            handleDeleteCronJob(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("cronjob request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutCronJob(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof CronJobSpec spec)) {
+      respond(
+          exchange, 400, "manifest kind does not match /cronjobs route (expected kind: CronJob)");
+      return;
+    }
+    if (!spec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    storeClient.propose(new StateMutation.PutCronJobSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetCronJob(HttpExchange exchange, String name) throws IOException {
+    Optional<CronJobSpec> spec = storeClient.getCronJobSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such cronjob: " + name);
+      return;
+    }
+    respondJson(exchange, 200, cronJobStatus(spec.get()));
+  }
+
+  private void handleDeleteCronJob(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveCronJobSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * The {@code gimle cronjob trigger <name>} verb's server-side implementation -- fires
+   * immediately, bypassing the schedule entirely (still subject to {@code concurrencyPolicy}), via
+   * the same {@link CronJobReconciler#triggerNow} the scheduled tick path shares. 404 if the
+   * CronJob doesn't exist; 409 if {@code concurrencyPolicy: FORBID} blocked it against a
+   * still-running previous firing -- distinguishable from "doesn't exist" so a caller isn't left
+   * guessing which happened.
+   */
+  private void handleCronJobTrigger(HttpExchange exchange, String name) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    if (storeClient.getCronJobSpec(name).isEmpty()) {
+      respond(exchange, 404, "no such cronjob: " + name);
+      return;
+    }
+    Optional<String> generatedJobName = cronJobReconciler.triggerNow(name);
+    if (generatedJobName.isEmpty()) {
+      respond(exchange, 409, "cronjob " + name + " not triggered: concurrencyPolicy forbids it");
+      return;
+    }
+    respondJson(exchange, 200, Map.of("jobName", generatedJobName.get()));
+  }
+
+  /** Every cronjob, in the same shape {@link #handleGetCronJob} returns for one. */
+  private void handleCronJobsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange, 200, storeClient.listCronJobSpecs().stream().map(this::cronJobStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("cronjobs list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> cronJobStatus(CronJobSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("schedule", spec.schedule());
+    Map<String, Object> template = new LinkedHashMap<>();
+    template.put("moduleId", moduleIdToJson(spec.jobTemplate().moduleId()));
+    template.put("artifactPath", spec.jobTemplate().artifactPath());
+    template.put("backoffLimit", spec.jobTemplate().backoffLimit());
+    spec.jobTemplate()
+        .activeDeadline()
+        .ifPresent(d -> template.put("activeDeadlineSeconds", d.toSeconds()));
+    specMap.put("jobTemplate", template);
+    spec.startingDeadline().ifPresent(d -> specMap.put("startingDeadlineSeconds", d.toSeconds()));
+    specMap.put("concurrencyPolicy", spec.concurrencyPolicy().name());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    storeClient
+        .getCronJobLastSchedule(spec.name())
+        .ifPresent(t -> status.put("lastScheduleTime", t.toString()));
+    return status;
+  }
+
+  // ---- /daemonsets/{name}, /daemonsets (priority-3 design doc §4d) ----
+
+  private void handleDaemonSet(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/daemonsets/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing daemonset name");
+        return;
+      }
+      // Unscoped for every verb, matching handleJob's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.WRITE, Optional.empty())) {
+            handlePutDaemonSet(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
+            handleGetDaemonSet(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.DELETE, Optional.empty())) {
+            handleDeleteDaemonSet(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("daemonset request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutDaemonSet(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof DaemonSetSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /daemonsets route (expected kind: DaemonSet)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    DaemonSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here, same documented gap handlePutJob's own identical comment
+    // explains -- TenantUsage's accounting model is replica-count-shaped and has no per-node
+    // equivalent yet.
+    storeClient.propose(new StateMutation.PutDaemonSetSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static DaemonSetSpec withArtifactSha256(DaemonSetSpec spec, Optional<String> sha256) {
+    return new DaemonSetSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.placement(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetDaemonSet(HttpExchange exchange, String name) throws IOException {
+    Optional<DaemonSetSpec> spec = storeClient.getDaemonSetSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such daemonset: " + name);
+      return;
+    }
+    respondJson(exchange, 200, daemonSetStatus(spec.get()));
+  }
+
+  private void handleDeleteDaemonSet(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveDaemonSetSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every daemonset, in the same shape {@link #handleGetDaemonSet} returns for one. */
+  private void handleDaemonSetsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listDaemonSetSpecs().stream().map(this::daemonSetStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("daemonsets list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> daemonSetStatus(DaemonSetSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    specMap.put("placement", placement);
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    List<Map<String, Object>> instances = new ArrayList<>();
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignmentsFor(spec.name())) {
+      Map<String, Object> instance = new LinkedHashMap<>();
+      instance.put("nodeId", assignment.nodeId());
+      findObservationForDaemonSetAssignment(assignment)
+          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      instances.add(instance);
+    }
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    status.put("instances", instances);
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForDaemonSetAssignment(
+      DaemonSetAssignment assignment) {
+    return storeClient
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(assignment.daemonSetName())
+                                && obs.instanceIndex() == 0)
+                    .findFirst());
+  }
+
+  // ---- /statefulsets/{name}, /statefulsets (priority-3 design doc §5c) ----
+
+  private void handleStatefulSet(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/statefulsets/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing statefulset name");
+        return;
+      }
+      // Unscoped for every verb, matching handleDeployment's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.WRITE, Optional.empty())) {
+            handlePutStatefulSet(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
+            handleGetStatefulSet(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.STATEFULSET, Verb.DELETE, Optional.empty())) {
+            handleDeleteStatefulSet(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("statefulset request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutStatefulSet(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof StatefulSetSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /statefulsets route (expected kind: StatefulSet)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    StatefulSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here, same documented gap handlePutJob's/handlePutDaemonSet's own
+    // identical comment explains -- unlike those two, a StatefulSet's replicas *would* map onto
+    // TenantUsage's existing replica-count-shaped accounting cleanly, but wiring only this one
+    // kind in would still leave Job under-counted; making TenantUsage genuinely multi-kind-aware
+    // is real, separate scope, not a StatefulSet-specific fix.
+    storeClient.propose(new StateMutation.PutStatefulSetSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static StatefulSetSpec withArtifactSha256(StatefulSetSpec spec, Optional<String> sha256) {
+    return new StatefulSetSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.replicas(),
+        spec.placement(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetStatefulSet(HttpExchange exchange, String name) throws IOException {
+    Optional<StatefulSetSpec> spec = storeClient.getStatefulSetSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such statefulset: " + name);
+      return;
+    }
+    respondJson(exchange, 200, statefulSetStatus(spec.get()));
+  }
+
+  private void handleDeleteStatefulSet(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveStatefulSetSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every statefulset, in the same shape {@link #handleGetStatefulSet} returns for one. */
+  private void handleStatefulSetsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listStatefulSetSpecs().stream().map(this::statefulSetStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("statefulsets list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code instances[].nodeId} is surfaced explicitly and unconditionally (not just folded into
+   * {@code observation}) -- the one place across every workload kind's own status JSON where doing
+   * so is more than a convenience: it's the sticky-placement contract (design doc §5b) made visible
+   * to an operator, not just implemented silently, the same reasoning the design doc itself gives
+   * for why the CLI's own {@code get statefulsets} output must show it too.
+   */
+  private Map<String, Object> statefulSetStatus(StatefulSetSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    specMap.put("replicas", spec.replicas());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    List<Map<String, Object>> instances = new ArrayList<>();
+    for (StatefulSetAssignment assignment :
+        storeClient.listStatefulSetAssignmentsFor(spec.name())) {
+      Map<String, Object> instance = new LinkedHashMap<>();
+      instance.put("instanceIndex", assignment.instanceIndex());
+      instance.put("nodeId", assignment.nodeId());
+      findObservationForStatefulSetAssignment(assignment)
+          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      instances.add(instance);
+    }
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    status.put("instances", instances);
+    status.put("unplacedCount", spec.replicas() - instances.size());
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForStatefulSetAssignment(
+      StatefulSetAssignment assignment) {
+    return storeClient
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(assignment.statefulSetName())
+                                && obs.instanceIndex() == assignment.instanceIndex())
+                    .findFirst());
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -884,6 +1544,77 @@ public final class ApiServer implements AutoCloseable {
               moduleId,
               artifactPath,
               spec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // Job runs (priority-3 design doc §3c) reuse this exact same AssignedInstance wire shape --
+    // from the agent's point of view a JobRun is indistinguishable from an ordinary deployment
+    // replica assignment, jobName/attempt playing deploymentName/instanceIndex's own role. No
+    // agent-side or worker-side code needs to know or care which kind actually placed it; the
+    // only kind-specific behavior (running JobHooks to completion) lives entirely in the worker's
+    // own ModuleDescriptor.jobHooksClass() check, orthogonal to how the assignment arrived here.
+    for (JobRun run : storeClient.listJobRuns()) {
+      if (!run.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<JobSpec> jobSpec = storeClient.getJobSpec(run.jobName());
+      if (jobSpec.isEmpty()) {
+        continue; // stale run; JobReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              run.jobName(),
+              run.attempt(),
+              run.moduleId(),
+              run.artifactPath(),
+              jobSpec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // DaemonSet assignments (priority-3 design doc §4) reuse the same AssignedInstance wire shape
+    // once more, the identical reasoning JobRun's own block above documents: daemonSetName/0 play
+    // deploymentName/instanceIndex's own role -- instanceIndex is always 0 since a DaemonSet places
+    // at most one instance per node, so no second index is ever needed to disambiguate.
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignments()) {
+      if (!assignment.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<DaemonSetSpec> daemonSetSpec =
+          storeClient.getDaemonSetSpec(assignment.daemonSetName());
+      if (daemonSetSpec.isEmpty()) {
+        continue; // stale assignment; DaemonSetReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              assignment.daemonSetName(),
+              0,
+              assignment.moduleId(),
+              assignment.artifactPath(),
+              daemonSetSpec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // StatefulSet assignments (priority-3 design doc §5) reuse the same AssignedInstance wire
+    // shape one more time -- statefulSetName/instanceIndex map directly onto deploymentName/
+    // instanceIndex, the exact same fit InstanceAssignment itself already has, since a
+    // StatefulSet index is a real, stable identity like an ordinary deployment replica's own
+    // index, not DaemonSet's always-0. No agent-side or worker-side kind-awareness needed here
+    // either: whether this instance's descriptor declares volume: (and so needs a data directory
+    // resolved) is discovered generically from the artifact itself, in AgentMain, not from which
+    // reconciler placed it.
+    for (StatefulSetAssignment assignment : storeClient.listStatefulSetAssignments()) {
+      if (!assignment.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<StatefulSetSpec> statefulSetSpec =
+          storeClient.getStatefulSetSpec(assignment.statefulSetName());
+      if (statefulSetSpec.isEmpty()) {
+        continue; // stale assignment; StatefulSetReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              assignment.statefulSetName(),
+              assignment.instanceIndex(),
+              assignment.moduleId(),
+              assignment.artifactPath(),
+              statefulSetSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);

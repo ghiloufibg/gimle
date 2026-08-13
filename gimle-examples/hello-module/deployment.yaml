@@ -1,3 +1,4 @@
+kind: Deployment
 name: hello-deployment
 module:
   name: com.gimle.examples.hello

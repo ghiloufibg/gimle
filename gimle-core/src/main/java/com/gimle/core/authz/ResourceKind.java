@@ -13,6 +13,18 @@ package com.gimle.core.authz;
  */
 public enum ResourceKind {
   DEPLOYMENT,
+  // Covers both Job and CronJob routes under one kind -- a CronJob is "the authority to eventually
+  // create Jobs," so splitting RBAC finer than that buys nothing yet (priority-3 design doc §3e).
+  // Tenant-scopable, same as DEPLOYMENT.
+  JOB,
+  // Deliberately its own kind, not folded into DEPLOYMENT: "may deploy something that runs on
+  // every node in the cluster" is a meaningfully more consequential grant than an ordinary scoped
+  // deployment, worth letting operators withhold independently (priority-3 design doc §4d).
+  DAEMONSET,
+  // Deliberately its own kind too, same reasoning as DAEMONSET: a workload that owns persistent
+  // local-disk state with real data-loss consequences on mismanagement (priority-3 design doc
+  // §5b/§5c) deserves independently grantable RBAC, not folded into DEPLOYMENT.
+  STATEFULSET,
   NODE,
   TENANT,
   CONFIG,

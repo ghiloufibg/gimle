@@ -8,6 +8,7 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Installs the process-wide {@link OpenTelemetry} instance that {@code gimle-fabric}'s {@code
@@ -26,6 +27,13 @@ public final class GimleTracing {
   // same intrinsic lock and stall this class's own initialization.
   private static final Object LOCK = new Object();
   private static volatile boolean installed;
+
+  /**
+   * The tracer provider {@link #install}/{@link #installDefault} last built, held only so {@link
+   * #flush()} has something to call {@code forceFlush()} on -- {@link GlobalOpenTelemetry#get()}
+   * exposes the {@link OpenTelemetry} API surface, not the SDK's own flush control.
+   */
+  private static volatile SdkTracerProvider currentTracerProvider;
 
   private GimleTracing() {}
 
@@ -47,6 +55,7 @@ public final class GimleTracing {
               .build();
       OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
       GlobalOpenTelemetry.set(sdk);
+      currentTracerProvider = tracerProvider;
       installed = true;
     }
   }
@@ -69,6 +78,7 @@ public final class GimleTracing {
               .build();
       OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
       GlobalOpenTelemetry.set(sdk);
+      currentTracerProvider = tracerProvider;
       installed = true;
     }
   }
@@ -97,7 +107,22 @@ public final class GimleTracing {
   static void resetForTesting() {
     synchronized (LOCK) {
       installed = false;
+      currentTracerProvider = null;
       GlobalOpenTelemetry.resetForTest();
+    }
+  }
+
+  /**
+   * Best-effort, bounded-wait flush of the currently-installed tracer provider's {@link
+   * BatchSpanProcessor} (design doc §6d): a short-lived instance -- a completed {@code JobRun}, an
+   * instance torn down right after {@code StopModule} -- shouldn't lose its final spans to the
+   * batch processor's own periodic export interval, which may never fire again before the worker
+   * process exits. A no-op before any tracer provider has been installed.
+   */
+  public static void flush() {
+    SdkTracerProvider provider = currentTracerProvider;
+    if (provider != null) {
+      provider.forceFlush().join(2, TimeUnit.SECONDS);
     }
   }
 }

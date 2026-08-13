@@ -8,11 +8,19 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,6 +64,25 @@ public sealed interface StoreRpc {
           IsQuotaViolating,
           IsNodeCordoned,
           ListAssignments,
+          GetJobSpec,
+          ListJobSpecs,
+          ListJobRunsFor,
+          ListJobRuns,
+          GetJobPhase,
+          GetCronJobSpec,
+          ListCronJobSpecs,
+          GetCronJobLastSchedule,
+          GetDaemonSetSpec,
+          ListDaemonSetSpecs,
+          ListDaemonSetAssignments,
+          ListDaemonSetAssignmentsFor,
+          GetRollingDaemonSetNode,
+          GetStatefulSetSpec,
+          ListStatefulSetSpecs,
+          ListStatefulSetAssignments,
+          ListStatefulSetAssignmentsFor,
+          GetRollingStatefulSetIndex,
+          GetStatefulSetIndexNode,
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
@@ -80,6 +107,20 @@ public sealed interface StoreRpc {
           BoolResult,
           IntResult,
           DeploymentResult,
+          JobSpecResult,
+          JobSpecListResult,
+          JobRunListResult,
+          JobPhaseResult,
+          CronJobSpecResult,
+          CronJobSpecListResult,
+          InstantResult,
+          DaemonSetSpecResult,
+          DaemonSetSpecListResult,
+          DaemonSetAssignmentListResult,
+          StatefulSetSpecResult,
+          StatefulSetSpecListResult,
+          StatefulSetAssignmentListResult,
+          StringResult,
           TenantResult,
           RoleResult,
           RoleBindingResult,
@@ -149,6 +190,46 @@ public sealed interface StoreRpc {
 
   record ListAssignments() implements Request {}
 
+  record GetJobSpec(String name) implements Request {}
+
+  record ListJobSpecs() implements Request {}
+
+  record ListJobRunsFor(String jobName) implements Request {}
+
+  record ListJobRuns() implements Request {}
+
+  /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
+  record GetJobPhase(String jobName) implements Request {}
+
+  record GetCronJobSpec(String name) implements Request {}
+
+  record ListCronJobSpecs() implements Request {}
+
+  /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
+  record GetCronJobLastSchedule(String name) implements Request {}
+
+  record GetDaemonSetSpec(String name) implements Request {}
+
+  record ListDaemonSetSpecs() implements Request {}
+
+  record ListDaemonSetAssignments() implements Request {}
+
+  record ListDaemonSetAssignmentsFor(String daemonSetName) implements Request {}
+
+  record GetRollingDaemonSetNode(String daemonSetName) implements Request {}
+
+  record GetStatefulSetSpec(String name) implements Request {}
+
+  record ListStatefulSetSpecs() implements Request {}
+
+  record ListStatefulSetAssignments() implements Request {}
+
+  record ListStatefulSetAssignmentsFor(String statefulSetName) implements Request {}
+
+  record GetRollingStatefulSetIndex(String statefulSetName) implements Request {}
+
+  record GetStatefulSetIndexNode(String statefulSetName, int instanceIndex) implements Request {}
+
   record ListNodeRegistrations() implements Request {}
 
   record ListTenants() implements Request {}
@@ -214,6 +295,52 @@ public sealed interface StoreRpc {
   record IntResult(boolean present, int value) implements Response {}
 
   record DeploymentResult(boolean present, DeploymentSpec value) implements Response {}
+
+  record JobSpecResult(boolean present, JobSpec value) implements Response {}
+
+  record JobSpecListResult(List<JobSpec> values) implements Response {}
+
+  record JobRunListResult(List<JobRun> values) implements Response {}
+
+  /**
+   * {@code present == false} means "not yet terminal," matching {@code Optional<JobPhase>}'s own
+   * absence -- {@code value} is meaningless ({@code JobPhase.RUNNING}) when {@code present} is
+   * {@code false}, the same "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record JobPhaseResult(boolean present, JobPhase value) implements Response {}
+
+  record CronJobSpecResult(boolean present, CronJobSpec value) implements Response {}
+
+  record CronJobSpecListResult(List<CronJobSpec> values) implements Response {}
+
+  /**
+   * {@code present == false} means "never fired yet," matching {@code Optional<Instant>}'s own
+   * absence -- {@code value} is meaningless (0) when {@code present} is {@code false}, the same
+   * "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record InstantResult(boolean present, long epochMilli) implements Response {}
+
+  record DaemonSetSpecResult(boolean present, DaemonSetSpec value) implements Response {}
+
+  record DaemonSetSpecListResult(List<DaemonSetSpec> values) implements Response {}
+
+  record DaemonSetAssignmentListResult(List<DaemonSetAssignment> values) implements Response {}
+
+  record StatefulSetSpecResult(boolean present, StatefulSetSpec value) implements Response {}
+
+  record StatefulSetSpecListResult(List<StatefulSetSpec> values) implements Response {}
+
+  record StatefulSetAssignmentListResult(List<StatefulSetAssignment> values) implements Response {}
+
+  /**
+   * {@code present == false} means the value is absent, matching {@code Optional<String>}'s own
+   * absence -- {@code value} is {@code ""} when {@code present} is {@code false}, the same
+   * "meaningless placeholder" convention {@link IntResult}/{@link InstantResult} already use. Used
+   * for {@link GetRollingDaemonSetNode} -- every other optional {@code String} field in this file
+   * so far has ridden along inside a larger record ({@code NotLeader}'s own address), so this is
+   * the first standalone one.
+   */
+  record StringResult(boolean present, String value) implements Response {}
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 

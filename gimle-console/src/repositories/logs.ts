@@ -65,10 +65,7 @@ function weightedLevel(): LogLevel {
   return "TRACE";
 }
 
-function makeStructured(
-  target: LogTarget,
-  ts: Date,
-): StructuredLogLine {
+function makeStructured(target: LogTarget, ts: Date): StructuredLogLine {
   const level = weightedLevel();
   const category: LogCategory =
     target.kind === "instance"
@@ -82,9 +79,10 @@ function makeStructured(
     target.kind === "node"
       ? target.nodeId
       : target.kind === "instance"
-        ? deployments.find((d) => d.spec.name === target.deploymentName)?.instances.find(
-            (i) => i.instanceIndex === target.instanceIndex,
-          )?.nodeId ?? pick(nodes).nodeId
+        ? (deployments
+            .find((d) => d.spec.name === target.deploymentName)
+            ?.instances.find((i) => i.instanceIndex === target.instanceIndex)?.nodeId ??
+          pick(nodes).nodeId)
         : pick(nodes).nodeId;
   const logger = pick(LOGGERS);
   const thread =
@@ -122,8 +120,7 @@ function makeStructured(
 
 function makeLine(target: LogTarget, ts: Date): LogLine {
   const isSystem =
-    (target.kind === "node" || target.kind === "controlplane") &&
-    target.category === "SYSTEM";
+    (target.kind === "node" || target.kind === "controlplane") && target.category === "SYSTEM";
   if (isSystem && Math.random() < 0.35) {
     return { timestamp: ts.toISOString(), category: "SYSTEM", raw: pick(RAW_LINES) };
   }

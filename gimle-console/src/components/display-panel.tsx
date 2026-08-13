@@ -35,7 +35,9 @@ function Segmented<T extends string>({
             {o.icon}
             {o.label}
           </span>
-          {o.hint && <span className="text-[10px] normal-case tracking-normal opacity-70">{o.hint}</span>}
+          {o.hint && (
+            <span className="text-[10px] normal-case tracking-normal opacity-70">{o.hint}</span>
+          )}
         </button>
       ))}
     </div>
@@ -78,8 +80,18 @@ export function DisplayPanel() {
             value={mode}
             onChange={setMode}
             options={[
-              { value: "hud", label: "HUD", icon: <Rows3 className="h-3 w-3" />, hint: "Tactical grid (default)" },
-              { value: "signal", label: "Signal", icon: <LayoutGrid className="h-3 w-3" />, hint: "Card decks" },
+              {
+                value: "hud",
+                label: "HUD",
+                icon: <Rows3 className="h-3 w-3" />,
+                hint: "Tactical grid (default)",
+              },
+              {
+                value: "signal",
+                label: "Signal",
+                icon: <LayoutGrid className="h-3 w-3" />,
+                hint: "Card decks",
+              },
             ]}
           />
         </div>
@@ -102,8 +114,18 @@ export function DisplayPanel() {
             value={theme}
             onChange={setTheme}
             options={[
-              { value: "dark", label: "Dark", icon: <Moon className="h-3 w-3" />, hint: "Instrument panel" },
-              { value: "light", label: "Light", icon: <Sun className="h-3 w-3" />, hint: "Cool paper" },
+              {
+                value: "dark",
+                label: "Dark",
+                icon: <Moon className="h-3 w-3" />,
+                hint: "Instrument panel",
+              },
+              {
+                value: "light",
+                label: "Light",
+                icon: <Sun className="h-3 w-3" />,
+                hint: "Cool paper",
+              },
             ]}
           />
         </div>

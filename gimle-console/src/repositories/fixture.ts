@@ -1,11 +1,18 @@
 import type {
+  ConcurrencyPolicy,
+  ConfigEntry,
+  CronJob,
+  DaemonSet,
+  DaemonSetInstance,
   Deployment,
   DeploymentInstance,
+  Job,
   LifecycleState,
   Node,
-  Tenant,
-  ConfigEntry,
   SecretMetadata,
+  StatefulSet,
+  StatefulSetInstance,
+  Tenant,
 } from "@/types";
 
 // Seeded PRNG so mock data is stable across renders/SSR hydration.
@@ -155,6 +162,179 @@ export const deployments: Deployment[] = Array.from({ length: 42 }, (_, i) => {
   };
 });
 
+// ---------- Jobs (priority-3 design doc §3) ----------
+const JOB_PHASE_WEIGHTS: [Job["phase"], number][] = [
+  ["RUNNING", 50],
+  ["SUCCEEDED", 35],
+  ["FAILED", 15],
+];
+
+function weightedJobPhase(): Job["phase"] {
+  const total = JOB_PHASE_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+  let r = rand() * total;
+  for (const [phase, w] of JOB_PHASE_WEIGHTS) {
+    r -= w;
+    if (r <= 0) return phase;
+  }
+  return "RUNNING";
+}
+
+export const jobs: Job[] = Array.from({ length: 12 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-job-${i}`;
+  const phase = weightedJobPhase();
+  const attempt = intBetween(0, 2);
+  const tenantId = rand() < 0.3 ? pick(tenants).id : null;
+  const currentRun =
+    phase === "RUNNING"
+      ? {
+          attempt,
+          nodeId: pick(nodes).nodeId,
+          observation: {
+            lifecycleState: rand() < 0.7 ? ("ACTIVE" as const) : ("STARTING" as const),
+            alive: true,
+            ready: false,
+            requestRatePerSecond: 0,
+            queueDepth: 0,
+            cpuMillicoresUsed: intBetween(50, 800),
+            memoryBytesUsed: intBetween(64, 512) * 1024 * 1024,
+          },
+        }
+      : null;
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      backoffLimit: intBetween(1, 6),
+      activeDeadlineSeconds: rand() < 0.4 ? intBetween(60, 3600) : undefined,
+      tenantId,
+    },
+    phase,
+    currentRun,
+  };
+});
+
+// ---------- CronJobs ----------
+const SCHEDULES = ["0 2 * * *", "*/15 * * * *", "0 0 1 * *", "0 6,18 * * *"];
+const CONCURRENCY_POLICIES: ConcurrencyPolicy[] = ["ALLOW", "FORBID", "REPLACE"];
+
+export const cronJobs: CronJob[] = Array.from({ length: 6 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-cron-${i}`;
+  const tenantId = rand() < 0.3 ? pick(tenants).id : null;
+  const firedBefore = rand() < 0.7;
+  return {
+    spec: {
+      name,
+      schedule: pick(SCHEDULES),
+      jobTemplate: {
+        moduleId: { name: mod, version },
+        artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+        backoffLimit: intBetween(1, 6),
+        activeDeadlineSeconds: rand() < 0.4 ? intBetween(60, 3600) : undefined,
+      },
+      startingDeadlineSeconds: rand() < 0.3 ? intBetween(60, 600) : undefined,
+      concurrencyPolicy: pick(CONCURRENCY_POLICIES),
+      tenantId,
+    },
+    lastScheduleTime: firedBefore
+      ? new Date(Date.UTC(2026, 0, 1, intBetween(0, 23), intBetween(0, 59))).toISOString()
+      : null,
+  };
+});
+
+// ---------- DaemonSets (priority-3 design doc §4d) ----------
+const NODE_LABEL_SETS: string[][] = [[], [], [], ["gpu"], ["ssd"], ["edge"], ["gpu", "ssd"]];
+
+function makeDaemonSetInstance(nodeId: string): DaemonSetInstance {
+  const state = weightedLifecycle();
+  const active = state === "ACTIVE";
+  const ready = active && rand() > 0.08;
+  const alive = state !== "UNINSTALLED" && state !== "INSTALLED";
+  return {
+    nodeId,
+    observation: {
+      lifecycleState: state,
+      alive,
+      ready,
+      requestRatePerSecond: active ? +(rand() * 50).toFixed(1) : 0,
+      queueDepth: active ? intBetween(0, 5) : 0,
+      cpuMillicoresUsed: active ? intBetween(20, 400) : intBetween(0, 20),
+      memoryBytesUsed: intBetween(32, 256) * 1024 * 1024,
+    },
+  };
+}
+
+export const daemonSets: DaemonSet[] = Array.from({ length: 4 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-agent-${i}`;
+  const tenantId = rand() < 0.2 ? pick(tenants).id : null;
+  const requiredNodeLabels = pick(NODE_LABEL_SETS);
+  const eligibleNodes =
+    requiredNodeLabels.length > 0
+      ? nodes.filter(() => rand() < 0.6)
+      : nodes.filter(() => rand() < 0.9);
+  const instances = eligibleNodes.map((n) => makeDaemonSetInstance(n.nodeId));
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      placement: { requiredNodeLabels },
+      tenantId,
+    },
+    instances,
+  };
+});
+
+// ---------- StatefulSets (priority-3 design doc §5) ----------
+function makeStatefulSetInstance(idx: number, nodeId: string): StatefulSetInstance {
+  const state = weightedLifecycle();
+  const active = state === "ACTIVE";
+  const ready = active && rand() > 0.08;
+  const alive = state !== "UNINSTALLED" && state !== "INSTALLED";
+  return {
+    instanceIndex: idx,
+    nodeId,
+    observation: {
+      lifecycleState: state,
+      alive,
+      ready,
+      requestRatePerSecond: active ? +(rand() * 100).toFixed(1) : 0,
+      queueDepth: active ? intBetween(0, 15) : 0,
+      cpuMillicoresUsed: active ? intBetween(50, 800) : intBetween(0, 30),
+      memoryBytesUsed: intBetween(128, 2048) * 1024 * 1024,
+    },
+  };
+}
+
+export const statefulSets: StatefulSet[] = Array.from({ length: 5 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-statefulset-${i}`;
+  const replicas = intBetween(1, 3);
+  const placed = Math.max(0, replicas - (rand() < 0.15 ? 1 : 0));
+  const instances = Array.from({ length: placed }, (_, ix) =>
+    makeStatefulSetInstance(ix, pick(nodes).nodeId),
+  );
+  const tenantId = rand() < 0.2 ? pick(tenants).id : null;
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      replicas,
+      tenantId,
+    },
+    instances,
+    unplacedCount: replicas - placed,
+  };
+});
+
 // ---------- Config ----------
 const CONFIG_KEYS = [
   "db.url",
@@ -210,6 +390,42 @@ export function addDeployment(d: Deployment) {
 export function removeDeployment(name: string) {
   const idx = deployments.findIndex((d) => d.spec.name === name);
   if (idx >= 0) deployments.splice(idx, 1);
+}
+
+export function addJob(j: Job) {
+  jobs.unshift(j);
+}
+
+export function removeJob(name: string) {
+  const idx = jobs.findIndex((j) => j.spec.name === name);
+  if (idx >= 0) jobs.splice(idx, 1);
+}
+
+export function addCronJob(c: CronJob) {
+  cronJobs.unshift(c);
+}
+
+export function removeCronJob(name: string) {
+  const idx = cronJobs.findIndex((c) => c.spec.name === name);
+  if (idx >= 0) cronJobs.splice(idx, 1);
+}
+
+export function addDaemonSet(d: DaemonSet) {
+  daemonSets.unshift(d);
+}
+
+export function removeDaemonSet(name: string) {
+  const idx = daemonSets.findIndex((d) => d.spec.name === name);
+  if (idx >= 0) daemonSets.splice(idx, 1);
+}
+
+export function addStatefulSet(s: StatefulSet) {
+  statefulSets.unshift(s);
+}
+
+export function removeStatefulSet(name: string) {
+  const idx = statefulSets.findIndex((s) => s.spec.name === name);
+  if (idx >= 0) statefulSets.splice(idx, 1);
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

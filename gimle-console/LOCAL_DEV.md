@@ -50,10 +50,10 @@ cd "C:\Users\PC\IdeaProjects\gimle"
 mvn install -DskipTests
 ```
 
-One command builds every Java module *and* `gimle-console` (Bun install, `vite build`, `bun test`,
+One command builds every Java module _and_ `gimle-console` (Bun install, `vite build`, `bun test`,
 via `exec-maven-plugin` — see `gimle-console/pom.xml`), then bundles the built SPA into
 `gimle-console`'s own jar (`console/**`) so `gimle-controlplane` can depend on and serve it with no
-separate build/copy step. `-DskipTests` only skips the *Java* test suite here for a fast local
+separate build/copy step. `-DskipTests` only skips the _Java_ test suite here for a fast local
 run — the console's own `bun test` still runs as part of its build regardless, since it's wired to
 a Maven phase (`test`) that fires either way. Drop `-DskipTests` for the full CI-equivalent pass.
 
@@ -112,7 +112,7 @@ In a fourth terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fres
 mvn gimle:agent
 ```
 
-`AgentMojo` resolves both `gimle-agent`'s own classpath *and* `gimle-worker`'s classpath (a
+`AgentMojo` resolves both `gimle-agent`'s own classpath _and_ `gimle-worker`'s classpath (a
 genuinely separate process/classpath the agent spawns worker JVMs with — the worker's classpath is
 resolved directly against the already-`mvn install`ed `com.gimle:gimle-worker` artifact via Maven's
 own dependency resolver, independent of `-pl`). Defaults: node id `node-1`, control plane at

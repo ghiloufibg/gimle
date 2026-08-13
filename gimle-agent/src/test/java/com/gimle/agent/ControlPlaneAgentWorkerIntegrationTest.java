@@ -262,6 +262,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
       HttpClient httpClient, String baseUrl, String name, Path jar, int replicas) throws Exception {
     String manifest =
         """
+        kind: Deployment
         name: %s
         module:
           name: com.gimle.fixture.controlplaneit

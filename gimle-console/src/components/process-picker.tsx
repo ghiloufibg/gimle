@@ -4,7 +4,18 @@ import { cn } from "@/lib/utils";
 import { useNodesStore } from "@/stores/useNodesStore";
 import type { ProcessKind, ProcessTarget } from "@/types";
 
-export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT"];
+export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"];
+
+/**
+ * A worker JVM's processId is `{nodeId}:{workerId}` (design doc §6b -- workers have no host:port
+ * of their own the way ControlPlane/Fafnir/Mimir/Agent do), split back into its two parts so the
+ * picker can offer a real node dropdown (same source as AGENT's) alongside a free-text workerId
+ * field, since no discovery API exists to enumerate a node's own workers.
+ */
+function splitWorkerProcessId(processId: string): [string, string] {
+  const colon = processId.indexOf(":");
+  return colon < 0 ? [processId, ""] : [processId.slice(0, colon), processId.slice(colon + 1)];
+}
 
 /**
  * There is no discovery API for which processIds exist (design doc Part B/O-10) -- every
@@ -55,11 +66,18 @@ export function ProcessPicker({
       const first = nodes[0]?.nodeId;
       if (!first) return;
       onChange({ processKind: "AGENT", processId: first });
+    } else if (kind === "WORKER") {
+      const first = nodes[0]?.nodeId;
+      if (!first) return;
+      onChange({ processKind: "WORKER", processId: `${first}:` });
     } else {
       const processId = kind === "CONTROLPLANE" ? defaultControlPlaneProcessId() : "";
       onChange({ processKind: kind, processId });
     }
   }
+
+  const [workerNodeId, workerId] =
+    value.processKind === "WORKER" ? splitWorkerProcessId(value.processId) : ["", ""];
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -70,7 +88,7 @@ export function ProcessPicker({
             key={k}
             type="button"
             onClick={() => selectKind(k)}
-            disabled={k === "AGENT" && nodes.length === 0}
+            disabled={(k === "AGENT" || k === "WORKER") && nodes.length === 0}
             className={cn(
               "px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors disabled:opacity-40",
               value.processKind === k
@@ -96,12 +114,39 @@ export function ProcessPicker({
             </option>
           ))}
         </select>
+      ) : value.processKind === "WORKER" ? (
+        <div className="flex items-center gap-1">
+          <select
+            value={workerNodeId}
+            onChange={(e) =>
+              onChange({ processKind: "WORKER", processId: `${e.target.value}:${workerId}` })
+            }
+            className="rounded-sm border border-primary/20 bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-foreground"
+            aria-label="Worker node"
+          >
+            {nodes.map((n) => (
+              <option key={n.nodeId} value={n.nodeId}>
+                {n.nodeId}
+              </option>
+            ))}
+          </select>
+          <input
+            value={workerId}
+            onChange={(e) =>
+              onChange({ processKind: "WORKER", processId: `${workerNodeId}:${e.target.value}` })
+            }
+            placeholder="worker-1234"
+            aria-label="Worker id"
+            className="h-6 w-28 rounded-sm border border-primary/20 bg-background px-2 font-mono text-[10px] text-foreground"
+          />
+        </div>
       ) : (
         <form
           className="flex items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
-            if (idInput.trim()) onChange({ processKind: value.processKind, processId: idInput.trim() });
+            if (idInput.trim())
+              onChange({ processKind: value.processKind, processId: idInput.trim() });
           }}
         >
           <input
@@ -121,7 +166,9 @@ export function ProcessPicker({
       )}
 
       <span className="font-mono text-[10px] text-muted-foreground">
-        {value.processKind.toLowerCase()}/{value.processId || "…"}
+        {value.processKind === "WORKER"
+          ? `worker/${workerNodeId || "…"} / ${workerId || "…"}`
+          : `${value.processKind.toLowerCase()}/${value.processId || "…"}`}
       </span>
     </div>
   );

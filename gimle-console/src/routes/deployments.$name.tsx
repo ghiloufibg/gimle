@@ -99,7 +99,8 @@ function DeploymentDetail() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete {d.spec.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will remove the deployment and stop all its instances. This action cannot be undone.
+                    This will remove the deployment and stop all its instances. This action cannot
+                    be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -120,7 +121,11 @@ function DeploymentDetail() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Field label="Replicas" value={`${d.instances.length} / ${d.spec.replicas}`} />
-        <Field label="Unplaced" value={String(d.unplacedCount)} tone={d.unplacedCount > 0 ? "bad" : "ok"} />
+        <Field
+          label="Unplaced"
+          value={String(d.unplacedCount)}
+          tone={d.unplacedCount > 0 ? "bad" : "ok"}
+        />
         <Field label="Tenant" value={d.spec.tenantId ?? "—"} mono />
         <Field
           label="Quota"
@@ -142,9 +147,7 @@ function DeploymentDetail() {
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Instances ({d.instances.length})
         </div>
-        {d.unplacedCount > 0 && (
-          <StatusBadge variant="bad">{d.unplacedCount} unplaced</StatusBadge>
-        )}
+        {d.unplacedCount > 0 && <StatusBadge variant="bad">{d.unplacedCount} unplaced</StatusBadge>}
       </div>
       <div className="overflow-x-auto rounded border border-border bg-card">
         <table className="w-full text-xs">

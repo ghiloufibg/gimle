@@ -21,14 +21,24 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.AutoscalePolicy;
+import com.gimle.mimir.manifest.ConcurrencyPolicy;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -91,6 +101,173 @@ public final class DomainCodec {
     Optional<String> artifactSha256 = readOptionalString(in);
     return new DeploymentSpec(
         name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, artifactSha256);
+  }
+
+  public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    writeModuleId(out, spec.moduleId());
+    out.writeUTF(spec.artifactPath());
+    writePlacementConstraints(out, spec.placement());
+    writeOptionalDuration(out, spec.activeDeadline());
+    out.writeInt(spec.backoffLimit());
+    writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
+  }
+
+  public static JobSpec readJobSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<Duration> activeDeadline = readOptionalDuration(in);
+    int backoffLimit = in.readInt();
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
+    return new JobSpec(
+        name,
+        moduleId,
+        artifactPath,
+        placement,
+        activeDeadline,
+        backoffLimit,
+        tenantId,
+        artifactSha256);
+  }
+
+  public static void writeJobRun(DataOutputStream out, JobRun run) throws IOException {
+    out.writeUTF(run.jobName());
+    out.writeInt(run.attempt());
+    out.writeUTF(run.nodeId());
+    writeModuleId(out, run.moduleId());
+    out.writeUTF(run.artifactPath());
+    out.writeUTF(run.startedAt().toString());
+  }
+
+  public static JobRun readJobRun(DataInputStream in) throws IOException {
+    String jobName = in.readUTF();
+    int attempt = in.readInt();
+    String nodeId = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    Instant startedAt = Instant.parse(in.readUTF());
+    return new JobRun(jobName, attempt, nodeId, moduleId, artifactPath, startedAt);
+  }
+
+  public static void writeJobTemplate(DataOutputStream out, JobTemplate template)
+      throws IOException {
+    writeModuleId(out, template.moduleId());
+    out.writeUTF(template.artifactPath());
+    writePlacementConstraints(out, template.placement());
+    writeOptionalDuration(out, template.activeDeadline());
+    out.writeInt(template.backoffLimit());
+  }
+
+  public static JobTemplate readJobTemplate(DataInputStream in) throws IOException {
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<Duration> activeDeadline = readOptionalDuration(in);
+    int backoffLimit = in.readInt();
+    return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit);
+  }
+
+  public static void writeCronJobSpec(DataOutputStream out, CronJobSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    out.writeUTF(spec.schedule());
+    writeJobTemplate(out, spec.jobTemplate());
+    writeOptionalDuration(out, spec.startingDeadline());
+    out.writeUTF(spec.concurrencyPolicy().name());
+    writeOptionalString(out, spec.tenantId());
+  }
+
+  public static CronJobSpec readCronJobSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    String schedule = in.readUTF();
+    JobTemplate jobTemplate = readJobTemplate(in);
+    Optional<Duration> startingDeadline = readOptionalDuration(in);
+    ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.valueOf(in.readUTF());
+    Optional<String> tenantId = readOptionalString(in);
+    return new CronJobSpec(
+        name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+  }
+
+  public static void writeDaemonSetSpec(DataOutputStream out, DaemonSetSpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    writeModuleId(out, spec.moduleId());
+    out.writeUTF(spec.artifactPath());
+    writePlacementConstraints(out, spec.placement());
+    writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
+  }
+
+  public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
+    return new DaemonSetSpec(name, moduleId, artifactPath, placement, tenantId, artifactSha256);
+  }
+
+  public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
+      throws IOException {
+    out.writeUTF(assignment.daemonSetName());
+    out.writeUTF(assignment.nodeId());
+    writeModuleId(out, assignment.moduleId());
+    out.writeUTF(assignment.artifactPath());
+  }
+
+  public static DaemonSetAssignment readDaemonSetAssignment(DataInputStream in) throws IOException {
+    String daemonSetName = in.readUTF();
+    String nodeId = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    return new DaemonSetAssignment(daemonSetName, nodeId, moduleId, artifactPath);
+  }
+
+  public static void writeStatefulSetSpec(DataOutputStream out, StatefulSetSpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    writeModuleId(out, spec.moduleId());
+    out.writeUTF(spec.artifactPath());
+    out.writeInt(spec.replicas());
+    writePlacementConstraints(out, spec.placement());
+    writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
+  }
+
+  public static StatefulSetSpec readStatefulSetSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    int replicas = in.readInt();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
+    return new StatefulSetSpec(
+        name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256);
+  }
+
+  public static void writeStatefulSetAssignment(
+      DataOutputStream out, StatefulSetAssignment assignment) throws IOException {
+    out.writeUTF(assignment.statefulSetName());
+    out.writeInt(assignment.instanceIndex());
+    out.writeUTF(assignment.nodeId());
+    writeModuleId(out, assignment.moduleId());
+    out.writeUTF(assignment.artifactPath());
+  }
+
+  public static StatefulSetAssignment readStatefulSetAssignment(DataInputStream in)
+      throws IOException {
+    String statefulSetName = in.readUTF();
+    int instanceIndex = in.readInt();
+    String nodeId = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    return new StatefulSetAssignment(
+        statefulSetName, instanceIndex, nodeId, moduleId, artifactPath);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)
@@ -576,6 +753,20 @@ public final class DomainCodec {
 
   public static Optional<Long> readOptionalLong(DataInputStream in) throws IOException {
     return in.readBoolean() ? Optional.of(in.readLong()) : Optional.empty();
+  }
+
+  /**
+   * {@link JobSpec#activeDeadline()}'s own wire shape -- whole seconds, via {@link
+   * #writeOptionalLong}, matching {@code JobManifestParser#parseActiveDeadline}'s own
+   * seconds-granularity YAML field exactly.
+   */
+  public static void writeOptionalDuration(DataOutputStream out, Optional<Duration> value)
+      throws IOException {
+    writeOptionalLong(out, value.map(Duration::toSeconds));
+  }
+
+  public static Optional<Duration> readOptionalDuration(DataInputStream in) throws IOException {
+    return readOptionalLong(in).map(Duration::ofSeconds);
   }
 
   public static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

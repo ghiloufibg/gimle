@@ -1,5 +1,9 @@
 // COMPOSITION ROOT — swap Mock* for real HTTP implementations here to wire a backend.
+import { HttpCronJobsRepository } from "./http/cronjobs";
+import { HttpDaemonSetsRepository } from "./http/daemonsets";
 import { HttpDeploymentsRepository } from "./http/deployments";
+import { HttpStatefulSetsRepository } from "./http/statefulsets";
+import { HttpJobsRepository } from "./http/jobs";
 import { HttpInstancesRepository } from "./http/instances";
 import { HttpNodesRepository } from "./http/nodes";
 import { HttpTenantsRepository } from "./http/tenants";
@@ -12,6 +16,10 @@ import { HttpTracesHistoryRepository } from "./http/tracesHistory";
 import { HttpAuditRepository } from "./http/audit";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
+export const jobsRepo = new HttpJobsRepository();
+export const cronJobsRepo = new HttpCronJobsRepository();
+export const daemonSetsRepo = new HttpDaemonSetsRepository();
+export const statefulSetsRepo = new HttpStatefulSetsRepository();
 export const instancesRepo = new HttpInstancesRepository(deploymentsRepo);
 export const nodesRepo = new HttpNodesRepository();
 export const tenantsRepo = new HttpTenantsRepository();

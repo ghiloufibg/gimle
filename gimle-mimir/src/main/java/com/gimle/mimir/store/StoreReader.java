@@ -8,7 +8,12 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +46,46 @@ public interface StoreReader {
   boolean isNodeCordoned(String nodeId);
 
   List<InstanceAssignment> listAssignments();
+
+  Optional<JobSpec> getJobSpec(String name);
+
+  List<JobSpec> listJobSpecs();
+
+  List<JobRun> listJobRunsFor(String jobName);
+
+  List<JobRun> listJobRuns();
+
+  /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
+  Optional<JobPhase> getJobPhase(String jobName);
+
+  Optional<CronJobSpec> getCronJobSpec(String name);
+
+  List<CronJobSpec> listCronJobSpecs();
+
+  /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
+  Optional<Instant> getCronJobLastSchedule(String name);
+
+  Optional<DaemonSetSpec> getDaemonSetSpec(String name);
+
+  List<DaemonSetSpec> listDaemonSetSpecs();
+
+  List<DaemonSetAssignment> listDaemonSetAssignments();
+
+  List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName);
+
+  Optional<String> getRollingDaemonSetNode(String daemonSetName);
+
+  Optional<StatefulSetSpec> getStatefulSetSpec(String name);
+
+  List<StatefulSetSpec> listStatefulSetSpecs();
+
+  List<StatefulSetAssignment> listStatefulSetAssignments();
+
+  List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName);
+
+  Optional<Integer> getRollingStatefulSetIndex(String statefulSetName);
+
+  Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex);
 
   List<NodeRegistration> listNodeRegistrations();
 

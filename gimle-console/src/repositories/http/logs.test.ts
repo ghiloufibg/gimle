@@ -80,9 +80,7 @@ describe("HttpLogsRepository.openFollow", () => {
     const stop = repo.openFollow(NODE_TARGET, onLine);
     try {
       await vi.waitFor(() => expect(onLine).toHaveBeenCalledTimes(1));
-      expect(onLine).toHaveBeenCalledWith(
-        expect.objectContaining({ message: "genuinely new" }),
-      );
+      expect(onLine).toHaveBeenCalledWith(expect.objectContaining({ message: "genuinely new" }));
       expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
       const pollUrl = fetchMock.mock.calls[1]?.[0] as string;
       expect(pollUrl).toContain(`since=${encodeURIComponent(seedTimestamp)}`);

@@ -7,10 +7,19 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StatefulSetAssignment;
+import java.time.Instant;
 
 /**
  * Every mutating operation {@link StateStore} exposes, replicated through the Raft log -- one
@@ -49,6 +58,182 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.removeAssignment(deploymentName, instanceIndex);
+    }
+  }
+
+  record PutJobSpec(JobSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobSpec(spec);
+    }
+  }
+
+  record RemoveJobSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeJobSpec(name);
+    }
+  }
+
+  record PutJobRun(JobRun run) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobRun(run);
+    }
+  }
+
+  record RemoveJobRun(String jobName, int attempt) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeJobRun(jobName, attempt);
+    }
+  }
+
+  record PutJobPhase(String jobName, JobPhase phase) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobPhase(jobName, phase);
+    }
+  }
+
+  record PutCronJobSpec(CronJobSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putCronJobSpec(spec);
+    }
+  }
+
+  record RemoveCronJobSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeCronJobSpec(name);
+    }
+  }
+
+  record PutCronJobLastSchedule(String name, Instant lastScheduleTime) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putCronJobLastSchedule(name, lastScheduleTime);
+    }
+  }
+
+  record PutDaemonSetSpec(DaemonSetSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putDaemonSetSpec(spec);
+    }
+  }
+
+  record RemoveDaemonSetSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeDaemonSetSpec(name);
+    }
+  }
+
+  record PutDaemonSetAssignment(DaemonSetAssignment assignment) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putDaemonSetAssignment(assignment);
+    }
+  }
+
+  record RemoveDaemonSetAssignment(String daemonSetName, String nodeId) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeDaemonSetAssignment(daemonSetName, nodeId);
+    }
+  }
+
+  record PutRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putRollingDaemonSetNode(daemonSetName, nodeId);
+    }
+  }
+
+  record ClearRollingDaemonSetNode(String daemonSetName) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.clearRollingDaemonSetNode(daemonSetName);
+    }
+  }
+
+  record PutStatefulSetSpec(StatefulSetSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetSpec(spec);
+    }
+  }
+
+  record RemoveStatefulSetSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetSpec(name);
+    }
+  }
+
+  record PutStatefulSetAssignment(StatefulSetAssignment assignment) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetAssignment(assignment);
+    }
+  }
+
+  record RemoveStatefulSetAssignment(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetAssignment(statefulSetName, instanceIndex);
+    }
+  }
+
+  /**
+   * The single "index currently in flight" marker governing StatefulSet forward progress
+   * (priority-3 design doc §5a) -- reused for both {@code OrderedReady} scale-up admission and
+   * rolling-update admission, the same one-index-at-a-time gate {@code DeploymentReconciler}'s own
+   * {@code rollingIndex} enforces for rolling updates alone. A separate map from {@code
+   * rollingIndex} (keyed by {@code statefulSetName}, not {@code deploymentName}) -- the two
+   * resource kinds never share a namespace.
+   */
+  record PutRollingStatefulSetIndex(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putRollingStatefulSetIndex(statefulSetName, instanceIndex);
+    }
+  }
+
+  record ClearRollingStatefulSetIndex(String statefulSetName) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.clearRollingStatefulSetIndex(statefulSetName);
+    }
+  }
+
+  /**
+   * The sticky node-binding memory for one StatefulSet index (priority-3 design doc §5b): written
+   * once, the first time an index is ever placed, and read back by every subsequent placement
+   * attempt for that same index -- including a rolling-update remove-then-replace, which would
+   * otherwise lose track of which node the index's local-disk volume physically lives on. Survives
+   * an ordinary assignment removal (mid-rollout, or a node going dark and this index sitting
+   * unplaced awaiting that same node's return); only {@link RemoveStatefulSetIndexNode} clears it,
+   * fired solely on the two genuinely permanent cases -- index scaled below the replica count, or
+   * the whole spec deleted.
+   */
+  record PutStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetIndexNode(statefulSetName, instanceIndex, nodeId);
+    }
+  }
+
+  record RemoveStatefulSetIndexNode(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetIndexNode(statefulSetName, instanceIndex);
     }
   }
 

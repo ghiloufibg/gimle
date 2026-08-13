@@ -4,10 +4,14 @@ import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
+import com.gimle.controlplane.reconcile.CronJobReconciler;
+import com.gimle.controlplane.reconcile.DaemonSetReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
+import com.gimle.controlplane.reconcile.JobReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
+import com.gimle.controlplane.reconcile.StatefulSetReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
@@ -157,6 +161,28 @@ public final class ControlPlaneMain {
             storeClient);
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
     QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
+    // Priority-3 design doc §3c: touches only its own JobSpec/JobRun store types, invisible to
+    // the four reconcilers above by construction (they only ever read Deployment-scoped store
+    // methods) -- no interaction with, or dependency on, tick order relative to them.
+    JobReconciler jobReconciler =
+        new JobReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+    // Priority-3 design doc §3d: a thin generator writing ordinary JobSpecs, never touching
+    // JobRun/Scheduler directly -- see the class's own javadoc.
+    CronJobReconciler cronJobReconciler =
+        new CronJobReconciler(storeClient, storeClient, Clock.systemUTC());
+    // Priority-3 design doc §4: touches only its own DaemonSetSpec/DaemonSetAssignment store
+    // types, invisible to every reconciler above by construction -- no interaction with, or
+    // dependency on, tick order relative to them.
+    DaemonSetReconciler daemonSetReconciler =
+        new DaemonSetReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+    // Priority-3 design doc §5: the last workload-diversity item, touching only its own
+    // StatefulSetSpec/StatefulSetAssignment store types -- same "invisible to every reconciler
+    // above by construction" independence the Job/CronJob/DaemonSet reconcilers already have.
+    StatefulSetReconciler statefulSetReconciler =
+        new StatefulSetReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
 
     ApiServer apiServer =
         new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
@@ -215,7 +241,11 @@ public final class ControlPlaneMain {
                 healthReconciler,
                 autoscaleReconciler,
                 quotaReconciler,
-                deploymentReconciler);
+                deploymentReconciler,
+                jobReconciler,
+                cronJobReconciler,
+                daemonSetReconciler,
+                statefulSetReconciler);
           }
         },
         0,
@@ -305,13 +335,24 @@ public final class ControlPlaneMain {
       HealthReconciler healthReconciler,
       AutoscaleReconciler autoscaleReconciler,
       QuotaReconciler quotaReconciler,
-      DeploymentReconciler deploymentReconciler) {
+      DeploymentReconciler deploymentReconciler,
+      JobReconciler jobReconciler,
+      CronJobReconciler cronJobReconciler,
+      DaemonSetReconciler daemonSetReconciler,
+      StatefulSetReconciler statefulSetReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
       autoscaleReconciler.reconcileOnce();
       quotaReconciler.reconcileOnce();
       deploymentReconciler.reconcileOnce();
+      // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
+      // consumer" ordering above -- a firing materialized here is then immediately placeable by
+      // jobReconciler in this same tick, not left waiting for the next one.
+      cronJobReconciler.reconcileOnce();
+      jobReconciler.reconcileOnce();
+      daemonSetReconciler.reconcileOnce();
+      statefulSetReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
     }

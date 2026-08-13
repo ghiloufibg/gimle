@@ -138,7 +138,10 @@ function TenantDetail() {
           </>
         }
       />
-      <form onSubmit={save} className="max-w-lg grid gap-4 rounded border border-border bg-card p-4">
+      <form
+        onSubmit={save}
+        className="max-w-lg grid gap-4 rounded border border-border bg-card p-4"
+      >
         <div className="grid gap-1.5">
           <Label className="text-xs">Max memory (bytes)</Label>
           <Input

@@ -33,10 +33,7 @@ describe("HttpNodesRepository", () => {
 
   it("defaults capacity to zeroed values when the wire response omits it", async () => {
     stubFetchSequence([
-      () =>
-        jsonResponse([
-          { nodeId: "node-fresh", capabilities: { supportedTiers: ["TIER_1"] } },
-        ]),
+      () => jsonResponse([{ nodeId: "node-fresh", capabilities: { supportedTiers: ["TIER_1"] } }]),
     ]);
     const repo = new HttpNodesRepository();
 

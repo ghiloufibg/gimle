@@ -27,6 +27,8 @@ final class TestArtifacts {
             new ResourceSpec("16Mi", "10m"),
             new ResourceSpec("32Mi", "50m"),
             HealthProbes.NONE,
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     return new ModuleArtifact(
         descriptor.id(), Path.of(name + "-" + version + ".jar"), descriptor, "0".repeat(64));

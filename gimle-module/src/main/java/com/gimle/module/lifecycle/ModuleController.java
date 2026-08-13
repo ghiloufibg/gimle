@@ -8,6 +8,7 @@ import com.gimle.module.layer.ModuleLayerHandle;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.module.resolve.ModuleWiring;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -146,6 +147,17 @@ public final class ModuleController {
   }
 
   public ModuleWiring resolve(ModuleId id) {
+    return resolve(id, Optional.empty());
+  }
+
+  /**
+   * {@code dataDirectory} is this instance's persistent-volume host path (priority-3 design doc
+   * §5a), already resolved by the agent and delivered over {@code ControlMessage.ResolveModule} --
+   * present only for a {@code StatefulSet}-shaped instance whose descriptor declares {@code
+   * volume:}. Populated on {@link SimpleModuleContext#dataDirectory()} before {@code onInstall}
+   * fires below, so a hook can rely on it from its very first callback.
+   */
+  public ModuleWiring resolve(ModuleId id, Optional<Path> dataDirectory) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
@@ -181,7 +193,8 @@ public final class ModuleController {
     registry.markResolved(id, wiring, handle);
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
-    SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry, configValues);
+    SimpleModuleContext ctx =
+        new SimpleModuleContext(id, serviceRegistry, configValues, dataDirectory);
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);
@@ -346,6 +359,35 @@ public final class ModuleController {
     requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
     markFailedAndEmit(
         id, ModuleState.ACTIVE, ModuleState.FAILED, new IllegalStateException(reason));
+  }
+
+  /**
+   * The run-to-completion counterpart to {@link #stop}: a Job-kind module's {@link JobHooks#run}
+   * finished, reporting {@code status} (priority-3 design doc §3b). {@code SUCCEEDED} moves the
+   * module straight to {@link ModuleState#COMPLETED} -- no drain wait, unlike {@link #stop}'s
+   * ACTIVE-&gt;STOPPING-&gt;UNINSTALLED sequence, since a Job never serves external requests and
+   * its {@code inFlightCount()} is always zero. {@code FAILED} reuses the existing {@link
+   * #markFailedAndEmit} path rather than introducing a second failure terminal -- a Job run that
+   * reported failure is handled identically to any other hook failure from here on (worker
+   * heartbeat reports {@code alive=false}, {@code HealthReconciler} escalates). Neither branch
+   * tears down this module's hook/context entries or its worker JVM -- that's driven externally, by
+   * the agent reacting to this instance's assignment disappearing once the control plane observes
+   * the terminal state, the same "assignment gone -&gt; agent stops it" mechanism ordinary
+   * scale-down already relies on.
+   */
+  public void complete(ModuleId id, CompletionStatus status) {
+    if (status == CompletionStatus.SUCCEEDED) {
+      requireState(id, ModuleState.ACTIVE, ModuleState.COMPLETED);
+      registry.markCompleted(id);
+      emit(new LifecycleEvent.Completed(id, Instant.now()));
+    } else {
+      requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
+      markFailedAndEmit(
+          id,
+          ModuleState.ACTIVE,
+          ModuleState.FAILED,
+          new IllegalStateException("job run reported FAILED"));
+    }
   }
 
   private void requireState(ModuleId id, ModuleState expected, ModuleState attemptingTo) {

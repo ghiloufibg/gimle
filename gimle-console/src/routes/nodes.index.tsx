@@ -52,7 +52,8 @@ function NodesList() {
           <tbody>
             {items.map((n) => {
               const stale = isStale(n.lastHeartbeatAt);
-              const cpuPct = (n.capacity.assignedCpuMillicores / n.capacity.totalCpuMillicores) * 100;
+              const cpuPct =
+                (n.capacity.assignedCpuMillicores / n.capacity.totalCpuMillicores) * 100;
               const memPct = (n.capacity.assignedMemoryBytes / n.capacity.totalMemoryBytes) * 100;
               return (
                 <tr key={n.nodeId} className="border-t border-border hover:bg-muted/30">
@@ -83,7 +84,11 @@ function NodesList() {
                   <td className="px-2 py-1.5 font-mono text-right">{cpuPct.toFixed(0)}%</td>
                   <td className="px-2 py-1.5 font-mono text-right">{memPct.toFixed(0)}%</td>
                   <td className="px-2 py-1.5">
-                    {stale ? <StatusBadge variant="warn">stale</StatusBadge> : <StatusBadge variant="ok">healthy</StatusBadge>}
+                    {stale ? (
+                      <StatusBadge variant="warn">stale</StatusBadge>
+                    ) : (
+                      <StatusBadge variant="ok">healthy</StatusBadge>
+                    )}
                   </td>
                 </tr>
               );

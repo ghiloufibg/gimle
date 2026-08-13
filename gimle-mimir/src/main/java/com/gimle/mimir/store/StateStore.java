@@ -20,8 +20,16 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobManifestParser;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetManifestParser;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobManifestParser;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetManifestParser;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -62,6 +70,41 @@ public final class StateStore implements StoreReader {
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
+  private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
+  private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
+  // Only ever holds an entry once a job reaches a terminal phase -- absent means "still running"
+  // (no attempt placed yet, or one currently in flight), the same "only persist the override"
+  // posture effectiveReplicas/rollingIndices already use rather than writing an explicit RUNNING
+  // marker for every job that hasn't finished yet.
+  private final Map<String, JobPhase> jobPhases = new ConcurrentHashMap<>();
+  private final Map<String, CronJobSpec> cronJobSpecs = new ConcurrentHashMap<>();
+  // Absent means "never fired yet" -- CronJobReconciler treats that as "start looking forward from
+  // now," never retroactively firing every missed minute since epoch. See CronJobReconciler's own
+  // javadoc.
+  private final Map<String, Instant> cronJobLastSchedule = new ConcurrentHashMap<>();
+  private final Map<String, DaemonSetSpec> daemonSetSpecs = new ConcurrentHashMap<>();
+  private final Map<String, DaemonSetAssignment> daemonSetAssignments = new ConcurrentHashMap<>();
+  // The nodeId currently mid-rollout for a DaemonSet, if any -- the node-keyed counterpart to
+  // rollingIndices above, same "only persist while in flight" shape.
+  private final Map<String, String> rollingDaemonSetNodes = new ConcurrentHashMap<>();
+  private final Map<String, StatefulSetSpec> statefulSetSpecs = new ConcurrentHashMap<>();
+  // Keyed by statefulSetAssignmentKey (statefulSetName#instanceIndex) -- a real per-index key,
+  // unlike DaemonSetAssignment's node-keyed one, since a StatefulSet index is a stable identity
+  // exactly like an ordinary deployment replica's own instanceIndex.
+  private final Map<String, StatefulSetAssignment> statefulSetAssignments =
+      new ConcurrentHashMap<>();
+  // The single index currently in flight for a StatefulSet, if any -- reused for both
+  // OrderedReady scale-up admission and rolling-update admission (see StateMutation
+  // .PutRollingStatefulSetIndex's own javadoc), same "only persist while in flight" shape as
+  // rollingIndices/rollingDaemonSetNodes above. A separate map from rollingIndices: the two
+  // resource kinds never share a namespace.
+  private final Map<String, Integer> rollingStatefulSetIndices = new ConcurrentHashMap<>();
+  // The sticky node binding for one StatefulSet index (priority-3 design doc §5b), keyed by
+  // statefulSetAssignmentKey -- survives an ordinary assignment removal (mid-rollout, or a dark
+  // node), cleared only on genuinely permanent removal (scale-down below the index, or the whole
+  // spec deleted). See StateMutation.PutStatefulSetIndexNode's own javadoc for why this can't just
+  // be read off the current StatefulSetAssignment record.
+  private final Map<String, String> statefulSetIndexNodes = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
@@ -129,6 +172,18 @@ public final class StateStore implements StoreReader {
     try {
       Files.createDirectories(deploymentsDir());
       Files.createDirectories(assignmentsDir());
+      Files.createDirectories(jobsDir());
+      Files.createDirectories(jobRunsDir());
+      Files.createDirectories(jobPhasesDir());
+      Files.createDirectories(cronJobsDir());
+      Files.createDirectories(cronJobLastScheduleDir());
+      Files.createDirectories(daemonSetsDir());
+      Files.createDirectories(daemonSetAssignmentsDir());
+      Files.createDirectories(rollingDaemonSetDir());
+      Files.createDirectories(statefulSetsDir());
+      Files.createDirectories(statefulSetAssignmentsDir());
+      Files.createDirectories(rollingStatefulSetDir());
+      Files.createDirectories(statefulSetIndexNodesDir());
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
       Files.createDirectories(autoscaleDir());
@@ -194,6 +249,285 @@ public final class StateStore implements StoreReader {
     return assignments.values().stream()
         .filter(a -> a.deploymentName().equals(deploymentName))
         .toList();
+  }
+
+  // ---- jobs ----
+
+  public void putJobSpec(JobSpec spec) {
+    writeAtomically(jobFile(spec.name()), jobSpecToYaml(spec));
+    jobSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<JobSpec> getJobSpec(String name) {
+    return Optional.ofNullable(jobSpecs.get(name));
+  }
+
+  public List<JobSpec> listJobSpecs() {
+    return List.copyOf(jobSpecs.values());
+  }
+
+  /**
+   * Also clears any terminal {@link JobPhase} recorded for {@code name} -- a removed job has no
+   * phase to report back, terminal or otherwise. Does not remove any {@link JobRun}s still on disk
+   * for it; {@code JobReconciler} is responsible for tearing those down first, the same "assignment
+   * gone -&gt; agent stops it" ordering {@code DeploymentReconciler} already relies on for {@code
+   * InstanceAssignment}.
+   */
+  public void removeJobSpec(String name) {
+    deleteQuietly(jobFile(name));
+    jobSpecs.remove(name);
+    deleteQuietly(jobPhaseFile(name));
+    jobPhases.remove(name);
+  }
+
+  // ---- job runs ----
+
+  public void putJobRun(JobRun run) {
+    writeAtomically(jobRunFile(run.jobName(), run.attempt()), jobRunToYaml(run));
+    jobRuns.put(jobRunKey(run.jobName(), run.attempt()), run);
+  }
+
+  public void removeJobRun(String jobName, int attempt) {
+    deleteQuietly(jobRunFile(jobName, attempt));
+    jobRuns.remove(jobRunKey(jobName, attempt));
+  }
+
+  public List<JobRun> listJobRuns() {
+    return List.copyOf(jobRuns.values());
+  }
+
+  public List<JobRun> listJobRunsFor(String jobName) {
+    return jobRuns.values().stream().filter(r -> r.jobName().equals(jobName)).toList();
+  }
+
+  // ---- job phase ----
+
+  public void putJobPhase(String jobName, JobPhase phase) {
+    writeAtomically(jobPhaseFile(jobName), jobPhaseToYaml(phase));
+    jobPhases.put(jobName, phase);
+  }
+
+  /** Empty means "not yet terminal" -- see {@link #jobPhases}'s own field javadoc. */
+  public Optional<JobPhase> getJobPhase(String jobName) {
+    return Optional.ofNullable(jobPhases.get(jobName));
+  }
+
+  // ---- cronjobs ----
+
+  public void putCronJobSpec(CronJobSpec spec) {
+    writeAtomically(cronJobFile(spec.name()), cronJobSpecToYaml(spec));
+    cronJobSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<CronJobSpec> getCronJobSpec(String name) {
+    return Optional.ofNullable(cronJobSpecs.get(name));
+  }
+
+  public List<CronJobSpec> listCronJobSpecs() {
+    return List.copyOf(cronJobSpecs.values());
+  }
+
+  /**
+   * Also clears any recorded {@link #cronJobLastSchedule} for {@code name} -- a removed CronJob has
+   * no schedule state left to advance. Does not touch any {@link JobSpec} it previously generated;
+   * those are ordinary Jobs now, left to run to completion (or be cleaned up by an operator)
+   * independently, the same way undeploying a Deployment never retroactively touches instances a
+   * since-removed autoscale policy once sized.
+   */
+  public void removeCronJobSpec(String name) {
+    deleteQuietly(cronJobFile(name));
+    cronJobSpecs.remove(name);
+    deleteQuietly(cronJobLastScheduleFile(name));
+    cronJobLastSchedule.remove(name);
+  }
+
+  // ---- cronjob last-schedule bookkeeping ----
+
+  public void putCronJobLastSchedule(String name, Instant lastScheduleTime) {
+    writeAtomically(cronJobLastScheduleFile(name), cronJobLastScheduleToYaml(lastScheduleTime));
+    cronJobLastSchedule.put(name, lastScheduleTime);
+  }
+
+  /** Empty means "never fired yet" -- see {@link #cronJobLastSchedule}'s own field javadoc. */
+  public Optional<Instant> getCronJobLastSchedule(String name) {
+    return Optional.ofNullable(cronJobLastSchedule.get(name));
+  }
+
+  // ---- daemonsets ----
+
+  public void putDaemonSetSpec(DaemonSetSpec spec) {
+    writeAtomically(daemonSetFile(spec.name()), daemonSetSpecToYaml(spec));
+    daemonSetSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
+    return Optional.ofNullable(daemonSetSpecs.get(name));
+  }
+
+  public List<DaemonSetSpec> listDaemonSetSpecs() {
+    return List.copyOf(daemonSetSpecs.values());
+  }
+
+  /**
+   * Also clears any in-flight {@link #rollingDaemonSetNodes} entry for {@code name} -- a removed
+   * DaemonSet has no rollout left to track. Does not remove any {@link DaemonSetAssignment} still
+   * on disk for it; {@code DaemonSetReconciler}'s own orphaned-assignment sweep is responsible for
+   * those, the same "spec gone -> reconciler tears assignments down" ordering {@link
+   * #removeDeployment} already relies on for {@link InstanceAssignment}.
+   */
+  public void removeDaemonSetSpec(String name) {
+    deleteQuietly(daemonSetFile(name));
+    daemonSetSpecs.remove(name);
+    clearRollingDaemonSetNode(name);
+  }
+
+  // ---- daemonset assignments ----
+
+  public void putDaemonSetAssignment(DaemonSetAssignment assignment) {
+    writeAtomically(
+        daemonSetAssignmentFile(assignment.daemonSetName(), assignment.nodeId()),
+        daemonSetAssignmentToYaml(assignment));
+    daemonSetAssignments.put(
+        daemonSetAssignmentKey(assignment.daemonSetName(), assignment.nodeId()), assignment);
+  }
+
+  public void removeDaemonSetAssignment(String daemonSetName, String nodeId) {
+    deleteQuietly(daemonSetAssignmentFile(daemonSetName, nodeId));
+    daemonSetAssignments.remove(daemonSetAssignmentKey(daemonSetName, nodeId));
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignments() {
+    return List.copyOf(daemonSetAssignments.values());
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+    return daemonSetAssignments.values().stream()
+        .filter(a -> a.daemonSetName().equals(daemonSetName))
+        .toList();
+  }
+
+  // ---- daemonset rolling-update bookkeeping ----
+
+  /**
+   * The node currently being migrated by a DaemonSet rolling update, if any -- the node-keyed
+   * counterpart to {@link #putRollingIndex}, persisted for the identical reason: a reconciler
+   * restart mid-rollout resumes rather than starting a second one.
+   */
+  public void putRollingDaemonSetNode(String daemonSetName, String nodeId) {
+    writeAtomically(rollingDaemonSetFile(daemonSetName), rollingDaemonSetNodeToYaml(nodeId));
+    rollingDaemonSetNodes.put(daemonSetName, nodeId);
+  }
+
+  public void clearRollingDaemonSetNode(String daemonSetName) {
+    deleteQuietly(rollingDaemonSetFile(daemonSetName));
+    rollingDaemonSetNodes.remove(daemonSetName);
+  }
+
+  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
+    return Optional.ofNullable(rollingDaemonSetNodes.get(daemonSetName));
+  }
+
+  // ---- statefulsets ----
+
+  public void putStatefulSetSpec(StatefulSetSpec spec) {
+    writeAtomically(statefulSetFile(spec.name()), statefulSetSpecToYaml(spec));
+    statefulSetSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
+    return Optional.ofNullable(statefulSetSpecs.get(name));
+  }
+
+  public List<StatefulSetSpec> listStatefulSetSpecs() {
+    return List.copyOf(statefulSetSpecs.values());
+  }
+
+  /**
+   * Also clears any in-flight {@link #rollingStatefulSetIndices} entry for {@code name} -- a
+   * removed StatefulSet has no rollout left to track. Deliberately does <em>not</em> clear any
+   * {@link #statefulSetIndexNodes} sticky bindings here -- those are cleared per-index by {@link
+   * #removeStatefulSetIndexNode} only when the reconciler actually tears an index down for good
+   * (this method removing the spec doesn't itself remove any {@link StatefulSetAssignment}; {@code
+   * StatefulSetReconciler}'s own orphaned-assignment sweep does that, the same "spec gone ->
+   * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on).
+   */
+  public void removeStatefulSetSpec(String name) {
+    deleteQuietly(statefulSetFile(name));
+    statefulSetSpecs.remove(name);
+    clearRollingStatefulSetIndex(name);
+  }
+
+  // ---- statefulset assignments ----
+
+  public void putStatefulSetAssignment(StatefulSetAssignment assignment) {
+    writeAtomically(
+        statefulSetAssignmentFile(assignment.statefulSetName(), assignment.instanceIndex()),
+        statefulSetAssignmentToYaml(assignment));
+    statefulSetAssignments.put(
+        statefulSetAssignmentKey(assignment.statefulSetName(), assignment.instanceIndex()),
+        assignment);
+  }
+
+  public void removeStatefulSetAssignment(String statefulSetName, int instanceIndex) {
+    deleteQuietly(statefulSetAssignmentFile(statefulSetName, instanceIndex));
+    statefulSetAssignments.remove(statefulSetAssignmentKey(statefulSetName, instanceIndex));
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignments() {
+    return List.copyOf(statefulSetAssignments.values());
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName) {
+    return statefulSetAssignments.values().stream()
+        .filter(a -> a.statefulSetName().equals(statefulSetName))
+        .toList();
+  }
+
+  // ---- statefulset rolling-update / OrderedReady bookkeeping ----
+
+  /**
+   * The single index currently in flight for a StatefulSet, if any -- see {@link
+   * StateMutation.PutRollingStatefulSetIndex}'s own javadoc for why this one marker governs both
+   * ordinary {@code OrderedReady} scale-up admission and rolling-update admission.
+   */
+  public void putRollingStatefulSetIndex(String statefulSetName, int instanceIndex) {
+    writeAtomically(rollingStatefulSetFile(statefulSetName), rollingToYaml(instanceIndex));
+    rollingStatefulSetIndices.put(statefulSetName, instanceIndex);
+  }
+
+  public void clearRollingStatefulSetIndex(String statefulSetName) {
+    deleteQuietly(rollingStatefulSetFile(statefulSetName));
+    rollingStatefulSetIndices.remove(statefulSetName);
+  }
+
+  public Optional<Integer> getRollingStatefulSetIndex(String statefulSetName) {
+    return Optional.ofNullable(rollingStatefulSetIndices.get(statefulSetName));
+  }
+
+  // ---- statefulset sticky node-binding bookkeeping ----
+
+  /**
+   * See {@link StateMutation.PutStatefulSetIndexNode}'s own javadoc: written once, the first time
+   * an index is ever placed, read back by every later placement attempt for that same index as
+   * {@code Scheduler}'s {@code stickyNodeId} input, and left untouched by an ordinary assignment
+   * removal.
+   */
+  public void putStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId) {
+    writeAtomically(
+        statefulSetIndexNodeFile(statefulSetName, instanceIndex),
+        statefulSetIndexNodeToYaml(statefulSetName, instanceIndex, nodeId));
+    statefulSetIndexNodes.put(statefulSetAssignmentKey(statefulSetName, instanceIndex), nodeId);
+  }
+
+  /** Fired only on genuinely permanent index removal -- see the field's own javadoc. */
+  public void removeStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+    deleteQuietly(statefulSetIndexNodeFile(statefulSetName, instanceIndex));
+    statefulSetIndexNodes.remove(statefulSetAssignmentKey(statefulSetName, instanceIndex));
+  }
+
+  public Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+    return Optional.ofNullable(
+        statefulSetIndexNodes.get(statefulSetAssignmentKey(statefulSetName, instanceIndex)));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -603,6 +937,18 @@ public final class StateStore implements StoreReader {
     return new StateSnapshot(
         List.copyOf(deployments.values()),
         List.copyOf(assignments.values()),
+        List.copyOf(jobSpecs.values()),
+        List.copyOf(jobRuns.values()),
+        Map.copyOf(jobPhases),
+        List.copyOf(cronJobSpecs.values()),
+        Map.copyOf(cronJobLastSchedule),
+        List.copyOf(daemonSetSpecs.values()),
+        List.copyOf(daemonSetAssignments.values()),
+        Map.copyOf(rollingDaemonSetNodes),
+        List.copyOf(statefulSetSpecs.values()),
+        List.copyOf(statefulSetAssignments.values()),
+        Map.copyOf(rollingStatefulSetIndices),
+        Map.copyOf(statefulSetIndexNodes),
         List.copyOf(nodeRegistrations.values()),
         Map.copyOf(rollingIndices),
         Map.copyOf(effectiveReplicas),
@@ -640,6 +986,22 @@ public final class StateStore implements StoreReader {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
+    List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
+    List.copyOf(jobSpecs.keySet()).forEach(this::removeJobSpec);
+    List.copyOf(cronJobSpecs.keySet()).forEach(this::removeCronJobSpec);
+    List.copyOf(daemonSetAssignments.values())
+        .forEach(a -> removeDaemonSetAssignment(a.daemonSetName(), a.nodeId()));
+    List.copyOf(daemonSetSpecs.keySet()).forEach(this::removeDaemonSetSpec);
+    List.copyOf(statefulSetAssignments.values())
+        .forEach(a -> removeStatefulSetAssignment(a.statefulSetName(), a.instanceIndex()));
+    List.copyOf(statefulSetSpecs.keySet()).forEach(this::removeStatefulSetSpec);
+    List.copyOf(statefulSetIndexNodes.keySet())
+        .forEach(
+            key -> {
+              int hash = key.lastIndexOf('#');
+              removeStatefulSetIndexNode(
+                  key.substring(0, hash), Integer.parseInt(key.substring(hash + 1)));
+            });
     List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
@@ -655,6 +1017,25 @@ public final class StateStore implements StoreReader {
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
+    snapshot.jobSpecs().forEach(this::putJobSpec);
+    snapshot.jobRuns().forEach(this::putJobRun);
+    snapshot.jobPhases().forEach(this::putJobPhase);
+    snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
+    snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
+    snapshot.daemonSetSpecs().forEach(this::putDaemonSetSpec);
+    snapshot.daemonSetAssignments().forEach(this::putDaemonSetAssignment);
+    snapshot.rollingDaemonSetNodes().forEach(this::putRollingDaemonSetNode);
+    snapshot.statefulSetSpecs().forEach(this::putStatefulSetSpec);
+    snapshot.statefulSetAssignments().forEach(this::putStatefulSetAssignment);
+    snapshot.rollingStatefulSetIndices().forEach(this::putRollingStatefulSetIndex);
+    snapshot
+        .statefulSetIndexNodes()
+        .forEach(
+            (key, nodeId) -> {
+              int hash = key.lastIndexOf('#');
+              putStatefulSetIndexNode(
+                  key.substring(0, hash), Integer.parseInt(key.substring(hash + 1)), nodeId);
+            });
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot.rollingIndices().forEach(this::putRollingIndex);
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
@@ -731,6 +1112,114 @@ public final class StateStore implements StoreReader {
 
   private Path assignmentFile(String deploymentName, int instanceIndex) {
     return assignmentsDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
+  }
+
+  private Path jobsDir() {
+    return root.resolve("jobs");
+  }
+
+  private Path jobFile(String name) {
+    return jobsDir().resolve(name + ".yaml");
+  }
+
+  private Path jobRunsDir() {
+    return root.resolve("jobruns");
+  }
+
+  private Path jobRunFile(String jobName, int attempt) {
+    return jobRunsDir().resolve(jobName).resolve(attempt + ".yaml");
+  }
+
+  private static String jobRunKey(String jobName, int attempt) {
+    return jobName + "#" + attempt;
+  }
+
+  private Path jobPhasesDir() {
+    return root.resolve("jobphases");
+  }
+
+  private Path jobPhaseFile(String jobName) {
+    return jobPhasesDir().resolve(jobName + ".yaml");
+  }
+
+  private Path cronJobsDir() {
+    return root.resolve("cronjobs");
+  }
+
+  private Path cronJobFile(String name) {
+    return cronJobsDir().resolve(name + ".yaml");
+  }
+
+  private Path cronJobLastScheduleDir() {
+    return root.resolve("cronjobschedule");
+  }
+
+  private Path cronJobLastScheduleFile(String name) {
+    return cronJobLastScheduleDir().resolve(name + ".yaml");
+  }
+
+  private Path daemonSetsDir() {
+    return root.resolve("daemonsets");
+  }
+
+  private Path daemonSetFile(String name) {
+    return daemonSetsDir().resolve(name + ".yaml");
+  }
+
+  private Path daemonSetAssignmentsDir() {
+    return root.resolve("daemonsetassignments");
+  }
+
+  private Path daemonSetAssignmentFile(String daemonSetName, String nodeId) {
+    return daemonSetAssignmentsDir().resolve(daemonSetName).resolve(nodeId + ".yaml");
+  }
+
+  private static String daemonSetAssignmentKey(String daemonSetName, String nodeId) {
+    return daemonSetName + "#" + nodeId;
+  }
+
+  private Path rollingDaemonSetDir() {
+    return root.resolve("rollingdaemonset");
+  }
+
+  private Path rollingDaemonSetFile(String daemonSetName) {
+    return rollingDaemonSetDir().resolve(daemonSetName + ".yaml");
+  }
+
+  private Path statefulSetsDir() {
+    return root.resolve("statefulsets");
+  }
+
+  private Path statefulSetFile(String name) {
+    return statefulSetsDir().resolve(name + ".yaml");
+  }
+
+  private Path statefulSetAssignmentsDir() {
+    return root.resolve("statefulsetassignments");
+  }
+
+  private Path statefulSetAssignmentFile(String statefulSetName, int instanceIndex) {
+    return statefulSetAssignmentsDir().resolve(statefulSetName).resolve(instanceIndex + ".yaml");
+  }
+
+  private static String statefulSetAssignmentKey(String statefulSetName, int instanceIndex) {
+    return statefulSetName + "#" + instanceIndex;
+  }
+
+  private Path rollingStatefulSetDir() {
+    return root.resolve("rollingstatefulset");
+  }
+
+  private Path rollingStatefulSetFile(String statefulSetName) {
+    return rollingStatefulSetDir().resolve(statefulSetName + ".yaml");
+  }
+
+  private Path statefulSetIndexNodesDir() {
+    return root.resolve("statefulsetindexnodes");
+  }
+
+  private Path statefulSetIndexNodeFile(String statefulSetName, int instanceIndex) {
+    return statefulSetIndexNodesDir().resolve(statefulSetName).resolve(instanceIndex + ".yaml");
   }
 
   private Path registrationFile(String nodeId) {
@@ -873,6 +1362,100 @@ public final class StateStore implements StoreReader {
           InstanceAssignment assignment = assignmentFromMap(loadMap(file));
           assignments.put(
               assignmentKey(assignment.deploymentName(), assignment.instanceIndex()), assignment);
+        });
+    loadEach(
+        jobsDir(),
+        "*.yaml",
+        file -> {
+          JobSpec spec = JobManifestParser.parse(new ByteArrayInputStream(read(file)));
+          jobSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        jobRunsDir(),
+        "*/*.yaml",
+        file -> {
+          JobRun run = jobRunFromMap(loadMap(file));
+          jobRuns.put(jobRunKey(run.jobName(), run.attempt()), run);
+        });
+    loadEach(
+        jobPhasesDir(),
+        "*.yaml",
+        file -> {
+          String jobName = fileNameWithoutYamlSuffix(file);
+          jobPhases.put(jobName, jobPhaseFromMap(loadMap(file)));
+        });
+    loadEach(
+        cronJobsDir(),
+        "*.yaml",
+        file -> {
+          CronJobSpec spec = CronJobManifestParser.parse(new ByteArrayInputStream(read(file)));
+          cronJobSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        cronJobLastScheduleDir(),
+        "*.yaml",
+        file -> {
+          String name = fileNameWithoutYamlSuffix(file);
+          cronJobLastSchedule.put(name, cronJobLastScheduleFromMap(loadMap(file)));
+        });
+    loadEach(
+        daemonSetsDir(),
+        "*.yaml",
+        file -> {
+          DaemonSetSpec spec = DaemonSetManifestParser.parse(new ByteArrayInputStream(read(file)));
+          daemonSetSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        daemonSetAssignmentsDir(),
+        "*/*.yaml",
+        file -> {
+          DaemonSetAssignment assignment = daemonSetAssignmentFromMap(loadMap(file));
+          daemonSetAssignments.put(
+              daemonSetAssignmentKey(assignment.daemonSetName(), assignment.nodeId()), assignment);
+        });
+    loadEach(
+        rollingDaemonSetDir(),
+        "*.yaml",
+        file -> {
+          String daemonSetName = fileNameWithoutYamlSuffix(file);
+          Map<?, ?> map = loadMap(file);
+          rollingDaemonSetNodes.put(daemonSetName, (String) map.get("nodeId"));
+        });
+    loadEach(
+        statefulSetsDir(),
+        "*.yaml",
+        file -> {
+          StatefulSetSpec spec =
+              StatefulSetManifestParser.parse(new ByteArrayInputStream(read(file)));
+          statefulSetSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        statefulSetAssignmentsDir(),
+        "*/*.yaml",
+        file -> {
+          StatefulSetAssignment assignment = statefulSetAssignmentFromMap(loadMap(file));
+          statefulSetAssignments.put(
+              statefulSetAssignmentKey(assignment.statefulSetName(), assignment.instanceIndex()),
+              assignment);
+        });
+    loadEach(
+        rollingStatefulSetDir(),
+        "*.yaml",
+        file -> {
+          String statefulSetName = fileNameWithoutYamlSuffix(file);
+          Map<?, ?> map = loadMap(file);
+          rollingStatefulSetIndices.put(
+              statefulSetName, ((Number) map.get("instanceIndex")).intValue());
+        });
+    loadEach(
+        statefulSetIndexNodesDir(),
+        "*/*.yaml",
+        file -> {
+          Map<?, ?> map = loadMap(file);
+          String statefulSetName = (String) map.get("statefulSetName");
+          int instanceIndex = ((Number) map.get("instanceIndex")).intValue();
+          statefulSetIndexNodes.put(
+              statefulSetAssignmentKey(statefulSetName, instanceIndex), (String) map.get("nodeId"));
         });
     loadEach(
         nodesDir(),
@@ -1074,6 +1657,10 @@ public final class StateStore implements StoreReader {
 
   private static String deploymentToYaml(DeploymentSpec spec) {
     Map<String, Object> root = new LinkedHashMap<>();
+    // Every manifest carries kind: now (priority-3 design doc §2) -- this is our own round-trip
+    // write, not operator input, but DeploymentManifestParser.parseRoot ignores unknown/extra keys
+    // regardless, so including it costs nothing and keeps this file self-describing on disk.
+    root.put("kind", "Deployment");
     root.put("name", spec.name());
     Map<String, Object> module = new LinkedHashMap<>();
     module.put("name", spec.moduleId().name());
@@ -1098,6 +1685,215 @@ public final class StateStore implements StoreReader {
             });
     spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
     spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String jobSpecToYaml(JobSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "Job");
+    root.put("name", spec.name());
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.moduleId().name());
+    module.put("version", spec.moduleId().version().toString());
+    root.put("module", module);
+    root.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    root.put("placement", placement);
+    spec.activeDeadline().ifPresent(d -> root.put("activeDeadlineSeconds", d.toSeconds()));
+    root.put("backoffLimit", spec.backoffLimit());
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String jobRunToYaml(JobRun run) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("jobName", run.jobName());
+    root.put("attempt", run.attempt());
+    root.put("nodeId", run.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", run.moduleId().name());
+    moduleId.put("version", run.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", run.artifactPath());
+    root.put("startedAt", run.startedAt().toString());
+    return new Yaml().dump(root);
+  }
+
+  private static JobRun jobRunFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    return new JobRun(
+        (String) map.get("jobName"),
+        ((Number) map.get("attempt")).intValue(),
+        (String) map.get("nodeId"),
+        moduleId,
+        (String) map.get("artifactPath"),
+        Instant.parse((String) map.get("startedAt")));
+  }
+
+  private static String jobPhaseToYaml(JobPhase phase) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("phase", phase.name());
+    return new Yaml().dump(root);
+  }
+
+  private static JobPhase jobPhaseFromMap(Map<?, ?> map) {
+    return JobPhase.valueOf((String) map.get("phase"));
+  }
+
+  private static String cronJobSpecToYaml(CronJobSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "CronJob");
+    root.put("name", spec.name());
+    root.put("schedule", spec.schedule());
+    Map<String, Object> template = new LinkedHashMap<>();
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.jobTemplate().moduleId().name());
+    module.put("version", spec.jobTemplate().moduleId().version().toString());
+    template.put("module", module);
+    template.put("artifactPath", spec.jobTemplate().artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    placement.put("antiAffinity", spec.jobTemplate().placement().antiAffinityAcrossNodes());
+    spec.jobTemplate()
+        .placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    template.put("placement", placement);
+    spec.jobTemplate()
+        .activeDeadline()
+        .ifPresent(d -> template.put("activeDeadlineSeconds", d.toSeconds()));
+    template.put("backoffLimit", spec.jobTemplate().backoffLimit());
+    root.put("jobTemplate", template);
+    spec.startingDeadline().ifPresent(d -> root.put("startingDeadlineSeconds", d.toSeconds()));
+    root.put("concurrencyPolicy", spec.concurrencyPolicy().name());
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    return new Yaml().dump(root);
+  }
+
+  private static String cronJobLastScheduleToYaml(Instant lastScheduleTime) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("lastScheduleTime", lastScheduleTime.toString());
+    return new Yaml().dump(root);
+  }
+
+  private static Instant cronJobLastScheduleFromMap(Map<?, ?> map) {
+    return Instant.parse((String) map.get("lastScheduleTime"));
+  }
+
+  private static String daemonSetSpecToYaml(DaemonSetSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "DaemonSet");
+    root.put("name", spec.name());
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.moduleId().name());
+    module.put("version", spec.moduleId().version().toString());
+    root.put("module", module);
+    root.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    root.put("placement", placement);
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String daemonSetAssignmentToYaml(DaemonSetAssignment assignment) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("daemonSetName", assignment.daemonSetName());
+    root.put("nodeId", assignment.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", assignment.moduleId().name());
+    moduleId.put("version", assignment.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", assignment.artifactPath());
+    return new Yaml().dump(root);
+  }
+
+  private static DaemonSetAssignment daemonSetAssignmentFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    return new DaemonSetAssignment(
+        (String) map.get("daemonSetName"),
+        (String) map.get("nodeId"),
+        moduleId,
+        (String) map.get("artifactPath"));
+  }
+
+  private static String rollingDaemonSetNodeToYaml(String nodeId) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("nodeId", nodeId);
+    return new Yaml().dump(root);
+  }
+
+  private static String statefulSetSpecToYaml(StatefulSetSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "StatefulSet");
+    root.put("name", spec.name());
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.moduleId().name());
+    module.put("version", spec.moduleId().version().toString());
+    root.put("module", module);
+    root.put("artifactPath", spec.artifactPath());
+    root.put("replicas", spec.replicas());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    root.put("placement", placement);
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String statefulSetAssignmentToYaml(StatefulSetAssignment assignment) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("statefulSetName", assignment.statefulSetName());
+    root.put("instanceIndex", assignment.instanceIndex());
+    root.put("nodeId", assignment.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", assignment.moduleId().name());
+    moduleId.put("version", assignment.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", assignment.artifactPath());
+    return new Yaml().dump(root);
+  }
+
+  private static StatefulSetAssignment statefulSetAssignmentFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    return new StatefulSetAssignment(
+        (String) map.get("statefulSetName"),
+        ((Number) map.get("instanceIndex")).intValue(),
+        (String) map.get("nodeId"),
+        moduleId,
+        (String) map.get("artifactPath"));
+  }
+
+  // statefulSetName/instanceIndex are also embedded in the file's own path
+  // (statefulSetIndexNodeFile), but written into the YAML body too so loadAll's reader never needs
+  // to derive them from Path.getParent() (which SpotBugs correctly flags as nullable in general,
+  // even though it never actually is here) -- the same "don't trust path structure when the data
+  // can just say it" posture every other *FromMap reader in this class already follows.
+  private static String statefulSetIndexNodeToYaml(
+      String statefulSetName, int instanceIndex, String nodeId) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("statefulSetName", statefulSetName);
+    root.put("instanceIndex", instanceIndex);
+    root.put("nodeId", nodeId);
     return new Yaml().dump(root);
   }
 

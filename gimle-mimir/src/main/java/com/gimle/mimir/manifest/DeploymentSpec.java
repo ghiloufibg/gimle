@@ -40,7 +40,8 @@ public record DeploymentSpec(
     PlacementConstraints placement,
     Optional<AutoscalePolicy> autoscale,
     Optional<String> tenantId,
-    Optional<String> artifactSha256) {
+    Optional<String> artifactSha256)
+    implements WorkloadSpec {
 
   public DeploymentSpec {
     if (name == null || name.isBlank()) {

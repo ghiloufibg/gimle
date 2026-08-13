@@ -26,30 +26,46 @@ real request-rate/error-rate figures (not just CPU/memory), plus each module's c
 the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
 already rides. The control plane exposes a `GET /metrics` per-deployment rollup (average request
 rate, average error rate, instance count) built from that same observation data. `WorkerMetrics`'
-own request-latency `Timer` is now built with `publishPercentiles(0.5, 0.95, 0.99)` too, for local
-parity with the three process-tier registries below — but, matching the "worker metrics stay
-local-registry-only" note two paragraphs down, that percentile data is never shipped anywhere on
-its own; it only becomes externally visible once/if worker-tier shipping itself is built.
+own request-latency `Timer` is built with `publishPercentiles(0.5, 0.95, 0.99)` too, for parity
+with the three process-tier registries below.
 
 `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir` each carry their own analogous per-process
 `MeterRegistry` (`ApiServerMetrics`/`FafnirMetrics`/`StoreMetrics` — request/RPC count, latency,
 error count, tagged by endpoint+verb or RPC kind), and ship it to Muninn (see
 [Node topology](./node-topology.md#muninn)) via a periodic `MuninnShipper` when a Muninn endpoint
 is configured, readable back through `GET /metrics-history/{processKind}/{processId}`. Each of
-these three registries' own request-latency `Timer` is built with `publishPercentiles(0.5, 0.95,
-0.99)`, and `MuninnShipper#meterToJsonLine` special-cases any `Timer` meter to call its
-`HistogramSnapshot#percentileValues()` and ship the result as a `"percentiles"` map alongside the
-existing `"measurements"` map (`{"0.5": ..., "0.95": ..., "0.99": ...}`, in seconds) — readable back
-through the same `/metrics-history/*` route unchanged, since `MuninnDayFileStore` stores each
-shipped line as opaque JSON. A `Timer` that was never built with `publishPercentiles(...)` ships
-exactly as before (no `"percentiles"` key at all), so this is purely additive. **Worker JVM metrics
-are explicitly not part of this**: `WorkerMetrics` above stays local-registry-only, shipped
-nowhere — only a worker's *logs* reach Muninn, relayed by its supervising node agent (see
-[Node topology](./node-topology.md#muninn)), not its metrics or traces, p99s included. Extending
-metrics/trace shipping down to the worker tier itself is a real, acknowledged gap, not an
-oversight: the agent↔worker control channel would need a new message shape for a full
-`MeterRegistry` snapshot, materially more plumbing than the existing `ControlMessage.MetricsReport`'s
-few scalar fields.
+these registries' own request-latency `Timer` is built with `publishPercentiles(0.5, 0.95, 0.99)`,
+and `MeterSnapshotCodec` (a pure, no-I/O NDJSON serializer extracted out of `MuninnShipper` itself)
+special-cases any `Timer` meter to call its `HistogramSnapshot#percentileValues()` and ship the
+result as a `"percentiles"` map alongside the existing `"measurements"` map (`{"0.5": ..., "0.95":
+..., "0.99": ...}`, in seconds) — readable back through the same `/metrics-history/*` route
+unchanged, since `MuninnDayFileStore` stores each shipped line as opaque JSON. A `Timer` that was
+never built with `publishPercentiles(...)` ships exactly as before (no `"percentiles"` key at all).
+
+**Worker JVM metrics and traces reach Muninn too, relayed through the worker's own node agent** —
+a worker has no outbound network identity of its own (`WorkerMain`'s only CLI arguments are
+`nodeId`/`tenantId`/a control-socket path, no `-Dgimle.agent.muninnEndpoint`-equivalent), so it
+can't run a `MuninnShipper` directly the way `gimle-controlplane`/`gimle-fafnir`/`gimle-mimir`/
+`gimle-agent` do. Instead, `WorkerMain` builds a `MeterSnapshotCodec.toNdjson(WorkerMetrics.registry())`
+snapshot every five seconds and sends it as `ControlMessage.MetricsSnapshot(workerId, ndjsonPayload)`
+over the same agent↔worker control channel `MetricsReport`/`ModuleStateChanged` already use — one
+snapshot per worker JVM, not per module (`WorkerMetrics` already tags every meter by its own module
+internally, so there's nothing kind-specific for the agent to do). The agent relays the payload
+byte-for-byte to `MuninnShipper#shipPreparedBatch`, no re-serialization, under
+`/ingest/metrics/WORKER/{nodeId}:{workerId}` — a worker JVM has no `host:port` of its own, so its
+`processId` is that colon-joined pair instead. A matching `ControlMessage.TracesSnapshot` carries a
+worker's own exported span batch, built by `RelayingSpanExporter` (in `gimle-worker`, since it needs
+the control-channel connection) via the same `SpanLineCodec` a direct-shipping `MuninnSpanExporter`
+uses, so the two paths produce byte-identical NDJSON. `WorkerMain` installs `RelayingSpanExporter`
+in place of `installDefault()`'s `LoggingSpanExporter` unconditionally — it degrades to "the agent
+has nothing configured to forward to" exactly the same way an unset `gimle.agent.muninnEndpoint`
+already does agent-side, so there's no case where the old default behaved usefully differently.
+Both snapshot loops also flush once on `StopModule`, not just on their periodic tick, so a
+short-lived instance (a completed `JobRun`, for example) doesn't lose its final metrics/spans to a
+five-second tick that may never fire again before the worker process exits. Both are readable back
+through the same `/metrics-history/*`/`/traces-history/*` routes as every other process kind —
+`WORKER` needed zero `gimle-muninn` changes, since its `processKind` path segment was already an
+unvalidated string.
 
 ## Tracing: `GimleTracing`
 
@@ -65,10 +81,16 @@ case, wrapping a `MuninnSpanExporter` that ships every batch to Muninn, readable
 /traces-history/{processKind}/{processId}`. `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir`
 each install tracing this way — Muninn-backed when a Muninn endpoint is configured, falling back to
 the logging default otherwise — the same "genuine RPC-serving process" set that ships its own
-metrics. `gimle-agent` deliberately doesn't install tracing at all: its local log-tail surface
-isn't part of the fabric-call trace chain, so there's no span parent/child to attach to.
-Idempotent: a process that's already installed a tracer provider (or a test that pre-configured
-one) is left alone rather than double-registered.
+metrics. `gimle-worker` installs it a third way, `install(new RelayingSpanExporter(workerId, sink))`
+(the plain `SpanExporter` overload, not `installWithMuninnShipping`, since `RelayingSpanExporter`
+relays through the agent's control channel rather than shipping to Muninn directly — see above).
+`gimle-agent` deliberately doesn't install tracing at all: its local log-tail surface isn't part of
+the fabric-call trace chain, so there's no span parent/child to attach to. Idempotent: a process
+that's already installed a tracer provider (or a test that pre-configured one) is left alone rather
+than double-registered. `GimleTracing.flush()` forces the installed provider's `BatchSpanProcessor`
+to export immediately rather than waiting for its own periodic interval — `WorkerMain` calls it
+alongside its `StopModule` metrics flush (above), the tracing half of the same "don't lose a
+short-lived instance's final data" concern.
 
 ## Per-module CPU and allocation: `ThreadNameJfrAttributor`
 

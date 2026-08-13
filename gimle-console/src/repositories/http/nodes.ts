@@ -23,7 +23,11 @@ const NO_CAPACITY: Node["capacity"] = {
 };
 
 function mapNode(raw: RawNode): Node {
-  return { ...raw, lastHeartbeatAt: raw.lastHeartbeatAt ?? null, capacity: raw.capacity ?? NO_CAPACITY };
+  return {
+    ...raw,
+    lastHeartbeatAt: raw.lastHeartbeatAt ?? null,
+    capacity: raw.capacity ?? NO_CAPACITY,
+  };
 }
 
 export class HttpNodesRepository implements NodesRepository {

@@ -3,9 +3,7 @@ package com.gimle.observability;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
-import java.time.Instant;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -41,7 +39,7 @@ public final class MuninnSpanExporter implements SpanExporter {
 
   @Override
   public CompletableResultCode export(Collection<SpanData> spans) {
-    List<Map<String, Object>> lines = spans.stream().map(MuninnSpanExporter::toLine).toList();
+    List<Map<String, Object>> lines = spans.stream().map(SpanLineCodec::toLine).toList();
     try {
       shipper.shipTraceBatch(lines);
     } catch (RuntimeException e) {
@@ -58,18 +56,5 @@ public final class MuninnSpanExporter implements SpanExporter {
   @Override
   public CompletableResultCode shutdown() {
     return CompletableResultCode.ofSuccess();
-  }
-
-  private static Map<String, Object> toLine(SpanData span) {
-    Map<String, Object> line = new LinkedHashMap<>();
-    line.put("timestamp", Instant.ofEpochSecond(0, span.getEndEpochNanos()).toString());
-    line.put("traceId", span.getTraceId());
-    line.put("spanId", span.getSpanId());
-    line.put("parentSpanId", span.getParentSpanId());
-    line.put("name", span.getName());
-    line.put("kind", span.getKind().name());
-    line.put("status", span.getStatus().getStatusCode().name());
-    span.getAttributes().forEach((key, value) -> line.put(key.getKey(), value));
-    return line;
   }
 }

@@ -63,6 +63,10 @@ public final class ControlMessageCodec {
       case ControlMessage.ServiceUnregistered m ->
           line("SERVICE_UNREGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.Pong m -> line("PONG", m.correlationId());
+      case ControlMessage.MetricsSnapshot m ->
+          line("METRICS_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
+      case ControlMessage.TracesSnapshot m ->
+          line("TRACES_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
       case ControlMessage.InstallModule m ->
           line(
               "INSTALL",
@@ -70,7 +74,8 @@ public final class ControlMessageCodec {
               escape(m.artifactPath()),
               escape(m.deploymentName()),
               Integer.toString(m.instanceIndex()));
-      case ControlMessage.ResolveModule m -> line("RESOLVE", m.correlationId(), encodeId(m.id()));
+      case ControlMessage.ResolveModule m ->
+          line("RESOLVE", m.correlationId(), encodeId(m.id()), escape(m.dataDirectory()));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
       case ControlMessage.UninstallModule m ->
@@ -148,6 +153,11 @@ public final class ControlMessageCodec {
           new ControlMessage.ServiceUnregistered(
               decodeId(field(fields, 1)), decodeExport(field(fields, 2)));
       case "PONG" -> new ControlMessage.Pong(field(fields, 1));
+      case "METRICS_SNAPSHOT" ->
+          new ControlMessage.MetricsSnapshot(
+              unescape(field(fields, 1)), unescape(field(fields, 2)));
+      case "TRACES_SNAPSHOT" ->
+          new ControlMessage.TracesSnapshot(unescape(field(fields, 1)), unescape(field(fields, 2)));
       case "INSTALL" ->
           new ControlMessage.InstallModule(
               field(fields, 1),
@@ -155,7 +165,8 @@ public final class ControlMessageCodec {
               unescape(field(fields, 3)),
               Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->
-          new ControlMessage.ResolveModule(field(fields, 1), decodeId(field(fields, 2)));
+          new ControlMessage.ResolveModule(
+              field(fields, 1), decodeId(field(fields, 2)), unescape(field(fields, 3)));
       case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));
       case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decodeId(field(fields, 2)));
       case "UNINSTALL" ->

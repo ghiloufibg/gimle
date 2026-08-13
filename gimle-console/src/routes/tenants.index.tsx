@@ -48,12 +48,20 @@ function TenantsList() {
             {items.map((t) => (
               <tr key={t.id} className="border-t border-border hover:bg-muted/30">
                 <td className="px-2 py-1.5 font-mono">
-                  <Link to="/tenants/$id" params={{ id: t.id }} className="text-primary hover:underline">
+                  <Link
+                    to="/tenants/$id"
+                    params={{ id: t.id }}
+                    className="text-primary hover:underline"
+                  >
                     {t.id}
                   </Link>
                 </td>
-                <td className="px-2 py-1.5 font-mono text-right">{fmtBytes(t.quota.maxMemoryBytes)}</td>
-                <td className="px-2 py-1.5 font-mono text-right">{fmtMillicores(t.quota.maxCpuMillicores)}</td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {fmtBytes(t.quota.maxMemoryBytes)}
+                </td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {fmtMillicores(t.quota.maxCpuMillicores)}
+                </td>
                 <td className="px-2 py-1.5 font-mono text-right">{t.quota.maxInstances}</td>
               </tr>
             ))}

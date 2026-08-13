@@ -86,6 +86,7 @@ describe("HttpDeploymentsRepository", () => {
     expect(putUrl).toBe("/deployments/checkout-service");
     expect(putInit.method).toBe("PUT");
     const yaml = putInit.body as string;
+    expect(yaml).toContain("kind: Deployment");
     expect(yaml).toContain('name: "checkout-service"');
     expect(yaml).toContain('  name: "checkout-service"');
     expect(yaml).toContain('  version: "1.2.3"');

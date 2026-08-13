@@ -44,9 +44,9 @@ describe("HttpTracesHistoryRepository.fetchPage", () => {
     stubFetchSequence([() => textResponse("no muninn endpoint configured", 404)]);
     const repo = new HttpTracesHistoryRepository();
 
-    await expect(
-      repo.fetchPage({ target: TARGET, cursor: null, limit: 60 }),
-    ).rejects.toMatchObject(new ApiError(404, "no muninn endpoint configured"));
+    await expect(repo.fetchPage({ target: TARGET, cursor: null, limit: 60 })).rejects.toMatchObject(
+      new ApiError(404, "no muninn endpoint configured"),
+    );
   });
 });
 

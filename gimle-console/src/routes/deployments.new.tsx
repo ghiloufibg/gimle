@@ -124,9 +124,14 @@ function NewDeployment() {
           </Button>
         }
       />
-      <form onSubmit={submit} className="max-w-xl grid gap-4 rounded border border-border bg-card p-4">
+      <form
+        onSubmit={submit}
+        className="max-w-xl grid gap-4 rounded border border-border bg-card p-4"
+      >
         <div className="grid gap-1.5">
-          <Label htmlFor="name" className="text-xs">Name *</Label>
+          <Label htmlFor="name" className="text-xs">
+            Name *
+          </Label>
           <Input
             id="name"
             value={form.name}
@@ -137,7 +142,9 @@ function NewDeployment() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="mn" className="text-xs">Module name *</Label>
+            <Label htmlFor="mn" className="text-xs">
+              Module name *
+            </Label>
             <Input
               id="mn"
               value={form.moduleName}
@@ -147,7 +154,9 @@ function NewDeployment() {
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="mv" className="text-xs">Module version *</Label>
+            <Label htmlFor="mv" className="text-xs">
+              Module version *
+            </Label>
             <Input
               id="mv"
               value={form.moduleVersion}
@@ -158,7 +167,9 @@ function NewDeployment() {
           </div>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="ap" className="text-xs">Artifact path *</Label>
+          <Label htmlFor="ap" className="text-xs">
+            Artifact path *
+          </Label>
           <Input
             id="ap"
             value={form.artifactPath}
@@ -169,7 +180,9 @@ function NewDeployment() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="rep" className="text-xs">Replicas</Label>
+            <Label htmlFor="rep" className="text-xs">
+              Replicas
+            </Label>
             <Input
               id="rep"
               type="number"

@@ -10,14 +10,22 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import java.io.UncheckedIOException;
 import java.net.SocketAddress;
@@ -159,6 +167,110 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public List<InstanceAssignment> listAssignments() {
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
+  }
+
+  public Optional<JobSpec> getJobSpec(String name) {
+    StoreRpc.JobSpecResult r = (StoreRpc.JobSpecResult) sendRead(new StoreRpc.GetJobSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<JobSpec> listJobSpecs() {
+    return ((StoreRpc.JobSpecListResult) sendRead(new StoreRpc.ListJobSpecs())).values();
+  }
+
+  public List<JobRun> listJobRunsFor(String jobName) {
+    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRunsFor(jobName))).values();
+  }
+
+  public List<JobRun> listJobRuns() {
+    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRuns())).values();
+  }
+
+  public Optional<JobPhase> getJobPhase(String jobName) {
+    StoreRpc.JobPhaseResult r =
+        (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(jobName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<CronJobSpec> getCronJobSpec(String name) {
+    StoreRpc.CronJobSpecResult r =
+        (StoreRpc.CronJobSpecResult) sendRead(new StoreRpc.GetCronJobSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<CronJobSpec> listCronJobSpecs() {
+    return ((StoreRpc.CronJobSpecListResult) sendRead(new StoreRpc.ListCronJobSpecs())).values();
+  }
+
+  public Optional<Instant> getCronJobLastSchedule(String name) {
+    StoreRpc.InstantResult r =
+        (StoreRpc.InstantResult) sendRead(new StoreRpc.GetCronJobLastSchedule(name));
+    return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
+  }
+
+  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
+    StoreRpc.DaemonSetSpecResult r =
+        (StoreRpc.DaemonSetSpecResult) sendRead(new StoreRpc.GetDaemonSetSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<DaemonSetSpec> listDaemonSetSpecs() {
+    return ((StoreRpc.DaemonSetSpecListResult) sendRead(new StoreRpc.ListDaemonSetSpecs()))
+        .values();
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignments() {
+    return ((StoreRpc.DaemonSetAssignmentListResult)
+            sendRead(new StoreRpc.ListDaemonSetAssignments()))
+        .values();
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+    return ((StoreRpc.DaemonSetAssignmentListResult)
+            sendRead(new StoreRpc.ListDaemonSetAssignmentsFor(daemonSetName)))
+        .values();
+  }
+
+  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
+    StoreRpc.StringResult r =
+        (StoreRpc.StringResult) sendRead(new StoreRpc.GetRollingDaemonSetNode(daemonSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
+    StoreRpc.StatefulSetSpecResult r =
+        (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<StatefulSetSpec> listStatefulSetSpecs() {
+    return ((StoreRpc.StatefulSetSpecListResult) sendRead(new StoreRpc.ListStatefulSetSpecs()))
+        .values();
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignments() {
+    return ((StoreRpc.StatefulSetAssignmentListResult)
+            sendRead(new StoreRpc.ListStatefulSetAssignments()))
+        .values();
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName) {
+    return ((StoreRpc.StatefulSetAssignmentListResult)
+            sendRead(new StoreRpc.ListStatefulSetAssignmentsFor(statefulSetName)))
+        .values();
+  }
+
+  public Optional<Integer> getRollingStatefulSetIndex(String statefulSetName) {
+    StoreRpc.IntResult r =
+        (StoreRpc.IntResult) sendRead(new StoreRpc.GetRollingStatefulSetIndex(statefulSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+    StoreRpc.StringResult r =
+        (StoreRpc.StringResult)
+            sendRead(new StoreRpc.GetStatefulSetIndexNode(statefulSetName, instanceIndex));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   public List<NodeRegistration> listNodeRegistrations() {

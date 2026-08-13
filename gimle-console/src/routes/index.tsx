@@ -10,7 +10,10 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Overview — Gimlé Console" },
-      { name: "description", content: "Cluster overview: node, deployment, tenant, and health totals." },
+      {
+        name: "description",
+        content: "Cluster overview: node, deployment, tenant, and health totals.",
+      },
       { property: "og:title", content: "Overview — Gimlé Console" },
       { property: "og:description", content: "Cluster overview at a glance." },
     ],
@@ -52,9 +55,13 @@ function Overview() {
           tone="primary"
           note={
             s.nodesStale > 0 ? (
-              <span className="text-xs font-mono font-bold text-status-bad">{s.nodesStale} STALE</span>
+              <span className="text-xs font-mono font-bold text-status-bad">
+                {s.nodesStale} STALE
+              </span>
             ) : (
-              <span className="text-[10px] uppercase tracking-tighter text-muted-foreground">all fresh</span>
+              <span className="text-[10px] uppercase tracking-tighter text-muted-foreground">
+                all fresh
+              </span>
             )
           }
         />
@@ -62,7 +69,10 @@ function Overview() {
           label="Active deployments"
           value={s.deploymentsTotal}
           note={
-            <Link to="/deployments" className="text-[10px] uppercase tracking-tighter text-primary hover:underline">
+            <Link
+              to="/deployments"
+              className="text-[10px] uppercase tracking-tighter text-primary hover:underline"
+            >
               inspect
             </Link>
           }
@@ -71,7 +81,10 @@ function Overview() {
           label="Total tenants"
           value={s.tenantsTotal}
           note={
-            <Link to="/tenants" className="text-[10px] uppercase tracking-tighter text-primary hover:underline">
+            <Link
+              to="/tenants"
+              className="text-[10px] uppercase tracking-tighter text-primary hover:underline"
+            >
               inspect
             </Link>
           }
@@ -96,7 +109,9 @@ function Overview() {
                 action req
               </span>
             ) : (
-              <span className="text-[10px] uppercase tracking-tighter text-muted-foreground">clear</span>
+              <span className="text-[10px] uppercase tracking-tighter text-muted-foreground">
+                clear
+              </span>
             )
           }
         />
@@ -108,7 +123,10 @@ function Overview() {
           title="Recent deployments"
           className="lg:col-span-7"
           aside={
-            <Link to="/deployments" className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary">
+            <Link
+              to="/deployments"
+              className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+            >
               view all
             </Link>
           }

@@ -44,8 +44,14 @@ class ControlMessageCodecTest {
             "127.0.0.1",
             9000),
         new ControlMessage.Pong("corr-2"),
+        new ControlMessage.MetricsSnapshot(
+            "worker-1",
+            "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),
+        new ControlMessage.TracesSnapshot(
+            "worker-1", "{\"traceId\":\"abc\",\"name\":\"do-something\"}"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
         new ControlMessage.ResolveModule("corr-4", ID),
+        new ControlMessage.ResolveModule("corr-4b", ID, "/var/gimle/volumes/orders-statefulset/0"),
         new ControlMessage.StartModule("corr-5", ID),
         new ControlMessage.StopModule("corr-6", ID),
         new ControlMessage.UninstallModule("corr-7", ID),
@@ -146,6 +152,6 @@ class ControlMessageCodecTest {
     // Guards against silently forgetting to add a new ControlMessage subtype to the round-trip
     // coverage above when the sealed hierarchy grows.
     List<Class<?>> permitted = List.of(ControlMessage.class.getPermittedSubclasses());
-    assertTrue(permitted.size() >= 16, "expected at least the 16 currently-known variants");
+    assertTrue(permitted.size() >= 18, "expected at least the 18 currently-known variants");
   }
 }

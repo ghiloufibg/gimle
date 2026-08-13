@@ -19,8 +19,17 @@ Any order, anywhere on the command line:
 
 ```text
 gimle get deployments [name]
-gimle apply -f <manifest.yaml>
+gimle get jobs [name]
+gimle get cronjobs [name]
+gimle get daemonsets [name]
+gimle get statefulsets [name]
+gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet, read from the file itself)
 gimle delete deployment <name>
+gimle delete job <name>
+gimle delete cronjob <name>
+gimle delete daemonset <name>
+gimle delete statefulset <name>
+gimle cronjob trigger <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
@@ -114,6 +123,20 @@ gimle events orders-service-deployment 0 --server 127.0.0.1:8080
 
 # Who deleted the acme tenant's secrets in the last hour -- allowed and denied attempts alike
 gimle audit list --tenant acme --resource SECRET --since 1712000000000 --server 127.0.0.1:8080
+
+# Schedule a recurring job, list cronjobs, then fire one immediately without waiting for its
+# schedule -- generated Jobs show up on `gimle get jobs`, named nightly-cleanup-<epochSeconds>
+gimle apply -f cronjob.yaml --server 127.0.0.1:8080
+gimle get cronjobs --server 127.0.0.1:8080
+gimle cronjob trigger nightly-cleanup --server 127.0.0.1:8080
+
+# Run one instance on every eligible node (topology-derived, no --replicas flag to set)
+gimle apply -f daemonset.yaml --server 127.0.0.1:8080
+gimle get daemonsets node-exporter --server 127.0.0.1:8080
+
+# Ordered rollout, sticky per-index placement -- get shows each index's own nodeId
+gimle apply -f statefulset.yaml --server 127.0.0.1:8080
+gimle get statefulsets orders-statefulset --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

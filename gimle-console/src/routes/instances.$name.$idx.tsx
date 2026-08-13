@@ -127,7 +127,15 @@ function InstanceDetail() {
   );
 }
 
-function StatCell({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+function StatCell({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
   return (
     <div className="rounded border border-border bg-card p-3">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>

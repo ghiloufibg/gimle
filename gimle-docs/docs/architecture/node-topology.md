@@ -27,7 +27,7 @@ graph TD
     Muninn <-->|StoreRpc, TCP, read-only| Store
     Worker1 -.->|health/metrics over a local control channel| Agent
     Worker2 -.->|health/metrics over a local control channel| Agent
-    Agent -.->|ships own + supervised workers' logs| Muninn
+    Agent -.->|ships own logs + relays supervised workers' logs/metrics/traces| Muninn
     CP -.->|ships own request metrics/traces| Muninn
     Fafnir -.->|ships own request metrics/traces| Muninn
     Store -.->|ships own RPC metrics/traces| Muninn
@@ -92,12 +92,15 @@ attributable to its own certificate Subject in the audit log.
 
 One or more stateless JVMs (`gimle-muninn`) — a unified sink for logs, metrics, and traces shipped
 from every other process, replacing what would otherwise be a separate exporter path per process
-kind. `gimle-agent` ships its own platform log plus every supervised worker's logs (workers have no
-outbound network identity of their own); `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir`
-each ship their own request metrics and traces directly, since none of the three has a supervising
-agent. Shipping is entirely optional and best-effort — a process with no Muninn endpoint configured
-behaves exactly as it did before Muninn existed (local log tailing, no metrics/traces export),
-never blocked or degraded by Muninn being unreachable.
+kind. `gimle-agent` ships its own platform log plus every supervised worker's logs, metrics, and
+traces (workers have no outbound network identity of their own, so a worker relays its own periodic
+metrics snapshot and exported span batches to its agent over their existing control channel, which
+the agent then forwards to Muninn byte-for-byte under a new `WORKER` processKind —
+`{nodeId}:{workerId}`, see [Observability](./observability.md)); `gimle-controlplane`,
+`gimle-fafnir`, and `gimle-mimir` each ship their own request metrics and traces directly, since
+none of the three has a supervising agent. Shipping is entirely optional and best-effort — a
+process with no Muninn endpoint configured behaves exactly as it did before Muninn existed (local
+log tailing, no metrics/traces export), never blocked or degraded by Muninn being unreachable.
 
 Storage is day-bucketed JSON-lines files under Muninn's own data root, keyed by node/instance for
 logs and by process kind + process ID for metrics and traces — deliberately not a new storage

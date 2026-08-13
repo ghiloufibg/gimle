@@ -25,20 +25,36 @@ function ControlPlane() {
       />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="rounded border border-border bg-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Scheduler</div>
-          <div className="mt-2"><StatusBadge variant="ok">running</StatusBadge></div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Scheduler
+          </div>
+          <div className="mt-2">
+            <StatusBadge variant="ok">running</StatusBadge>
+          </div>
         </div>
         <div className="rounded border border-border bg-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Quota enforcer</div>
-          <div className="mt-2"><StatusBadge variant="ok">running</StatusBadge></div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Quota enforcer
+          </div>
+          <div className="mt-2">
+            <StatusBadge variant="ok">running</StatusBadge>
+          </div>
         </div>
         <div className="rounded border border-border bg-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Heartbeat worker</div>
-          <div className="mt-2"><StatusBadge variant="ok">running</StatusBadge></div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Heartbeat worker
+          </div>
+          <div className="mt-2">
+            <StatusBadge variant="ok">running</StatusBadge>
+          </div>
         </div>
         <div className="rounded border border-border bg-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Artifact resolver</div>
-          <div className="mt-2"><StatusBadge variant="ok">running</StatusBadge></div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Artifact resolver
+          </div>
+          <div className="mt-2">
+            <StatusBadge variant="ok">running</StatusBadge>
+          </div>
         </div>
       </div>
       <div className="flex gap-2">

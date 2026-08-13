@@ -1,3 +1,4 @@
+kind: Deployment
 name: greeter-consumer-deployment
 module:
   name: com.gimle.examples.greeter.consumer

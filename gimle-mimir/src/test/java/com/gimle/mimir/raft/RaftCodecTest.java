@@ -269,6 +269,18 @@ class RaftCodecTest {
             List.of(
                 new InstanceAssignment(
                     "greeter", 0, "node-1", MODULE_ID, "/artifacts/greeter.jar")),
+            List.of(),
+            List.of(),
+            Map.of(),
+            List.of(),
+            Map.of(),
+            List.of(),
+            List.of(),
+            Map.of(),
+            List.of(),
+            List.of(),
+            Map.of(),
+            Map.of(),
             List.of(
                 new NodeRegistration(
                     "node-1",

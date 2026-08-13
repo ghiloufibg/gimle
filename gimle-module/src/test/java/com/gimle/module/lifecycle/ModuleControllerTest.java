@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -93,6 +94,26 @@ class ModuleControllerTest {
   }
 
   @Test
+  void resolve_without_a_data_directory_leaves_the_context_field_empty() {
+    Fixture f = fixtureFor("com.gimle.fixture.no_volume");
+
+    f.controller().resolve(f.id());
+
+    assertTrue(f.controller().context(f.id()).orElseThrow().dataDirectory().isEmpty());
+  }
+
+  @Test
+  void resolve_with_a_data_directory_populates_the_context_before_any_hook_runs() {
+    Fixture f = fixtureFor("com.gimle.fixture.with_volume");
+    Path volumePath = tempDir.resolve("volumes/orders-statefulset/0");
+
+    f.controller().resolve(f.id(), Optional.of(volumePath));
+
+    assertEquals(
+        Optional.of(volumePath), f.controller().context(f.id()).orElseThrow().dataDirectory());
+  }
+
+  @Test
   void start_before_resolve_is_illegal() {
     Fixture f = fixtureFor("com.gimle.fixture.early_start");
     assertThrows(GimleLifecycleException.class, () -> f.controller().start(f.id()));
@@ -124,7 +145,9 @@ class ModuleControllerTest {
                 baseArtifact.descriptor().resourceRequest(),
                 baseArtifact.descriptor().resourceLimit(),
                 baseArtifact.descriptor().healthProbes(),
-                baseArtifact.descriptor().lifecycleHooksClass()),
+                baseArtifact.descriptor().lifecycleHooksClass(),
+                baseArtifact.descriptor().jobHooksClass(),
+                baseArtifact.descriptor().volume()),
             baseArtifact.sha256());
     ModuleId id = registry.register(withMissingDep);
     ModuleResolver resolver = new ModuleResolver(registry);
@@ -208,6 +231,49 @@ class ModuleControllerTest {
     assertThrows(
         GimleLifecycleException.class,
         () -> f.controller().forceFailed(f.id(), "should not apply"));
+    assertEquals(ModuleState.INSTALLED, f.registry().state(f.id()));
+  }
+
+  @Test
+  void complete_succeeded_transitions_an_active_module_to_completed_and_emits_completed() {
+    Fixture f = fixtureFor("com.gimle.fixture.complete_succeeded");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+    assertEquals(ModuleState.ACTIVE, f.registry().state(f.id()));
+
+    f.controller().complete(f.id(), CompletionStatus.SUCCEEDED);
+
+    assertEquals(ModuleState.COMPLETED, f.registry().state(f.id()));
+    LifecycleEvent last = f.events().get(f.events().size() - 1);
+    assertTrue(last instanceof LifecycleEvent.Completed);
+    // Unlike stop()'s ACTIVE -> STOPPING -> UNINSTALLED drain sequence, complete() skips straight
+    // to the terminal state -- the module is still registered, not disposed.
+    assertTrue(f.registry().contains(f.id()));
+  }
+
+  @Test
+  void complete_failed_reuses_the_ordinary_failed_path_and_emits_transition_failed() {
+    Fixture f = fixtureFor("com.gimle.fixture.complete_failed");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+
+    f.controller().complete(f.id(), CompletionStatus.FAILED);
+
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+    LifecycleEvent last = f.events().get(f.events().size() - 1);
+    assertTrue(last instanceof LifecycleEvent.TransitionFailed);
+    LifecycleEvent.TransitionFailed failed = (LifecycleEvent.TransitionFailed) last;
+    assertEquals(ModuleState.ACTIVE, failed.from());
+    assertEquals(ModuleState.FAILED, failed.to());
+  }
+
+  @Test
+  void complete_rejects_a_module_that_is_not_active() {
+    Fixture f = fixtureFor("com.gimle.fixture.complete_not_active");
+    // Still INSTALLED -- never resolved/started.
+    assertThrows(
+        GimleLifecycleException.class,
+        () -> f.controller().complete(f.id(), CompletionStatus.SUCCEEDED));
     assertEquals(ModuleState.INSTALLED, f.registry().state(f.id()));
   }
 }

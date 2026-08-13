@@ -318,11 +318,15 @@ function LogRow({ line }: { line: LogLine }) {
     );
   }
   return (
-    <div className={cn("border-b border-border/40 px-2 py-0.5 flex gap-2", LEVEL_STYLE[line.level])}>
+    <div
+      className={cn("border-b border-border/40 px-2 py-0.5 flex gap-2", LEVEL_STYLE[line.level])}
+    >
       <span className="text-muted-foreground shrink-0">{fmtTs(line.timestamp)}</span>
       <span className="shrink-0 w-12 font-semibold">{line.level}</span>
       <span className="shrink-0 max-w-[220px] truncate text-muted-foreground">{line.logger}</span>
-      <span className="shrink-0 max-w-[180px] truncate text-muted-foreground/70">[{line.thread}]</span>
+      <span className="shrink-0 max-w-[180px] truncate text-muted-foreground/70">
+        [{line.thread}]
+      </span>
       <span className="min-w-0">{line.message}</span>
     </div>
   );

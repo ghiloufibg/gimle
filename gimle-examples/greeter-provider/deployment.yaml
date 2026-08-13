@@ -1,3 +1,4 @@
+kind: Deployment
 name: greeter-provider-deployment
 module:
   name: com.gimle.examples.greeter.provider

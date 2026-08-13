@@ -11,7 +11,7 @@ Pulled from a Lovable-generated project (commit `a8b1adff21e60177df602d40f3b0a1a
 for reference/tests but is no longer the default.
 
 This is an independent Bun/Vite/React project — no Node, npm, or Bun code is written by hand in
-Java — but it *is* a Maven module (see `pom.xml`): `exec-maven-plugin` shells out to Bun to install,
+Java — but it _is_ a Maven module (see `pom.xml`): `exec-maven-plugin` shells out to Bun to install,
 build, and test it as part of the normal `mvn verify` reactor build, and its built output is packaged
 into this module's own jar for `gimle-controlplane` to depend on and serve. See `LOCAL_DEV.md` for the
 full local-dev flow.

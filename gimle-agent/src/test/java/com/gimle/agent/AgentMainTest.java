@@ -45,6 +45,8 @@ class AgentMainTest {
         REQUEST,
         LIMIT,
         HealthProbes.NONE,
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -267,6 +269,42 @@ class AgentMainTest {
     assertEquals(3, observation.get("queueDepth"));
   }
 
+  @Test
+  void observation_json_reports_a_completed_job_run_as_alive_but_not_ready() {
+    // Regression test locking in observationJson's own documented reasoning: alive is an exclusion
+    // check ("not FAILED"), not an inclusion list, so a COMPLETED job run (priority-3 design doc
+    // §3b) already reports alive=true without observationJson needing a COMPLETED-specific branch
+    // -- a successfully finished Job is not a crash HealthReconciler should reschedule. It is,
+    // however, not "ready" (ready is strictly ACTIVE-only): a completed run isn't serving traffic.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "nightly-cleanup", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "COMPLETED";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("COMPLETED", observation.get("lifecycleState"));
+    assertEquals(true, observation.get("alive"));
+    assertEquals(false, observation.get("ready"));
+  }
+
+  @Test
+  void observation_json_reports_a_failed_instance_as_not_alive() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "nightly-cleanup", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "FAILED";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals(false, observation.get("alive"));
+    assertEquals(false, observation.get("ready"));
+  }
+
   // ---- Tier 1 density: findReusableTier1Worker ----
 
   private static ModuleDescriptor descriptor(String name, IsolationTier tier) {
@@ -279,6 +317,8 @@ class AgentMainTest {
         REQUEST,
         LIMIT,
         HealthProbes.NONE,
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -477,6 +517,8 @@ class AgentMainTest {
             REQUEST,
             LIMIT,
             HealthProbes.NONE,
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     AssignedInstance assignedV2 =
         new AssignedInstance(

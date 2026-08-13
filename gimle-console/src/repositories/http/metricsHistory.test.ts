@@ -15,7 +15,15 @@ describe("HttpMetricsHistoryRepository.fetchPage", () => {
     const fetchMock = stubFetchSequence([
       () =>
         jsonResponse({
-          lines: [{ timestamp: "2026-08-01T00:00:00Z", name: "jvm.memory.used", type: "GAUGE", tags: {}, measurements: { VALUE: 1 } }],
+          lines: [
+            {
+              timestamp: "2026-08-01T00:00:00Z",
+              name: "jvm.memory.used",
+              type: "GAUGE",
+              tags: {},
+              measurements: { VALUE: 1 },
+            },
+          ],
           olderCursor: "1000",
           newerCursor: "2000",
         }),
@@ -72,7 +80,15 @@ describe("HttpMetricsHistoryRepository.openPoll", () => {
     const fetchMock = stubFetchSequence([
       () =>
         jsonResponse({
-          lines: [{ timestamp: "2026-08-01T00:00:05Z", name: "process.cpu.usage", type: "GAUGE", tags: {}, measurements: { VALUE: 0.4 } }],
+          lines: [
+            {
+              timestamp: "2026-08-01T00:00:05Z",
+              name: "process.cpu.usage",
+              type: "GAUGE",
+              tags: {},
+              measurements: { VALUE: 0.4 },
+            },
+          ],
           olderCursor: null,
           newerCursor: "2026-08-01T00:00:05Z",
         }),

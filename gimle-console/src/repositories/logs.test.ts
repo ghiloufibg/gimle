@@ -38,13 +38,13 @@ describe("MockLogsRepository", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const page = await pagePromise;
 
-    const structured = page.items.filter(
-      (l): l is StructuredLogLine => !("raw" in l),
-    );
+    const structured = page.items.filter((l): l is StructuredLogLine => !("raw" in l));
     expect(structured.length).toBeGreaterThan(0);
     for (const line of structured) {
       expect(line.deploymentName).toBe(deployment.spec.name);
-      expect(line.instanceIndex).toBe(instanceTarget.kind === "instance" ? instanceTarget.instanceIndex : undefined);
+      expect(line.instanceIndex).toBe(
+        instanceTarget.kind === "instance" ? instanceTarget.instanceIndex : undefined,
+      );
       expect(["APPLICATION", "PLATFORM"]).toContain(line.category);
     }
   });

@@ -1,4 +1,10 @@
-import type { AutoscalePolicy, Deployment, DeploymentInstance, DeploymentSpecInput, Page } from "@/types";
+import type {
+  AutoscalePolicy,
+  Deployment,
+  DeploymentInstance,
+  DeploymentSpecInput,
+  Page,
+} from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
 import { requestJson, requestOk, requestOkYaml } from "./apiClient";
 
@@ -91,6 +97,9 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
   // characters in names/paths without needing a real YAML serializer.
   const q = (s: string) => JSON.stringify(s);
   const lines = [
+    // Every manifest now requires kind: (priority-3 design doc §2) -- the control plane rejects
+    // a PUT /deployments/* body without it.
+    `kind: Deployment`,
     `name: ${q(spec.name)}`,
     `module:`,
     `  name: ${q(spec.moduleId.name)}`,

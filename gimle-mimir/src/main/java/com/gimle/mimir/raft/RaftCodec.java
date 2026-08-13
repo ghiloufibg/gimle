@@ -10,10 +10,18 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -23,6 +31,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -77,6 +86,28 @@ public final class RaftCodec {
   private static final byte MUT_PUT_NODE_CORDON = 21;
   private static final byte MUT_APPEND_INSTANCE_EVENT = 22;
   private static final byte MUT_APPEND_AUDIT_EVENT = 23;
+  private static final byte MUT_PUT_JOB_SPEC = 24;
+  private static final byte MUT_REMOVE_JOB_SPEC = 25;
+  private static final byte MUT_PUT_JOB_RUN = 26;
+  private static final byte MUT_REMOVE_JOB_RUN = 27;
+  private static final byte MUT_PUT_JOB_PHASE = 28;
+  private static final byte MUT_PUT_CRONJOB_SPEC = 29;
+  private static final byte MUT_REMOVE_CRONJOB_SPEC = 30;
+  private static final byte MUT_PUT_CRONJOB_LAST_SCHEDULE = 31;
+  private static final byte MUT_PUT_DAEMONSET_SPEC = 32;
+  private static final byte MUT_REMOVE_DAEMONSET_SPEC = 33;
+  private static final byte MUT_PUT_DAEMONSET_ASSIGNMENT = 34;
+  private static final byte MUT_REMOVE_DAEMONSET_ASSIGNMENT = 35;
+  private static final byte MUT_PUT_ROLLING_DAEMONSET_NODE = 36;
+  private static final byte MUT_CLEAR_ROLLING_DAEMONSET_NODE = 37;
+  private static final byte MUT_PUT_STATEFULSET_SPEC = 38;
+  private static final byte MUT_REMOVE_STATEFULSET_SPEC = 39;
+  private static final byte MUT_PUT_STATEFULSET_ASSIGNMENT = 40;
+  private static final byte MUT_REMOVE_STATEFULSET_ASSIGNMENT = 41;
+  private static final byte MUT_PUT_ROLLING_STATEFULSET_INDEX = 42;
+  private static final byte MUT_CLEAR_ROLLING_STATEFULSET_INDEX = 43;
+  private static final byte MUT_PUT_STATEFULSET_INDEX_NODE = 44;
+  private static final byte MUT_REMOVE_STATEFULSET_INDEX_NODE = 45;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -422,6 +453,104 @@ public final class RaftCodec {
         out.writeByte(MUT_APPEND_AUDIT_EVENT);
         DomainCodec.writeAuditEvent(out, m.event());
       }
+      case StateMutation.PutJobSpec m -> {
+        out.writeByte(MUT_PUT_JOB_SPEC);
+        DomainCodec.writeJobSpec(out, m.spec());
+      }
+      case StateMutation.RemoveJobSpec m -> {
+        out.writeByte(MUT_REMOVE_JOB_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutJobRun m -> {
+        out.writeByte(MUT_PUT_JOB_RUN);
+        DomainCodec.writeJobRun(out, m.run());
+      }
+      case StateMutation.RemoveJobRun m -> {
+        out.writeByte(MUT_REMOVE_JOB_RUN);
+        out.writeUTF(m.jobName());
+        out.writeInt(m.attempt());
+      }
+      case StateMutation.PutJobPhase m -> {
+        out.writeByte(MUT_PUT_JOB_PHASE);
+        out.writeUTF(m.jobName());
+        out.writeUTF(m.phase().name());
+      }
+      case StateMutation.PutCronJobSpec m -> {
+        out.writeByte(MUT_PUT_CRONJOB_SPEC);
+        DomainCodec.writeCronJobSpec(out, m.spec());
+      }
+      case StateMutation.RemoveCronJobSpec m -> {
+        out.writeByte(MUT_REMOVE_CRONJOB_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutCronJobLastSchedule m -> {
+        out.writeByte(MUT_PUT_CRONJOB_LAST_SCHEDULE);
+        out.writeUTF(m.name());
+        out.writeLong(m.lastScheduleTime().toEpochMilli());
+      }
+      case StateMutation.PutDaemonSetSpec m -> {
+        out.writeByte(MUT_PUT_DAEMONSET_SPEC);
+        DomainCodec.writeDaemonSetSpec(out, m.spec());
+      }
+      case StateMutation.RemoveDaemonSetSpec m -> {
+        out.writeByte(MUT_REMOVE_DAEMONSET_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutDaemonSetAssignment m -> {
+        out.writeByte(MUT_PUT_DAEMONSET_ASSIGNMENT);
+        DomainCodec.writeDaemonSetAssignment(out, m.assignment());
+      }
+      case StateMutation.RemoveDaemonSetAssignment m -> {
+        out.writeByte(MUT_REMOVE_DAEMONSET_ASSIGNMENT);
+        out.writeUTF(m.daemonSetName());
+        out.writeUTF(m.nodeId());
+      }
+      case StateMutation.PutRollingDaemonSetNode m -> {
+        out.writeByte(MUT_PUT_ROLLING_DAEMONSET_NODE);
+        out.writeUTF(m.daemonSetName());
+        out.writeUTF(m.nodeId());
+      }
+      case StateMutation.ClearRollingDaemonSetNode m -> {
+        out.writeByte(MUT_CLEAR_ROLLING_DAEMONSET_NODE);
+        out.writeUTF(m.daemonSetName());
+      }
+      case StateMutation.PutStatefulSetSpec m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_SPEC);
+        DomainCodec.writeStatefulSetSpec(out, m.spec());
+      }
+      case StateMutation.RemoveStatefulSetSpec m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutStatefulSetAssignment m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_ASSIGNMENT);
+        DomainCodec.writeStatefulSetAssignment(out, m.assignment());
+      }
+      case StateMutation.RemoveStatefulSetAssignment m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_ASSIGNMENT);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
+      case StateMutation.PutRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_PUT_ROLLING_STATEFULSET_INDEX);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
+      case StateMutation.ClearRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_CLEAR_ROLLING_STATEFULSET_INDEX);
+        out.writeUTF(m.statefulSetName());
+      }
+      case StateMutation.PutStatefulSetIndexNode m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_INDEX_NODE);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+        out.writeUTF(m.nodeId());
+      }
+      case StateMutation.RemoveStatefulSetIndexNode m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_INDEX_NODE);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
     }
   }
 
@@ -464,6 +593,44 @@ public final class RaftCodec {
           new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
       case MUT_APPEND_AUDIT_EVENT ->
           new StateMutation.AppendAuditEvent(DomainCodec.readAuditEvent(in));
+      case MUT_PUT_JOB_SPEC -> new StateMutation.PutJobSpec(DomainCodec.readJobSpec(in));
+      case MUT_REMOVE_JOB_SPEC -> new StateMutation.RemoveJobSpec(in.readUTF());
+      case MUT_PUT_JOB_RUN -> new StateMutation.PutJobRun(DomainCodec.readJobRun(in));
+      case MUT_REMOVE_JOB_RUN -> new StateMutation.RemoveJobRun(in.readUTF(), in.readInt());
+      case MUT_PUT_JOB_PHASE ->
+          new StateMutation.PutJobPhase(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      case MUT_PUT_CRONJOB_SPEC ->
+          new StateMutation.PutCronJobSpec(DomainCodec.readCronJobSpec(in));
+      case MUT_REMOVE_CRONJOB_SPEC -> new StateMutation.RemoveCronJobSpec(in.readUTF());
+      case MUT_PUT_CRONJOB_LAST_SCHEDULE ->
+          new StateMutation.PutCronJobLastSchedule(
+              in.readUTF(), Instant.ofEpochMilli(in.readLong()));
+      case MUT_PUT_DAEMONSET_SPEC ->
+          new StateMutation.PutDaemonSetSpec(DomainCodec.readDaemonSetSpec(in));
+      case MUT_REMOVE_DAEMONSET_SPEC -> new StateMutation.RemoveDaemonSetSpec(in.readUTF());
+      case MUT_PUT_DAEMONSET_ASSIGNMENT ->
+          new StateMutation.PutDaemonSetAssignment(DomainCodec.readDaemonSetAssignment(in));
+      case MUT_REMOVE_DAEMONSET_ASSIGNMENT ->
+          new StateMutation.RemoveDaemonSetAssignment(in.readUTF(), in.readUTF());
+      case MUT_PUT_ROLLING_DAEMONSET_NODE ->
+          new StateMutation.PutRollingDaemonSetNode(in.readUTF(), in.readUTF());
+      case MUT_CLEAR_ROLLING_DAEMONSET_NODE ->
+          new StateMutation.ClearRollingDaemonSetNode(in.readUTF());
+      case MUT_PUT_STATEFULSET_SPEC ->
+          new StateMutation.PutStatefulSetSpec(DomainCodec.readStatefulSetSpec(in));
+      case MUT_REMOVE_STATEFULSET_SPEC -> new StateMutation.RemoveStatefulSetSpec(in.readUTF());
+      case MUT_PUT_STATEFULSET_ASSIGNMENT ->
+          new StateMutation.PutStatefulSetAssignment(DomainCodec.readStatefulSetAssignment(in));
+      case MUT_REMOVE_STATEFULSET_ASSIGNMENT ->
+          new StateMutation.RemoveStatefulSetAssignment(in.readUTF(), in.readInt());
+      case MUT_PUT_ROLLING_STATEFULSET_INDEX ->
+          new StateMutation.PutRollingStatefulSetIndex(in.readUTF(), in.readInt());
+      case MUT_CLEAR_ROLLING_STATEFULSET_INDEX ->
+          new StateMutation.ClearRollingStatefulSetIndex(in.readUTF());
+      case MUT_PUT_STATEFULSET_INDEX_NODE ->
+          new StateMutation.PutStatefulSetIndexNode(in.readUTF(), in.readInt(), in.readUTF());
+      case MUT_REMOVE_STATEFULSET_INDEX_NODE ->
+          new StateMutation.RemoveStatefulSetIndexNode(in.readUTF(), in.readInt());
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -481,6 +648,59 @@ public final class RaftCodec {
       out.writeInt(snapshot.assignments().size());
       for (InstanceAssignment assignment : snapshot.assignments()) {
         DomainCodec.writeInstanceAssignment(out, assignment);
+      }
+      out.writeInt(snapshot.jobSpecs().size());
+      for (JobSpec spec : snapshot.jobSpecs()) {
+        DomainCodec.writeJobSpec(out, spec);
+      }
+      out.writeInt(snapshot.jobRuns().size());
+      for (JobRun run : snapshot.jobRuns()) {
+        DomainCodec.writeJobRun(out, run);
+      }
+      out.writeInt(snapshot.jobPhases().size());
+      for (Map.Entry<String, JobPhase> e : snapshot.jobPhases().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeUTF(e.getValue().name());
+      }
+      out.writeInt(snapshot.cronJobSpecs().size());
+      for (CronJobSpec spec : snapshot.cronJobSpecs()) {
+        DomainCodec.writeCronJobSpec(out, spec);
+      }
+      out.writeInt(snapshot.cronJobLastSchedule().size());
+      for (Map.Entry<String, Instant> e : snapshot.cronJobLastSchedule().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue().toEpochMilli());
+      }
+      out.writeInt(snapshot.daemonSetSpecs().size());
+      for (DaemonSetSpec spec : snapshot.daemonSetSpecs()) {
+        DomainCodec.writeDaemonSetSpec(out, spec);
+      }
+      out.writeInt(snapshot.daemonSetAssignments().size());
+      for (DaemonSetAssignment assignment : snapshot.daemonSetAssignments()) {
+        DomainCodec.writeDaemonSetAssignment(out, assignment);
+      }
+      out.writeInt(snapshot.rollingDaemonSetNodes().size());
+      for (Map.Entry<String, String> e : snapshot.rollingDaemonSetNodes().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeUTF(e.getValue());
+      }
+      out.writeInt(snapshot.statefulSetSpecs().size());
+      for (StatefulSetSpec spec : snapshot.statefulSetSpecs()) {
+        DomainCodec.writeStatefulSetSpec(out, spec);
+      }
+      out.writeInt(snapshot.statefulSetAssignments().size());
+      for (StatefulSetAssignment assignment : snapshot.statefulSetAssignments()) {
+        DomainCodec.writeStatefulSetAssignment(out, assignment);
+      }
+      out.writeInt(snapshot.rollingStatefulSetIndices().size());
+      for (Map.Entry<String, Integer> e : snapshot.rollingStatefulSetIndices().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue());
+      }
+      out.writeInt(snapshot.statefulSetIndexNodes().size());
+      for (Map.Entry<String, String> e : snapshot.statefulSetIndexNodes().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeUTF(e.getValue());
       }
       out.writeInt(snapshot.nodeRegistrations().size());
       for (NodeRegistration registration : snapshot.nodeRegistrations()) {
@@ -555,6 +775,66 @@ public final class RaftCodec {
       for (int i = 0; i < assignmentCount; i++) {
         assignments.add(DomainCodec.readInstanceAssignment(in));
       }
+      List<JobSpec> jobSpecs = new ArrayList<>();
+      int jobSpecCount = in.readInt();
+      for (int i = 0; i < jobSpecCount; i++) {
+        jobSpecs.add(DomainCodec.readJobSpec(in));
+      }
+      List<JobRun> jobRuns = new ArrayList<>();
+      int jobRunCount = in.readInt();
+      for (int i = 0; i < jobRunCount; i++) {
+        jobRuns.add(DomainCodec.readJobRun(in));
+      }
+      Map<String, JobPhase> jobPhases = new LinkedHashMap<>();
+      int jobPhaseCount = in.readInt();
+      for (int i = 0; i < jobPhaseCount; i++) {
+        jobPhases.put(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      }
+      List<CronJobSpec> cronJobSpecs = new ArrayList<>();
+      int cronJobSpecCount = in.readInt();
+      for (int i = 0; i < cronJobSpecCount; i++) {
+        cronJobSpecs.add(DomainCodec.readCronJobSpec(in));
+      }
+      Map<String, Instant> cronJobLastSchedule = new LinkedHashMap<>();
+      int cronJobLastScheduleCount = in.readInt();
+      for (int i = 0; i < cronJobLastScheduleCount; i++) {
+        cronJobLastSchedule.put(in.readUTF(), Instant.ofEpochMilli(in.readLong()));
+      }
+      List<DaemonSetSpec> daemonSetSpecs = new ArrayList<>();
+      int daemonSetSpecCount = in.readInt();
+      for (int i = 0; i < daemonSetSpecCount; i++) {
+        daemonSetSpecs.add(DomainCodec.readDaemonSetSpec(in));
+      }
+      List<DaemonSetAssignment> daemonSetAssignments = new ArrayList<>();
+      int daemonSetAssignmentCount = in.readInt();
+      for (int i = 0; i < daemonSetAssignmentCount; i++) {
+        daemonSetAssignments.add(DomainCodec.readDaemonSetAssignment(in));
+      }
+      Map<String, String> rollingDaemonSetNodes = new LinkedHashMap<>();
+      int rollingDaemonSetNodeCount = in.readInt();
+      for (int i = 0; i < rollingDaemonSetNodeCount; i++) {
+        rollingDaemonSetNodes.put(in.readUTF(), in.readUTF());
+      }
+      List<StatefulSetSpec> statefulSetSpecs = new ArrayList<>();
+      int statefulSetSpecCount = in.readInt();
+      for (int i = 0; i < statefulSetSpecCount; i++) {
+        statefulSetSpecs.add(DomainCodec.readStatefulSetSpec(in));
+      }
+      List<StatefulSetAssignment> statefulSetAssignments = new ArrayList<>();
+      int statefulSetAssignmentCount = in.readInt();
+      for (int i = 0; i < statefulSetAssignmentCount; i++) {
+        statefulSetAssignments.add(DomainCodec.readStatefulSetAssignment(in));
+      }
+      Map<String, Integer> rollingStatefulSetIndices = new LinkedHashMap<>();
+      int rollingStatefulSetIndexCount = in.readInt();
+      for (int i = 0; i < rollingStatefulSetIndexCount; i++) {
+        rollingStatefulSetIndices.put(in.readUTF(), in.readInt());
+      }
+      Map<String, String> statefulSetIndexNodes = new LinkedHashMap<>();
+      int statefulSetIndexNodeCount = in.readInt();
+      for (int i = 0; i < statefulSetIndexNodeCount; i++) {
+        statefulSetIndexNodes.put(in.readUTF(), in.readUTF());
+      }
       List<NodeRegistration> registrations = new ArrayList<>();
       int registrationCount = in.readInt();
       for (int i = 0; i < registrationCount; i++) {
@@ -623,6 +903,18 @@ public final class RaftCodec {
       return new StateSnapshot(
           deployments,
           assignments,
+          jobSpecs,
+          jobRuns,
+          jobPhases,
+          cronJobSpecs,
+          cronJobLastSchedule,
+          daemonSetSpecs,
+          daemonSetAssignments,
+          rollingDaemonSetNodes,
+          statefulSetSpecs,
+          statefulSetAssignments,
+          rollingStatefulSetIndices,
+          statefulSetIndexNodes,
           registrations,
           rollingIndices,
           effectiveReplicas,

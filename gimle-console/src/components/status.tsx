@@ -52,11 +52,11 @@ export function StatusBadge({
 
 export function LifecycleBadge({ state }: { state: LifecycleState }) {
   const variant =
-    state === "ACTIVE"
+    state === "ACTIVE" || state === "COMPLETED"
       ? "ok"
       : state === "STARTING" || state === "STOPPING"
         ? "warn"
-        : state === "UNINSTALLED"
+        : state === "UNINSTALLED" || state === "FAILED"
           ? "bad"
           : "muted";
   return <StatusBadge variant={variant}>{state}</StatusBadge>;

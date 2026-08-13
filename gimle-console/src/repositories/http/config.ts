@@ -40,9 +40,6 @@ export class HttpConfigRepository implements ConfigRepository {
   }
 
   async remove(tenantId: string, key: string): Promise<void> {
-    await requestOk(
-      "DELETE",
-      `/config/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}`,
-    );
+    await requestOk("DELETE", `/config/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}`);
   }
 }

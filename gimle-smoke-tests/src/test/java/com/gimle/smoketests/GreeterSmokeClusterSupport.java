@@ -961,6 +961,7 @@ abstract class GreeterSmokeClusterSupport {
       throws Exception {
     String manifest =
         """
+        kind: Deployment
         name: %s
         module:
           name: %s
@@ -1140,6 +1141,7 @@ abstract class GreeterSmokeClusterSupport {
 
     String manifest =
         """
+        kind: Deployment
         name: %s
         module:
           name: %s
@@ -1581,6 +1583,7 @@ abstract class GreeterSmokeClusterSupport {
       throws Exception {
     String manifest =
         """
+        kind: Deployment
         name: %s
         module:
           name: %s
@@ -1616,6 +1619,7 @@ abstract class GreeterSmokeClusterSupport {
       throws Exception {
     String manifest =
         """
+        kind: Deployment
         name: %s
         module:
           name: %s
