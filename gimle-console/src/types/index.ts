@@ -40,6 +40,7 @@ export interface DeploymentSpec {
   replicas: number;
   tenantId: string | null;
   autoscale?: AutoscalePolicy;
+  disruption?: DisruptionBudget;
 }
 
 export interface DeploymentSpecInput {
@@ -49,6 +50,7 @@ export interface DeploymentSpecInput {
   replicas: number;
   tenantId: string | null;
   autoscale?: AutoscalePolicy;
+  disruption?: DisruptionBudget;
 }
 
 export interface Deployment {
@@ -423,4 +425,13 @@ export interface AutoscalePolicy {
   requestRateWeight?: number;
   errorRateWeight?: number;
   queueDepthWeight?: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * Disruption budget -- optional field on DeploymentSpec/DeploymentSpecInput above
+ * ------------------------------------------------------------------------ */
+
+export interface DisruptionBudget {
+  maxUnavailable: number;
+  maxSurge: number;
 }

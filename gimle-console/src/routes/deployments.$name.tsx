@@ -18,7 +18,7 @@ import {
 import { fmtBytes, fmtMillicores } from "@/lib/format";
 import { Trash2, FileText } from "lucide-react";
 import { toast } from "sonner";
-import type { AutoscalePolicy } from "@/types";
+import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
 export const Route = createFileRoute("/deployments/$name")({
   head: ({ params }) => ({
@@ -142,6 +142,7 @@ function DeploymentDetail() {
       </div>
 
       {d.spec.autoscale && <AutoscalePanel policy={d.spec.autoscale} />}
+      {d.spec.disruption && <DisruptionPanel budget={d.spec.disruption} />}
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -333,6 +334,25 @@ function AutoscalePanel({ policy }: { policy: AutoscalePolicy }) {
               ))}
             </ul>
           )}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** Read-only view of the deployment's disruption budget (absent on a deployment relying on the
+ * default one-at-a-time rolling update -- the common case). */
+function DisruptionPanel({ budget }: { budget: DisruptionBudget }) {
+  return (
+    <Panel title="Disruption budget" className="mb-6">
+      <div className="grid grid-cols-1 gap-px bg-primary/10 md:grid-cols-2">
+        <div className="bg-background p-3">
+          <p className="hud-label mb-1 text-muted-foreground">max unavailable</p>
+          <p className="font-mono text-sm text-signal tabular-nums">{budget.maxUnavailable}</p>
+        </div>
+        <div className="bg-background p-3">
+          <p className="hud-label mb-1 text-muted-foreground">max surge</p>
+          <p className="font-mono text-sm text-signal tabular-nums">{budget.maxSurge}</p>
         </div>
       </div>
     </Panel>

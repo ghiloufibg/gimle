@@ -203,6 +203,69 @@ class ApiServerTest {
     assertFalse(spec.containsKey("autoscale"));
   }
 
+  private static String deploymentYamlWithDisruption(String name) {
+    return """
+        kind: Deployment
+        name: %s
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 2
+        disruption:
+          maxUnavailable: 2
+          maxSurge: 1
+        """
+        .formatted(name);
+  }
+
+  // The console reads the deployment JSON this test asserts on to build its own disruption-budget
+  // panel -- before deploymentStatus() put this on the wire, the field was accepted by PUT
+  // (DeploymentManifestParser) but silently dropped from every GET response, the same gap
+  // put_then_get_a_deployment_round_trips_its_autoscale_policy above once had for autoscale.
+  @Test
+  void put_then_get_a_deployment_round_trips_its_disruption_budget() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        deploymentYamlWithDisruption("orders-service")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    Map<String, Object> disruption = Json.asObject(spec.get("disruption"));
+    assertEquals(2L, disruption.get("maxUnavailable"));
+    assertEquals(1L, disruption.get("maxSurge"));
+  }
+
+  // Same "ifPresent means ifPresent" contract autoscale already established above.
+  @Test
+  void a_deployment_with_no_disruption_block_has_no_disruption_key_on_the_wire() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    Map<String, Object> spec = Json.asObject(Json.asObject(Json.parse(get.body())).get("spec"));
+    assertFalse(spec.containsKey("disruption"));
+  }
+
   @Test
   void put_with_a_manifest_name_mismatch_is_rejected() throws Exception {
     HttpResponse<String> put =

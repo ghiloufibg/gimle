@@ -55,6 +55,7 @@ import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -1282,6 +1283,7 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
     spec.autoscale().ifPresent(policy -> specMap.put("autoscale", autoscaleToJson(policy)));
+    spec.disruption().ifPresent(budget -> specMap.put("disruption", disruptionToJson(budget)));
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
 
     List<Map<String, Object>> instances = new ArrayList<>();
@@ -1324,6 +1326,13 @@ public final class ApiServer implements AutoCloseable {
     policy.requestRateWeight().ifPresent(v -> map.put("requestRateWeight", v));
     policy.errorRateWeight().ifPresent(v -> map.put("errorRateWeight", v));
     policy.queueDepthWeight().ifPresent(v -> map.put("queueDepthWeight", v));
+    return map;
+  }
+
+  private static Map<String, Object> disruptionToJson(DisruptionBudget budget) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("maxUnavailable", budget.maxUnavailable());
+    map.put("maxSurge", budget.maxSurge());
     return map;
   }
 

@@ -97,6 +97,55 @@ describe("HttpDeploymentsRepository", () => {
     expect(getUrl).toBe("/deployments/checkout-service");
   });
 
+  it("fetchOne passes a raw spec.disruption block through unchanged", async () => {
+    const withDisruption = {
+      ...RAW_DEPLOYMENT,
+      spec: { ...RAW_DEPLOYMENT.spec, disruption: { maxUnavailable: 2, maxSurge: 1 } },
+    };
+    stubFetchSequence([() => jsonResponse(withDisruption)]);
+    const repo = new HttpDeploymentsRepository();
+
+    const deployment = await repo.fetchOne("checkout-service");
+
+    expect(deployment.spec.disruption).toEqual({ maxUnavailable: 2, maxSurge: 1 });
+  });
+
+  it("create() omits the disruption: block when none is given", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse(), () => jsonResponse(RAW_DEPLOYMENT)]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.create({
+      name: "checkout-service",
+      moduleId: { name: "checkout-service", version: "1.2.3" },
+      artifactPath: "s3://bucket/checkout-service-1.2.3.jar",
+      replicas: 2,
+      tenantId: null,
+    });
+
+    const [, putInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(putInit.body as string).not.toContain("disruption:");
+  });
+
+  it("create() PUTs a disruption: block in the YAML manifest when disruption is set", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse(), () => jsonResponse(RAW_DEPLOYMENT)]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.create({
+      name: "checkout-service",
+      moduleId: { name: "checkout-service", version: "1.2.3" },
+      artifactPath: "s3://bucket/checkout-service-1.2.3.jar",
+      replicas: 2,
+      tenantId: null,
+      disruption: { maxUnavailable: 2, maxSurge: 1 },
+    });
+
+    const [, putInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const yaml = putInit.body as string;
+    expect(yaml).toContain("disruption:");
+    expect(yaml).toContain("  maxUnavailable: 2");
+    expect(yaml).toContain("  maxSurge: 1");
+  });
+
   it("remove() DELETEs /deployments/{name}", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpDeploymentsRepository();

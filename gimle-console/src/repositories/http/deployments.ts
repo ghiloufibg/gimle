@@ -3,6 +3,7 @@ import type {
   Deployment,
   DeploymentInstance,
   DeploymentSpecInput,
+  DisruptionBudget,
   Page,
 } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
@@ -33,6 +34,7 @@ interface RawDeployment {
     replicas: number;
     tenantId?: string | null;
     autoscale?: AutoscalePolicy;
+    disruption?: DisruptionBudget;
   };
   instances: RawDeploymentInstance[];
   unplacedCount: number;
@@ -90,6 +92,14 @@ function autoscaleYaml(a: AutoscalePolicy): string[] {
   return lines;
 }
 
+function disruptionYaml(d: DisruptionBudget): string[] {
+  return [
+    "disruption:",
+    `  maxUnavailable: ${d.maxUnavailable}`,
+    `  maxSurge: ${d.maxSurge}`,
+  ];
+}
+
 function toManifestYaml(spec: DeploymentSpecInput): string {
   // Hand-rolled, not a YAML library: known fields, fixed shape -- matches this project's
   // "hand-roll it, it's small" convention (gimle-core's own Json.java). Double-quoted scalars via
@@ -109,6 +119,7 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
   ];
   if (spec.tenantId) lines.push(`tenantId: ${q(spec.tenantId)}`);
   if (spec.autoscale) lines.push(...autoscaleYaml(spec.autoscale));
+  if (spec.disruption) lines.push(...disruptionYaml(spec.disruption));
   return lines.join("\n") + "\n";
 }
 
