@@ -54,13 +54,53 @@ public final class DaemonSetManifestParser {
     PlacementConstraints placement = parsePlacement(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
+    Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
 
     try {
-      return new DaemonSetSpec(name, moduleId, artifactPath, placement, tenantId, artifactSha256);
+      return new DaemonSetSpec(
+          name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid daemonset manifest for " + name + ": " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code maxSurge} is meaningless on a DaemonSet (see {@link DisruptionBudget}'s own javadoc) and
+   * rejected outright if nonzero, the same posture {@link #parsePlacement} already takes for {@code
+   * placement.antiAffinity}.
+   */
+  private static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
+    Object disruptionObj = root.get("disruption");
+    if (disruptionObj == null) {
+      return Optional.empty();
+    }
+    if (!(disruptionObj instanceof Map<?, ?> disruption)) {
+      throw new GimleManifestException("'disruption' must be a mapping");
+    }
+    int maxUnavailable = optionalIntField(disruption, "maxUnavailable").orElse(1);
+    if (disruption.containsKey("maxSurge")
+        && optionalIntField(disruption, "maxSurge").orElse(0) != 0) {
+      throw new GimleManifestException(
+          "'disruption.maxSurge' is not meaningful on a DaemonSet -- one instance per node is"
+              + " already the strongest guarantee a surge could offer; remove the field");
+    }
+    try {
+      return Optional.of(new DisruptionBudget(maxUnavailable));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
+    }
+  }
+
+  private static Optional<Integer> optionalIntField(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Number number)) {
+      throw new GimleManifestException("non-numeric field if present: disruption." + key);
+    }
+    return Optional.of(number.intValue());
   }
 
   /** {@code tenantId} is optional: absent means untenanted. */

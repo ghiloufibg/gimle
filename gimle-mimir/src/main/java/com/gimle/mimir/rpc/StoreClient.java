@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -231,10 +232,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
-    StoreRpc.StringResult r =
-        (StoreRpc.StringResult) sendRead(new StoreRpc.GetRollingDaemonSetNode(daemonSetName));
-    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  public Set<String> getRollingDaemonSetNodes(String daemonSetName) {
+    return Set.copyOf(
+        ((StoreRpc.StringSetResult) sendRead(new StoreRpc.ListRollingDaemonSetNodes(daemonSetName)))
+            .values());
   }
 
   public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
@@ -323,10 +324,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<Integer> getRollingIndex(String deploymentName) {
-    StoreRpc.IntResult r =
-        (StoreRpc.IntResult) sendRead(new StoreRpc.GetRollingIndex(deploymentName));
-    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  public Set<Integer> getRollingIndices(String deploymentName) {
+    return Set.copyOf(
+        ((StoreRpc.IntSetResult) sendRead(new StoreRpc.ListRollingIndices(deploymentName)))
+            .values());
   }
 
   public Optional<ReconcilerInstanceState> getReconcilerInstanceState(

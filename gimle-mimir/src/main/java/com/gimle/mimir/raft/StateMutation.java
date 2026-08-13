@@ -145,17 +145,17 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record PutRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
+  record AddRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {
-      store.putRollingDaemonSetNode(daemonSetName, nodeId);
+      store.addRollingDaemonSetNode(daemonSetName, nodeId);
     }
   }
 
-  record ClearRollingDaemonSetNode(String daemonSetName) implements StateMutation {
+  record RemoveRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {
-      store.clearRollingDaemonSetNode(daemonSetName);
+      store.removeRollingDaemonSetNode(daemonSetName, nodeId);
     }
   }
 
@@ -236,17 +236,17 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record PutRollingIndex(String deploymentName, int instanceIndex) implements StateMutation {
+  record AddRollingIndex(String deploymentName, int instanceIndex) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {
-      store.putRollingIndex(deploymentName, instanceIndex);
+      store.addRollingIndex(deploymentName, instanceIndex);
     }
   }
 
-  record ClearRollingIndex(String deploymentName) implements StateMutation {
+  record RemoveRollingIndex(String deploymentName, int instanceIndex) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {
-      store.clearRollingIndex(deploymentName);
+      store.removeRollingIndex(deploymentName, instanceIndex);
     }
   }
 

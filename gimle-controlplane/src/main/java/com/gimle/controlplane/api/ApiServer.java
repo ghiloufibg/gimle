@@ -595,7 +595,8 @@ public final class ApiServer implements AutoCloseable {
         spec.placement(),
         spec.autoscale(),
         spec.tenantId(),
-        sha256);
+        sha256,
+        spec.disruption());
   }
 
   /**
@@ -1057,7 +1058,8 @@ public final class ApiServer implements AutoCloseable {
         spec.artifactPath(),
         spec.placement(),
         spec.tenantId(),
-        sha256);
+        sha256,
+        spec.disruption());
   }
 
   private void handleGetDaemonSet(HttpExchange exchange, String name) throws IOException {

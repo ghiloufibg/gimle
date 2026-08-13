@@ -169,4 +169,99 @@ class DaemonSetManifestParserTest {
         GimleManifestException.class,
         () -> DaemonSetManifestParser.parse(yaml("- just\n- a\n- list\n")));
   }
+
+  @Test
+  void absent_disruption_block_defaults_to_empty() {
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                """));
+
+    assertTrue(spec.disruption().isEmpty());
+    assertEquals(1, spec.effectiveDisruptionBudget().maxUnavailable());
+  }
+
+  @Test
+  void parses_a_disruption_block_with_max_unavailable() {
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                disruption:
+                  maxUnavailable: 2
+                """));
+
+    assertEquals(2, spec.disruption().orElseThrow().maxUnavailable());
+    assertEquals(0, spec.disruption().orElseThrow().maxSurge());
+  }
+
+  @Test
+  void disruption_max_surge_field_is_rejected_outright_if_nonzero() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DaemonSetManifestParser.parse(
+                yaml(
+                    """
+                    name: node-exporter
+                    module:
+                      name: com.gimle.example.node-exporter
+                      version: 1.0.0
+                    artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                    disruption:
+                      maxUnavailable: 1
+                      maxSurge: 1
+                    """)));
+  }
+
+  @Test
+  void disruption_max_surge_field_set_to_0_is_accepted() {
+    // Unlike a nonzero value (rejected outright, see the test above), an explicit 0 is exactly
+    // what omitting the field means -- accepted, not rejected, the same "0 is the explicit way to
+    // say no surge" contract Deployment's own disruption.maxSurge documents.
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                disruption:
+                  maxUnavailable: 1
+                  maxSurge: 0
+                """));
+
+    assertEquals(0, spec.disruption().orElseThrow().maxSurge());
+  }
+
+  @Test
+  void rejects_a_max_unavailable_below_1() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DaemonSetManifestParser.parse(
+                yaml(
+                    """
+                    name: node-exporter
+                    module:
+                      name: com.gimle.example.node-exporter
+                      version: 1.0.0
+                    artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                    disruption:
+                      maxUnavailable: 0
+                    """)));
+  }
 }

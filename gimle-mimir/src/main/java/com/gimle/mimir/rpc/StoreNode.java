@@ -6,6 +6,7 @@ import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.StateStore;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -77,8 +78,9 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListDaemonSetAssignmentsFor r ->
           new StoreRpc.DaemonSetAssignmentListResult(
               store.listDaemonSetAssignmentsFor(r.daemonSetName()));
-      case StoreRpc.GetRollingDaemonSetNode r ->
-          stringResult(store.getRollingDaemonSetNode(r.daemonSetName()));
+      case StoreRpc.ListRollingDaemonSetNodes r ->
+          new StoreRpc.StringSetResult(
+              List.copyOf(store.getRollingDaemonSetNodes(r.daemonSetName())));
       case StoreRpc.GetStatefulSetSpec r ->
           statefulSetSpecResult(store.getStatefulSetSpec(r.name()));
       case StoreRpc.ListStatefulSetSpecs r ->
@@ -107,7 +109,8 @@ public final class StoreNode implements StoreRpcHandler {
           nodeRegistrationResult(store.getNodeRegistration(r.nodeId()));
       case StoreRpc.GetEffectiveReplicas r ->
           intResult(store.getEffectiveReplicas(r.deploymentName()));
-      case StoreRpc.GetRollingIndex r -> intResult(store.getRollingIndex(r.deploymentName()));
+      case StoreRpc.ListRollingIndices r ->
+          new StoreRpc.IntSetResult(List.copyOf(store.getRollingIndices(r.deploymentName())));
       case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(

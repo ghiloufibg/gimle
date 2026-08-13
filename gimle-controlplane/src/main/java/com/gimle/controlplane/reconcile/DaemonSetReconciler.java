@@ -47,11 +47,13 @@ import org.slf4j.LoggerFactory;
  * current snapshot rather than reacting to what changed since last tick.
  *
  * <p>Rolling updates are a direct duplicate of {@link DeploymentReconciler#handleRollingUpdate}'s
- * ~35-line state machine, keyed by {@code nodeId} instead of {@code instanceIndex} via {@link
- * StateStore#putRollingDaemonSetNode}/{@code getRollingDaemonSetNode}/{@code
- * clearRollingDaemonSetNode} -- deliberately duplicated rather than generalizing {@code
+ * state machine, keyed by {@code nodeId} instead of {@code instanceIndex} via {@link
+ * StateStore#addRollingDaemonSetNode}/{@code removeRollingDaemonSetNode}/{@code
+ * getRollingDaemonSetNodes} -- deliberately duplicated rather than generalizing {@code
  * DeploymentReconciler} over a key-type parameter: this codebase's own convention prefers direct,
- * readable duplication over an abstraction that would only ever have two call sites.
+ * readable duplication over an abstraction that would only ever have two call sites. Up to the
+ * DaemonSet's effective {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} nodes
+ * migrate concurrently, same as {@code DeploymentReconciler}'s own continuous top-up model.
  */
 public final class DaemonSetReconciler {
 
@@ -160,7 +162,7 @@ public final class DaemonSetReconciler {
       }
     }
 
-    handleRollingUpdate(spec, descriptor);
+    handleRollingUpdate(spec, descriptor, eligibleNodeIds);
 
     // Re-read: scale-down and/or the rolling-update step above may have just removed an entry.
     Set<String> assignedNodeIds = new HashSet<>();
@@ -181,36 +183,51 @@ public final class DaemonSetReconciler {
   /**
    * Direct duplicate of {@link DeploymentReconciler#handleRollingUpdate}, keyed by {@code nodeId}
    * instead of {@code instanceIndex} -- see this class's own javadoc for why duplicated rather than
-   * shared. If a rollout is already in flight, checks whether the replacement on that node has
-   * landed and reported ready, clearing the in-flight marker once it has; otherwise looks for a new
-   * version mismatch to start, picking the lowest {@code nodeId} lexicographically (there is no
-   * natural ordering across nodes the way there is across integer indices, so this is simply a
-   * stable, deterministic tie-break) and removing its stale assignment so the caller's ordinary
-   * missing-node placement logic above re-places it with the current spec's {@code moduleId}.
+   * shared. Tops up the in-flight node set to the DaemonSet's effective {@code maxUnavailable}
+   * every tick: checks every already-in-flight node for readiness (clearing it once its replacement
+   * has landed and reported ready), then, if budget remains, starts new migrations for the
+   * lowest-{@code nodeId} (lexicographic -- there is no natural ordering across nodes the way there
+   * is across integer indices, so this is simply a stable, deterministic tie-break) mismatches not
+   * already in flight, removing each one's stale assignment so the caller's ordinary missing-node
+   * placement logic above re-places it with the current spec's {@code moduleId}.
    */
-  private void handleRollingUpdate(DaemonSetSpec spec, ModuleDescriptor descriptor) {
-    Optional<String> rollingNode = store.getRollingDaemonSetNode(spec.name());
-    if (rollingNode.isPresent()) {
-      String nodeId = rollingNode.get();
+  private void handleRollingUpdate(
+      DaemonSetSpec spec, ModuleDescriptor descriptor, Set<String> eligibleNodeIds) {
+    int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
+    Set<String> inFlight = new HashSet<>(store.getRollingDaemonSetNodes(spec.name()));
+
+    for (String nodeId : Set.copyOf(inFlight)) {
       Optional<DaemonSetAssignment> current =
           store.listDaemonSetAssignmentsFor(spec.name()).stream()
               .filter(a -> a.nodeId().equals(nodeId))
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        mutations.propose(new StateMutation.ClearRollingDaemonSetNode(spec.name()));
+        mutations.propose(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
+        inFlight.remove(nodeId);
+      } else if (current.isEmpty() && !eligibleNodeIds.contains(nodeId)) {
+        // The scale-down race, node-keyed equivalent of DeploymentReconciler's own: the node fell
+        // out of eligibility (cordoned, removed, relabeled) while its old assignment was already
+        // removed for migration, so a replacement will now never come.
+        mutations.propose(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
+        inFlight.remove(nodeId);
       }
+    }
+
+    if (inFlight.size() >= maxUnavailable) {
       return;
     }
 
     store.listDaemonSetAssignmentsFor(spec.name()).stream()
         .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
-        .min(Comparator.comparing(DaemonSetAssignment::nodeId))
-        .ifPresent(
+        .filter(assignment -> !inFlight.contains(assignment.nodeId()))
+        .sorted(Comparator.comparing(DaemonSetAssignment::nodeId))
+        .limit(maxUnavailable - inFlight.size())
+        .forEach(
             mismatched -> {
               mutations.propose(
                   new StateMutation.RemoveDaemonSetAssignment(spec.name(), mismatched.nodeId()));
               mutations.propose(
-                  new StateMutation.PutRollingDaemonSetNode(spec.name(), mismatched.nodeId()));
+                  new StateMutation.AddRollingDaemonSetNode(spec.name(), mismatched.nodeId()));
               log.info(
                   "daemonset {} node {} is on an old module version; rolling it forward",
                   spec.name(),

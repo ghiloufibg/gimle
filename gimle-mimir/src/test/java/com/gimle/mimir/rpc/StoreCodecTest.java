@@ -25,6 +25,7 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -71,7 +72,12 @@ class StoreCodecTest {
             new AutoscalePolicy(
                 1, 5, 80, OptionalDouble.of(50.0), OptionalDouble.of(5.0), OptionalInt.of(10))),
         Optional.of("tenant-1"),
-        Optional.of("a".repeat(64)));
+        Optional.of("a".repeat(64)),
+        // A real, non-default value here for the identical reason the multi-signal autoscale
+        // fields above are real, not empty: "empty" round-trips correctly whether or not the codec
+        // ever touches disruption at all, so it can't catch a silently-dropped field the way a
+        // populated one can.
+        Optional.of(new DisruptionBudget(2, 1)));
   }
 
   private static DeploymentSpec deploymentSpecWithoutArtifactSha256() {
@@ -173,7 +179,8 @@ class StoreCodecTest {
         new StoreRpc.GetAccount("alice"),
         new StoreRpc.GetNodeRegistration("node-1"),
         new StoreRpc.GetEffectiveReplicas("greeter"),
-        new StoreRpc.GetRollingIndex("greeter"),
+        new StoreRpc.ListRollingIndices("greeter"),
+        new StoreRpc.ListRollingDaemonSetNodes("greeter-daemonset"),
         new StoreRpc.GetNodeHeartbeat("node-1"),
         new StoreRpc.ListInstanceEvents("greeter", 0),
         new StoreRpc.ListAuditEvents(
@@ -191,6 +198,10 @@ class StoreCodecTest {
         new StoreRpc.BoolResult(true),
         new StoreRpc.IntResult(true, 3),
         new StoreRpc.IntResult(false, 0),
+        new StoreRpc.IntSetResult(List.of()),
+        new StoreRpc.IntSetResult(List.of(0, 2)),
+        new StoreRpc.StringSetResult(List.of()),
+        new StoreRpc.StringSetResult(List.of("node-a", "node-b")),
         new StoreRpc.DeploymentResult(true, deploymentSpec()),
         new StoreRpc.DeploymentResult(false, null),
         new StoreRpc.TenantResult(true, tenant()),

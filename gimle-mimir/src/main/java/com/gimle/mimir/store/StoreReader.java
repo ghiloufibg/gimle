@@ -16,6 +16,7 @@ import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Every read method {@code ApiServer}, the five reconcilers, and {@code Authorizer} call outside
@@ -73,7 +74,7 @@ public interface StoreReader {
 
   List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName);
 
-  Optional<String> getRollingDaemonSetNode(String daemonSetName);
+  Set<String> getRollingDaemonSetNodes(String daemonSetName);
 
   Optional<StatefulSetSpec> getStatefulSetSpec(String name);
 
@@ -107,7 +108,7 @@ public interface StoreReader {
 
   Optional<Integer> getEffectiveReplicas(String deploymentName);
 
-  Optional<Integer> getRollingIndex(String deploymentName);
+  Set<Integer> getRollingIndices(String deploymentName);
 
   /**
    * Leader-local; a {@code StoreClient} implementation routes this through the current leader

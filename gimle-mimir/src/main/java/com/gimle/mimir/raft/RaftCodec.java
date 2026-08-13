@@ -66,8 +66,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_DEPLOYMENT = 1;
   private static final byte MUT_PUT_ASSIGNMENT = 2;
   private static final byte MUT_REMOVE_ASSIGNMENT = 3;
-  private static final byte MUT_PUT_ROLLING_INDEX = 4;
-  private static final byte MUT_CLEAR_ROLLING_INDEX = 5;
+  private static final byte MUT_ADD_ROLLING_INDEX = 4;
+  private static final byte MUT_REMOVE_ROLLING_INDEX = 5;
   private static final byte MUT_PUT_EFFECTIVE_REPLICAS = 6;
   private static final byte MUT_PUT_NODE_REGISTRATION = 7;
   private static final byte MUT_PUT_TENANT = 8;
@@ -98,8 +98,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_DAEMONSET_SPEC = 33;
   private static final byte MUT_PUT_DAEMONSET_ASSIGNMENT = 34;
   private static final byte MUT_REMOVE_DAEMONSET_ASSIGNMENT = 35;
-  private static final byte MUT_PUT_ROLLING_DAEMONSET_NODE = 36;
-  private static final byte MUT_CLEAR_ROLLING_DAEMONSET_NODE = 37;
+  private static final byte MUT_ADD_ROLLING_DAEMONSET_NODE = 36;
+  private static final byte MUT_REMOVE_ROLLING_DAEMONSET_NODE = 37;
   private static final byte MUT_PUT_STATEFULSET_SPEC = 38;
   private static final byte MUT_REMOVE_STATEFULSET_SPEC = 39;
   private static final byte MUT_PUT_STATEFULSET_ASSIGNMENT = 40;
@@ -367,14 +367,15 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
-      case StateMutation.PutRollingIndex m -> {
-        out.writeByte(MUT_PUT_ROLLING_INDEX);
+      case StateMutation.AddRollingIndex m -> {
+        out.writeByte(MUT_ADD_ROLLING_INDEX);
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
-      case StateMutation.ClearRollingIndex m -> {
-        out.writeByte(MUT_CLEAR_ROLLING_INDEX);
+      case StateMutation.RemoveRollingIndex m -> {
+        out.writeByte(MUT_REMOVE_ROLLING_INDEX);
         out.writeUTF(m.deploymentName());
+        out.writeInt(m.instanceIndex());
       }
       case StateMutation.PutEffectiveReplicas m -> {
         out.writeByte(MUT_PUT_EFFECTIVE_REPLICAS);
@@ -505,14 +506,15 @@ public final class RaftCodec {
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
-      case StateMutation.PutRollingDaemonSetNode m -> {
-        out.writeByte(MUT_PUT_ROLLING_DAEMONSET_NODE);
+      case StateMutation.AddRollingDaemonSetNode m -> {
+        out.writeByte(MUT_ADD_ROLLING_DAEMONSET_NODE);
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
-      case StateMutation.ClearRollingDaemonSetNode m -> {
-        out.writeByte(MUT_CLEAR_ROLLING_DAEMONSET_NODE);
+      case StateMutation.RemoveRollingDaemonSetNode m -> {
+        out.writeByte(MUT_REMOVE_ROLLING_DAEMONSET_NODE);
         out.writeUTF(m.daemonSetName());
+        out.writeUTF(m.nodeId());
       }
       case StateMutation.PutStatefulSetSpec m -> {
         out.writeByte(MUT_PUT_STATEFULSET_SPEC);
@@ -563,8 +565,9 @@ public final class RaftCodec {
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
-      case MUT_PUT_ROLLING_INDEX -> new StateMutation.PutRollingIndex(in.readUTF(), in.readInt());
-      case MUT_CLEAR_ROLLING_INDEX -> new StateMutation.ClearRollingIndex(in.readUTF());
+      case MUT_ADD_ROLLING_INDEX -> new StateMutation.AddRollingIndex(in.readUTF(), in.readInt());
+      case MUT_REMOVE_ROLLING_INDEX ->
+          new StateMutation.RemoveRollingIndex(in.readUTF(), in.readInt());
       case MUT_PUT_EFFECTIVE_REPLICAS ->
           new StateMutation.PutEffectiveReplicas(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_REGISTRATION ->
@@ -612,10 +615,10 @@ public final class RaftCodec {
           new StateMutation.PutDaemonSetAssignment(DomainCodec.readDaemonSetAssignment(in));
       case MUT_REMOVE_DAEMONSET_ASSIGNMENT ->
           new StateMutation.RemoveDaemonSetAssignment(in.readUTF(), in.readUTF());
-      case MUT_PUT_ROLLING_DAEMONSET_NODE ->
-          new StateMutation.PutRollingDaemonSetNode(in.readUTF(), in.readUTF());
-      case MUT_CLEAR_ROLLING_DAEMONSET_NODE ->
-          new StateMutation.ClearRollingDaemonSetNode(in.readUTF());
+      case MUT_ADD_ROLLING_DAEMONSET_NODE ->
+          new StateMutation.AddRollingDaemonSetNode(in.readUTF(), in.readUTF());
+      case MUT_REMOVE_ROLLING_DAEMONSET_NODE ->
+          new StateMutation.RemoveRollingDaemonSetNode(in.readUTF(), in.readUTF());
       case MUT_PUT_STATEFULSET_SPEC ->
           new StateMutation.PutStatefulSetSpec(DomainCodec.readStatefulSetSpec(in));
       case MUT_REMOVE_STATEFULSET_SPEC -> new StateMutation.RemoveStatefulSetSpec(in.readUTF());
@@ -680,9 +683,12 @@ public final class RaftCodec {
         DomainCodec.writeDaemonSetAssignment(out, assignment);
       }
       out.writeInt(snapshot.rollingDaemonSetNodes().size());
-      for (Map.Entry<String, String> e : snapshot.rollingDaemonSetNodes().entrySet()) {
+      for (Map.Entry<String, Set<String>> e : snapshot.rollingDaemonSetNodes().entrySet()) {
         out.writeUTF(e.getKey());
-        out.writeUTF(e.getValue());
+        out.writeInt(e.getValue().size());
+        for (String nodeId : e.getValue()) {
+          out.writeUTF(nodeId);
+        }
       }
       out.writeInt(snapshot.statefulSetSpecs().size());
       for (StatefulSetSpec spec : snapshot.statefulSetSpecs()) {
@@ -707,9 +713,12 @@ public final class RaftCodec {
         DomainCodec.writeNodeRegistration(out, registration);
       }
       out.writeInt(snapshot.rollingIndices().size());
-      for (Map.Entry<String, Integer> e : snapshot.rollingIndices().entrySet()) {
+      for (Map.Entry<String, Set<Integer>> e : snapshot.rollingIndices().entrySet()) {
         out.writeUTF(e.getKey());
-        out.writeInt(e.getValue());
+        out.writeInt(e.getValue().size());
+        for (int index : e.getValue()) {
+          out.writeInt(index);
+        }
       }
       out.writeInt(snapshot.effectiveReplicas().size());
       for (Map.Entry<String, Integer> e : snapshot.effectiveReplicas().entrySet()) {
@@ -810,10 +819,16 @@ public final class RaftCodec {
       for (int i = 0; i < daemonSetAssignmentCount; i++) {
         daemonSetAssignments.add(DomainCodec.readDaemonSetAssignment(in));
       }
-      Map<String, String> rollingDaemonSetNodes = new LinkedHashMap<>();
-      int rollingDaemonSetNodeCount = in.readInt();
-      for (int i = 0; i < rollingDaemonSetNodeCount; i++) {
-        rollingDaemonSetNodes.put(in.readUTF(), in.readUTF());
+      Map<String, Set<String>> rollingDaemonSetNodes = new LinkedHashMap<>();
+      int rollingDaemonSetNameCount = in.readInt();
+      for (int i = 0; i < rollingDaemonSetNameCount; i++) {
+        String daemonSetName = in.readUTF();
+        Set<String> nodeIds = new LinkedHashSet<>();
+        int nodeIdCount = in.readInt();
+        for (int j = 0; j < nodeIdCount; j++) {
+          nodeIds.add(in.readUTF());
+        }
+        rollingDaemonSetNodes.put(daemonSetName, nodeIds);
       }
       List<StatefulSetSpec> statefulSetSpecs = new ArrayList<>();
       int statefulSetSpecCount = in.readInt();
@@ -840,10 +855,16 @@ public final class RaftCodec {
       for (int i = 0; i < registrationCount; i++) {
         registrations.add(DomainCodec.readNodeRegistration(in));
       }
-      Map<String, Integer> rollingIndices = new LinkedHashMap<>();
-      int rollingCount = in.readInt();
-      for (int i = 0; i < rollingCount; i++) {
-        rollingIndices.put(in.readUTF(), in.readInt());
+      Map<String, Set<Integer>> rollingIndices = new LinkedHashMap<>();
+      int rollingDeploymentCount = in.readInt();
+      for (int i = 0; i < rollingDeploymentCount; i++) {
+        String deploymentName = in.readUTF();
+        Set<Integer> indices = new LinkedHashSet<>();
+        int indexCount = in.readInt();
+        for (int j = 0; j < indexCount; j++) {
+          indices.add(in.readInt());
+        }
+        rollingIndices.put(deploymentName, indices);
       }
       Map<String, Integer> effectiveReplicas = new LinkedHashMap<>();
       int effectiveCount = in.readInt();

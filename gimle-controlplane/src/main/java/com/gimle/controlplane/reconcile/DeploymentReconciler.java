@@ -37,17 +37,18 @@ import org.slf4j.LoggerFactory;
  * since last tick -- deleting a deployment, scaling it, or a fresh empty store all converge through
  * the exact same code path.
  *
- * <p>Rolling updates (deliberately minimal: no {@code maxSurge}/{@code maxUnavailable} knobs)
- * piggyback on this same convergence loop rather than a parallel mechanism: when the lowest-indexed
- * assignment still on the deployment's old {@code moduleId} is found, {@link #handleRollingUpdate}
- * simply removes it (persisting which index is mid-transition via {@link
- * StateStore#putRollingIndex}) and lets the ordinary missing-index placement logic below re-place
- * it with the current spec's {@code moduleId} -- exactly the same code path a fresh scale-up
- * already uses, so a rolling update needs no dedicated placement logic of its own. One index at a
- * time: no new mismatch is picked up while the current one hasn't reported {@code ready} (checked
- * directly against the node's own heartbeat, the same source {@code HealthReconciler} reads), and
- * this state survives a reconciler restart because it's read back from the persisted {@code
- * rollingIndex} rather than kept only in memory.
+ * <p>Rolling updates piggyback on this same convergence loop rather than a parallel mechanism: when
+ * a mismatched-{@code moduleId} assignment is found, {@link #handleRollingUpdate} simply removes it
+ * (persisting which index is mid-transition via {@link StateStore#addRollingIndex}) and lets the
+ * ordinary missing-index placement logic below re-place it with the current spec's {@code moduleId}
+ * -- exactly the same code path a fresh scale-up already uses, so a rolling update needs no
+ * dedicated placement logic of its own. Up to {@link
+ * com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} indices migrate concurrently (default
+ * {@code 1}, matching this reconciler's behavior before {@code disruption:} existed): a freed slot
+ * is topped up with a new migration the moment budget allows, even within the same tick a prior one
+ * clears, rather than waiting for the whole in-flight batch to drain. This state survives a
+ * reconciler restart because it's read back from the persisted rolling-index set rather than kept
+ * only in memory.
  */
 public final class DeploymentReconciler {
 
@@ -126,7 +127,7 @@ public final class DeploymentReconciler {
       }
     }
 
-    handleRollingUpdate(spec);
+    handleRollingUpdate(spec, replicas);
 
     // Re-read: scale-down and/or the rolling-update step above may have just removed an entry.
     existing = store.listAssignmentsFor(spec.name());
@@ -196,41 +197,57 @@ public final class DeploymentReconciler {
   }
 
   /**
-   * If a rollout is already in flight for this deployment, checks whether the replacement at that
-   * index has landed and reported ready for whatever {@code moduleId} it was actually placed at --
-   * clearing {@code rollingIndex} once it has, otherwise leaving everything untouched (a stalled
-   * rollout blocks only itself, never other indices). Only once no rollout is in flight does it
-   * look for a new mismatch to start, picking the lowest such index and removing its stale
-   * assignment so the caller's ordinary missing-index placement logic re-places it with the current
-   * spec's {@code moduleId} -- the exact same placement path a fresh scale-up already uses.
+   * Tops up the set of in-flight migrations to the deployment's effective {@link
+   * com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} every tick: first checks every
+   * already-in-flight index for readiness, clearing it once its replacement has landed and reported
+   * ready for whatever {@code moduleId} it was actually placed at (a stalled migration blocks only
+   * itself, never the others); then, if budget remains, starts new migrations for the
+   * lowest-indexed mismatches not already in flight -- removing each one's stale assignment so the
+   * caller's ordinary missing-index placement logic re-places it with the current spec's {@code
+   * moduleId}, the exact same placement path a fresh scale-up already uses. A freed slot is topped
+   * up in the very same tick it frees, not the next one: {@code maxUnavailable} keeps that many
+   * migrations continuously in flight rather than draining a whole batch before starting the next.
    *
    * <p>Deliberately does <em>not</em> also require {@code current.get().moduleId()} to equal {@code
-   * spec.moduleId()} here -- a real-cluster finding (see {@code RedeployStabilityIT} /
-   * QA_FINDINGS.md): {@code spec} is this method's caller's live, current snapshot, which can
+   * spec.moduleId()} when checking readiness -- a real-cluster finding {@code RedeployStabilityIT}
+   * regression-tests: {@code spec} is this method's caller's live, current snapshot, which can
    * already have raced ahead to a newer version by the time this tick runs (an operator or pipeline
-   * submitting a second version before this index's first migration was confirmed ready). Gating
-   * the clear on matching that possibly-newer spec meant the equality could never pass again for
-   * this index once it had, permanently deadlocking the deployment -- every future tick took this
-   * same early-return branch forever, since nothing else can ever clear {@code rollingIndex}.
-   * {@link #isReady} already independently confirms the live heartbeat's own observation matches
-   * {@code current}'s own recorded {@code moduleId} (not the spec's), which is the only check "did
-   * this specific migration step land" actually needs -- once cleared, the very next tick's
-   * mismatch scan below picks up any newer spec on its own, chaining rollouts instead of
-   * deadlocking on one.
+   * submitting a second version before an index's first migration was confirmed ready). Gating the
+   * clear on matching that possibly-newer spec would deadlock the index's rollout permanently once
+   * the equality could no longer pass. {@link #isReady} already independently confirms the live
+   * heartbeat's own observation matches the assignment actually placed (not the spec's), which is
+   * the only check "did this specific migration step land" actually needs -- clearing frees the
+   * slot for the mismatch scan below to immediately pick up any newer spec on its own, chaining
+   * rollouts instead of deadlocking on one.
    */
-  private void handleRollingUpdate(DeploymentSpec spec) {
-    Optional<Integer> rollingIndex = store.getRollingIndex(spec.name());
-    if (rollingIndex.isPresent()) {
-      int index = rollingIndex.get();
+  private void handleRollingUpdate(DeploymentSpec spec, int replicas) {
+    int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
+    Set<Integer> inFlight = new HashSet<>(store.getRollingIndices(spec.name()));
+
+    for (int index : Set.copyOf(inFlight)) {
       Optional<InstanceAssignment> current =
           store.listAssignmentsFor(spec.name()).stream()
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        mutations.propose(new StateMutation.ClearRollingIndex(spec.name()));
+        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        inFlight.remove(index);
+      } else if (current.isEmpty() && index >= replicas) {
+        // The scale-down race: replicas shrank below this index while its old assignment was
+        // already removed for migration (awaiting a replacement that will now never come, since
+        // the missing-index placement loop below only ever fills 0..replicas-1). Without this,
+        // the index would stay "in flight" forever -- current.isEmpty() alone isn't sufficient to
+        // clear it, since that's also the ordinary "removed old assignment, replacement not
+        // placed yet" state every in-progress migration passes through on its way to becoming
+        // ready.
+        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        inFlight.remove(index);
       }
-      // Either still waiting for the replacement to become ready, or it was already removed and
-      // is awaiting re-placement below -- either way, only one index migrates at a time.
+      // Otherwise: still waiting for the replacement to land, or already removed and awaiting
+      // re-placement below -- either way, this index keeps consuming budget until it clears.
+    }
+
+    if (inFlight.size() >= maxUnavailable) {
       return;
     }
 
@@ -240,13 +257,15 @@ public final class DeploymentReconciler {
         // rollout for every assignment that simply never specified one.
         .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
         .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
-        .min(Comparator.comparingInt(InstanceAssignment::instanceIndex))
-        .ifPresent(
+        .filter(assignment -> !inFlight.contains(assignment.instanceIndex()))
+        .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
+        .limit(maxUnavailable - inFlight.size())
+        .forEach(
             mismatched -> {
               mutations.propose(
                   new StateMutation.RemoveAssignment(spec.name(), mismatched.instanceIndex()));
               mutations.propose(
-                  new StateMutation.PutRollingIndex(spec.name(), mismatched.instanceIndex()));
+                  new StateMutation.AddRollingIndex(spec.name(), mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; rolling it forward",
                   spec.name(),

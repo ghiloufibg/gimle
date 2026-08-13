@@ -31,6 +31,10 @@ import java.util.Optional;
  * and refuses to place new instances if the bytes on disk no longer match -- ties a spec to the
  * specific artifact it was admitted against, not just whatever currently happens to be at that
  * path.
+ *
+ * <p>{@code disruption} is optional, matching every other field added after this record already
+ * existed: absent means {@link DisruptionBudget#DEFAULT} (migrate one index at a time, no surge),
+ * exactly {@code DeploymentReconciler}'s behavior before this field existed.
  */
 public record DeploymentSpec(
     String name,
@@ -40,7 +44,8 @@ public record DeploymentSpec(
     PlacementConstraints placement,
     Optional<AutoscalePolicy> autoscale,
     Optional<String> tenantId,
-    Optional<String> artifactSha256)
+    Optional<String> artifactSha256,
+    Optional<DisruptionBudget> disruption)
     implements WorkloadSpec {
 
   public DeploymentSpec {
@@ -68,6 +73,31 @@ public record DeploymentSpec(
     if (artifactSha256 == null) {
       throw new IllegalArgumentException("artifactSha256 must be Optional.empty(), not null");
     }
+    if (disruption == null) {
+      throw new IllegalArgumentException("disruption must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code disruption} to {@code Optional.empty()}. */
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        Optional.empty());
   }
 
   /**
@@ -102,5 +132,15 @@ public record DeploymentSpec(
       int replicas,
       PlacementConstraints placement) {
     this(name, moduleId, artifactPath, replicas, placement, Optional.empty(), Optional.empty());
+  }
+
+  /**
+   * The effective disruption budget: {@link #disruption} itself when present, {@link
+   * DisruptionBudget#DEFAULT} otherwise -- the one line every caller should use instead of
+   * unwrapping {@link #disruption} directly, so "no {@code disruption:} block" and "an explicit
+   * {@code {maxUnavailable: 1, maxSurge: 0}} block" are handled identically everywhere.
+   */
+  public DisruptionBudget effectiveDisruptionBudget() {
+    return disruption.orElse(DisruptionBudget.DEFAULT);
   }
 }

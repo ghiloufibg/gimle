@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A full, point-in-time copy of every resource kind {@link StateStore} holds except {@code
@@ -34,13 +35,13 @@ public record StateSnapshot(
     Map<String, Instant> cronJobLastSchedule,
     List<DaemonSetSpec> daemonSetSpecs,
     List<DaemonSetAssignment> daemonSetAssignments,
-    Map<String, String> rollingDaemonSetNodes,
+    Map<String, Set<String>> rollingDaemonSetNodes,
     List<StatefulSetSpec> statefulSetSpecs,
     List<StatefulSetAssignment> statefulSetAssignments,
     Map<String, Integer> rollingStatefulSetIndices,
     Map<String, String> statefulSetIndexNodes,
     List<NodeRegistration> nodeRegistrations,
-    Map<String, Integer> rollingIndices,
+    Map<String, Set<Integer>> rollingIndices,
     Map<String, Integer> effectiveReplicas,
     List<Tenant> tenants,
     Set<String> quotaViolatingDeployments,
@@ -63,13 +64,22 @@ public record StateSnapshot(
     cronJobLastSchedule = Map.copyOf(cronJobLastSchedule);
     daemonSetSpecs = List.copyOf(daemonSetSpecs);
     daemonSetAssignments = List.copyOf(daemonSetAssignments);
-    rollingDaemonSetNodes = Map.copyOf(rollingDaemonSetNodes);
+    // Map.copyOf alone only makes the outer map immutable, not each entry's own Set value --
+    // deep-copied here so a caller mutating a Set it passed in after construction can't reach back
+    // into this supposedly-immutable snapshot.
+    rollingDaemonSetNodes =
+        rollingDaemonSetNodes.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
     statefulSetSpecs = List.copyOf(statefulSetSpecs);
     statefulSetAssignments = List.copyOf(statefulSetAssignments);
     rollingStatefulSetIndices = Map.copyOf(rollingStatefulSetIndices);
     statefulSetIndexNodes = Map.copyOf(statefulSetIndexNodes);
     nodeRegistrations = List.copyOf(nodeRegistrations);
-    rollingIndices = Map.copyOf(rollingIndices);
+    rollingIndices =
+        rollingIndices.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
     effectiveReplicas = Map.copyOf(effectiveReplicas);
     tenants = List.copyOf(tenants);
     quotaViolatingDeployments = Set.copyOf(quotaViolatingDeployments);

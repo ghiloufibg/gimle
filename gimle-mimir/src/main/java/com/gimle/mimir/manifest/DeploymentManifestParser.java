@@ -54,14 +54,65 @@ public final class DeploymentManifestParser {
     Optional<AutoscalePolicy> autoscale = parseAutoscale(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
+    Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
 
     try {
       return new DeploymentSpec(
-          name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, artifactSha256);
+          name,
+          moduleId,
+          artifactPath,
+          replicas,
+          placement,
+          autoscale,
+          tenantId,
+          artifactSha256,
+          disruption);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code maxSurge} is parsed and rejected outright if nonzero -- see {@link DisruptionBudget}'s
+   * own javadoc for why: it isn't implemented by {@code DeploymentReconciler} yet, and accepting it
+   * silently would look like it did something.
+   */
+  static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
+    Object disruptionObj = root.get("disruption");
+    if (disruptionObj == null) {
+      return Optional.empty();
+    }
+    if (!(disruptionObj instanceof Map<?, ?> disruption)) {
+      throw new GimleManifestException("'disruption' must be a mapping");
+    }
+    int maxUnavailable = optionalDisruptionIntField(disruption, "maxUnavailable").orElse(1);
+    int maxSurge = optionalDisruptionIntField(disruption, "maxSurge").orElse(0);
+    if (maxSurge != 0) {
+      throw new GimleManifestException(
+          "'disruption.maxSurge' is not implemented yet -- omit it or set it to 0");
+    }
+    try {
+      return Optional.of(new DisruptionBudget(maxUnavailable, maxSurge));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Unlike {@link #optionalIntField}, error messages are scoped to {@code disruption.} rather than
+   * {@code autoscale.} -- a dedicated helper rather than parameterizing the prefix, matching this
+   * file's existing precedent of small, scope-specific helpers over a shared generalized one.
+   */
+  private static OptionalInt optionalDisruptionIntField(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (value == null) {
+      return OptionalInt.empty();
+    }
+    if (!(value instanceof Number number)) {
+      throw new GimleManifestException("non-numeric field if present: disruption." + key);
+    }
+    return OptionalInt.of(number.intValue());
   }
 
   private static Optional<AutoscalePolicy> parseAutoscale(Map<?, ?> root) {

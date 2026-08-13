@@ -125,6 +125,36 @@ schema's diff against the pre-weighting shape minimal and stay consistent with t
 other five fields already use, at the cost of a slightly less namespaced key set — a nested
 `cpu: {target: 50, weight: 1.0}`-style block was considered and rejected for that reason.
 
+## Deployment manifest: `disruption`
+
+`disruption` caps how many indices a rolling update may replace concurrently, grounded directly in
+`DeploymentManifestParser`'s own parsing of it and `DeploymentReconciler`'s use of the resulting
+budget. Omit the whole `disruption:` block and a rollout migrates exactly one index at a time — the
+same behavior every deployment had before this field existed.
+
+```yaml
+disruption:
+  maxUnavailable: 2   # optional -- defaults to 1 if the block is present but this key is omitted
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `maxUnavailable` | no | How many indices may be mid-migration at once. Must be at least `1` if present; defaults to `1`. |
+| `maxSurge` | rejected if nonzero | Parsed, but not yet implemented by `DeploymentReconciler` — see the field's own note below. A manifest may omit it or set it to `0`; any other value is rejected outright at submission rather than silently ignored. |
+
+A freed slot is topped up with a new migration the moment budget allows — including in the very same
+reconcile tick a prior migration clears, not the next one — so `maxUnavailable: N` keeps up to `N`
+migrations continuously in flight rather than draining a whole batch of `N` before starting the next.
+See [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers) for the full
+mechanics.
+
+**`maxSurge` is not implemented yet, on purpose.** Provisioning a replacement instance before
+removing the original (rather than the reverse, which is what happens today regardless of
+`maxUnavailable`) needs its own synthetic-index bookkeeping and interacts with tenant quota
+admission — deliberately scoped out of this first pass. The field exists in the manifest schema and
+on `DisruptionBudget` itself purely so a later change can implement it without another schema
+revision; submitting a nonzero value today is rejected rather than silently accepted-and-ignored.
+
 ## Job manifest
 
 `kind: Job` (priority-3 roadmap item 10) is a genuinely different workload shape from a Deployment:
@@ -260,6 +290,8 @@ artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
 placement:                     # optional -- omit entirely to run on every eligible node
   requiredLabels: [gpu]
 tenantId: acme                 # optional -- omit for an untenanted daemonset
+disruption:                    # optional -- see the Deployment manifest's own disruption section
+  maxUnavailable: 2
 ```
 
 | Field | Required | Meaning |
@@ -271,6 +303,8 @@ tenantId: acme                 # optional -- omit for an untenanted daemonset
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
+| `disruption.maxUnavailable` | no | Same meaning as the [Deployment manifest's own field](#deployment-manifest-disruption) — how many nodes may be mid-rollout at once. Defaults to `1`. |
+| `disruption.maxSurge` | rejected if nonzero | Meaningless here even once implemented for Deployment — one instance per node is already the strongest guarantee a surge could offer. `DaemonSetManifestParser` rejects a nonzero value outright, the same posture it takes for `placement.antiAffinity`. |
 
 A daemonset's `instances[]` (one entry per node currently running it, each carrying that node's own
 health observation) is read-only, computed state — never part of the manifest you submit, the same
@@ -279,8 +313,7 @@ DaemonSets screen) is how you read it back.
 
 **What this does not provide, plainly stated**: no kernel-level per-node resource enforcement beyond
 whatever `ResourceLimiter` already provides for any other workload kind (see [Tiered
-Isolation](../architecture/tiered-isolation.md)); no rolling-update pause/resume controls beyond the
-same node-keyed state machine a Deployment's own rolling update uses.
+Isolation](../architecture/tiered-isolation.md)); no `maxSurge` (rejected outright, see above).
 
 ## StatefulSet manifest
 
