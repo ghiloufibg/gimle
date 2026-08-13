@@ -1522,7 +1522,8 @@ public final class ApiServer implements AutoCloseable {
               assignment.instanceIndex(),
               moduleId,
               artifactPath,
-              spec.get().tenantId());
+              spec.get().tenantId(),
+              assignment.renamedFromInstanceIndex());
       assigned.add(assignedInstanceToJson(instance));
     }
     // Job runs reuse this exact same AssignedInstance wire shape --
@@ -1878,6 +1879,9 @@ public final class ApiServer implements AutoCloseable {
     map.put("moduleId", moduleIdToJson(instance.moduleId()));
     map.put("artifactPath", instance.artifactPath());
     instance.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
+    if (instance.renamedFromInstanceIndex().isPresent()) {
+      map.put("renamedFromInstanceIndex", instance.renamedFromInstanceIndex().getAsInt());
+    }
     return map;
   }
 

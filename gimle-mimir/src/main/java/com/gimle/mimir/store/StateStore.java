@@ -48,6 +48,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -2080,6 +2081,9 @@ public final class StateStore implements StoreReader {
     moduleId.put("version", assignment.moduleId().version().toString());
     root.put("moduleId", moduleId);
     root.put("artifactPath", assignment.artifactPath());
+    assignment
+        .renamedFromInstanceIndex()
+        .ifPresent(index -> root.put("renamedFromInstanceIndex", index));
     return new Yaml().dump(root);
   }
 
@@ -2089,12 +2093,16 @@ public final class StateStore implements StoreReader {
         new ModuleId(
             (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
     Object artifactPath = map.get("artifactPath");
+    Object renamedFrom = map.get("renamedFromInstanceIndex");
     return new InstanceAssignment(
         (String) map.get("deploymentName"),
         ((Number) map.get("instanceIndex")).intValue(),
         (String) map.get("nodeId"),
         moduleId,
-        artifactPath == null ? "" : (String) artifactPath);
+        artifactPath == null ? "" : (String) artifactPath,
+        renamedFrom == null
+            ? OptionalInt.empty()
+            : OptionalInt.of(((Number) renamedFrom).intValue()));
   }
 
   private static String registrationToYaml(NodeRegistration registration) {

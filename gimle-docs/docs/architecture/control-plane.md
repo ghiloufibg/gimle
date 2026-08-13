@@ -198,12 +198,24 @@ placed at a synthetic index `>= replicas`, a range the ordinary `0..replicas-1` 
 otherwise uses, tracked as a (surgeIndex → targetIndex) pair independently of the `maxUnavailable`
 in-flight set — the two budgets run as separate passes over the same mismatched-index list each
 tick, each excluding indices the other has already claimed, so the same index is never migrated both
-ways at once. Once the surge instance reports ready, the target index's original assignment is
-removed and re-placed fresh through the same missing-index loop a scale-up already uses; the surge
-assignment itself is left in place, now untracked, reclaimed by the ordinary scale-down sweep on a
-later tick rather than torn down explicitly as part of promotion. A replica-count drop while a
-surge's target index is still in flight abandons that promotion rather than completing it into an
-index that no longer exists.
+ways at once. A replica-count drop while a surge's target index is still in flight abandons that
+promotion rather than completing it into an index that no longer exists.
+
+**Promotion retargets the surge instance onto the target index in place, without a restart.** Once
+the surge instance reports ready, `DeploymentReconciler` doesn't tear the target index down and
+schedule a fresh replacement — it overwrites the target's assignment with the surge instance's own
+already-known `nodeId`/`moduleId`/`artifactPath`, tagged with `InstanceAssignment
+.renamedFromInstanceIndex()`, and removes the now-redundant surge slot in the same tick. `AgentMain`
+recognizes that hint on its next poll: if the instance it's already supervising under the old
+(surge) key is still healthy and running exactly what the target now expects, it re-keys its own
+bookkeeping (`supervised`, per-instance log shippers) and sends the worker a `RenameInstance`
+control message — a new agent↔worker frame that updates only `InstanceIdentityRegistry`'s log/health
+identity tagging, never `ResolveModule`/`StartModule`/`StopModule` — rather than killing the worker
+JVM and spawning a new one. The whole point: a migrated replica under `maxSurge` pays for exactly one
+worker JVM startup (the surge instance's own), not two. This is a pure optimization with a safe
+fallback baked in at every step — if the rename source isn't found supervised (a genuine race, or the
+agent restarted and lost in-memory state), `AgentMain` falls straight through to the ordinary
+start/stop path, exactly as if promotion had torn the target down and re-scheduled it fresh.
 
 :::note[Level-triggered, not edge-triggered]
 

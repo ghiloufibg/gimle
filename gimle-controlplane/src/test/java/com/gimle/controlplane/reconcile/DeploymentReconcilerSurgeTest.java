@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -164,7 +165,7 @@ class DeploymentReconcilerSurgeTest {
   }
 
   @Test
-  void promotion_replaces_the_target_fresh_and_the_surge_slot_is_reclaimed_on_a_later_tick() {
+  void promotion_retargets_the_surge_instance_onto_the_target_in_the_same_tick() {
     StateStore store = new StateStore(tempDir.resolve("store-promote"));
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
@@ -185,26 +186,35 @@ class DeploymentReconcilerSurgeTest {
     reconciler.reconcileOnce();
 
     int surgeIndex = store.getSurgeIndices("orders-service").keySet().iterator().next();
+    int targetIndex = store.getSurgeIndices("orders-service").get(surgeIndex);
+    String surgeNodeId = assignmentAt(store, "orders-service", surgeIndex).nodeId();
     markReady(store, "node-a", "orders-service", surgeIndex, v2.moduleId());
-    reconciler.reconcileOnce(); // promotes: target re-placed fresh, surge tracking clears
+    reconciler.reconcileOnce(); // promotes: retargets in place, no restart, same tick
 
     assertTrue(
         store.getSurgeIndices("orders-service").isEmpty(),
         "promotion must clear the surge tracking entry");
-    assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
-    // The surge assignment itself is left in place this same tick -- now untracked, not yet swept.
-    assertTrue(
-        assignmentAtIfPresent(store, "orders-service", surgeIndex).isPresent(),
-        "the surge assignment is reclaimed by scale-down on a later tick, not torn down by"
-            + " promotion itself");
-
-    reconciler.reconcileOnce(); // ordinary scale-down now reclaims the untracked surge assignment
-
+    // No later-tick scale-down sweep needed: the surge slot's own assignment is gone in this same
+    // tick, retargeted rather than left orphaned for later reclaiming.
     assertTrue(
         assignmentAtIfPresent(store, "orders-service", surgeIndex).isEmpty(),
-        "the orphaned surge assignment must eventually be reclaimed, converging back to exactly"
-            + " replicas instances");
-    assertEquals(2, store.listAssignmentsFor("orders-service").size());
+        "the surge slot must be gone in the very same tick promotion happens");
+    InstanceAssignment promoted = assignmentAt(store, "orders-service", targetIndex);
+    assertEquals(v2.moduleId(), promoted.moduleId());
+    assertEquals(
+        surgeNodeId,
+        promoted.nodeId(),
+        "the retargeted instance keeps the exact node the surge instance already proved healthy"
+            + " on, never a fresh scheduling decision");
+    assertEquals(
+        OptionalInt.of(surgeIndex),
+        promoted.renamedFromInstanceIndex(),
+        "the retargeted assignment must carry the rename hint AgentMain relies on to retarget its"
+            + " own already-running worker instead of restarting it");
+    assertEquals(
+        2,
+        store.listAssignmentsFor("orders-service").size(),
+        "no extra tick needed to converge back to exactly replicas instances");
   }
 
   @Test

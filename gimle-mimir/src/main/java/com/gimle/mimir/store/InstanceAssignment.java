@@ -2,6 +2,7 @@ package com.gimle.mimir.store;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import java.util.OptionalInt;
 
 /**
  * The scheduler's placement decision for one deployment replica: which node should run it, which
@@ -13,13 +14,22 @@ import com.gimle.core.module.Version;
  * which can't express "this specific replica hasn't migrated yet" mid-rollout. The three-argument
  * constructor (placeholder moduleId/artifactPath) keeps every call site that predates rolling
  * updates and genuinely doesn't care which version was placed unchanged.
+ *
+ * <p>{@code renamedFromInstanceIndex} is set only by {@code DeploymentReconciler#handleSurge}'s
+ * promotion step: this assignment's {@code nodeId}/{@code moduleId}/{@code artifactPath} were
+ * copied verbatim from an already-healthy surge instance previously running at that index, rather
+ * than freshly scheduled -- a signal {@code AgentMain} uses to retarget the already-running worker
+ * in place (re-key its own bookkeeping, tell the worker its identity changed) instead of tearing it
+ * down and spawning a new one under this index. Absent for every ordinary placement, which is
+ * exactly what "freshly scheduled, nothing to retarget from" means.
  */
 public record InstanceAssignment(
     String deploymentName,
     int instanceIndex,
     String nodeId,
     ModuleId moduleId,
-    String artifactPath) {
+    String artifactPath,
+    OptionalInt renamedFromInstanceIndex) {
 
   /**
    * The placeholder the three-argument constructor uses; a caller resolving "what should this
@@ -48,6 +58,20 @@ public record InstanceAssignment(
     if (artifactPath == null) {
       throw new IllegalArgumentException("artifactPath must not be null (use \"\" if unknown)");
     }
+    if (renamedFromInstanceIndex == null) {
+      throw new IllegalArgumentException(
+          "renamedFromInstanceIndex must be OptionalInt.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code renamedFromInstanceIndex} to {@code OptionalInt.empty()}. */
+  public InstanceAssignment(
+      String deploymentName,
+      int instanceIndex,
+      String nodeId,
+      ModuleId moduleId,
+      String artifactPath) {
+    this(deploymentName, instanceIndex, nodeId, moduleId, artifactPath, OptionalInt.empty());
   }
 
   public InstanceAssignment(String deploymentName, int instanceIndex, String nodeId) {

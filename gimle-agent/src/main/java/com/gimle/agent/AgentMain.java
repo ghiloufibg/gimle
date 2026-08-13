@@ -64,6 +64,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -643,13 +644,17 @@ public final class AgentMain {
           new ModuleId(
               (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
       Object tenantId = map.get("tenantId");
+      Object renamedFrom = map.get("renamedFromInstanceIndex");
       result.add(
           new AssignedInstance(
               (String) map.get("deploymentName"),
               ((Number) map.get("instanceIndex")).intValue(),
               moduleId,
               (String) map.get("artifactPath"),
-              tenantId == null ? Optional.empty() : Optional.of((String) tenantId)));
+              tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
+              renamedFrom == null
+                  ? OptionalInt.empty()
+                  : OptionalInt.of(((Number) renamedFrom).intValue())));
     }
     return result;
   }
@@ -778,54 +783,59 @@ public final class AgentMain {
             false);
       }
       if (!supervised.containsKey(key)) {
-        try {
-          ModuleDescriptor descriptor =
-              ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
-          if (!resourceLimiter.supports(descriptor.isolationTier())) {
-            throw GimleIsolationException.tierUnsupported(
-                assigned.moduleId(), descriptor.isolationTier());
+        Optional<SupervisedInstance> renameSource = findRenameSource(assigned, supervised);
+        if (renameSource.isPresent()) {
+          renameInPlace(key, assigned, renameSource.get(), supervised, instanceShippers);
+        } else {
+          try {
+            ModuleDescriptor descriptor =
+                ModuleArtifactReader.read(Path.of(assigned.artifactPath())).descriptor();
+            if (!resourceLimiter.supports(descriptor.isolationTier())) {
+              throw GimleIsolationException.tierUnsupported(
+                  assigned.moduleId(), descriptor.isolationTier());
+            }
+            Optional<SupervisedInstance> reusable =
+                findReusableTier1Worker(assigned, descriptor, supervised);
+            if (reusable.isPresent()) {
+              installIntoExistingWorker(
+                  assigned,
+                  key,
+                  descriptor,
+                  reusable.get(),
+                  supervised,
+                  capacityTracker,
+                  httpClient,
+                  baseUrl,
+                  fafnirBaseUrl,
+                  muninnEndpoint,
+                  instanceShippers,
+                  logRoot,
+                  volumeManager);
+            } else {
+              startInstance(
+                  assigned,
+                  key,
+                  descriptor,
+                  supervised,
+                  nodeId,
+                  javaExecutable,
+                  commandTail,
+                  resourceLimiter,
+                  capacityTracker,
+                  gossipMember,
+                  catalog,
+                  httpClient,
+                  baseUrl,
+                  fafnirBaseUrl,
+                  muninnEndpoint,
+                  instanceShippers,
+                  workerShippers,
+                  logRoot,
+                  volumeManager);
+            }
+          } catch (IOException | RuntimeException e) {
+            log.error("failed to start instance {}: {}", key, e.getMessage(), e);
           }
-          Optional<SupervisedInstance> reusable =
-              findReusableTier1Worker(assigned, descriptor, supervised);
-          if (reusable.isPresent()) {
-            installIntoExistingWorker(
-                assigned,
-                key,
-                descriptor,
-                reusable.get(),
-                supervised,
-                capacityTracker,
-                httpClient,
-                baseUrl,
-                fafnirBaseUrl,
-                muninnEndpoint,
-                instanceShippers,
-                logRoot,
-                volumeManager);
-          } else {
-            startInstance(
-                assigned,
-                key,
-                descriptor,
-                supervised,
-                nodeId,
-                javaExecutable,
-                commandTail,
-                resourceLimiter,
-                capacityTracker,
-                gossipMember,
-                catalog,
-                httpClient,
-                baseUrl,
-                fafnirBaseUrl,
-                muninnEndpoint,
-                instanceShippers,
-                workerShippers,
-                logRoot,
-                volumeManager);
-          }
-        } catch (IOException | RuntimeException e) {
-          log.error("failed to start instance {}: {}", key, e.getMessage(), e);
         }
       }
     }
@@ -1607,7 +1617,11 @@ public final class AgentMain {
   }
 
   private static String instanceKey(AssignedInstance assigned) {
-    return assigned.deploymentName() + "#" + assigned.instanceIndex();
+    return instanceKey(assigned.deploymentName(), assigned.instanceIndex());
+  }
+
+  private static String instanceKey(String deploymentName, int instanceIndex) {
+    return deploymentName + "#" + instanceIndex;
   }
 
   /**
@@ -1621,6 +1635,81 @@ public final class AgentMain {
   static boolean requiresReplacement(AssignedInstance assigned, SupervisedInstance existing) {
     return !existing.assigned.moduleId().equals(assigned.moduleId())
         || !existing.assigned.artifactPath().equals(assigned.artifactPath());
+  }
+
+  /**
+   * A rename is only honored when the source instance is still present under its old key (a
+   * previous poll may have already completed the rename, or the source may genuinely be gone --
+   * both fall through to the ordinary start path, always correct, just without the optimization)
+   * and already running exactly what {@code assigned} now expects: {@code requiresReplacement}
+   * false means moduleId/artifactPath already match, so retargeting it is a pure rename, never a
+   * way to silently skip a real upgrade this key still needs.
+   */
+  static Optional<SupervisedInstance> findRenameSource(
+      AssignedInstance assigned, Map<String, SupervisedInstance> supervised) {
+    if (assigned.renamedFromInstanceIndex().isEmpty()) {
+      return Optional.empty();
+    }
+    String sourceKey =
+        instanceKey(assigned.deploymentName(), assigned.renamedFromInstanceIndex().getAsInt());
+    SupervisedInstance source = supervised.get(sourceKey);
+    if (source == null || requiresReplacement(assigned, source)) {
+      return Optional.empty();
+    }
+    return Optional.of(source);
+  }
+
+  /**
+   * Retargets an already-running, already-healthy instance onto a new key in place: re-keys {@code
+   * supervised}/{@code instanceShippers} and updates the instance's own {@link
+   * SupervisedInstance#assigned}, then tells the worker (if already connected) its {@code
+   * InstanceIdentityRegistry} entry changed too -- no {@code stopInstance}/{@code startInstance}
+   * anywhere in this path, the entire point being that the live worker process and its module state
+   * are never touched. If the worker hasn't connected yet (a genuine race: the rename source only
+   * just started), there is nothing to notify -- {@code sendInstallStartSequence}'s own {@code
+   * InstallModule} reads {@code instance.assigned} live once the connection completes, so it picks
+   * up the already-updated identity on its own, with no separate propagation needed.
+   */
+  static void renameInPlace(
+      String newKey,
+      AssignedInstance assigned,
+      SupervisedInstance instance,
+      Map<String, SupervisedInstance> supervised,
+      Map<String, List<MuninnShipper>> instanceShippers) {
+    String oldKey = instanceKey(instance.assigned);
+    log.info("instance {} retargeted to {} -- renaming in place, no restart", oldKey, newKey);
+    instance.assigned = assigned;
+    supervised.remove(oldKey);
+    supervised.put(newKey, instance);
+    List<MuninnShipper> shippers = instanceShippers.remove(oldKey);
+    if (shippers != null) {
+      instanceShippers.put(newKey, shippers);
+    }
+    WorkerConnection connection = instance.connection;
+    if (connection != null) {
+      try {
+        connection.send(
+            new ControlMessage.RenameInstance(
+                nextCorrelationId(),
+                assigned.moduleId(),
+                assigned.deploymentName(),
+                assigned.instanceIndex()));
+      } catch (IOException e) {
+        // Best-effort, matching syncCatalogToWorker's own posture: the rename already committed
+        // in this agent's own bookkeeping above (supervised/instanceShippers, and instance.assigned
+        // itself, which is what this agent's own heartbeats report from), so a lost notification
+        // here never desyncs the control plane's view. Its only casualty is the worker's own
+        // InstanceIdentityRegistry-driven MDC log tagging staying stale at the old index
+        // indefinitely -- nothing re-sends RenameInstance on a later tick once this key is already
+        // renamed agent-side -- a cosmetic gap in that worker's own log lines, not a functional
+        // one.
+        log.warn(
+            "failed to notify worker of instance {} rename to {}: {}",
+            oldKey,
+            newKey,
+            e.getMessage());
+      }
+    }
   }
 
   private static String nextCorrelationId() {

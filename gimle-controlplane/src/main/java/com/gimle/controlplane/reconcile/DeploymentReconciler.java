@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,11 +55,16 @@ import org.slf4j.LoggerFactory;
  * replacement lands, it provisions the replacement first, at a synthetic index {@code >= replicas}
  * the ordinary {@code 0..replicas-1} range never otherwise uses, so a migration under {@code
  * maxSurge} never drops the deployment's running count below {@code replicas} even momentarily.
- * Like {@link #handleRollingUpdate}, it never calls {@link Scheduler#place} itself -- it only
- * decides which synthetic index maps to which target index; the same missing-index placement loop
- * below places both a fresh scale-up index and a newly-tracked surge index identically. The two
- * budgets run as independent passes over the same mismatched-index list each tick, each excluding
- * indices the other has already claimed.
+ * Provisioning that surge instance never calls {@link Scheduler#place} itself, the same way {@link
+ * #handleRollingUpdate} doesn't -- it only tracks which synthetic index maps to which target index;
+ * the same missing-index placement loop below places both a fresh scale-up index and a
+ * newly-tracked surge index identically. Promotion, once the surge instance reports ready,
+ * retargets it onto the target index in place -- a {@code PutAssignment} carrying {@code
+ * InstanceAssignment#renamedFromInstanceIndex()} -- rather than tearing the target down and
+ * re-scheduling a fresh instance there, so a migrated replica never pays for a second worker JVM
+ * startup it doesn't need; {@code AgentMain} recognizes the hint and retargets its own
+ * already-running worker instead of restarting it. The two budgets run as independent passes over
+ * the same mismatched-index list each tick, each excluding indices the other has already claimed.
  */
 public final class DeploymentReconciler {
 
@@ -131,8 +137,10 @@ public final class DeploymentReconciler {
     // desired-state edit only) -- the agent's own stop()/StopModule drain timing owns teardown,
     // not this reconciler. A live surge assignment is excluded: it's also >= replicas by
     // construction, but tearing it down here would defeat the whole point of maxSurge (see
-    // #handleSurge). Once its own tracking entry clears (promoted or abandoned), it's no longer
-    // excluded and this same loop reclaims it on a later tick -- no separate teardown path needed.
+    // #handleSurge). Promotion removes it explicitly, in the same tick, once retargeted onto its
+    // target index -- this exclusion only ever matters for an abandoned surge (replicas shrank
+    // below its target mid-flight): its tracking entry clears without its assignment being
+    // removed, so this same loop reclaims that one on a later tick once it's no longer excluded.
     Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
     for (InstanceAssignment assignment : existing) {
       if (assignment.instanceIndex() >= replicas
@@ -309,7 +317,10 @@ public final class DeploymentReconciler {
    * calls {@link Scheduler#place} itself, the same way {@link #handleRollingUpdate} doesn't --
    * {@link #reconcileDeployment}'s own missing-index placement loop, via {@link
    * #indicesNeedingPlacement}, does the actual scheduling for a newly-tracked surge index the same
-   * way it already does for an ordinary missing one.
+   * way it already does for an ordinary missing one. Promotion is bookkeeping too, just of a
+   * different shape: it copies the surge instance's already-known {@code nodeId} straight onto the
+   * target index's new assignment rather than asking the scheduler to pick one, since the whole
+   * point is reusing a placement decision already proven healthy, not making a new one.
    */
   private void handleSurge(DeploymentSpec spec, int replicas) {
     int maxSurge = spec.effectiveDisruptionBudget().maxSurge();
@@ -332,12 +343,25 @@ public final class DeploymentReconciler {
               .filter(a -> a.instanceIndex() == surgeIndex)
               .findFirst();
       if (surgeAssignment.isPresent() && isReady(surgeAssignment.get())) {
-        // Promotion: retire the old target instance now that its replacement has proven healthy
-        // -- the missing-index loop re-places targetIndex fresh (new moduleId) in this same tick,
-        // the exact same placement path a scale-up already uses. The surge assignment itself is
-        // left as-is here -- now untracked, reclaimed by the ordinary scale-down sweep rather than
-        // torn down explicitly by this method.
-        mutations.propose(new StateMutation.RemoveAssignment(spec.name(), targetIndex));
+        // Promotion: retarget the already-healthy surge instance onto targetIndex in place,
+        // rather than tearing the old target down and letting the missing-index loop schedule a
+        // fresh instance there. PutAssignment overwrites whatever stale (old-moduleId) assignment
+        // targetIndex still has, the same way an ordinary fresh placement would -- but this one
+        // carries renamedFromInstanceIndex, which AgentMain#reconcileAssignments recognizes and
+        // re-keys its already-running worker instance from, instead of restarting it (see
+        // AssignedInstance's own javadoc). The surge index's own now-redundant assignment is
+        // removed in the same tick -- no orphaned entry left for a later scale-down sweep to find.
+        InstanceAssignment healthy = surgeAssignment.get();
+        mutations.propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    spec.name(),
+                    targetIndex,
+                    healthy.nodeId(),
+                    healthy.moduleId(),
+                    healthy.artifactPath(),
+                    OptionalInt.of(surgeIndex))));
+        mutations.propose(new StateMutation.RemoveAssignment(spec.name(), surgeIndex));
         mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
       }
