@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/master-commit-review.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/master-guard.sh",
+            "timeout": 200
           }
         ]
       }
