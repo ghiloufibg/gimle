@@ -24,6 +24,7 @@ import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.observability.GimleTracing;
+import com.gimle.observability.MeterSnapshotCodec;
 import com.gimle.observability.WorkerMetrics;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -65,6 +66,11 @@ public final class WorkerMain {
   // than only showing up as eventual metaspace exhaustion.
   private static final Duration LEAK_DETECTION_WINDOW = Duration.ofSeconds(30);
 
+  // The same cadence AgentMain's own MuninnShipper instances tick on -- no correctness reason the
+  // two need to match exactly, but keeping them equal means a worker's snapshot and its agent's
+  // relay of it are never more than one tick apart from each other.
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
+
   private WorkerMain() {}
 
   public static void main(String[] args) throws IOException {
@@ -103,8 +109,6 @@ public final class WorkerMain {
     InstanceLogCloser instanceLogCloser =
         GimleLogging.attachInstanceSiftingAppender(logRoot.resolve("instances"));
 
-    GimleTracing.installDefault();
-
     UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[2]));
     ControlChannelClient channel =
         ControlChannelClient.connectWithRetry(
@@ -113,6 +117,16 @@ public final class WorkerMain {
 
     long pid = ProcessHandle.current().pid();
     String workerId = "worker-" + pid;
+
+    // A worker has no outbound network identity of its own (design doc §6a) -- every exported span
+    // relays to the agent over this same control channel rather than shipping to Muninn directly,
+    // the same reasoning behind installDefault()'s pre-§6 behavior (LoggingSpanExporter, spans real
+    // and correctly parented, just not shipped anywhere) being replaced here rather than kept as a
+    // fallback: RelayingSpanExporter degrades to "the agent has nothing configured to forward to"
+    // exactly the same way an unset gimle.agent.muninnEndpoint already does on the agent side, so
+    // there's no case where installDefault() behaves differently from this in a way worth keeping.
+    GimleTracing.install(
+        new RelayingSpanExporter(workerId, message -> sendQuietly(channel, message)));
 
     ModuleRegistry registry = new ModuleRegistry();
     ModuleResolver resolver = new ModuleResolver(registry);
@@ -228,6 +242,9 @@ public final class WorkerMain {
     Thread.ofVirtual()
         .name("gimle-metrics-reporter")
         .start(() -> metricsReportLoop(channel, activeModules, workerMetrics, runtime));
+    Thread.ofVirtual()
+        .name("gimle-muninn-metrics-relay")
+        .start(() -> muninnMetricsRelayLoop(channel, workerId, workerMetrics));
 
     channel.send(
         new ControlMessage.Hello(
@@ -239,7 +256,16 @@ public final class WorkerMain {
 
     Optional<ControlMessage> received;
     while ((received = channel.receive()).isPresent()) {
-      handle(received.get(), registry, controller, channel, catalog, identityRegistry, tenantId);
+      handle(
+          received.get(),
+          registry,
+          controller,
+          channel,
+          catalog,
+          identityRegistry,
+          tenantId,
+          workerId,
+          workerMetrics);
     }
     log.info("control channel closed by agent; shutting down");
   }
@@ -315,6 +341,33 @@ public final class WorkerMain {
     return previous == null ? 0.0 : Math.max(0.0, current - previous) / intervalSeconds;
   }
 
+  /**
+   * Ships this worker JVM's own {@code WorkerMetrics} registry to the agent as one NDJSON snapshot
+   * per tick (design doc §6b/§6c) -- one shipper's worth of data per worker process, not per module
+   * the way {@link #metricsReportLoop}'s autoscaling-facing {@code MetricsReport} is; {@code
+   * MeterSnapshotCodec} already tags every meter by its own module internally, so nothing here
+   * needs to iterate {@code activeModules}. Deliberately a separate loop/thread from {@link
+   * #metricsReportLoop}, not a shared tick: the two report different things to different consumers
+   * (autoscaling signal vs. observability export payload) and conflating them would make both
+   * harder to reason about, the same split {@code ControlMessage.MetricsReport}'s own javadoc draws
+   * against {@code MetricsSnapshot}.
+   */
+  private static void muninnMetricsRelayLoop(
+      ControlChannelClient channel, String workerId, WorkerMetrics workerMetrics) {
+    while (!Thread.currentThread().isInterrupted()) {
+      try {
+        Thread.sleep(MUNINN_SHIP_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      String body = MeterSnapshotCodec.toNdjson(workerMetrics.registry());
+      if (!body.isEmpty()) {
+        sendQuietly(channel, new ControlMessage.MetricsSnapshot(workerId, body));
+      }
+    }
+  }
+
   /** Binds the two fabric listeners a worker always offers: same-machine UDS, cross-machine TCP. */
   private static FabricBinding bindFabricServer(
       ServiceRegistry localRegistry,
@@ -355,7 +408,9 @@ public final class WorkerMain {
       ControlChannelClient channel,
       ServiceCatalog catalog,
       InstanceIdentityRegistry identityRegistry,
-      Optional<String> tenantId)
+      Optional<String> tenantId,
+      String workerId,
+      WorkerMetrics workerMetrics)
       throws IOException {
     switch (message) {
       case ControlMessage.InstallModule m -> {
@@ -389,12 +444,24 @@ public final class WorkerMain {
               channel,
               mdcTagsFor(m.id(), identityRegistry),
               () -> controller.start(m.id()));
-      case ControlMessage.StopModule m ->
-          runCommand(
-              m.correlationId(),
-              channel,
-              mdcTagsFor(m.id(), identityRegistry),
-              () -> controller.stop(m.id()));
+      case ControlMessage.StopModule m -> {
+        runCommand(
+            m.correlationId(),
+            channel,
+            mdcTagsFor(m.id(), identityRegistry),
+            () -> controller.stop(m.id()));
+        // A well-behaved log appender flushes remaining lines before closing (design doc §6d) --
+        // this instance may be a Job run torn down moments after completing, with no guarantee the
+        // next MUNINN_SHIP_INTERVAL tick ever fires before the worker process exits. One extra
+        // best-effort snapshot per StopModule, not gated on "is this the worker's last instance":
+        // simpler than tracking that, and harmless -- an empty/near-empty registry snapshot costs
+        // little to ship early.
+        String body = MeterSnapshotCodec.toNdjson(workerMetrics.registry());
+        if (!body.isEmpty()) {
+          sendQuietly(channel, new ControlMessage.MetricsSnapshot(workerId, body));
+        }
+        GimleTracing.flush();
+      }
       case ControlMessage.UninstallModule m ->
           runCommand(
               m.correlationId(),

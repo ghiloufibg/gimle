@@ -280,6 +280,52 @@ class MuninnShipperTest {
     assertEquals(1, receivedBodies.size());
   }
 
+  @Test
+  @Timeout(10)
+  void ship_prepared_batch_posts_the_given_body_verbatim_with_no_periodic_ticking(TestClock clock)
+      throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    CountDownLatch received = new CountDownLatch(1);
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              received.countDown();
+              return 200;
+            });
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    shipper.shipPreparedBatch("{\"name\":\"gimle.relayed\"}\n");
+
+    assertTrue(received.await(5, TimeUnit.SECONDS));
+    assertEquals(1, receivedBodies.size());
+    assertTrue(receivedBodies.get(0).contains("gimle.relayed"));
+
+    // No re-serialization, no ticker started -- the body reaches Muninn exactly as given.
+    assertEquals(0, scheduler.pendingTaskCount());
+    assertEquals(0, scheduler.advance(SHIP_INTERVAL.multipliedBy(10)));
+    assertEquals(1, receivedBodies.size());
+  }
+
+  @Test
+  void ship_prepared_batch_is_a_noop_for_an_empty_body(TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    shipper.shipPreparedBatch("");
+
+    Thread.sleep(100);
+    assertTrue(receivedBodies.isEmpty());
+  }
+
   /**
    * {@code LogFileReader.parseLine} only treats a line as structured (preserving it verbatim) if it
    * has both {@code timestamp} and {@code level} fields -- otherwise it's wrapped as a raw {@code

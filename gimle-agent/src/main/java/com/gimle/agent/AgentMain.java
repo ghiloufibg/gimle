@@ -199,6 +199,13 @@ public final class AgentMain {
     // the same tick the instance is added to supervised and closed the same tick it's removed.
     // Empty (never populated) when muninnEndpoint is unset.
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
+    // Keyed by the worker-JVM-generated Hello#workerId, NOT by the agent-side instance key
+    // instanceShippers above uses -- one metrics shipper and one traces shipper per worker
+    // *process* (design doc §6b), established the moment that worker's Hello arrives (readLoop)
+    // and closed when the last SupervisedInstance sharing its connection is torn down
+    // (stopInstance). Empty (never populated) when muninnEndpoint is unset, same as
+    // instanceShippers.
+    Map<String, WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
 
     MemberId self = new MemberId(nodeId, gossipBindAddress);
     GossipMember gossipMember = new GossipMember(self, GossipConfig.defaults());
@@ -224,6 +231,7 @@ public final class AgentMain {
             nodeId,
             supervised,
             instanceShippers,
+            workerShippers,
             javaExecutable,
             commandTail,
             resourceLimiter,
@@ -726,6 +734,7 @@ public final class AgentMain {
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers,
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
@@ -761,7 +770,14 @@ public final class AgentMain {
         // false: a rolling-update teardown-then-immediate-replace, not a permanent removal -- the
         // volume (if any) must stay put for the replacement about to be started below. See
         // stopInstance's own releaseVolume javadoc.
-        stopInstance(key, supervised, capacityTracker, instanceShippers, volumeManager, false);
+        stopInstance(
+            key,
+            supervised,
+            capacityTracker,
+            instanceShippers,
+            workerShippers,
+            volumeManager,
+            false);
       }
       if (!supervised.containsKey(key)) {
         try {
@@ -806,6 +822,7 @@ public final class AgentMain {
                 fafnirBaseUrl,
                 muninnEndpoint,
                 instanceShippers,
+                workerShippers,
                 logRoot,
                 volumeManager);
           }
@@ -819,7 +836,14 @@ public final class AgentMain {
         // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the
         // one case a volume's data is actually meant to go away. See stopInstance's own
         // releaseVolume javadoc.
-        stopInstance(key, supervised, capacityTracker, instanceShippers, volumeManager, true);
+        stopInstance(
+            key,
+            supervised,
+            capacityTracker,
+            instanceShippers,
+            workerShippers,
+            volumeManager,
+            true);
       }
     }
   }
@@ -924,6 +948,7 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers,
       Path logRoot,
       VolumeManager volumeManager)
       throws IOException {
@@ -978,7 +1003,9 @@ public final class AgentMain {
                     fafnirBaseUrl,
                     nodeId,
                     supervised,
-                    volumeManager));
+                    volumeManager,
+                    muninnEndpoint,
+                    workerShippers));
   }
 
   /**
@@ -1106,7 +1133,9 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
-      VolumeManager volumeManager) {
+      VolumeManager volumeManager,
+      String muninnEndpoint,
+      Map<String, WorkerShipperPair> workerShippers) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
@@ -1122,7 +1151,9 @@ public final class AgentMain {
                       httpClient,
                       baseUrl,
                       nodeId,
-                      supervised));
+                      supervised,
+                      muninnEndpoint,
+                      workerShippers));
       sendInstallStartSequence(
           instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
@@ -1264,7 +1295,7 @@ public final class AgentMain {
    * module-scoped -- it fires once, before any sibling could have joined this connection, so it's
    * always safe to apply directly to {@code instance}.
    */
-  private static void readLoop(
+  static void readLoop(
       SupervisedInstance instance,
       String key,
       GossipMember gossipMember,
@@ -1272,7 +1303,9 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
-      Map<String, SupervisedInstance> supervised) {
+      Map<String, SupervisedInstance> supervised,
+      String muninnEndpoint,
+      Map<String, WorkerShipperPair> workerShippers) {
     WorkerConnection connection = instance.connection;
     try {
       Optional<ControlMessage> received;
@@ -1295,6 +1328,18 @@ public final class AgentMain {
           // its listener was registered, so anything learned before this worker connected would
           // otherwise never reach it.
           syncCatalogToWorker(instance, catalog);
+          startShippingWorkerMetricsAndTraces(
+              muninnEndpoint, workerShippers, nodeId, hello.workerId());
+        } else if (message instanceof ControlMessage.MetricsSnapshot snapshot) {
+          WorkerShipperPair shippers = workerShippers.get(snapshot.workerId());
+          if (shippers != null) {
+            shippers.metrics().shipPreparedBatch(snapshot.ndjsonPayload());
+          }
+        } else if (message instanceof ControlMessage.TracesSnapshot snapshot) {
+          WorkerShipperPair shippers = workerShippers.get(snapshot.workerId());
+          if (shippers != null) {
+            shippers.traces().shipPreparedBatch(snapshot.ndjsonPayload());
+          }
         } else if (message instanceof ControlMessage.ServiceRegistered registered) {
           findByModuleId(supervised, connection, registered.moduleId())
               .ifPresent(
@@ -1414,6 +1459,7 @@ public final class AgentMain {
       Map<String, SupervisedInstance> supervised,
       CapacityTracker capacityTracker,
       Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers,
       VolumeManager volumeManager,
       boolean releaseVolume) {
     SupervisedInstance instance = supervised.remove(key);
@@ -1449,6 +1495,12 @@ public final class AgentMain {
       } catch (IOException e) {
         log.warn("failed to close control channel server for instance {}: {}", key, e.getMessage());
       }
+      // The worker-scoped metrics/traces shipper pair (design doc §6b) survives as long as any
+      // instance still shares this worker's connection under Tier 1 density -- only tear it down
+      // the same tick the worker process itself is going away. instance.fabricWorkerId is null for
+      // a worker that never completed its Hello handshake (e.g. it crashed before connecting), in
+      // which case nothing was ever started to stop.
+      stopShippingWorkerMetricsAndTraces(workerShippers, instance.fabricWorkerId);
     }
     capacityTracker.release(key);
   }
@@ -1500,6 +1552,59 @@ public final class AgentMain {
     List<MuninnShipper> shippers = instanceShippers.remove(key);
     if (shippers != null) {
       shippers.forEach(MuninnShipper::close);
+    }
+  }
+
+  /**
+   * Establishes this worker JVM's own metrics/traces shipper pair the moment its {@code Hello}
+   * arrives (design doc §6b/§6d) -- a no-op when {@code muninnEndpoint} is unset, or when {@code
+   * workerId} already has a pair (Tier 1 density: a second/third instance sharing this already-
+   * connected worker never sends a second {@code Hello}, so this only ever fires once per worker
+   * process). {@code processId} matches {@code MuninnServer}'s own {@code {nodeId}:{workerId}}
+   * shape for the new {@code WORKER} processKind (§6b) -- worker JVMs have no {@code host:port} of
+   * their own the way ControlPlane/Fafnir/Mimir/Agent do.
+   */
+  static void startShippingWorkerMetricsAndTraces(
+      String muninnEndpoint,
+      Map<String, WorkerShipperPair> workerShippers,
+      String nodeId,
+      String workerId) {
+    if (muninnEndpoint == null || workerShippers.containsKey(workerId)) {
+      return;
+    }
+    String processId = nodeId + ":" + workerId;
+    MuninnShipper metricsShipper =
+        new MuninnShipper(
+            muninnEndpoint, "/ingest/metrics/WORKER/" + processId, MUNINN_SHIP_INTERVAL);
+    MuninnShipper tracesShipper =
+        new MuninnShipper(
+            muninnEndpoint, "/ingest/traces/WORKER/" + processId, MUNINN_SHIP_INTERVAL);
+    workerShippers.put(workerId, new WorkerShipperPair(metricsShipper, tracesShipper));
+  }
+
+  /** {@code workerId} is {@code null} for an instance whose worker never completed its Hello. */
+  static void stopShippingWorkerMetricsAndTraces(
+      Map<String, WorkerShipperPair> workerShippers, String workerId) {
+    if (workerId == null) {
+      return;
+    }
+    WorkerShipperPair shippers = workerShippers.remove(workerId);
+    if (shippers != null) {
+      shippers.close();
+    }
+  }
+
+  /**
+   * The metrics/traces shipper pair for one worker JVM (design doc §6b/§6d) -- unlike {@code
+   * instanceShippers}' {@code List<MuninnShipper>}, a named pair so {@code readLoop}'s relay cases
+   * can route a {@code MetricsSnapshot} vs. a {@code TracesSnapshot} to the right one without a
+   * fragile positional index.
+   */
+  record WorkerShipperPair(MuninnShipper metrics, MuninnShipper traces) implements AutoCloseable {
+    @Override
+    public void close() {
+      metrics.close();
+      traces.close();
     }
   }
 

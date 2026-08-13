@@ -36,21 +36,25 @@ had a console screen — is closed. Three additions, all backed by real API surf
 before the UI did:
 
 - **Metrics history** (`GET /metrics-history/{processKind}/{processId}`, proxying to
-  [Muninn](./node-topology.md#muninn)): a process picker (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`)
-  plus one time-series chart per meter name present in the fetched window, on the Metrics screen.
-  There is no discovery API for which `processId` (a self-reported `host:port` string, e.g. a
-  `ControlPlaneMain` replica's own `selfApiAddress`) exists — `CONTROLPLANE` defaults to
-  `window.location.host` (accurate whenever the console is served by that same replica, same
-  origin), `AGENT` picks from the already-loaded real node list, and `FAFNIR`/`STORE` are a plain
-  editable address field since the console has no equivalent same-origin trick for either.
+  [Muninn](./node-topology.md#muninn)): a process picker
+  (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`/`WORKER`) plus one time-series chart per meter name
+  present in the fetched window, on the Metrics screen. There is no discovery API for which
+  `processId` (a self-reported `host:port` string, e.g. a `ControlPlaneMain` replica's own
+  `selfApiAddress`) exists — `CONTROLPLANE` defaults to `window.location.host` (accurate whenever
+  the console is served by that same replica, same origin), `AGENT` picks from the already-loaded
+  real node list, `FAFNIR`/`STORE` are a plain editable address field since the console has no
+  equivalent same-origin trick for either, and `WORKER` combines that same node dropdown with a
+  free-text `workerId` field into the `{nodeId}:{workerId}` `processId` shape a worker JVM's own
+  shipped data uses (see [Observability](./observability.md)) — no worker-discovery API exists
+  either, so the operator supplies the id from elsewhere (a log line, the CLI).
 - **Traces** (`GET /traces-history/{processKind}/{processId}`, same envelope and process-picker
   pattern as metrics history): a flat, sortable span table (trace id, span name, kind, status,
   time) — not a flame graph or waterfall, since the wire shape carries no span duration or start
-  time today. Built and wired correctly, but worth being precise about: the only production code
-  that creates a span at all is `gimle-fabric`'s `FabricServer` (an inbound cross-worker service
-  call), and worker-tier trace shipping to Muninn is the separate, still-open gap
-  [Observability](./observability.md) already documents — so this screen has no real data to show
-  for any of the four addressable process kinds until that gap closes, not a defect in this UI.
+  time today. The only production code that creates a span at all is `gimle-fabric`'s
+  `FabricServer` (an inbound cross-worker service call) and its own instance's `WorkerMain`
+  relay — so this screen only ever shows data for the `WORKER` process kind, none of the other
+  four, an accurate reflection of where spans are actually created today rather than a gap in
+  this UI.
 - **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=`): a filterable table,
   most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode — see
   [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only resolves a

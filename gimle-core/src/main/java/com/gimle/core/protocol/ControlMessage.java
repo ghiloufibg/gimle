@@ -88,6 +88,22 @@ public sealed interface ControlMessage {
 
   record Pong(String correlationId) implements ControlMessage {}
 
+  /**
+   * A worker's own periodic Micrometer snapshot / OpenTelemetry span batch, pre-serialized as
+   * NDJSON by the worker itself (design doc §6c) -- the agent doesn't own the {@code
+   * MeterRegistry}/span batch these were built from, only the text a worker already sent over this
+   * control channel, the one channel that crosses the process boundary at all (workers have no
+   * outbound network identity of their own -- see {@code MuninnServer}'s own javadoc). {@code
+   * workerId} is this worker's own {@code Hello#workerId}, matching the {@code {nodeId}:{workerId}}
+   * shape the agent's relay ships under. A trivial relay on the agent side: {@code AgentMain} hands
+   * {@code ndjsonPayload} straight to {@code MuninnShipper#shipPreparedBatch} with no
+   * re-serialization.
+   */
+  record MetricsSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
+
+  /** See {@link #MetricsSnapshot}; the same shape for a worker's own exported span batch. */
+  record TracesSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
+
   // Agent -> Worker
   /**
    * {@code deploymentName}/{@code instanceIndex} are this instance's placement identity, already
