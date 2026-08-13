@@ -2,13 +2,14 @@
 # Checklist-review gate for every commit Claude Code makes in this repo.
 #
 # Every change in this repo is authored by Claude Code itself -- the risk this guards against
-# isn't an untrusted actor bypassing review, it's Claude's own output silently drifting from
-# CLAUDE.md's Conventions section. Registered as a PreToolUse hook on the Bash tool
-# (.claude/settings.json): fires before every `git commit`, spawns a separate, independent,
-# read-only `claude -p` subprocess to check the staged diff against that checklist, and denies the
-# commit with the concrete list of violations if it fails -- the calling session sees that as a
-# normal tool-call failure, fixes the flagged issues, and retries, the same way it would react to
-# a failing test.
+# isn't an untrusted actor bypassing review, it's Claude's own output silently drifting from its
+# own rules. Registered as a PreToolUse hook on the Bash tool (.claude/settings.json): fires before
+# every `git commit`, spawns a separate, independent, read-only `claude -p` subprocess to check the
+# staged diff against .claude/commit-checklist.md (a short, deliberately separate distillation of
+# CLAUDE.md's Conventions section -- kept apart so the checklist can be edited without touching
+# this script, and the review prompt can stay generic), and denies the commit with the concrete
+# list of violations if it fails -- the calling session sees that as a normal tool-call failure,
+# fixes the flagged issues, and retries, the same way it would react to a failing test.
 #
 # Deliberately NOT scoped to any particular branch, and deliberately NOT trying to catch merges,
 # rebases, etc. (an earlier, more elaborate master-only version of this hook did -- see git
@@ -37,7 +38,7 @@ grep -Eq '(^|[;&|]\s*)git\s+(-C\s+\S+\s+)?commit\b' <<<"$command" || allow
 diff=$(git -C "$cwd" diff --cached)
 [[ -n "$diff" ]] || allow # nothing staged (e.g. an empty --amend) -- nothing to review
 
-review_prompt="Read CLAUDE.md's Conventions section in this repository -- it is a binding checklist, not a suggestion. Check the diff piped to your stdin against every rule in that section. List each rule violated, if any, quoting or closely paraphrasing the rule. Then end your reply with exactly one final line, nothing after it: 'VERDICT: PASS' if nothing is violated, or 'VERDICT: FAIL: <violation 1>; <violation 2>; ...' listing every violation found, each specific enough to act on without further context."
+review_prompt="Read .claude/commit-checklist.md in this repository. Check the diff piped to your stdin against every bullet. List each bullet violated, if any. Then end your reply with exactly one final line, nothing after it: 'VERDICT: PASS' if nothing is violated, or 'VERDICT: FAIL: <violation 1>; <violation 2>; ...' listing every violation found, each specific enough to act on without further context."
 
 result=$(cd "$cwd" && printf '%s' "$diff" | timeout 170s claude -p "$review_prompt" \
   --output-format json \
