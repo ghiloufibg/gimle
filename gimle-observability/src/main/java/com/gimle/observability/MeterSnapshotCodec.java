@@ -27,11 +27,7 @@ public final class MeterSnapshotCodec {
 
   /** Empty string for a registry with no meters yet -- callers treat that as "nothing to ship". */
   public static String toNdjson(MeterRegistry registry) {
-    StringBuilder body = new StringBuilder();
-    for (Meter meter : registry.getMeters()) {
-      body.append(Json.write(meterToJsonLine(meter))).append('\n');
-    }
-    return body.toString();
+    return Json.writeNdjson(registry.getMeters(), MeterSnapshotCodec::meterToJsonLine);
   }
 
   private static Map<String, Object> meterToJsonLine(Meter meter) {

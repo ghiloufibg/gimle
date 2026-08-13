@@ -1,9 +1,11 @@
 package com.gimle.core.protocol;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * A minimal hand-rolled JSON reader/writer for the control plane's fixed, fully-known-up-front HTTP
@@ -56,6 +58,20 @@ public final class Json {
     StringBuilder sb = new StringBuilder();
     writeValue(value, sb);
     return sb.toString();
+  }
+
+  /**
+   * Writes one JSON line per element of {@code items}, each terminated with a newline -- the shared
+   * shape every newline-delimited-JSON batch producer in the codebase otherwise builds by hand with
+   * its own {@code StringBuilder} loop. Empty for an empty (or null-mapping-to-nothing) collection,
+   * matching every caller's own "nothing to ship" convention.
+   */
+  public static <T> String writeNdjson(Collection<T> items, Function<T, Object> toJsonValue) {
+    StringBuilder body = new StringBuilder();
+    for (T item : items) {
+      body.append(write(toJsonValue.apply(item))).append('\n');
+    }
+    return body.toString();
   }
 
   private static void writeValue(Object value, StringBuilder sb) {

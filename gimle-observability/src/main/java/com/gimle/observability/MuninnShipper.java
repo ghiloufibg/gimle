@@ -189,11 +189,7 @@ public final class MuninnShipper implements AutoCloseable {
    * Returns {@code true} iff the batch was accepted (2xx) -- the caller decides what that means.
    */
   private boolean postNdjson(List<Map<String, Object>> lines) {
-    StringBuilder body = new StringBuilder();
-    for (Map<String, Object> line : lines) {
-      body.append(Json.write(line)).append('\n');
-    }
-    return postNdjsonBody(body.toString());
+    return postNdjsonBody(Json.writeNdjson(lines, line -> line));
   }
 
   /** The actual POST, shared by every caller regardless of how {@code body} was assembled. */

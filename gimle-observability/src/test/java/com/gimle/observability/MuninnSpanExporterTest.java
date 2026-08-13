@@ -11,16 +11,18 @@ import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import io.opentelemetry.sdk.trace.export.SpanExporter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -49,8 +51,7 @@ class MuninnSpanExporterTest {
         "/ingest/traces/CONTROLPLANE/node-a",
         exchange -> {
           try (InputStream in = exchange.getRequestBody()) {
-            receivedBodies.add(
-                new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            receivedBodies.add(new String(in.readAllBytes(), StandardCharsets.UTF_8));
           }
           exchange.sendResponseHeaders(200, -1);
           exchange.close();
@@ -78,7 +79,7 @@ class MuninnSpanExporterTest {
       Tracer tracer = tracerProvider.get("test");
       Span span = tracer.spanBuilder("do-something").setAttribute("http.method", "GET").startSpan();
       span.end();
-      tracerProvider.forceFlush().join(5, java.util.concurrent.TimeUnit.SECONDS);
+      tracerProvider.forceFlush().join(5, TimeUnit.SECONDS);
       tracerProvider.close();
 
       awaitUntil(() -> !receivedBodies.isEmpty(), Duration.ofSeconds(5));
@@ -108,25 +109,7 @@ class MuninnSpanExporterTest {
   }
 
   private static Collection<SpanData> capturedSpans() {
-    List<SpanData> captured = new CopyOnWriteArrayList<>();
-    SpanExporter capturingExporter =
-        new SpanExporter() {
-          @Override
-          public CompletableResultCode export(Collection<SpanData> spans) {
-            captured.addAll(spans);
-            return CompletableResultCode.ofSuccess();
-          }
-
-          @Override
-          public CompletableResultCode flush() {
-            return CompletableResultCode.ofSuccess();
-          }
-
-          @Override
-          public CompletableResultCode shutdown() {
-            return CompletableResultCode.ofSuccess();
-          }
-        };
+    CapturingSpanExporter capturingExporter = new CapturingSpanExporter();
     SdkTracerProvider tracerProvider =
         SdkTracerProvider.builder()
             .addSpanProcessor(SimpleSpanProcessor.create(capturingExporter))
@@ -134,10 +117,10 @@ class MuninnSpanExporterTest {
     Tracer tracer = tracerProvider.get("test");
     tracer.spanBuilder("ephemeral").startSpan().end();
     tracerProvider.close();
-    return captured;
+    return capturingExporter.captured();
   }
 
-  private static void awaitUntil(java.util.function.BooleanSupplier condition, Duration timeout)
+  private static void awaitUntil(BooleanSupplier condition, Duration timeout)
       throws InterruptedException {
     long deadline = System.nanoTime() + timeout.toNanos();
     while (!condition.getAsBoolean()) {

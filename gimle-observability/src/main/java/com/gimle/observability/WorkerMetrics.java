@@ -1,10 +1,8 @@
 package com.gimle.observability;
 
 import com.gimle.core.module.ModuleId;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Map;
@@ -25,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class WorkerMetrics {
 
   private final MeterRegistry registry;
+  private final TaggedRequestMetrics metrics;
   private final Map<ModuleId, AtomicLong> threadCounts = new ConcurrentHashMap<>();
   private final Map<ModuleId, AtomicLong> metaspaceBytes = new ConcurrentHashMap<>();
 
@@ -34,6 +33,13 @@ public final class WorkerMetrics {
 
   public WorkerMetrics(MeterRegistry registry) {
     this.registry = registry;
+    this.metrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.module.request.latency",
+            "gimle.module.request.count",
+            "gimle.module.request.errors",
+            true);
   }
 
   public MeterRegistry registry() {
@@ -41,16 +47,7 @@ public final class WorkerMetrics {
   }
 
   public void recordRequest(ModuleId id, Duration latency, boolean error) {
-    Tags tags = tagsFor(id);
-    Timer.builder("gimle.module.request.latency")
-        .tags(tags)
-        .publishPercentiles(0.5, 0.95, 0.99)
-        .register(registry)
-        .record(latency);
-    Counter.builder("gimle.module.request.count").tags(tags).register(registry).increment();
-    if (error) {
-      Counter.builder("gimle.module.request.errors").tags(tags).register(registry).increment();
-    }
+    metrics.record(tagsFor(id), latency, error);
   }
 
   /**
@@ -61,16 +58,14 @@ public final class WorkerMetrics {
    * gauge-vs-counter split already implies: this class exposes cumulative totals, not rates.
    */
   public double requestCount(ModuleId id) {
-    Counter counter = registry.find("gimle.module.request.count").tags(tagsFor(id)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.count(tagsFor(id));
   }
 
   /**
    * Same shape as {@link #requestCount}, for the error-only counter {@link #recordRequest} feeds.
    */
   public double errorCount(ModuleId id) {
-    Counter counter = registry.find("gimle.module.request.errors").tags(tagsFor(id)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.errorCount(tagsFor(id));
   }
 
   public void recordThreadCount(ModuleId id, long count) {

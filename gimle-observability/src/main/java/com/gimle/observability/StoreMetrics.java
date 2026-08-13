@@ -1,9 +1,7 @@
 package com.gimle.observability;
 
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
@@ -17,6 +15,7 @@ import java.time.Duration;
 public final class StoreMetrics {
 
   private final MeterRegistry registry;
+  private final TaggedRequestMetrics metrics;
 
   public StoreMetrics() {
     this(new SimpleMeterRegistry());
@@ -24,6 +23,13 @@ public final class StoreMetrics {
 
   public StoreMetrics(MeterRegistry registry) {
     this.registry = registry;
+    this.metrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.store.request.latency",
+            "gimle.store.request.count",
+            "gimle.store.request.errors",
+            true);
   }
 
   public MeterRegistry registry() {
@@ -31,28 +37,19 @@ public final class StoreMetrics {
   }
 
   public void recordRequest(String rpcKind, Duration latency, boolean error) {
-    Tags tags = Tags.of("rpc", rpcKind);
-    Timer.builder("gimle.store.request.latency")
-        .tags(tags)
-        .publishPercentiles(0.5, 0.95, 0.99)
-        .register(registry)
-        .record(latency);
-    Counter.builder("gimle.store.request.count").tags(tags).register(registry).increment();
-    if (error) {
-      Counter.builder("gimle.store.request.errors").tags(tags).register(registry).increment();
-    }
+    metrics.record(tagsFor(rpcKind), latency, error);
   }
 
   /** Same "cumulative total, zero if never recorded" contract as {@link FafnirMetrics}. */
   public double requestCount(String rpcKind) {
-    Counter counter =
-        registry.find("gimle.store.request.count").tags(Tags.of("rpc", rpcKind)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.count(tagsFor(rpcKind));
   }
 
   public double errorCount(String rpcKind) {
-    Counter counter =
-        registry.find("gimle.store.request.errors").tags(Tags.of("rpc", rpcKind)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.errorCount(tagsFor(rpcKind));
+  }
+
+  private static Tags tagsFor(String rpcKind) {
+    return Tags.of("rpc", rpcKind);
   }
 }

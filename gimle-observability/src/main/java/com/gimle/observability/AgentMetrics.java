@@ -1,8 +1,7 @@
 package com.gimle.observability;
 
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
@@ -16,6 +15,7 @@ import java.time.Duration;
 public final class AgentMetrics {
 
   private final MeterRegistry registry;
+  private final TaggedRequestMetrics metrics;
 
   public AgentMetrics() {
     this(new SimpleMeterRegistry());
@@ -23,6 +23,13 @@ public final class AgentMetrics {
 
   public AgentMetrics(MeterRegistry registry) {
     this.registry = registry;
+    this.metrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.agent.tick.latency",
+            "gimle.agent.tick.count",
+            "gimle.agent.tick.errors",
+            false);
   }
 
   public MeterRegistry registry() {
@@ -30,21 +37,15 @@ public final class AgentMetrics {
   }
 
   public void recordTick(Duration latency, boolean error) {
-    Timer.builder("gimle.agent.tick.latency").register(registry).record(latency);
-    Counter.builder("gimle.agent.tick.count").register(registry).increment();
-    if (error) {
-      Counter.builder("gimle.agent.tick.errors").register(registry).increment();
-    }
+    metrics.record(Tags.empty(), latency, error);
   }
 
   /** Same "cumulative total, zero if never recorded" contract as {@link FafnirMetrics}. */
   public double tickCount() {
-    Counter counter = registry.find("gimle.agent.tick.count").counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.count(Tags.empty());
   }
 
   public double errorCount() {
-    Counter counter = registry.find("gimle.agent.tick.errors").counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.errorCount(Tags.empty());
   }
 }

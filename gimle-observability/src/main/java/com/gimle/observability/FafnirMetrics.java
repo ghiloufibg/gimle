@@ -3,7 +3,6 @@ package com.gimle.observability;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
@@ -18,6 +17,7 @@ import java.time.Duration;
 public final class FafnirMetrics {
 
   private final MeterRegistry registry;
+  private final TaggedRequestMetrics metrics;
 
   public FafnirMetrics() {
     this(new SimpleMeterRegistry());
@@ -25,6 +25,13 @@ public final class FafnirMetrics {
 
   public FafnirMetrics(MeterRegistry registry) {
     this.registry = registry;
+    this.metrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.fafnir.request.latency",
+            "gimle.fafnir.request.count",
+            "gimle.fafnir.request.errors",
+            true);
   }
 
   public MeterRegistry registry() {
@@ -32,29 +39,16 @@ public final class FafnirMetrics {
   }
 
   public void recordRequest(String endpoint, String verb, Duration latency, boolean error) {
-    Tags tags = tagsFor(endpoint, verb);
-    Timer.builder("gimle.fafnir.request.latency")
-        .tags(tags)
-        .publishPercentiles(0.5, 0.95, 0.99)
-        .register(registry)
-        .record(latency);
-    Counter.builder("gimle.fafnir.request.count").tags(tags).register(registry).increment();
-    if (error) {
-      Counter.builder("gimle.fafnir.request.errors").tags(tags).register(registry).increment();
-    }
+    metrics.record(tagsFor(endpoint, verb), latency, error);
   }
 
   /** Same "cumulative total, zero if never recorded" contract as {@link WorkerMetrics}. */
   public double requestCount(String endpoint, String verb) {
-    Counter counter =
-        registry.find("gimle.fafnir.request.count").tags(tagsFor(endpoint, verb)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.count(tagsFor(endpoint, verb));
   }
 
   public double errorCount(String endpoint, String verb) {
-    Counter counter =
-        registry.find("gimle.fafnir.request.errors").tags(tagsFor(endpoint, verb)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.errorCount(tagsFor(endpoint, verb));
   }
 
   /**

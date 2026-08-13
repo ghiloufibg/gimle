@@ -22,8 +22,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -55,8 +57,7 @@ class MuninnShipperTest {
     }
   }
 
-  private HttpServer startStub(java.util.function.Function<String, Integer> statusForBatch)
-      throws IOException {
+  private HttpServer startStub(Function<String, Integer> statusForBatch) throws IOException {
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/ingest",
@@ -71,7 +72,7 @@ class MuninnShipperTest {
             exchange.close();
           }
         });
-    server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     server.start();
     return server;
   }
@@ -241,8 +242,9 @@ class MuninnShipperTest {
     shipper.startShippingMetrics(registry);
 
     scheduler.runUntilIdle();
-    // Backward-compat pin for the change in MuninnShipper#meterToJsonLine: a Timer that never opted
-    // into publishPercentiles(...) must ship exactly the same line shape as before this feature.
+    // Backward-compat pin for the change in MeterSnapshotCodec#meterToJsonLine: a Timer that never
+    // opted into publishPercentiles(...) must ship exactly the same line shape as before this
+    // feature.
     assertEquals(1, receivedBodies.size());
     assertTrue(receivedBodies.get(0).contains("gimle.test.latency.plain"));
     assertTrue(

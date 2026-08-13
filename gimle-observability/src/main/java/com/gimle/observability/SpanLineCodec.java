@@ -25,11 +25,7 @@ public final class SpanLineCodec {
 
   /** Empty string for an empty batch -- callers treat that as "nothing to ship". */
   public static String toNdjson(Collection<SpanData> spans) {
-    StringBuilder body = new StringBuilder();
-    for (SpanData span : spans) {
-      body.append(Json.write(toLine(span))).append('\n');
-    }
-    return body.toString();
+    return Json.writeNdjson(spans, SpanLineCodec::toLine);
   }
 
   static Map<String, Object> toLine(SpanData span) {

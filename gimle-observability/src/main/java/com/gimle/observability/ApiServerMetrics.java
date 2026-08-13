@@ -1,9 +1,7 @@
 package com.gimle.observability;
 
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
@@ -18,6 +16,7 @@ import java.time.Duration;
 public final class ApiServerMetrics {
 
   private final MeterRegistry registry;
+  private final TaggedRequestMetrics metrics;
 
   public ApiServerMetrics() {
     this(new SimpleMeterRegistry());
@@ -25,6 +24,13 @@ public final class ApiServerMetrics {
 
   public ApiServerMetrics(MeterRegistry registry) {
     this.registry = registry;
+    this.metrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.controlplane.request.latency",
+            "gimle.controlplane.request.count",
+            "gimle.controlplane.request.errors",
+            true);
   }
 
   public MeterRegistry registry() {
@@ -32,32 +38,16 @@ public final class ApiServerMetrics {
   }
 
   public void recordRequest(String endpoint, String verb, Duration latency, boolean error) {
-    Tags tags = tagsFor(endpoint, verb);
-    Timer.builder("gimle.controlplane.request.latency")
-        .tags(tags)
-        .publishPercentiles(0.5, 0.95, 0.99)
-        .register(registry)
-        .record(latency);
-    Counter.builder("gimle.controlplane.request.count").tags(tags).register(registry).increment();
-    if (error) {
-      Counter.builder("gimle.controlplane.request.errors")
-          .tags(tags)
-          .register(registry)
-          .increment();
-    }
+    metrics.record(tagsFor(endpoint, verb), latency, error);
   }
 
   /** Same "cumulative total, zero if never recorded" contract as {@link FafnirMetrics}. */
   public double requestCount(String endpoint, String verb) {
-    Counter counter =
-        registry.find("gimle.controlplane.request.count").tags(tagsFor(endpoint, verb)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.count(tagsFor(endpoint, verb));
   }
 
   public double errorCount(String endpoint, String verb) {
-    Counter counter =
-        registry.find("gimle.controlplane.request.errors").tags(tagsFor(endpoint, verb)).counter();
-    return counter == null ? 0.0 : counter.count();
+    return metrics.errorCount(tagsFor(endpoint, verb));
   }
 
   private static Tags tagsFor(String endpoint, String verb) {
