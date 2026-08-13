@@ -9,9 +9,11 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
@@ -68,6 +70,11 @@ public sealed interface StoreRpc {
           GetCronJobSpec,
           ListCronJobSpecs,
           GetCronJobLastSchedule,
+          GetDaemonSetSpec,
+          ListDaemonSetSpecs,
+          ListDaemonSetAssignments,
+          ListDaemonSetAssignmentsFor,
+          GetRollingDaemonSetNode,
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
@@ -99,6 +106,10 @@ public sealed interface StoreRpc {
           CronJobSpecResult,
           CronJobSpecListResult,
           InstantResult,
+          DaemonSetSpecResult,
+          DaemonSetSpecListResult,
+          DaemonSetAssignmentListResult,
+          StringResult,
           TenantResult,
           RoleResult,
           RoleBindingResult,
@@ -185,6 +196,16 @@ public sealed interface StoreRpc {
 
   /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
   record GetCronJobLastSchedule(String name) implements Request {}
+
+  record GetDaemonSetSpec(String name) implements Request {}
+
+  record ListDaemonSetSpecs() implements Request {}
+
+  record ListDaemonSetAssignments() implements Request {}
+
+  record ListDaemonSetAssignmentsFor(String daemonSetName) implements Request {}
+
+  record GetRollingDaemonSetNode(String daemonSetName) implements Request {}
 
   record ListNodeRegistrations() implements Request {}
 
@@ -275,6 +296,22 @@ public sealed interface StoreRpc {
    * "meaningless placeholder" convention {@link IntResult} already uses.
    */
   record InstantResult(boolean present, long epochMilli) implements Response {}
+
+  record DaemonSetSpecResult(boolean present, DaemonSetSpec value) implements Response {}
+
+  record DaemonSetSpecListResult(List<DaemonSetSpec> values) implements Response {}
+
+  record DaemonSetAssignmentListResult(List<DaemonSetAssignment> values) implements Response {}
+
+  /**
+   * {@code present == false} means the value is absent, matching {@code Optional<String>}'s own
+   * absence -- {@code value} is {@code ""} when {@code present} is {@code false}, the same
+   * "meaningless placeholder" convention {@link IntResult}/{@link InstantResult} already use. Used
+   * for {@link GetRollingDaemonSetNode} -- every other optional {@code String} field in this file
+   * so far has ridden along inside a larger record ({@code NotLeader}'s own address), so this is
+   * the first standalone one.
+   */
+  record StringResult(boolean present, String value) implements Response {}
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 

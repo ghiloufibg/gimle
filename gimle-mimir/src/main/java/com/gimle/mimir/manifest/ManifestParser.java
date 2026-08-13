@@ -18,10 +18,11 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * gets {@code kind: Deployment} (or whichever kind actually applies) added, and this parser rejects
  * a manifest missing {@code kind:} outright rather than guessing at it.
  *
- * <p>{@link DeploymentManifestParser}/{@link JobManifestParser}/{@link CronJobManifestParser}'s own
- * {@code parseRoot} methods remain independently usable (package-visible, not called only from
- * here) for their own kind-agnostic unit tests -- none of the three reads {@code kind} itself, so a
- * caller that already knows which kind it wants can skip this dispatch entirely.
+ * <p>{@link DeploymentManifestParser}/{@link JobManifestParser}/{@link
+ * CronJobManifestParser}/{@link DaemonSetManifestParser}'s own {@code parseRoot} methods remain
+ * independently usable (package-visible, not called only from here) for their own kind-agnostic
+ * unit tests -- none of the four reads {@code kind} itself, so a caller that already knows which
+ * kind it wants can skip this dispatch entirely.
  */
 public final class ManifestParser {
 
@@ -45,6 +46,7 @@ public final class ManifestParser {
       case "Deployment" -> DeploymentManifestParser.parseRoot(root);
       case "Job" -> JobManifestParser.parseRoot(root);
       case "CronJob" -> CronJobManifestParser.parseRoot(root);
+      case "DaemonSet" -> DaemonSetManifestParser.parseRoot(root);
       default -> throw GimleManifestException.unknownKind(kind);
     };
   }

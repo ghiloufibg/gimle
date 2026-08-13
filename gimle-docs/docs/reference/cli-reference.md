@@ -21,10 +21,12 @@ Any order, anywhere on the command line:
 gimle get deployments [name]
 gimle get jobs [name]
 gimle get cronjobs [name]
-gimle apply -f <manifest.yaml>   (kind: Deployment, Job, or CronJob, read from the file itself)
+gimle get daemonsets [name]
+gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, or DaemonSet, read from the file itself)
 gimle delete deployment <name>
 gimle delete job <name>
 gimle delete cronjob <name>
+gimle delete daemonset <name>
 gimle cronjob trigger <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
@@ -125,6 +127,10 @@ gimle audit list --tenant acme --resource SECRET --since 1712000000000 --server 
 gimle apply -f cronjob.yaml --server 127.0.0.1:8080
 gimle get cronjobs --server 127.0.0.1:8080
 gimle cronjob trigger nightly-cleanup --server 127.0.0.1:8080
+
+# Run one instance on every eligible node (topology-derived, no --replicas flag to set)
+gimle apply -f daemonset.yaml --server 127.0.0.1:8080
+gimle get daemonsets node-exporter --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

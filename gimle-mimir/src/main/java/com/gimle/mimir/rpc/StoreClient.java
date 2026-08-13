@@ -11,11 +11,13 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
@@ -202,6 +204,35 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     StoreRpc.InstantResult r =
         (StoreRpc.InstantResult) sendRead(new StoreRpc.GetCronJobLastSchedule(name));
     return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
+  }
+
+  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
+    StoreRpc.DaemonSetSpecResult r =
+        (StoreRpc.DaemonSetSpecResult) sendRead(new StoreRpc.GetDaemonSetSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<DaemonSetSpec> listDaemonSetSpecs() {
+    return ((StoreRpc.DaemonSetSpecListResult) sendRead(new StoreRpc.ListDaemonSetSpecs()))
+        .values();
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignments() {
+    return ((StoreRpc.DaemonSetAssignmentListResult)
+            sendRead(new StoreRpc.ListDaemonSetAssignments()))
+        .values();
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+    return ((StoreRpc.DaemonSetAssignmentListResult)
+            sendRead(new StoreRpc.ListDaemonSetAssignmentsFor(daemonSetName)))
+        .values();
+  }
+
+  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
+    StoreRpc.StringResult r =
+        (StoreRpc.StringResult) sendRead(new StoreRpc.GetRollingDaemonSetNode(daemonSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   public List<NodeRegistration> listNodeRegistrations() {

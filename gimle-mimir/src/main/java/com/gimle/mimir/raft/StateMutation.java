@@ -8,8 +8,10 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
@@ -110,6 +112,48 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putCronJobLastSchedule(name, lastScheduleTime);
+    }
+  }
+
+  record PutDaemonSetSpec(DaemonSetSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putDaemonSetSpec(spec);
+    }
+  }
+
+  record RemoveDaemonSetSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeDaemonSetSpec(name);
+    }
+  }
+
+  record PutDaemonSetAssignment(DaemonSetAssignment assignment) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putDaemonSetAssignment(assignment);
+    }
+  }
+
+  record RemoveDaemonSetAssignment(String daemonSetName, String nodeId) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeDaemonSetAssignment(daemonSetName, nodeId);
+    }
+  }
+
+  record PutRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putRollingDaemonSetNode(daemonSetName, nodeId);
+    }
+  }
+
+  record ClearRollingDaemonSetNode(String daemonSetName) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.clearRollingDaemonSetNode(daemonSetName);
     }
   }
 

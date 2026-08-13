@@ -11,9 +11,11 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.RaftCodec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
@@ -80,6 +82,11 @@ public final class StoreCodec {
   private static final byte TAG_GET_CRONJOB_SPEC = 63;
   private static final byte TAG_LIST_CRONJOB_SPECS = 64;
   private static final byte TAG_GET_CRONJOB_LAST_SCHEDULE = 65;
+  private static final byte TAG_GET_DAEMONSET_SPEC = 69;
+  private static final byte TAG_LIST_DAEMONSET_SPECS = 70;
+  private static final byte TAG_LIST_DAEMONSET_ASSIGNMENTS = 71;
+  private static final byte TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR = 72;
+  private static final byte TAG_GET_ROLLING_DAEMONSET_NODE = 73;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -113,6 +120,10 @@ public final class StoreCodec {
   private static final byte TAG_CRONJOB_SPEC_RESULT = 66;
   private static final byte TAG_CRONJOB_SPEC_LIST_RESULT = 67;
   private static final byte TAG_INSTANT_RESULT = 68;
+  private static final byte TAG_DAEMONSET_SPEC_RESULT = 74;
+  private static final byte TAG_DAEMONSET_SPEC_LIST_RESULT = 75;
+  private static final byte TAG_DAEMONSET_ASSIGNMENT_LIST_RESULT = 76;
+  private static final byte TAG_STRING_RESULT = 77;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -213,6 +224,20 @@ public final class StoreCodec {
         case StoreRpc.GetCronJobLastSchedule v -> {
           out.writeByte(TAG_GET_CRONJOB_LAST_SCHEDULE);
           out.writeUTF(v.name());
+        }
+        case StoreRpc.GetDaemonSetSpec v -> {
+          out.writeByte(TAG_GET_DAEMONSET_SPEC);
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListDaemonSetSpecs v -> out.writeByte(TAG_LIST_DAEMONSET_SPECS);
+        case StoreRpc.ListDaemonSetAssignments v -> out.writeByte(TAG_LIST_DAEMONSET_ASSIGNMENTS);
+        case StoreRpc.ListDaemonSetAssignmentsFor v -> {
+          out.writeByte(TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR);
+          out.writeUTF(v.daemonSetName());
+        }
+        case StoreRpc.GetRollingDaemonSetNode v -> {
+          out.writeByte(TAG_GET_ROLLING_DAEMONSET_NODE);
+          out.writeUTF(v.daemonSetName());
         }
         case StoreRpc.ListNodeRegistrations v -> out.writeByte(TAG_LIST_NODE_REGISTRATIONS);
         case StoreRpc.ListTenants v -> out.writeByte(TAG_LIST_TENANTS);
@@ -353,6 +378,32 @@ public final class StoreCodec {
           out.writeByte(TAG_INSTANT_RESULT);
           out.writeBoolean(v.present());
           out.writeLong(v.epochMilli());
+        }
+        case StoreRpc.DaemonSetSpecResult v -> {
+          out.writeByte(TAG_DAEMONSET_SPEC_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeDaemonSetSpec(out, v.value());
+          }
+        }
+        case StoreRpc.DaemonSetSpecListResult v -> {
+          out.writeByte(TAG_DAEMONSET_SPEC_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (DaemonSetSpec s : v.values()) {
+            DomainCodec.writeDaemonSetSpec(out, s);
+          }
+        }
+        case StoreRpc.DaemonSetAssignmentListResult v -> {
+          out.writeByte(TAG_DAEMONSET_ASSIGNMENT_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (DaemonSetAssignment a : v.values()) {
+            DomainCodec.writeDaemonSetAssignment(out, a);
+          }
+        }
+        case StoreRpc.StringResult v -> {
+          out.writeByte(TAG_STRING_RESULT);
+          out.writeBoolean(v.present());
+          out.writeUTF(v.value());
         }
         case StoreRpc.TenantResult v -> {
           out.writeByte(TAG_TENANT_RESULT);
@@ -514,6 +565,12 @@ public final class StoreCodec {
         case TAG_GET_CRONJOB_SPEC -> new StoreRpc.GetCronJobSpec(in.readUTF());
         case TAG_LIST_CRONJOB_SPECS -> new StoreRpc.ListCronJobSpecs();
         case TAG_GET_CRONJOB_LAST_SCHEDULE -> new StoreRpc.GetCronJobLastSchedule(in.readUTF());
+        case TAG_GET_DAEMONSET_SPEC -> new StoreRpc.GetDaemonSetSpec(in.readUTF());
+        case TAG_LIST_DAEMONSET_SPECS -> new StoreRpc.ListDaemonSetSpecs();
+        case TAG_LIST_DAEMONSET_ASSIGNMENTS -> new StoreRpc.ListDaemonSetAssignments();
+        case TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR ->
+            new StoreRpc.ListDaemonSetAssignmentsFor(in.readUTF());
+        case TAG_GET_ROLLING_DAEMONSET_NODE -> new StoreRpc.GetRollingDaemonSetNode(in.readUTF());
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();
         case TAG_LIST_CONFIG_ENTRIES_FOR -> new StoreRpc.ListConfigEntriesFor(in.readUTF());
@@ -590,6 +647,28 @@ public final class StoreCodec {
           yield new StoreRpc.CronJobSpecListResult(values);
         }
         case TAG_INSTANT_RESULT -> new StoreRpc.InstantResult(in.readBoolean(), in.readLong());
+        case TAG_DAEMONSET_SPEC_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.DaemonSetSpecResult(
+              present, present ? DomainCodec.readDaemonSetSpec(in) : null);
+        }
+        case TAG_DAEMONSET_SPEC_LIST_RESULT -> {
+          int count = in.readInt();
+          List<DaemonSetSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readDaemonSetSpec(in));
+          }
+          yield new StoreRpc.DaemonSetSpecListResult(values);
+        }
+        case TAG_DAEMONSET_ASSIGNMENT_LIST_RESULT -> {
+          int count = in.readInt();
+          List<DaemonSetAssignment> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readDaemonSetAssignment(in));
+          }
+          yield new StoreRpc.DaemonSetAssignmentListResult(values);
+        }
+        case TAG_STRING_RESULT -> new StoreRpc.StringResult(in.readBoolean(), in.readUTF());
         case TAG_TENANT_RESULT -> {
           boolean present = in.readBoolean();
           yield new StoreRpc.TenantResult(present, present ? DomainCodec.readTenant(in) : null);

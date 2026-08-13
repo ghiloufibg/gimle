@@ -9,6 +9,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import java.time.Instant;
@@ -62,6 +63,16 @@ public interface StoreReader {
 
   /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
   Optional<Instant> getCronJobLastSchedule(String name);
+
+  Optional<DaemonSetSpec> getDaemonSetSpec(String name);
+
+  List<DaemonSetSpec> listDaemonSetSpecs();
+
+  List<DaemonSetAssignment> listDaemonSetAssignments();
+
+  List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName);
+
+  Optional<String> getRollingDaemonSetNode(String daemonSetName);
 
   List<NodeRegistration> listNodeRegistrations();
 

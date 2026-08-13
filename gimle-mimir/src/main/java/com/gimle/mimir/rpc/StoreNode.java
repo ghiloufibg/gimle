@@ -70,6 +70,16 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.CronJobSpecListResult(store.listCronJobSpecs());
       case StoreRpc.GetCronJobLastSchedule r ->
           instantResult(store.getCronJobLastSchedule(r.name()));
+      case StoreRpc.GetDaemonSetSpec r -> daemonSetSpecResult(store.getDaemonSetSpec(r.name()));
+      case StoreRpc.ListDaemonSetSpecs r ->
+          new StoreRpc.DaemonSetSpecListResult(store.listDaemonSetSpecs());
+      case StoreRpc.ListDaemonSetAssignments r ->
+          new StoreRpc.DaemonSetAssignmentListResult(store.listDaemonSetAssignments());
+      case StoreRpc.ListDaemonSetAssignmentsFor r ->
+          new StoreRpc.DaemonSetAssignmentListResult(
+              store.listDaemonSetAssignmentsFor(r.daemonSetName()));
+      case StoreRpc.GetRollingDaemonSetNode r ->
+          stringResult(store.getRollingDaemonSetNode(r.daemonSetName()));
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
@@ -221,6 +231,19 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.InstantResult(true, v.toEpochMilli()))
         .orElseGet(() -> new StoreRpc.InstantResult(false, 0L));
+  }
+
+  private static StoreRpc.DaemonSetSpecResult daemonSetSpecResult(
+      Optional<com.gimle.mimir.manifest.DaemonSetSpec> value) {
+    return value
+        .map(v -> new StoreRpc.DaemonSetSpecResult(true, v))
+        .orElseGet(() -> new StoreRpc.DaemonSetSpecResult(false, null));
+  }
+
+  private static StoreRpc.StringResult stringResult(Optional<String> value) {
+    return value
+        .map(v -> new StoreRpc.StringResult(true, v))
+        .orElseGet(() -> new StoreRpc.StringResult(false, ""));
   }
 
   private static StoreRpc.RoleResult roleResult(Optional<com.gimle.core.authz.Role> value) {

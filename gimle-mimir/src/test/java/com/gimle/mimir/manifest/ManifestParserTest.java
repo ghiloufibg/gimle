@@ -79,6 +79,24 @@ class ManifestParserTest {
   }
 
   @Test
+  void kind_daemonset_dispatches_to_daemonset_manifest_parser() {
+    WorkloadSpec spec =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: DaemonSet
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                """));
+
+    DaemonSetSpec daemonSet = assertInstanceOf(DaemonSetSpec.class, spec);
+    assertEquals("node-exporter", daemonSet.name());
+  }
+
+  @Test
   void missing_kind_throws() {
     assertThrows(
         GimleManifestException.class,
@@ -97,13 +115,16 @@ class ManifestParserTest {
 
   @Test
   void unrecognized_kind_throws() {
+    // StatefulSet: the one remaining priority-3 workload-diversity item, still unimplemented --
+    // a real "not a kind ManifestParser knows about yet" example, not DaemonSet (now dispatched
+    // above) and not a made-up string that could go stale silently if a real kind reused it.
     assertThrows(
         GimleManifestException.class,
         () ->
             ManifestParser.parse(
                 yaml(
                     """
-                    kind: DaemonSet
+                    kind: StatefulSet
                     name: nightly-cleanup
                     """)));
   }

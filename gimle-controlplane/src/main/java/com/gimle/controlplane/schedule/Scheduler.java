@@ -20,6 +20,15 @@ import java.util.Set;
  * before every other constraint: it never evicts an instance already running on a cordoned node,
  * only keeps new placements off it. Preemption and taint/toleration-style soft constraints are out
  * of scope -- this is a binary "don't schedule here" flag, nothing more.
+ *
+ * <p>{@link #eligibleNodes} (priority-3 design doc §4b) is the same five-step eligibility filter
+ * {@link #place} applies, extracted so a caller that wants "every survivor" rather than "one pick"
+ * -- {@code DaemonSetReconciler}, which places on every eligible node rather than bin-packing a
+ * single replica onto one -- can reuse it directly. {@code place} is unchanged in behavior: it
+ * still throws its own specific {@link GimleSchedulingException} per filter stage that eliminates
+ * every remaining candidate; {@code eligibleNodes} never throws, since an empty result (no eligible
+ * node at all, or not yet) is an entirely ordinary outcome for a DaemonSet reconcile tick, not an
+ * error condition the way it is for a single replica that must land somewhere.
  */
 public final class Scheduler {
 
@@ -87,51 +96,29 @@ public final class Scheduler {
       Optional<String> tenantId,
       Set<String> requiredNodeLabels,
       List<NodeCandidate> candidates) {
-    List<NodeCandidate> tierEligible =
-        candidates.stream().filter(c -> c.capabilities().supportedTiers().contains(tier)).toList();
+    List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
 
-    List<NodeCandidate> uncordonedEligible =
-        tierEligible.stream().filter(c -> !c.cordoned()).toList();
+    List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
     if (uncordonedEligible.isEmpty() && !tierEligible.isEmpty()) {
       throw GimleSchedulingException.nodeCordoned(deploymentName, instanceIndex);
     }
 
-    List<NodeCandidate> affinityEligible;
-    if (antiAffinityAcrossNodes) {
-      affinityEligible =
-          uncordonedEligible.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
-      if (affinityEligible.isEmpty() && !uncordonedEligible.isEmpty()) {
-        throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
-      }
-    } else {
-      affinityEligible = uncordonedEligible;
+    List<NodeCandidate> affinityEligible =
+        filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
+    if (antiAffinityAcrossNodes && affinityEligible.isEmpty() && !uncordonedEligible.isEmpty()) {
+      throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
     }
 
-    List<NodeCandidate> tenantEligible;
-    boolean enforceTenantIsolation =
-        tenantId.isPresent() && (tier == IsolationTier.TIER_2 || tier == IsolationTier.TIER_3);
-    if (enforceTenantIsolation) {
-      String thisTenant = tenantId.get();
-      tenantEligible =
-          affinityEligible.stream()
-              .filter(c -> c.tenantsPresent().stream().allMatch(thisTenant::equals))
-              .toList();
-      if (tenantEligible.isEmpty() && !affinityEligible.isEmpty()) {
-        throw GimleSchedulingException.tenantIsolationViolated(deploymentName, instanceIndex);
-      }
-    } else {
-      tenantEligible = affinityEligible;
+    List<NodeCandidate> tenantEligible = filterByTenant(affinityEligible, tier, tenantId);
+    if (enforcesTenantIsolation(tier, tenantId)
+        && tenantEligible.isEmpty()
+        && !affinityEligible.isEmpty()) {
+      throw GimleSchedulingException.tenantIsolationViolated(deploymentName, instanceIndex);
     }
 
-    List<NodeCandidate> labelEligible;
-    if (!requiredNodeLabels.isEmpty()) {
-      labelEligible =
-          tenantEligible.stream().filter(c -> c.labels().containsAll(requiredNodeLabels)).toList();
-      if (labelEligible.isEmpty() && !tenantEligible.isEmpty()) {
-        throw GimleSchedulingException.requiredLabelsUnsatisfied(deploymentName, instanceIndex);
-      }
-    } else {
-      labelEligible = tenantEligible;
+    List<NodeCandidate> labelEligible = filterByLabels(tenantEligible, requiredNodeLabels);
+    if (!requiredNodeLabels.isEmpty() && labelEligible.isEmpty() && !tenantEligible.isEmpty()) {
+      throw GimleSchedulingException.requiredLabelsUnsatisfied(deploymentName, instanceIndex);
     }
 
     long requiredMemory = resourceRequest.memoryBytes();
@@ -148,5 +135,68 @@ public final class Scheduler {
         .orElseThrow(
             () ->
                 GimleSchedulingException.noFeasiblePlacement(deploymentName, instanceIndex, tier));
+  }
+
+  /**
+   * The same five-step eligibility filter {@link #place} applies (tier, cordon, anti-affinity,
+   * tenant isolation, required labels), minus its final bin-packing pick -- every surviving
+   * candidate is returned, never just one. Never throws: an empty result is an ordinary "no node is
+   * eligible right now" outcome for a caller like {@code DaemonSetReconciler} that places on every
+   * survivor rather than needing exactly one.
+   */
+  public List<NodeCandidate> eligibleNodes(
+      IsolationTier tier,
+      boolean antiAffinityAcrossNodes,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels,
+      List<NodeCandidate> candidates) {
+    List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
+    List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
+    List<NodeCandidate> affinityEligible =
+        filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
+    List<NodeCandidate> tenantEligible = filterByTenant(affinityEligible, tier, tenantId);
+    return filterByLabels(tenantEligible, requiredNodeLabels);
+  }
+
+  private static List<NodeCandidate> filterByTier(
+      IsolationTier tier, List<NodeCandidate> candidates) {
+    return candidates.stream()
+        .filter(c -> c.capabilities().supportedTiers().contains(tier))
+        .toList();
+  }
+
+  private static List<NodeCandidate> filterByCordon(List<NodeCandidate> candidates) {
+    return candidates.stream().filter(c -> !c.cordoned()).toList();
+  }
+
+  private static List<NodeCandidate> filterByAntiAffinity(
+      List<NodeCandidate> candidates, boolean antiAffinityAcrossNodes) {
+    if (!antiAffinityAcrossNodes) {
+      return candidates;
+    }
+    return candidates.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
+  }
+
+  private static boolean enforcesTenantIsolation(IsolationTier tier, Optional<String> tenantId) {
+    return tenantId.isPresent() && (tier == IsolationTier.TIER_2 || tier == IsolationTier.TIER_3);
+  }
+
+  private static List<NodeCandidate> filterByTenant(
+      List<NodeCandidate> candidates, IsolationTier tier, Optional<String> tenantId) {
+    if (!enforcesTenantIsolation(tier, tenantId)) {
+      return candidates;
+    }
+    String thisTenant = tenantId.get();
+    return candidates.stream()
+        .filter(c -> c.tenantsPresent().stream().allMatch(thisTenant::equals))
+        .toList();
+  }
+
+  private static List<NodeCandidate> filterByLabels(
+      List<NodeCandidate> candidates, Set<String> requiredNodeLabels) {
+    if (requiredNodeLabels.isEmpty()) {
+      return candidates;
+    }
+    return candidates.stream().filter(c -> c.labels().containsAll(requiredNodeLabels)).toList();
   }
 }

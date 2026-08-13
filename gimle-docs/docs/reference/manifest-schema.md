@@ -62,14 +62,15 @@ building one of these up from scratch.
 ## Workload manifests: `kind:`
 
 `gimle-module.yaml` above describes a module *artifact*; a separate, second file — the workload
-manifest (`deployment.yaml`/`job.yaml`/`cronjob.yaml`, submitted via `gimle apply -f <file>` or the
-console's own create form) — describes how the control plane should *run* it. Every workload
-manifest carries a required top-level `kind:` field naming which one it is: `Deployment`
-(long-running, replicated), `Job` (run-to-completion, retried up to a limit), or `CronJob` (a
-scheduled generator of Jobs — see below for both). There is no default: a manifest missing `kind:`
-is rejected outright by `ManifestParser`, not silently assumed to be a `Deployment`. `gimle apply -f`
-reads this field client-side to route to the right resource automatically — there's no separate
-`gimle job apply`/`gimle deployment apply`/`gimle cronjob apply` verb to remember.
+manifest (`deployment.yaml`/`job.yaml`/`cronjob.yaml`/`daemonset.yaml`, submitted via `gimle apply -f
+<file>` or the console's own create form) — describes how the control plane should *run* it. Every
+workload manifest carries a required top-level `kind:` field naming which one it is: `Deployment`
+(long-running, replicated), `Job` (run-to-completion, retried up to a limit), `CronJob` (a scheduled
+generator of Jobs), or `DaemonSet` (one instance per eligible node — see below for each). There is no
+default: a manifest missing `kind:` is rejected outright by `ManifestParser`, not silently assumed to
+be a `Deployment`. `gimle apply -f` reads this field client-side to route to the right resource
+automatically — there's no separate `gimle job apply`/`gimle deployment apply`/`gimle cronjob
+apply`/`gimle daemonset apply` verb to remember.
 
 ## Deployment manifest: `autoscale`
 
@@ -226,3 +227,55 @@ CronJob controller.
 **What this does not provide, plainly stated**: no per-cluster/per-tenant timezone configuration
 (UTC only), no `parallelism`/`completions` on the generated Job (inherited from `kind: Job`'s own
 scope).
+
+## DaemonSet manifest
+
+`kind: DaemonSet` (priority-3 roadmap item 11) places exactly one instance on every node currently
+eligible for it, not an operator-chosen count — there is deliberately no `replicas`/`autoscale`
+field here, and none is coming: a DaemonSet's size is topology-derived (however many nodes match),
+recomputed on every reconcile tick as nodes join, leave, or are cordoned. `Scheduler.eligibleNodes`
+(the same five-step tier/cordon/anti-affinity/tenant/label filter chain `place` uses for a
+Deployment or Job replica, minus its final bin-packing pick) decides eligibility; every survivor
+gets an assignment, not just one.
+
+`placement.antiAffinity` is rejected outright if present — `DaemonSetManifestParser` throws
+`GimleManifestException` rather than silently ignoring it — since "at most one replica per node" is
+already this workload's entire placement model; a manifest that sets it is almost certainly a
+copy-pasted Deployment/Job manifest, not a deliberate choice. `placement.requiredLabels` is the
+field that actually matters here: for a Deployment or Job it's a minor placement tiebreak, but for a
+DaemonSet it's the *primary* way an operator scopes which nodes run the workload at all (e.g. a
+GPU-only telemetry agent) — the console's DaemonSets screen surfaces it as a first-class column for
+exactly this reason, not buried in a details panel the way a Deployment's own placement fields
+currently are (not yet surfaced in the console at all).
+
+```yaml
+kind: DaemonSet
+name: node-exporter
+module:
+  name: com.gimle.examples.node-exporter
+  version: 1.0.0
+artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+placement:                     # optional -- omit entirely to run on every eligible node
+  requiredLabels: [gpu]
+tenantId: acme                 # optional -- omit for an untenanted daemonset
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | Must be `DaemonSet`. |
+| `name` | yes | The daemonset's identifier — also what `gimle get daemonsets <name>`/the console's DaemonSets screen key on. |
+| `module.name` / `module.version` | yes | The module to run. |
+| `artifactPath` | yes | Path to the module's jar, same convention as a deployment manifest's own field. |
+| `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
+| `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
+| `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
+
+A daemonset's `instances[]` (one entry per node currently running it, each carrying that node's own
+health observation) is read-only, computed state — never part of the manifest you submit, the same
+way a deployment's own `instances[]` never is. `gimle get daemonsets <name>` (or the console's
+DaemonSets screen) is how you read it back.
+
+**What this does not provide, plainly stated**: no kernel-level per-node resource enforcement beyond
+whatever `ResourceLimiter` already provides for any other workload kind (see [Tiered
+Isolation](../architecture/tiered-isolation.md)); no rolling-update pause/resume controls beyond the
+same node-keyed state machine a Deployment's own rolling update uses.

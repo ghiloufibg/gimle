@@ -22,6 +22,8 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.CronJobManifestParser;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetManifestParser;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobManifestParser;
@@ -78,6 +80,11 @@ public final class StateStore implements StoreReader {
   // now," never retroactively firing every missed minute since epoch. See CronJobReconciler's own
   // javadoc.
   private final Map<String, Instant> cronJobLastSchedule = new ConcurrentHashMap<>();
+  private final Map<String, DaemonSetSpec> daemonSetSpecs = new ConcurrentHashMap<>();
+  private final Map<String, DaemonSetAssignment> daemonSetAssignments = new ConcurrentHashMap<>();
+  // The nodeId currently mid-rollout for a DaemonSet, if any -- the node-keyed counterpart to
+  // rollingIndices above, same "only persist while in flight" shape.
+  private final Map<String, String> rollingDaemonSetNodes = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
@@ -150,6 +157,9 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(jobPhasesDir());
       Files.createDirectories(cronJobsDir());
       Files.createDirectories(cronJobLastScheduleDir());
+      Files.createDirectories(daemonSetsDir());
+      Files.createDirectories(daemonSetAssignmentsDir());
+      Files.createDirectories(rollingDaemonSetDir());
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
       Files.createDirectories(autoscaleDir());
@@ -317,6 +327,80 @@ public final class StateStore implements StoreReader {
   /** Empty means "never fired yet" -- see {@link #cronJobLastSchedule}'s own field javadoc. */
   public Optional<Instant> getCronJobLastSchedule(String name) {
     return Optional.ofNullable(cronJobLastSchedule.get(name));
+  }
+
+  // ---- daemonsets ----
+
+  public void putDaemonSetSpec(DaemonSetSpec spec) {
+    writeAtomically(daemonSetFile(spec.name()), daemonSetSpecToYaml(spec));
+    daemonSetSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
+    return Optional.ofNullable(daemonSetSpecs.get(name));
+  }
+
+  public List<DaemonSetSpec> listDaemonSetSpecs() {
+    return List.copyOf(daemonSetSpecs.values());
+  }
+
+  /**
+   * Also clears any in-flight {@link #rollingDaemonSetNodes} entry for {@code name} -- a removed
+   * DaemonSet has no rollout left to track. Does not remove any {@link DaemonSetAssignment} still
+   * on disk for it; {@code DaemonSetReconciler}'s own orphaned-assignment sweep is responsible for
+   * those, the same "spec gone -> reconciler tears assignments down" ordering {@link
+   * #removeDeployment} already relies on for {@link InstanceAssignment}.
+   */
+  public void removeDaemonSetSpec(String name) {
+    deleteQuietly(daemonSetFile(name));
+    daemonSetSpecs.remove(name);
+    clearRollingDaemonSetNode(name);
+  }
+
+  // ---- daemonset assignments ----
+
+  public void putDaemonSetAssignment(DaemonSetAssignment assignment) {
+    writeAtomically(
+        daemonSetAssignmentFile(assignment.daemonSetName(), assignment.nodeId()),
+        daemonSetAssignmentToYaml(assignment));
+    daemonSetAssignments.put(
+        daemonSetAssignmentKey(assignment.daemonSetName(), assignment.nodeId()), assignment);
+  }
+
+  public void removeDaemonSetAssignment(String daemonSetName, String nodeId) {
+    deleteQuietly(daemonSetAssignmentFile(daemonSetName, nodeId));
+    daemonSetAssignments.remove(daemonSetAssignmentKey(daemonSetName, nodeId));
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignments() {
+    return List.copyOf(daemonSetAssignments.values());
+  }
+
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+    return daemonSetAssignments.values().stream()
+        .filter(a -> a.daemonSetName().equals(daemonSetName))
+        .toList();
+  }
+
+  // ---- daemonset rolling-update bookkeeping ----
+
+  /**
+   * The node currently being migrated by a DaemonSet rolling update, if any -- the node-keyed
+   * counterpart to {@link #putRollingIndex}, persisted for the identical reason: a reconciler
+   * restart mid-rollout resumes rather than starting a second one.
+   */
+  public void putRollingDaemonSetNode(String daemonSetName, String nodeId) {
+    writeAtomically(rollingDaemonSetFile(daemonSetName), rollingDaemonSetNodeToYaml(nodeId));
+    rollingDaemonSetNodes.put(daemonSetName, nodeId);
+  }
+
+  public void clearRollingDaemonSetNode(String daemonSetName) {
+    deleteQuietly(rollingDaemonSetFile(daemonSetName));
+    rollingDaemonSetNodes.remove(daemonSetName);
+  }
+
+  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
+    return Optional.ofNullable(rollingDaemonSetNodes.get(daemonSetName));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -731,6 +815,9 @@ public final class StateStore implements StoreReader {
         Map.copyOf(jobPhases),
         List.copyOf(cronJobSpecs.values()),
         Map.copyOf(cronJobLastSchedule),
+        List.copyOf(daemonSetSpecs.values()),
+        List.copyOf(daemonSetAssignments.values()),
+        Map.copyOf(rollingDaemonSetNodes),
         List.copyOf(nodeRegistrations.values()),
         Map.copyOf(rollingIndices),
         Map.copyOf(effectiveReplicas),
@@ -771,6 +858,9 @@ public final class StateStore implements StoreReader {
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
     List.copyOf(jobSpecs.keySet()).forEach(this::removeJobSpec);
     List.copyOf(cronJobSpecs.keySet()).forEach(this::removeCronJobSpec);
+    List.copyOf(daemonSetAssignments.values())
+        .forEach(a -> removeDaemonSetAssignment(a.daemonSetName(), a.nodeId()));
+    List.copyOf(daemonSetSpecs.keySet()).forEach(this::removeDaemonSetSpec);
     List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
@@ -791,6 +881,9 @@ public final class StateStore implements StoreReader {
     snapshot.jobPhases().forEach(this::putJobPhase);
     snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
     snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
+    snapshot.daemonSetSpecs().forEach(this::putDaemonSetSpec);
+    snapshot.daemonSetAssignments().forEach(this::putDaemonSetAssignment);
+    snapshot.rollingDaemonSetNodes().forEach(this::putRollingDaemonSetNode);
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot.rollingIndices().forEach(this::putRollingIndex);
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
@@ -911,6 +1004,34 @@ public final class StateStore implements StoreReader {
 
   private Path cronJobLastScheduleFile(String name) {
     return cronJobLastScheduleDir().resolve(name + ".yaml");
+  }
+
+  private Path daemonSetsDir() {
+    return root.resolve("daemonsets");
+  }
+
+  private Path daemonSetFile(String name) {
+    return daemonSetsDir().resolve(name + ".yaml");
+  }
+
+  private Path daemonSetAssignmentsDir() {
+    return root.resolve("daemonsetassignments");
+  }
+
+  private Path daemonSetAssignmentFile(String daemonSetName, String nodeId) {
+    return daemonSetAssignmentsDir().resolve(daemonSetName).resolve(nodeId + ".yaml");
+  }
+
+  private static String daemonSetAssignmentKey(String daemonSetName, String nodeId) {
+    return daemonSetName + "#" + nodeId;
+  }
+
+  private Path rollingDaemonSetDir() {
+    return root.resolve("rollingdaemonset");
+  }
+
+  private Path rollingDaemonSetFile(String daemonSetName) {
+    return rollingDaemonSetDir().resolve(daemonSetName + ".yaml");
   }
 
   private Path registrationFile(String nodeId) {
@@ -1088,6 +1209,29 @@ public final class StateStore implements StoreReader {
         file -> {
           String name = fileNameWithoutYamlSuffix(file);
           cronJobLastSchedule.put(name, cronJobLastScheduleFromMap(loadMap(file)));
+        });
+    loadEach(
+        daemonSetsDir(),
+        "*.yaml",
+        file -> {
+          DaemonSetSpec spec = DaemonSetManifestParser.parse(new ByteArrayInputStream(read(file)));
+          daemonSetSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        daemonSetAssignmentsDir(),
+        "*/*.yaml",
+        file -> {
+          DaemonSetAssignment assignment = daemonSetAssignmentFromMap(loadMap(file));
+          daemonSetAssignments.put(
+              daemonSetAssignmentKey(assignment.daemonSetName(), assignment.nodeId()), assignment);
+        });
+    loadEach(
+        rollingDaemonSetDir(),
+        "*.yaml",
+        file -> {
+          String daemonSetName = fileNameWithoutYamlSuffix(file);
+          Map<?, ?> map = loadMap(file);
+          rollingDaemonSetNodes.put(daemonSetName, (String) map.get("nodeId"));
         });
     loadEach(
         nodesDir(),
@@ -1417,6 +1561,55 @@ public final class StateStore implements StoreReader {
 
   private static Instant cronJobLastScheduleFromMap(Map<?, ?> map) {
     return Instant.parse((String) map.get("lastScheduleTime"));
+  }
+
+  private static String daemonSetSpecToYaml(DaemonSetSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "DaemonSet");
+    root.put("name", spec.name());
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.moduleId().name());
+    module.put("version", spec.moduleId().version().toString());
+    root.put("module", module);
+    root.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    root.put("placement", placement);
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String daemonSetAssignmentToYaml(DaemonSetAssignment assignment) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("daemonSetName", assignment.daemonSetName());
+    root.put("nodeId", assignment.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", assignment.moduleId().name());
+    moduleId.put("version", assignment.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", assignment.artifactPath());
+    return new Yaml().dump(root);
+  }
+
+  private static DaemonSetAssignment daemonSetAssignmentFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    return new DaemonSetAssignment(
+        (String) map.get("daemonSetName"),
+        (String) map.get("nodeId"),
+        moduleId,
+        (String) map.get("artifactPath"));
+  }
+
+  private static String rollingDaemonSetNodeToYaml(String nodeId) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("nodeId", nodeId);
+    return new Yaml().dump(root);
   }
 
   private static String rollingToYaml(int instanceIndex) {

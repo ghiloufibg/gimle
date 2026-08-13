@@ -617,6 +617,167 @@ class ApiServerTest {
     assertEquals(404, response.statusCode());
   }
 
+  private static String daemonSetYaml(String name) {
+    return """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: com.gimle.example.node-exporter
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+        placement:
+          requiredLabels: [gpu]
+        """
+        .formatted(name);
+  }
+
+  @Test
+  void put_then_get_a_daemonset_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("node-exporter", spec.get("name"));
+    Map<String, Object> placement = Json.asObject(spec.get("placement"));
+    assertEquals(List.of("gpu"), placement.get("requiredLabels"));
+    assertTrue(Json.asObjectList(status.get("instances")).isEmpty(), "nothing reconciled yet");
+  }
+
+  @Test
+  void put_a_daemonset_with_a_deployment_kind_manifest_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("node-exporter", 1)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_daemonset_with_anti_affinity_set_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        kind: DaemonSet
+                        name: node-exporter
+                        module:
+                          name: com.gimle.example.node-exporter
+                          version: 1.0.0
+                        artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                        placement:
+                          antiAffinity: false
+                        """))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_daemonset_with_a_manifest_name_mismatch_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/other-name"))
+                .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_daemonset_with_malformed_yaml_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .PUT(HttpRequest.BodyPublishers.ofString("not: [valid"))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void get_of_an_unknown_daemonset_is_404() throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/nope")).GET().build());
+
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void delete_removes_a_daemonset() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+            .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+            .build());
+
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .DELETE()
+                .build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .GET()
+                .build());
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void daemonsets_list_endpoint_returns_every_daemonset() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+            .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/log-shipper"))
+            .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("log-shipper")))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(2, body.size());
+  }
+
+  @Test
+  void daemonsets_list_endpoint_is_empty_with_none_submitted() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void daemonsets_endpoint_method_not_allowed_for_post() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .POST(HttpRequest.BodyPublishers.ofString("irrelevant"))
+                .build());
+
+    assertEquals(405, response.statusCode());
+  }
+
   @Test
   void nodes_list_endpoint_returns_registered_nodes_with_their_last_heartbeat() throws Exception {
     send(

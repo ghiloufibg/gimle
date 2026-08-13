@@ -140,6 +140,45 @@ export interface CronJob {
   lastScheduleTime: string | null;
 }
 
+/* ---------------------------------------------------------------------------
+ * DaemonSets (priority-3 design doc §4d) -- one instance per eligible node, not an
+ * operator-settable replica count: no `replicas`/`autoscale` field, and `instances[]` entries carry
+ * only `nodeId` (never `instanceIndex` -- there's always exactly one per node, so there's nothing
+ * for an index to distinguish). `requiredNodeLabels` is promoted to a primary field here, unlike
+ * Deployment's placement fields (not yet surfaced in the console at all): a DaemonSet's whole
+ * purpose is "run on nodes matching this shape," so it's the field an operator most needs to see.
+ * ------------------------------------------------------------------------ */
+
+export interface DaemonSetPlacement {
+  requiredNodeLabels: string[];
+}
+
+export interface DaemonSetSpec {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  placement: DaemonSetPlacement;
+  tenantId: string | null;
+}
+
+export interface DaemonSetSpecInput {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  placement: DaemonSetPlacement;
+  tenantId: string | null;
+}
+
+export interface DaemonSetInstance {
+  nodeId: string;
+  observation: InstanceObservation;
+}
+
+export interface DaemonSet {
+  spec: DaemonSetSpec;
+  instances: DaemonSetInstance[];
+}
+
 export interface Node {
   nodeId: string;
   capabilities: { supportedTiers: Tier[] };

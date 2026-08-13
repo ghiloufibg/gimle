@@ -5,6 +5,7 @@ import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
+import com.gimle.controlplane.reconcile.DaemonSetReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.JobReconciler;
@@ -169,6 +170,12 @@ public final class ControlPlaneMain {
     // JobRun/Scheduler directly -- see the class's own javadoc.
     CronJobReconciler cronJobReconciler =
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC());
+    // Priority-3 design doc §4: touches only its own DaemonSetSpec/DaemonSetAssignment store
+    // types, invisible to every reconciler above by construction -- no interaction with, or
+    // dependency on, tick order relative to them.
+    DaemonSetReconciler daemonSetReconciler =
+        new DaemonSetReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
 
     ApiServer apiServer =
         new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
@@ -229,7 +236,8 @@ public final class ControlPlaneMain {
                 quotaReconciler,
                 deploymentReconciler,
                 jobReconciler,
-                cronJobReconciler);
+                cronJobReconciler,
+                daemonSetReconciler);
           }
         },
         0,
@@ -321,7 +329,8 @@ public final class ControlPlaneMain {
       QuotaReconciler quotaReconciler,
       DeploymentReconciler deploymentReconciler,
       JobReconciler jobReconciler,
-      CronJobReconciler cronJobReconciler) {
+      CronJobReconciler cronJobReconciler,
+      DaemonSetReconciler daemonSetReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
@@ -333,6 +342,7 @@ public final class ControlPlaneMain {
       // jobReconciler in this same tick, not left waiting for the next one.
       cronJobReconciler.reconcileOnce();
       jobReconciler.reconcileOnce();
+      daemonSetReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
     }

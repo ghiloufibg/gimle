@@ -99,11 +99,17 @@ Not every real workload is a stateless HTTP service.
     (`CronJobReconciler`, a hand-rolled 5-field cron evaluator, `concurrencyPolicy`, missed-schedule
     handling) — never a second execution engine. `gimle cronjob trigger <name>` covers the one
     manual action that doesn't fit CRUD.
-11. **Per-node placement.** No DaemonSet equivalent — "exactly one instance per node" isn't an
-    explicit scheduler mode, only resource-based bin-packing (see
-    [Control plane](../architecture/control-plane.md)). **Why it's worth building**: a
-    topology-driven placement constraint, genuinely different from the resource-driven one already
-    built.
+11. ~~**Per-node placement.**~~ **Done** — see [Manifest schema](../reference/manifest-schema.md#daemonset-manifest).
+    `kind: DaemonSet` places one instance on every node `Scheduler.eligibleNodes` (the same five-step
+    tier/cordon/anti-affinity/tenant/label filter chain `place` already used, extracted so a caller
+    can take every survivor instead of one bin-packed pick) currently admits, recomputed on every
+    reconcile tick as nodes join, leave, or are cordoned — not a fixed operator-chosen count.
+    `placement.antiAffinity` is rejected outright on this manifest kind (meaningless once placement
+    is already one-per-node); `placement.requiredLabels` is promoted to the primary way an operator
+    scopes which nodes run it, both in the manifest and on the console's own DaemonSets screen.
+    `DaemonSetReconciler`'s rolling update is a deliberate node-keyed duplicate of
+    `DeploymentReconciler`'s own index-keyed state machine, not a shared generalization — the two
+    key types (`String nodeId` vs. `int instanceIndex`) don't unify cleanly enough to be worth it.
 12. **Stateful workload support.** Deliberately last among the workload-diversity items, not because
     it's unimportant — persistent storage with a lifecycle independent of the workload's own, plus
     ordered rollout and stable identity, is arguably the single most educational feature in all of

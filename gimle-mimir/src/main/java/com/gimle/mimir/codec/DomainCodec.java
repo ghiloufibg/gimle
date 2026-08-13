@@ -23,10 +23,12 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
@@ -185,6 +187,42 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     return new CronJobSpec(
         name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+  }
+
+  public static void writeDaemonSetSpec(DataOutputStream out, DaemonSetSpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    writeModuleId(out, spec.moduleId());
+    out.writeUTF(spec.artifactPath());
+    writePlacementConstraints(out, spec.placement());
+    writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
+  }
+
+  public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
+    return new DaemonSetSpec(name, moduleId, artifactPath, placement, tenantId, artifactSha256);
+  }
+
+  public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
+      throws IOException {
+    out.writeUTF(assignment.daemonSetName());
+    out.writeUTF(assignment.nodeId());
+    writeModuleId(out, assignment.moduleId());
+    out.writeUTF(assignment.artifactPath());
+  }
+
+  public static DaemonSetAssignment readDaemonSetAssignment(DataInputStream in) throws IOException {
+    String daemonSetName = in.readUTF();
+    String nodeId = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    return new DaemonSetAssignment(daemonSetName, nodeId, moduleId, artifactPath);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)

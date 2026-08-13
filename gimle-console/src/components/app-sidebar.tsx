@@ -14,6 +14,7 @@ import {
   LogOut,
   ListChecks,
   Clock,
+  LayoutGrid,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -41,6 +42,7 @@ const items = [
   { title: "Deployments", url: "/deployments", icon: Boxes },
   { title: "Jobs", url: "/jobs", icon: ListChecks },
   { title: "CronJobs", url: "/cronjobs", icon: Clock },
+  { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid },
   { title: "Instances", url: "/instances", icon: Cpu },
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Tenants", url: "/tenants", icon: Users },

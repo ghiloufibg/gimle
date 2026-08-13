@@ -51,12 +51,14 @@ import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
@@ -271,6 +273,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/jobs", instrument("jobs", this::handleJobsList));
     target.createContext("/cronjobs/", instrument("cronjobs", this::handleCronJob));
     target.createContext("/cronjobs", instrument("cronjobs", this::handleCronJobsList));
+    target.createContext("/daemonsets/", instrument("daemonsets", this::handleDaemonSet));
+    target.createContext("/daemonsets", instrument("daemonsets", this::handleDaemonSetsList));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -981,6 +985,159 @@ public final class ApiServer implements AutoCloseable {
     return status;
   }
 
+  // ---- /daemonsets/{name}, /daemonsets (priority-3 design doc §4d) ----
+
+  private void handleDaemonSet(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/daemonsets/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing daemonset name");
+        return;
+      }
+      // Unscoped for every verb, matching handleJob's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.WRITE, Optional.empty())) {
+            handlePutDaemonSet(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
+            handleGetDaemonSet(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.DELETE, Optional.empty())) {
+            handleDeleteDaemonSet(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("daemonset request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutDaemonSet(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof DaemonSetSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /daemonsets route (expected kind: DaemonSet)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    DaemonSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here, same documented gap handlePutJob's own identical comment
+    // explains -- TenantUsage's accounting model is replica-count-shaped and has no per-node
+    // equivalent yet.
+    storeClient.propose(new StateMutation.PutDaemonSetSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static DaemonSetSpec withArtifactSha256(DaemonSetSpec spec, Optional<String> sha256) {
+    return new DaemonSetSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.placement(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetDaemonSet(HttpExchange exchange, String name) throws IOException {
+    Optional<DaemonSetSpec> spec = storeClient.getDaemonSetSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such daemonset: " + name);
+      return;
+    }
+    respondJson(exchange, 200, daemonSetStatus(spec.get()));
+  }
+
+  private void handleDeleteDaemonSet(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveDaemonSetSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every daemonset, in the same shape {@link #handleGetDaemonSet} returns for one. */
+  private void handleDaemonSetsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listDaemonSetSpecs().stream().map(this::daemonSetStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("daemonsets list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> daemonSetStatus(DaemonSetSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    specMap.put("placement", placement);
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    List<Map<String, Object>> instances = new ArrayList<>();
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignmentsFor(spec.name())) {
+      Map<String, Object> instance = new LinkedHashMap<>();
+      instance.put("nodeId", assignment.nodeId());
+      findObservationForDaemonSetAssignment(assignment)
+          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      instances.add(instance);
+    }
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    status.put("instances", instances);
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForDaemonSetAssignment(
+      DaemonSetAssignment assignment) {
+    return storeClient
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(assignment.daemonSetName())
+                                && obs.instanceIndex() == 0)
+                    .findFirst());
+  }
+
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
     specMap.put("name", spec.name());
@@ -1243,6 +1400,28 @@ public final class ApiServer implements AutoCloseable {
               run.moduleId(),
               run.artifactPath(),
               jobSpec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // DaemonSet assignments (priority-3 design doc §4) reuse the same AssignedInstance wire shape
+    // once more, the identical reasoning JobRun's own block above documents: daemonSetName/0 play
+    // deploymentName/instanceIndex's own role -- instanceIndex is always 0 since a DaemonSet places
+    // at most one instance per node, so no second index is ever needed to disambiguate.
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignments()) {
+      if (!assignment.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<DaemonSetSpec> daemonSetSpec =
+          storeClient.getDaemonSetSpec(assignment.daemonSetName());
+      if (daemonSetSpec.isEmpty()) {
+        continue; // stale assignment; DaemonSetReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              assignment.daemonSetName(),
+              0,
+              assignment.moduleId(),
+              assignment.artifactPath(),
+              daemonSetSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);

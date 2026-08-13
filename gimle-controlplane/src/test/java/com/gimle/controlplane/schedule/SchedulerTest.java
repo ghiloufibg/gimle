@@ -351,4 +351,101 @@ class SchedulerTest {
 
     assertEquals("node-free", chosen);
   }
+
+  // ---- eligibleNodes (priority-3 design doc §4b) -- same five-step filter chain `place` applies,
+  // minus the final bin-packing pick: every survivor comes back, never just one, and it never
+  // throws on an empty result.
+
+  @Test
+  void eligible_nodes_returns_every_node_that_passes_every_filter() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-a", TIER_1_AND_2, 500L * 1024 * 1024, 1000, false),
+            node("node-b", TIER_1_AND_2, 10L * 1024 * 1024, 1000, false));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), candidates);
+
+    // Unlike place(), resource sizing (freeMemoryBytes/freeCpuMillicores) is never consulted --
+    // node-b's tiny free memory would fail place()'s own bin-packing filter but survives here.
+    assertEquals(2, eligible.size());
+  }
+
+  @Test
+  void eligible_nodes_excludes_nodes_that_do_not_support_the_requested_tier() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-tier1-only", TIER_1_ONLY, 800L * 1024 * 1024, 1000, false),
+            node("node-both", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), candidates);
+
+    assertEquals(List.of("node-both"), eligible.stream().map(NodeCandidate::nodeId).toList());
+  }
+
+  @Test
+  void eligible_nodes_excludes_cordoned_nodes() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithCordon("node-cordoned", 800L * 1024 * 1024, 1000, true),
+            nodeWithCordon("node-free", 200L * 1024 * 1024, 1000, false));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), candidates);
+
+    assertEquals(List.of("node-free"), eligible.stream().map(NodeCandidate::nodeId).toList());
+  }
+
+  @Test
+  void eligible_nodes_applies_required_labels() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithLabels("node-no-labels", 800L * 1024 * 1024, Set.of()),
+            nodeWithLabels("node-gpu", 200L * 1024 * 1024, Set.of("gpu")));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of("gpu"), candidates);
+
+    assertEquals(List.of("node-gpu"), eligible.stream().map(NodeCandidate::nodeId).toList());
+  }
+
+  @Test
+  void eligible_nodes_applies_tenant_isolation_at_tier2() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTenants("node-free", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_2, false, Optional.of("tenant-a"), Set.of(), candidates);
+
+    assertEquals(List.of("node-free"), eligible.stream().map(NodeCandidate::nodeId).toList());
+  }
+
+  @Test
+  void eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-a", TIER_1_ONLY, 800L * 1024 * 1024, 1000, false));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), candidates);
+
+    assertEquals(List.of(), eligible);
+  }
+
+  @Test
+  void eligible_nodes_returns_an_empty_list_for_no_candidates_at_all() {
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(IsolationTier.TIER_1, false, Optional.empty(), Set.of(), List.of());
+
+    assertEquals(List.of(), eligible);
+  }
 }

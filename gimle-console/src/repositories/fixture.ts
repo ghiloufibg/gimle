@@ -2,6 +2,8 @@ import type {
   ConcurrencyPolicy,
   ConfigEntry,
   CronJob,
+  DaemonSet,
+  DaemonSetInstance,
   Deployment,
   DeploymentInstance,
   Job,
@@ -242,6 +244,51 @@ export const cronJobs: CronJob[] = Array.from({ length: 6 }, (_, i) => {
   };
 });
 
+// ---------- DaemonSets (priority-3 design doc §4d) ----------
+const NODE_LABEL_SETS: string[][] = [[], [], [], ["gpu"], ["ssd"], ["edge"], ["gpu", "ssd"]];
+
+function makeDaemonSetInstance(nodeId: string): DaemonSetInstance {
+  const state = weightedLifecycle();
+  const active = state === "ACTIVE";
+  const ready = active && rand() > 0.08;
+  const alive = state !== "UNINSTALLED" && state !== "INSTALLED";
+  return {
+    nodeId,
+    observation: {
+      lifecycleState: state,
+      alive,
+      ready,
+      requestRatePerSecond: active ? +(rand() * 50).toFixed(1) : 0,
+      queueDepth: active ? intBetween(0, 5) : 0,
+      cpuMillicoresUsed: active ? intBetween(20, 400) : intBetween(0, 20),
+      memoryBytesUsed: intBetween(32, 256) * 1024 * 1024,
+    },
+  };
+}
+
+export const daemonSets: DaemonSet[] = Array.from({ length: 4 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-agent-${i}`;
+  const tenantId = rand() < 0.2 ? pick(tenants).id : null;
+  const requiredNodeLabels = pick(NODE_LABEL_SETS);
+  const eligibleNodes =
+    requiredNodeLabels.length > 0
+      ? nodes.filter(() => rand() < 0.6)
+      : nodes.filter(() => rand() < 0.9);
+  const instances = eligibleNodes.map((n) => makeDaemonSetInstance(n.nodeId));
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      placement: { requiredNodeLabels },
+      tenantId,
+    },
+    instances,
+  };
+});
+
 // ---------- Config ----------
 const CONFIG_KEYS = [
   "db.url",
@@ -315,6 +362,15 @@ export function addCronJob(c: CronJob) {
 export function removeCronJob(name: string) {
   const idx = cronJobs.findIndex((c) => c.spec.name === name);
   if (idx >= 0) cronJobs.splice(idx, 1);
+}
+
+export function addDaemonSet(d: DaemonSet) {
+  daemonSets.unshift(d);
+}
+
+export function removeDaemonSet(name: string) {
+  const idx = daemonSets.findIndex((d) => d.spec.name === name);
+  if (idx >= 0) daemonSets.splice(idx, 1);
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

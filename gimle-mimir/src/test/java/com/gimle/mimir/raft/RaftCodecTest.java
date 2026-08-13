@@ -274,6 +274,9 @@ class RaftCodecTest {
             Map.of(),
             List.of(),
             Map.of(),
+            List.of(),
+            List.of(),
+            Map.of(),
             List.of(
                 new NodeRegistration(
                     "node-1",
