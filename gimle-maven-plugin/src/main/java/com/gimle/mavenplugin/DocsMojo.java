@@ -29,11 +29,10 @@ import org.apache.maven.project.MavenProject;
  * rather than one leaf module -- the root project is always present in any reactor build regardless
  * of {@code -pl}/profile flags, which guarantees exactly one execution.
  *
- * <p>See {@code claudedocs/docs-site-design.md} and {@code gimle-docs/pom.xml}'s own description
- * for why this exists as a separate command rather than folding into {@code mvn verify -P docs}:
- * {@code javadoc:aggregate} is deliberately never bound to a lifecycle phase (see the root pom's
- * {@code maven-javadoc-plugin} {@code pluginManagement} entry), so nothing else chains it before
- * {@code gimle-docs}'s own build runs.
+ * <p>See {@code gimle-docs/pom.xml}'s own description for why this exists as a separate command
+ * rather than folding into {@code mvn verify -P docs}: {@code javadoc:aggregate} is deliberately
+ * never bound to a lifecycle phase (see the root pom's {@code maven-javadoc-plugin} {@code
+ * pluginManagement} entry), so nothing else chains it before {@code gimle-docs}'s own build runs.
  */
 @Mojo(name = "docs", threadSafe = true)
 public final class DocsMojo extends AbstractMojo {

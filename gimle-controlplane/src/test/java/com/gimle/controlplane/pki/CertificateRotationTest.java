@@ -39,12 +39,12 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * §4b's rotation flow: a component holding a still-valid certificate requests rotation over mTLS
- * (no bootstrap token involved), receives a new certificate for the *same* Subject with a new key
- * pair and a later-or-equal expiry, and it's immediately usable for a fresh mTLS handshake. Plus
- * the negative case that actually matters for rotation specifically: a CSR whose Subject does not
- * match the authenticating certificate's own Subject must be rejected -- auto-approval here is only
- * safe because it can't be used to request a *different* identity than the one already proven.
+ * The rotation flow: a component holding a still-valid certificate requests rotation over mTLS (no
+ * bootstrap token involved), receives a new certificate for the *same* Subject with a new key pair
+ * and a later-or-equal expiry, and it's immediately usable for a fresh mTLS handshake. Plus the
+ * negative case that actually matters for rotation specifically: a CSR whose Subject does not match
+ * the authenticating certificate's own Subject must be rejected -- auto-approval here is only safe
+ * because it can't be used to request a *different* identity than the one already proven.
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with
 // any other class holding the same lock, under class-level parallel execution (root pom.xml).

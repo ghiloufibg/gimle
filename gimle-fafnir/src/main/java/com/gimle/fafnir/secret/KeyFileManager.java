@@ -65,12 +65,12 @@ public final class KeyFileManager {
   }
 
   /**
-   * Loads the full rotation history sharing {@code baseKeyFilePath} (P2-16): {@code
-   * baseKeyFilePath} itself is always key id 0 (created via {@link #loadOrCreate} if this is the
-   * first run, so a cluster that never rotates keeps today's exact single-key layout), plus any
-   * sibling {@code <baseFileName>.<id>} files a prior {@link #rotate} call wrote, plus whichever id
-   * a sibling {@code <baseFileName>.active} file names as current (defaulting to 0 if that sidecar
-   * is absent).
+   * Loads the full rotation history sharing {@code baseKeyFilePath}: {@code baseKeyFilePath} itself
+   * is always key id 0 (created via {@link #loadOrCreate} if this is the first run, so a cluster
+   * that never rotates keeps today's exact single-key layout), plus any sibling {@code
+   * <baseFileName>.<id>} files a prior {@link #rotate} call wrote, plus whichever id a sibling
+   * {@code <baseFileName>.active} file names as current (defaulting to 0 if that sidecar is
+   * absent).
    */
   public static KeyRing loadAllOrCreate(Path baseKeyFilePath) {
     SecretKey keyZero = loadOrCreate(baseKeyFilePath);

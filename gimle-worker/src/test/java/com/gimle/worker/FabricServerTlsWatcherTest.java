@@ -36,8 +36,7 @@ import org.junit.jupiter.api.parallel.Resources;
 /**
  * Proves {@link FabricServerTlsWatcher} actually detects a certificate file changed on disk --
  * overwritten in place the same way an agent-managed worker sees its own rotation happen out from
- * under it -- and calls {@link FabricServer#reloadTlsMaterial()}, per {@code
- * claudedocs/tls-transport-security-design.md} §6.2/§6.4 item 2. Uses a fast poll interval so the
+ * under it -- and calls {@link FabricServer#reloadTlsMaterial()}. Uses a fast poll interval so the
  * test doesn't have to wait out a real rotation cadence.
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with
@@ -109,14 +108,14 @@ class FabricServerTlsWatcherTest {
         "the watcher should have scheduled exactly one periodic poll");
 
     // Rotate: a fresh CA-signed leaf written over the *same* cert/key file paths -- exactly what
-    // §4b's own rotation does, and what an agent-managed worker sees happen underneath it. No
-    // channel tells the watcher this happened; it must notice the mtime move on its own.
+    // the agent's own rotation does, and what an agent-managed worker sees happen underneath it.
+    // No channel tells the watcher this happened; it must notice the mtime move on its own.
     KeyPair rotatedKeyPair = generateRsaKeyPair();
     PKCS10CertificationRequest rotatedCsr =
         CertificateSigningRequests.generate(rotatedKeyPair, new X500Name("CN=fabric-node"));
     X509Certificate rotatedLeaf = ca.signCertificateRequest(rotatedCsr, Duration.ofDays(1));
-    // Key before cert, matching AgentMain's own write order (§6.2): the watcher polls only
-    // certFile's mtime, so the key must already be in place by the time that's observed.
+    // Key before cert, matching AgentMain's own write order: the watcher polls only certFile's
+    // mtime, so the key must already be in place by the time that's observed.
     overwritePem(keyFile, "PRIVATE KEY", rotatedKeyPair.getPrivate().getEncoded());
     overwritePem(certFile, "CERTIFICATE", rotatedLeaf.getEncoded());
 

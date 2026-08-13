@@ -15,9 +15,9 @@
 
   <name>Gimle PKI</name>
   <description>
-    Certificate authority and CSR generation/signing for gimle.transport.protocol=tls (see
-    claudedocs/tls-transport-security-design.md), via Bouncy Castle -- confirmed to use only
-    public JDK APIs underneath (java.security.Signature, KeyPairGenerator, BigInteger) plus its own
+    Certificate authority and CSR generation/signing for gimle.transport.protocol=tls, via Bouncy
+    Castle -- confirmed to use only public JDK APIs underneath (java.security.Signature,
+    KeyPairGenerator, BigInteger) plus its own
     ASN.1/DER encoder, unlike the sun.security.x509 internals route this design explicitly ruled
     out. Deliberately its own module, not gimle-core: only gimle-controlplane (signs CSRs at
     /bootstrap/csr) and gimle-agent (generates its own CSR at first bootstrap) ever call into it --

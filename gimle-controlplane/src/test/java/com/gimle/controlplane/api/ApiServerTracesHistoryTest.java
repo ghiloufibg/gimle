@@ -49,9 +49,9 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * {@code GET /traces-history/{processKind}/{processId}} (design doc Part B/O-13): structurally
- * identical to {@code ApiServerMetricsHistoryTest}, proxying to Muninn's own {@code GET
- * /traces/{processKind}/{processId}} (B-11) instead of {@code /metrics/...}.
+ * {@code GET /traces-history/{processKind}/{processId}}: structurally identical to {@code
+ * ApiServerMetricsHistoryTest}, proxying to Muninn's own {@code GET
+ * /traces/{processKind}/{processId}} instead of {@code /metrics/...}.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-controlplane-api-server-http")

@@ -40,12 +40,13 @@ import org.junit.jupiter.api.parallel.Resources;
 /**
  * A real M-node {@code gimle-mimir} store cluster (real Raft over real sockets) behind N real
  * {@link ApiServer} replicas, each with its own {@link StoreClient} pointed at every store endpoint
- * -- the decoupled N:M topology the etcd-store-extraction design doc exists for. A write through
- * *any* {@code ApiServer} replica now just succeeds, regardless of which store node currently holds
- * Raft leadership: {@code StoreClient} follows the leader internally (design doc §4.4/§4.6), so
- * there is no 307-redirect-to-a-peer-{@code ApiServer} behavior left to test -- that mechanism only
- * ever made sense when one {@code ApiServer} was colocated 1:1 with one Raft member, which stopped
- * being true the moment this split landed.
+ * -- the decoupled N:M topology that resulted from splitting the state store out into its own
+ * process, independent of the control plane's own replica count. A write through *any* {@code
+ * ApiServer} replica now just succeeds, regardless of which store node currently holds Raft
+ * leadership: {@code StoreClient} follows the leader internally, so there is no
+ * 307-redirect-to-a-peer-{@code ApiServer} behavior left to test -- that mechanism only ever made
+ * sense when one {@code ApiServer} was colocated 1:1 with one Raft member, which stopped being true
+ * the moment this split landed.
  */
 // See ApiServerTest for why: real ApiServer + real HttpClient on a loopback ephemeral port,
 // excluded from running concurrently with any other class doing the same.

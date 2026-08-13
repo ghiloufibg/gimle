@@ -49,10 +49,9 @@ public final class ControlPlaneClient {
   }
 
   /**
-   * For the two pre-certificate flows in {@code claudedocs/tls-transport-security-design.md} §4:
-   * {@code cert request}/{@code cert status}, which by definition run before the caller has a
-   * client certificate of its own to present. Trusts the server (verifies against {@code
-   * gimle.tls.caFile}) without presenting one.
+   * For the two pre-certificate flows, {@code cert request}/{@code cert status}, which by
+   * definition run before the caller has a client certificate of its own to present. Trusts the
+   * server (verifies against {@code gimle.tls.caFile}) without presenting one.
    */
   public static ControlPlaneClient trustOnly(String serverAddress) {
     return new ControlPlaneClient(serverAddress, trustOnlySslContext());

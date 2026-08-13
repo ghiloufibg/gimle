@@ -37,8 +37,8 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Drives {@link StoreNode} directly against a real {@link RaftNode}/{@link StateStore} pair, no
  * sockets -- the {@link StoreTransport}/{@link StoreConnection} network plumbing is covered
- * separately by {@code StoreClient}'s own integration test (design plan step 7), so this test only
- * needs to prove {@link StoreNode}'s own dispatch and leader-routing logic.
+ * separately by {@code StoreClient}'s own integration test, so this test only needs to prove {@link
+ * StoreNode}'s own dispatch and leader-routing logic.
  */
 class StoreNodeTest {
 
@@ -158,7 +158,7 @@ class StoreNodeTest {
     assertEquals(
         new StoreRpc.NotLeader(""),
         node.handle(new StoreRpc.ReleaseLease("reconciler-leader", "node-a")));
-    // GetNodeHeartbeat is the one leader-only *read* in this group (P2-14) -- a non-leader must
+    // GetNodeHeartbeat is the one leader-only *read* in this group -- a non-leader must
     // reject it the same way, not answer from its own always-empty local heartbeat map.
     assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.GetNodeHeartbeat("node-a")));
   }
@@ -246,8 +246,7 @@ class StoreNodeTest {
 
   /**
    * Exercises {@code ListAuditEvents}' optional filter parameters actually surviving the wire --
-   * the one thing this request shape needs that {@code ListInstanceEvents} never did (see
-   * OBSERVABILITY_AUDIT_DESIGN.md's flagged ambiguity on this exact point).
+   * the one thing this request shape needs that {@code ListInstanceEvents} never did.
    */
   @Test
   void a_resource_kind_filter_narrows_the_list_read_over_the_wire() {
@@ -284,7 +283,7 @@ class StoreNodeTest {
     assertEquals(new StoreRpc.AuditEventListResult(List.of(secretEvent)), listResponse);
   }
 
-  // ---- AddServer: etcd-style membership change (P1-5) ----
+  // ---- AddServer: etcd-style membership change ----
 
   /** Always acks immediately, as if the peer had a real, always-caught-up log of its own. */
   private static RaftPeerClient echoAckingPeer() {

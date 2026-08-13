@@ -19,12 +19,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A thin policy generator over {@link JobSpec}/{@code JobReconciler} (priority-3 design doc §3d) --
- * never a second execution engine. Every tick, for each non-terminal {@link CronJobSpec}: computes
- * the most recent cron-due instant since that CronJob's own {@code cronJobLastSchedule}, and if one
- * is found, either materializes it as a normal {@link JobSpec} (via an ordinary {@code PutJobSpec}
- * mutation, subject to {@link com.gimle.mimir.manifest.ConcurrencyPolicy}) or logs it as missed if
- * {@link CronJobSpec#startingDeadline()} has already elapsed -- matching Kubernetes CronJob's own
+ * A thin policy generator over {@link JobSpec}/{@code JobReconciler} -- never a second execution
+ * engine. Every tick, for each non-terminal {@link CronJobSpec}: computes the most recent cron-due
+ * instant since that CronJob's own {@code cronJobLastSchedule}, and if one is found, either
+ * materializes it as a normal {@link JobSpec} (via an ordinary {@code PutJobSpec} mutation, subject
+ * to {@link com.gimle.mimir.manifest.ConcurrencyPolicy}) or logs it as missed if {@link
+ * CronJobSpec#startingDeadline()} has already elapsed -- matching Kubernetes CronJob's own
  * well-understood missed-schedule handling rather than inventing a new one. This reconciler never
  * touches {@link com.gimle.mimir.store.JobRun} or {@link com.gimle.controlplane.schedule.Scheduler}
  * directly -- placement, retries, and completion are entirely {@code JobReconciler}'s unchanged

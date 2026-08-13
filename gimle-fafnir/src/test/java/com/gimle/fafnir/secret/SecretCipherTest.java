@@ -11,7 +11,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
 
-/** AES-256-GCM round-trip (Phase 5 design §6.2). */
+/** AES-256-GCM round-trip. */
 class SecretCipherTest {
 
   private static SecretKey key() throws NoSuchAlgorithmException {
@@ -71,7 +71,7 @@ class SecretCipherTest {
         IllegalArgumentException.class, () -> SecretCipher.decrypt(new byte[] {1, 2, 3}, key()));
   }
 
-  // ---- P2-16: key id, and the legacy (pre-key-id) format ----
+  // ---- key id, and the legacy (pre-key-id) format ----
 
   @Test
   void round_trips_through_a_specific_key_id() throws Exception {
@@ -113,7 +113,7 @@ class SecretCipherTest {
   void a_pre_key_id_legacy_blob_still_decrypts_under_key_id_zero() throws Exception {
     SecretKey key = key();
     byte[] plaintext = "s3cr3t-value".getBytes(StandardCharsets.UTF_8);
-    // The exact pre-P2-16 layout: iv(12) || ciphertext-with-tag, no version/key-id prefix.
+    // The exact legacy, pre-key-id layout: iv(12) || ciphertext-with-tag, no version/key-id prefix.
     byte[] legacyBlob = legacyEncrypt(plaintext, key);
 
     assertArrayEquals(plaintext, SecretCipher.decrypt(legacyBlob, Map.of((byte) 0, key)));

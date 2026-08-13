@@ -21,11 +21,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * opt-in" shape {@code CaKeyMaterial} already uses for {@code gimle.pki.caKeyFile}.
  *
  * <p>Unlike {@code CaKeyMaterial}, a missing file at a configured path is not an error here: the
- * property may deliberately stay set across restarts (see {@code claudedocs/authn-authz-design.md}
- * §4) while an operator removes the file itself once the bootstrap account is no longer needed --
- * the caller (see {@code ApiServer}'s constructor) only ever consults this once, while the store
- * still has zero accounts, so a later restart finding the file gone is the expected steady state,
- * not a broken configuration.
+ * property may deliberately stay set across restarts while an operator removes the file itself once
+ * the bootstrap account is no longer needed -- the caller (see {@code ApiServer}'s constructor)
+ * only ever consults this once, while the store still has zero accounts, so a later restart finding
+ * the file gone is the expected steady state, not a broken configuration.
  */
 public final class BootstrapAccountFile {
 

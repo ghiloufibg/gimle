@@ -112,8 +112,8 @@ class AgentMainTest {
             "node-1",
             assigned);
 
-    // WorkerProcessSupervisor's OOM crash classification (P2-3) depends on this flag being set on
-    // every worker, unconditionally -- without it, an OOM exit is indistinguishable from any
+    // WorkerProcessSupervisor's OOM crash classification depends on this flag being set on every
+    // worker, unconditionally -- without it, an OOM exit is indistinguishable from any
     // other unexpected exit code.
     assertTrue(
         command.contains("-XX:+ExitOnOutOfMemoryError"),
@@ -272,9 +272,9 @@ class AgentMainTest {
   @Test
   void observation_json_reports_a_completed_job_run_as_alive_but_not_ready() {
     // Regression test locking in observationJson's own documented reasoning: alive is an exclusion
-    // check ("not FAILED"), not an inclusion list, so a COMPLETED job run (priority-3 design doc
-    // §3b) already reports alive=true without observationJson needing a COMPLETED-specific branch
-    // -- a successfully finished Job is not a crash HealthReconciler should reschedule. It is,
+    // check ("not FAILED"), not an inclusion list, so a COMPLETED job run already reports
+    // alive=true without observationJson needing a COMPLETED-specific branch -- a successfully
+    // finished Job is not a crash HealthReconciler should reschedule. It is,
     // however, not "ready" (ready is strictly ACTIVE-only): a completed run isn't serving traffic.
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     AssignedInstance assigned =

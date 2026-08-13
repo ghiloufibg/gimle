@@ -10,17 +10,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Ships every exported span batch to Muninn (design doc Part B/O-13), serializing each {@link
- * SpanData} to the same no-envelope JSON-line shape the rest of Muninn's ingest surface uses:
- * {@code traceId}/{@code spanId}/{@code parentSpanId}/{@code name}/{@code kind}/{@code timestamp}
- * (the span's own end time, not export wall-clock time, matching {@code MuninnDayFileStore}'s
- * "bucket by the line's own timestamp" contract)/{@code status}, plus every span attribute
- * flattened directly onto the line -- unlike the metrics wire shape's nested {@code tags}/{@code
- * measurements}, since a span's attribute set is unbounded and free-form rather than a small fixed
- * dimension set, and nothing downstream needs to distinguish "an attribute" from "one of the fixed
- * span fields" yet. A span attribute key colliding with one of those fixed fields would silently
- * overwrite it -- an accepted, documented tradeoff, not a gap, given nothing reads this shape back
- * with a strict schema today.
+ * Ships every exported span batch to Muninn, serializing each {@link SpanData} to the same
+ * no-envelope JSON-line shape the rest of Muninn's ingest surface uses: {@code traceId}/{@code
+ * spanId}/{@code parentSpanId}/{@code name}/{@code kind}/{@code timestamp} (the span's own end
+ * time, not export wall-clock time, matching {@code MuninnDayFileStore}'s "bucket by the line's own
+ * timestamp" contract)/{@code status}, plus every span attribute flattened directly onto the line
+ * -- unlike the metrics wire shape's nested {@code tags}/{@code measurements}, since a span's
+ * attribute set is unbounded and free-form rather than a small fixed dimension set, and nothing
+ * downstream needs to distinguish "an attribute" from "one of the fixed span fields" yet. A span
+ * attribute key colliding with one of those fixed fields would silently overwrite it -- an
+ * accepted, documented tradeoff, not a gap, given nothing reads this shape back with a strict
+ * schema today.
  *
  * <p>{@link #export} never surfaces a shipping failure to the OpenTelemetry SDK: {@link
  * MuninnShipper#shipTraceBatch} is itself already best-effort (see that method's own javadoc), and

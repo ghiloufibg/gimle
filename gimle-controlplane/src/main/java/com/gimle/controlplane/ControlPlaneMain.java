@@ -40,27 +40,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The control plane's entry point: wires a {@link StoreClient} (etcd-store-extraction design doc --
- * talks over the network to a {@code gimle-mimir} store cluster, replacing what used to be an
- * in-process {@code StateStore}/{@code RaftNode}), the scheduler, the five reconcilers, and the API
- * server together. The reconcilers are independent in what they each compute, but share one ticker
- * thread here rather than separate timers -- the same "one shared ticker, independent per-check
- * logic" shape {@code gimle-worker}'s {@code ProbeLoop} already established; fixed-interval ticking
- * is what a level-triggered design needs, not literal thread independence. Tick order matters for
- * same-tick convergence, not for correctness across ticks: {@link ReplicaCountReconciler} and
- * {@link HealthReconciler} release assignments that are missing or unhealthy, and {@link
- * DeploymentReconciler} -- run last -- fills every gap that exists by the time it runs, whether
- * that gap is from a prior tick or this one. {@link AutoscaleReconciler} runs just before it, for
- * the identical reason: {@code DeploymentReconciler} reads whatever effective replica count it just
- * computed, same-tick.
+ * The control plane's entry point: wires a {@link StoreClient} (talks over the network to a {@code
+ * gimle-mimir} store cluster, replacing what used to be an in-process {@code StateStore}/{@code
+ * RaftNode}), the scheduler, the five reconcilers, and the API server together. The reconcilers are
+ * independent in what they each compute, but share one ticker thread here rather than separate
+ * timers -- the same "one shared ticker, independent per-check logic" shape {@code gimle-worker}'s
+ * {@code ProbeLoop} already established; fixed-interval ticking is what a level-triggered design
+ * needs, not literal thread independence. Tick order matters for same-tick convergence, not for
+ * correctness across ticks: {@link ReplicaCountReconciler} and {@link HealthReconciler} release
+ * assignments that are missing or unhealthy, and {@link DeploymentReconciler} -- run last -- fills
+ * every gap that exists by the time it runs, whether that gap is from a prior tick or this one.
+ * {@link AutoscaleReconciler} runs just before it, for the identical reason: {@code
+ * DeploymentReconciler} reads whatever effective replica count it just computed, same-tick.
  *
  * <p>The tick itself only ever runs on whichever {@code ApiServer} replica currently holds the
- * {@code reconciler-leader} lease -- a lease-based election (design decision made when the store
- * extraction decoupled {@code ApiServer} replica count from the store cluster's own Raft
- * membership: this process is no longer itself a Raft participant, so it can no longer get "exactly
- * one active controller" for free the way {@code raftNode.isLeader()} used to provide). Backed by
- * {@link StoreClient#tryAcquireOrRenewLease}, a non-replicated, leader-local primitive on the store
- * (the same shape Kubernetes' own {@code coordination.k8s.io/v1 Lease} serves for {@code
+ * {@code reconciler-leader} lease -- a lease-based election, needed because {@code ApiServer}
+ * replica count is decoupled from the store cluster's own Raft membership: this process is not
+ * itself a Raft participant, so it cannot get "exactly one active controller" for free the way
+ * {@code raftNode.isLeader()} used to provide. Backed by {@link
+ * StoreClient#tryAcquireOrRenewLease}, a non-replicated, leader-local primitive on the store (the
+ * same shape Kubernetes' own {@code coordination.k8s.io/v1 Lease} serves for {@code
  * kube-controller-manager}/{@code kube-scheduler} elections) -- renewed every tick this replica
  * holds it, attempted every tick it doesn't.
  */
@@ -161,23 +160,23 @@ public final class ControlPlaneMain {
             storeClient);
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
     QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
-    // Priority-3 design doc §3c: touches only its own JobSpec/JobRun store types, invisible to
+    // Touches only its own JobSpec/JobRun store types, invisible to
     // the four reconcilers above by construction (they only ever read Deployment-scoped store
     // methods) -- no interaction with, or dependency on, tick order relative to them.
     JobReconciler jobReconciler =
         new JobReconciler(
             storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
-    // Priority-3 design doc §3d: a thin generator writing ordinary JobSpecs, never touching
+    // A thin generator writing ordinary JobSpecs, never touching
     // JobRun/Scheduler directly -- see the class's own javadoc.
     CronJobReconciler cronJobReconciler =
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC());
-    // Priority-3 design doc §4: touches only its own DaemonSetSpec/DaemonSetAssignment store
+    // Touches only its own DaemonSetSpec/DaemonSetAssignment store
     // types, invisible to every reconciler above by construction -- no interaction with, or
     // dependency on, tick order relative to them.
     DaemonSetReconciler daemonSetReconciler =
         new DaemonSetReconciler(
             storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
-    // Priority-3 design doc §5: the last workload-diversity item, touching only its own
+    // Touches only its own
     // StatefulSetSpec/StatefulSetAssignment store types -- same "invisible to every reconciler
     // above by construction" independence the Job/CronJob/DaemonSet reconcilers already have.
     StatefulSetReconciler statefulSetReconciler =
@@ -189,10 +188,10 @@ public final class ControlPlaneMain {
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
 
-    // Same --muninn-endpoint value doing double duty (design doc Part B/O-10): the MuninnClient
-    // above reads a gone node/instance's shipped history back, this shipper ships this replica's
-    // own request metrics out -- one configured Muninn address, two independent uses against it,
-    // rather than a second flag naming the same process.
+    // Same --muninn-endpoint value doing double duty: the MuninnClient above reads a gone
+    // node/instance's shipped history back, this shipper ships this replica's own request
+    // metrics out -- one configured Muninn address, two independent uses against it, rather
+    // than a second flag naming the same process.
     MuninnShipper metricsShipper =
         muninnEndpoint == null
             ? null
@@ -203,7 +202,7 @@ public final class ControlPlaneMain {
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(apiServer.metrics().registry());
     }
-    // Design doc Part B/O-13: a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
+    // The control plane is a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
     // own javadoc on why it deliberately skips tracing installation). Shipped to Muninn when
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
@@ -253,8 +252,8 @@ public final class ControlPlaneMain {
         TimeUnit.MILLISECONDS);
 
     // Unconditional -- not lease-gated like reconcileTick above: this replica's own certificate
-    // needs to stay fresh regardless of whether it currently holds the reconciler-leader lease,
-    // per claudedocs/tls-transport-security-design.md §4b. No-op in plaintext mode.
+    // needs to stay fresh regardless of whether it currently holds the reconciler-leader lease.
+    // No-op in plaintext mode.
     ticker.scheduleAtFixedRate(
         apiServer::checkAndRotateOwnCertificateIfDue,
         RECONCILE_INTERVAL.toMillis(),

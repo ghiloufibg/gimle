@@ -50,16 +50,16 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-fabric</artifactId>
     </dependency>
-    <!-- Generates this agent's own CSR at first bootstrap and its rotation CSRs later (design doc
-         §4/§4b); never signs anything itself, that's gimle-controlplane's job. -->
+    <!-- Generates this agent's own CSR at first bootstrap and its rotation CSRs later; never
+         signs anything itself, that's gimle-controlplane's job. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
     <!-- MuninnShipper: ships this agent's own logs, plus every supervised worker's, to Muninn
-         when -Dgimle.agent.muninnEndpoint is configured (design doc Part B/O-10). The agent's
-         first genuine main-scope need for anything in gimle-observability, which had only ever
-         been a test-scope dependency (via gimle-worker) before this. -->
+         when -Dgimle.agent.muninnEndpoint is configured. The agent's first genuine main-scope
+         need for anything in gimle-observability, which had only ever been a test-scope
+         dependency (via gimle-worker) before this. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-observability</artifactId>

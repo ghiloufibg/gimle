@@ -8,10 +8,10 @@ import java.util.TreeSet;
 
 /**
  * A hand-rolled evaluator for the standard 5-field cron expression (minute hour day-of-month month
- * day-of-week) -- priority-3 design doc §3d's {@code CronJobSpec.schedule}. Deliberately not backed
- * by an external cron library, matching this codebase's existing posture of hand-rolling small,
- * self-contained parsers (see {@code DeploymentManifestParser}'s own javadoc) rather than adding a
- * dependency for one narrow need.
+ * day-of-week) backing {@code CronJobSpec.schedule}. Deliberately not backed by an external cron
+ * library, matching this codebase's existing posture of hand-rolling small, self-contained parsers
+ * (see {@code DeploymentManifestParser}'s own javadoc) rather than adding a dependency for one
+ * narrow need.
  *
  * <p>Supports the common syntax subset every real-world crontab actually uses: {@code *}, a single
  * number, a comma-separated list, a range ({@code a-b}), and a step ({@code * /n} or {@code a-b/n}
@@ -26,8 +26,8 @@ import java.util.TreeSet;
  * <p>Day-of-month and day-of-week combine with cron's own well-understood (if surprising)
  * historical quirk: if <em>both</em> fields are restricted (neither is the literal {@code *}), a
  * moment matches if it satisfies <em>either</em> field, not both -- mirrored here deliberately
- * rather than invented, the same "well-understood reference semantic" posture the design doc's own
- * missed-schedule handling takes from Kubernetes CronJob.
+ * rather than invented, the same "well-understood reference semantic" posture {@code
+ * CronJobReconciler}'s own missed-schedule handling takes from Kubernetes CronJob.
  */
 public final class CronSchedule {
 

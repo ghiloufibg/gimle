@@ -10,8 +10,9 @@ import java.util.Map;
  * is ever in flight at a time (enforced by {@link RaftNode#addServer}/{@link RaftNode#removeServer}
  * rejecting a new one while an earlier one they proposed is still uncommitted), each one entirely
  * replacing {@code C_old} with {@code C_new} -- deliberately not full joint consensus's {@code
- * C_old,new} overlap state, which the production-hardening backlog explicitly scopes out of this
- * item.
+ * C_old,new} overlap state, which one-server-at-a-time changes make unnecessary: any old-majority
+ * and new-majority pair for a single-server change is guaranteed to overlap, so there's no window
+ * where both configurations could elect different leaders.
  */
 public record MembershipChange(Map<String, PeerAddress> peers) implements RaftLogPayload {
 

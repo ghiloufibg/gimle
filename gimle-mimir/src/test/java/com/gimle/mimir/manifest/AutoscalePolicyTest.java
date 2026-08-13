@@ -8,9 +8,9 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link AutoscalePolicy.CombinationMode}/per-signal-weight validation and defaulting (roadmap item
- * 10) -- the four target-signal validations these tests don't re-cover are already pinned by the
- * codebase's existing manifest-level tests ({@code DeploymentManifestParserTest}).
+ * {@link AutoscalePolicy.CombinationMode}/per-signal-weight validation and defaulting -- the four
+ * target-signal validations these tests don't re-cover are already pinned by the codebase's
+ * existing manifest-level tests ({@code DeploymentManifestParserTest}).
  */
 class AutoscalePolicyTest {
 

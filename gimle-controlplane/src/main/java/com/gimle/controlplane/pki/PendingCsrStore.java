@@ -9,12 +9,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Tracks {@link com.gimle.core.protocol.CsrPurpose#OPERATOR_CLIENT} requests submitted to {@code
- * POST /bootstrap/csr} between submission and an existing operator's later {@code approve} call,
- * per {@code claudedocs/tls-transport-security-design.md} §4a. In-memory only, same reasoning as
- * {@link BootstrapTokenRegistry} -- not Raft-replicated. This endpoint is deliberately reachable
- * without a client certificate, so entries are pruned by age on access rather than kept forever;
- * that bounds unbounded growth from spam submissions without needing real rate limiting for this
- * pass.
+ * POST /bootstrap/csr} between submission and an existing operator's later {@code approve} call.
+ * In-memory only, same reasoning as {@link BootstrapTokenRegistry} -- not Raft-replicated. This
+ * endpoint is deliberately reachable without a client certificate, so entries are pruned by age on
+ * access rather than kept forever; that bounds unbounded growth from spam submissions without
+ * needing real rate limiting for this pass.
  */
 public final class PendingCsrStore {
 

@@ -4,11 +4,12 @@ import com.gimle.core.module.VolumeRequest;
 import java.nio.file.Path;
 
 /**
- * Allocates a {@code StatefulSet}-shaped instance's persistent local-disk storage (priority-3
- * design doc §5a), structurally parallel to {@link ResourceLimiter}: one implementation today
- * ({@code LocalDiskVolumeManager}), local-disk-backed only -- no replication, no CSI-style
- * pluggable backend, matching the roadmap's own "single-node-local-disk version of persistent
- * storage" framing (see §5b, and this design's own explicit non-goals).
+ * Allocates a {@code StatefulSet}-shaped instance's persistent local-disk storage, structurally
+ * parallel to {@link ResourceLimiter}: one implementation today ({@code LocalDiskVolumeManager}),
+ * local-disk-backed only -- no replication, no CSI-style pluggable backend. Single-node local disk
+ * is the deliberate scope for persistent storage here, not a stand-in for a distributed volume
+ * system; a sticky-placement instance's data lives on the machine it's scheduled to, and nothing in
+ * this interface assumes otherwise.
  *
  * <p>{@code release} is called only on permanent removal (a {@code StatefulSet} index scaled down
  * for good, or the whole spec deleted) -- never on an ordinary reschedule or rolling-update

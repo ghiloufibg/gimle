@@ -33,11 +33,11 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * {@code ApiServer}'s {@code /logs/*} Muninn fallback (design doc Part B/O-11): a gone node or
- * instance -- no registration, a registered node whose agent genuinely can't be reached -- falls
- * through to Muninn's own shipped history instead of a bare 404/502, whenever a {@link
- * MuninnClient} is actually configured. Mirrors {@code ApiServerTest}'s own real-loopback-HTTP
- * setup shape, plus a stub {@code HttpServer} standing in for both Muninn and a live agent.
+ * {@code ApiServer}'s {@code /logs/*} Muninn fallback: a gone node or instance -- no registration,
+ * a registered node whose agent genuinely can't be reached -- falls through to Muninn's own shipped
+ * history instead of a bare 404/502, whenever a {@link MuninnClient} is actually configured.
+ * Mirrors {@code ApiServerTest}'s own real-loopback-HTTP setup shape, plus a stub {@code
+ * HttpServer} standing in for both Muninn and a live agent.
  */
 @ResourceLock("gimle-controlplane-api-server-http")
 @ResourceLock(Resources.SYSTEM_PROPERTIES)

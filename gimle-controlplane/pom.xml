@@ -64,18 +64,18 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
-    <!-- Real, main-scope dependency: ApiServer signs incoming CSRs at /bootstrap/csr (design doc
-         §4/§4a/§4b) via CertificateAuthority.signCertificateRequest, and generates its own
+    <!-- Real, main-scope dependency: ApiServer signs incoming CSRs at /bootstrap/csr
+         via CertificateAuthority.signCertificateRequest, and generates its own
          rotation CSRs via CertificateSigningRequests.generate. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
-    <!-- The Raft-replicated store as its own process (claudedocs/etcd-store-extraction-design.md):
-         manifest/deployment-spec types, StateMutation/MutationSink (the write vocabulary ApiServer
-         and the reconcilers propose through), and StoreClient (the network client that replaced this
-         module's own former in-process StateStore/RaftNode). StateStore itself also travels with
-         this dependency, used only by test code as a fast, network-free reconciler-test fixture. -->
+    <!-- The Raft-replicated store as its own process: manifest/deployment-spec types,
+         StateMutation/MutationSink (the write vocabulary ApiServer and the reconcilers propose
+         through), and StoreClient (the network client that replaced this module's own former
+         in-process StateStore/RaftNode). StateStore itself also travels with this dependency,
+         used only by test code as a fast, network-free reconciler-test fixture. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-mimir</artifactId>
@@ -92,8 +92,7 @@
       <scope>test</scope>
     </dependency>
     <!-- ApiServerMetrics + MuninnShipper: ApiServer instruments its own endpoints and, when
-         -Dgimle.controlplane.muninnEndpoint is configured, ships them to Muninn (design doc Part
-         B/O-10). -->
+         -Dgimle.controlplane.muninnEndpoint is configured, ships them to Muninn. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-observability</artifactId>

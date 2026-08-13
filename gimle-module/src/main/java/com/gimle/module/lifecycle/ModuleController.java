@@ -151,11 +151,11 @@ public final class ModuleController {
   }
 
   /**
-   * {@code dataDirectory} is this instance's persistent-volume host path (priority-3 design doc
-   * §5a), already resolved by the agent and delivered over {@code ControlMessage.ResolveModule} --
-   * present only for a {@code StatefulSet}-shaped instance whose descriptor declares {@code
-   * volume:}. Populated on {@link SimpleModuleContext#dataDirectory()} before {@code onInstall}
-   * fires below, so a hook can rely on it from its very first callback.
+   * {@code dataDirectory} is this instance's persistent-volume host path, already resolved by the
+   * agent and delivered over {@code ControlMessage.ResolveModule} -- present only for a {@code
+   * StatefulSet}-shaped instance whose descriptor declares {@code volume:}. Populated on {@link
+   * SimpleModuleContext#dataDirectory()} before {@code onInstall} fires below, so a hook can rely
+   * on it from its very first callback.
    */
   public ModuleWiring resolve(ModuleId id, Optional<Path> dataDirectory) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
@@ -363,8 +363,8 @@ public final class ModuleController {
 
   /**
    * The run-to-completion counterpart to {@link #stop}: a Job-kind module's {@link JobHooks#run}
-   * finished, reporting {@code status} (priority-3 design doc §3b). {@code SUCCEEDED} moves the
-   * module straight to {@link ModuleState#COMPLETED} -- no drain wait, unlike {@link #stop}'s
+   * finished, reporting {@code status}. {@code SUCCEEDED} moves the module straight to {@link
+   * ModuleState#COMPLETED} -- no drain wait, unlike {@link #stop}'s
    * ACTIVE-&gt;STOPPING-&gt;UNINSTALLED sequence, since a Job never serves external requests and
    * its {@code inFlightCount()} is always zero. {@code FAILED} reuses the existing {@link
    * #markFailedAndEmit} path rather than introducing a second failure terminal -- a Job run that

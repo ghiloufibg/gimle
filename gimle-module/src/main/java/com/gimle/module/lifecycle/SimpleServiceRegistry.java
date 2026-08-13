@@ -89,12 +89,12 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   /**
-   * Hot redeploy (P2-5) can leave both the old and new version of a module registered under the
-   * same interface at once, deliberately -- see {@code HotRedeployTest}. A blended round-robin
-   * across both versions would send a fraction of fresh lookups to the version being drained.
-   * Instead, cutover is atomic per lookup: prefer the highest version that currently has at least
-   * one ready entry, round-robining only within that version's entries; fall back to the next
-   * highest version only when the top one has none ready (e.g. still starting up).
+   * Hot redeploy can leave both the old and new version of a module registered under the same
+   * interface at once, deliberately -- see {@code HotRedeployTest}. A blended round-robin across
+   * both versions would send a fraction of fresh lookups to the version being drained. Instead,
+   * cutover is atomic per lookup: prefer the highest version that currently has at least one ready
+   * entry, round-robining only within that version's entries; fall back to the next highest version
+   * only when the top one has none ready (e.g. still starting up).
    */
   private Optional<Entry> selectEntry(Class<?> iface) {
     List<Entry> entries = entriesByInterface.get(iface);

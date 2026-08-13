@@ -23,11 +23,10 @@ import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Real inbound HTTP traffic against a real {@link FafnirServer} -- the internal encrypt/decrypt/
- * rotate-key surface {@code gimle-controlplane}'s own {@code FafnirClient} calls, per the design
- * doc's Phase A scope. Same {@link ResourceLock} pair as {@code FafnirServerTlsTest} -- both
- * classes drive real HTTP servers over real loopback sockets, and running them concurrently
- * corrupts each other's traffic (the same JDK HttpClient parser-state hazard {@code ApiServerTest}
- * documents for {@code gimle-controlplane}).
+ * rotate-key surface {@code gimle-controlplane}'s own {@code FafnirClient} calls. Same {@link
+ * ResourceLock} pair as {@code FafnirServerTlsTest} -- both classes drive real HTTP servers over
+ * real loopback sockets, and running them concurrently corrupts each other's traffic (the same JDK
+ * HttpClient parser-state hazard {@code ApiServerTest} documents for {@code gimle-controlplane}).
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-fafnir-server-http")
@@ -170,7 +169,7 @@ class FafnirServerTest {
     assertEquals(405, response.statusCode());
   }
 
-  // ---- /secrets/{tenantId}/... (design doc §6e/§7) ----
+  // ---- /secrets/{tenantId}/... ----
 
   @Test
   @Timeout(10)

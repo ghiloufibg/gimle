@@ -15,12 +15,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Detects that this worker's agent-managed certificate file changed on disk -- overwritten in place
- * by the agent's own rotation, per {@code claudedocs/tls-transport-security-design.md} §6.2 -- by
- * polling {@link Files#getLastModifiedTime} against the value last seen, and calls {@link
- * FabricServer#reloadTlsMaterial()} when it moves. A worker carries no {@code gimle-pki} dependency
- * and has no channel back to the agent to be told "your cert changed" (§3, §6.2); polling is
- * deliberate here, not a placeholder for a push mechanism that doesn't exist. No-op -- never even
- * starts its ticker -- in plaintext mode.
+ * by the agent's own rotation -- by polling {@link Files#getLastModifiedTime} against the value
+ * last seen, and calls {@link FabricServer#reloadTlsMaterial()} when it moves. A worker carries no
+ * {@code gimle-pki} dependency and has no channel back to the agent to be told "your cert changed";
+ * polling is deliberate here, not a placeholder for a push mechanism that doesn't exist. No-op --
+ * never even starts its ticker -- in plaintext mode.
  */
 public final class FabricServerTlsWatcher implements AutoCloseable {
 

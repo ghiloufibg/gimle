@@ -35,15 +35,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Ensures at most one non-terminal {@link JobRun} exists for every non-terminal {@link JobSpec}
- * (priority-3 design doc §3c) -- run-to-completion's counterpart to {@link DeploymentReconciler},
- * following the exact same level-triggered convergence shape: every tick re-derives the full
- * desired-vs-observed picture from the current snapshot rather than reacting to what changed since
- * last tick. Placement itself is genuinely unchanged from {@link DeploymentReconciler}'s own: a Job
- * attempt is, from {@link Scheduler}'s point of view, indistinguishable from a deployment replica
- * -- same resource request, same tier, same placement constraints -- so this reconciler reuses
- * {@link Scheduler#place} exactly, with its own {@link #buildCandidates} building the same {@link
- * NodeCandidate} shape from {@link JobRun}s instead of {@link InstanceAssignment}s.
+ * Ensures at most one non-terminal {@link JobRun} exists for every non-terminal {@link JobSpec} --
+ * run-to-completion's counterpart to {@link DeploymentReconciler}, following the exact same
+ * level-triggered convergence shape: every tick re-derives the full desired-vs-observed picture
+ * from the current snapshot rather than reacting to what changed since last tick. Placement itself
+ * is genuinely unchanged from {@link DeploymentReconciler}'s own: a Job attempt is, from {@link
+ * Scheduler}'s point of view, indistinguishable from a deployment replica -- same resource request,
+ * same tier, same placement constraints -- so this reconciler reuses {@link Scheduler#place}
+ * exactly, with its own {@link #buildCandidates} building the same {@link NodeCandidate} shape from
+ * {@link JobRun}s instead of {@link InstanceAssignment}s.
  *
  * <p>A completed/failed attempt is detected the same way {@link DeploymentReconciler#isReady}
  * detects a ready replica: by reading the placed node's own heartbeat for an {@link
@@ -58,9 +58,9 @@ import org.slf4j.LoggerFactory;
  * <p><b>Known, documented gap, not an oversight</b>: {@link #buildCandidates} folds ordinary
  * deployment replicas' tenant occupancy into its own Tier 2/3 isolation check (a Job must not land
  * on a node already running a different tenant's deployment replica), but the reverse does not hold
- * -- {@link DeploymentReconciler#buildCandidates} was deliberately left untouched (design doc §0's
- * own "nothing existing needs to change" goal), so a deployment replica can still be placed onto a
- * node already running a different tenant's Job. Closing this symmetrically means editing {@code
+ * -- {@link DeploymentReconciler#buildCandidates} was deliberately left untouched, to keep nothing
+ * existing needing to change, so a deployment replica can still be placed onto a node already
+ * running a different tenant's Job. Closing this symmetrically means editing {@code
  * DeploymentReconciler}, which every other choice in this design avoided; worth revisiting if Job
  * workloads ever see real Tier 2/3 multi-tenant use.
  */
@@ -206,8 +206,8 @@ public final class JobReconciler {
           e.getMessage());
       return;
     }
-    // Matches DeploymentReconciler's own P2-18 check exactly: an artifact silently swapped out
-    // from under a running job name is refused, not silently followed.
+    // Matches DeploymentReconciler's own artifact-hash check exactly: an artifact silently
+    // swapped out from under a running job name is refused, not silently followed.
     if (spec.artifactSha256().isPresent()
         && !spec.artifactSha256().get().equals(artifact.sha256())) {
       log.warn(

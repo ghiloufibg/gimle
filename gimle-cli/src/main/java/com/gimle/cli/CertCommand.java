@@ -28,8 +28,7 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 
 /**
  * {@code cert token create}, {@code cert request}, {@code cert status}, {@code cert approve},
- * {@code cert renew} -- the operator-facing half of {@code
- * claudedocs/tls-transport-security-design.md} §4/§4a/§4b's join and rotation flows.
+ * {@code cert renew} -- the operator-facing half of the node join and certificate rotation flows.
  */
 public final class CertCommand {
 
@@ -53,8 +52,8 @@ public final class CertCommand {
 
   /**
    * Best-effort, called once per CLI invocation regardless of verb (see {@link GimleCli#dispatch}):
-   * per §4b, {@code gimle-cli} never renews silently -- it only warns, leaving the explicit {@code
-   * cert renew} call as the user's own prompted action. Never blocks or fails a command over a
+   * {@code gimle-cli} never renews silently -- it only warns, leaving the explicit {@code cert
+   * renew} call as the user's own prompted action. Never blocks or fails a command over a
    * renewal-check problem; TLS not being configured at all is the overwhelmingly common case.
    */
   static void warnIfRenewalDue(PrintStream out) {

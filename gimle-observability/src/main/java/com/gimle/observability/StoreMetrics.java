@@ -8,11 +8,11 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
 /**
- * Per-RPC-kind Micrometer wiring for {@code gimle-mimir}'s {@code StoreNode} (design doc Part
- * B/O-10) -- tagged by the {@code StoreRpc.Request}'s own concrete type name (e.g. {@code
- * "Propose"}, {@code "GetTenant"}) rather than an HTTP endpoint/verb pair the way {@link
- * ApiServerMetrics}/{@link FafnirMetrics} are, since {@code StoreNode}'s dispatch is a single Java
- * method switching on request type, not an HTTP router.
+ * Per-RPC-kind Micrometer wiring for {@code gimle-mimir}'s {@code StoreNode} -- tagged by the
+ * {@code StoreRpc.Request}'s own concrete type name (e.g. {@code "Propose"}, {@code "GetTenant"})
+ * rather than an HTTP endpoint/verb pair the way {@link ApiServerMetrics}/{@link FafnirMetrics}
+ * are, since {@code StoreNode}'s dispatch is a single Java method switching on request type, not an
+ * HTTP router.
  */
 public final class StoreMetrics {
 

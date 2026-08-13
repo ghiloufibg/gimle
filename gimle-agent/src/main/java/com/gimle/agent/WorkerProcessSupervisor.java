@@ -45,7 +45,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    * only that the OS accepted the {@code exec()} call, not that the program ran for even one
    * instant -- would reset the backoff window on every single cycle of a worker that crashes
    * immediately on every launch, so that loop would retry forever at the initial delay instead of
-   * ever reaching the design's documented "give up after N attempts in the window" outcome.
+   * ever reaching the intended "give up after N attempts in the window" outcome.
    */
   static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
 
@@ -140,11 +140,11 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   }
 
   /**
-   * {@code workerLogRoot} (P2-3) is where {@code -XX:ErrorFile=<workerLogRoot>/hs_err_pid%p.log}
-   * (see {@link AgentMain#buildWorkerCommand}) writes a native crash dump -- {@code empty} means no
+   * {@code workerLogRoot} is where {@code -XX:ErrorFile=<workerLogRoot>/hs_err_pid%p.log} (see
+   * {@link AgentMain#buildWorkerCommand}) writes a native crash dump -- {@code empty} means no
    * crash-dump correlation, matching every shorter overload above. {@code onCrash} is called from
    * {@link #onExit} with a best-effort {@link CrashInfo} classification of every unexpected exit,
-   * before the respawn decision is made; the default no-op matches this class's pre-P2-3 behavior
+   * before the respawn decision is made; the default no-op matches this class's previous behavior
    * of only ever logging the raw exit code.
    */
   public WorkerProcessSupervisor(
@@ -376,7 +376,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
 
   /**
    * The worker id this supervisor was constructed with -- fixed for its lifetime, including across
-   * every respawn. Under Tier 1 density (P1-5), several {@code SupervisedInstance}s can share one
+   * every respawn. Under Tier 1 density, several {@code SupervisedInstance}s can share one
    * supervisor; {@link AgentMain}'s crash-callback wiring uses this to find every instance a
    * crashed worker hosted, not just the one that happened to spawn it first.
    */

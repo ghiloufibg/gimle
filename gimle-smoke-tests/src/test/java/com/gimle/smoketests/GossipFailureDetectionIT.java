@@ -8,19 +8,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * QA hardening pass, plaintext-cluster coverage: gossip/SWIM failure detection -- the fourth and
- * last of the plaintext-mode real-cluster gaps identified this session. Every other smoke test in
- * this package runs a single-node topology ({@link #startCluster} spawns exactly one real {@code
- * AgentMain}, hardcoded {@code smoke-node-1} with no other seeds), so {@code GossipMember}'s real
- * membership/failure-detection machinery -- proven only by {@code GossipMemberTest}'s in-process
- * fakes -- has never actually run across real, separate agent processes before.
+ * Gossip/SWIM failure detection -- the fourth and last of the plaintext-mode real-cluster gaps left
+ * uncovered elsewhere in this package. Every other smoke test in this package runs a single-node
+ * topology ({@link #startCluster} spawns exactly one real {@code AgentMain}, hardcoded {@code
+ * smoke-node-1} with no other seeds), so {@code GossipMember}'s real membership/failure-detection
+ * machinery -- proven only by {@code GossipMemberTest}'s in-process fakes -- has never actually run
+ * across real, separate agent processes before.
  *
  * <p>Three nodes, not two, deliberately: with only two, {@code GossipMember}'s indirect ping-req
  * relay path is never exercised (no third node to route a probe through), the same shape the
  * reference unit test ({@code GossipMemberTest #a_killed_member_converges_to_dead_across_the_rest})
  * already uses. Both node 2 and node 3 are seeded off node 1 alone -- SWIM's own full-state
- * anti-entropy sync (P2-8) is what's relied on to converge the complete 3-node table without
- * seeding every node off every other one directly.
+ * anti-entropy sync is what's relied on to converge the complete 3-node table without seeding every
+ * node off every other one directly.
  */
 @Tag("smoke")
 class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {

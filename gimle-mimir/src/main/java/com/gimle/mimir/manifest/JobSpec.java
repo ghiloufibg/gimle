@@ -5,10 +5,10 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Desired state for one run-to-completion Job (priority-3 design doc §3c): exactly one logical unit
- * of work, retried up to {@code backoffLimit} times -- deliberately not Kubernetes Job's own {@code
- * parallelism}/{@code completions} multi-pod fan-out, real added complexity not needed to teach the
- * run-to-completion mechanic itself (see the design doc's own explicitly-deferred list).
+ * Desired state for one run-to-completion Job: exactly one logical unit of work, retried up to
+ * {@code backoffLimit} times -- deliberately not Kubernetes Job's own {@code parallelism}/{@code
+ * completions} multi-pod fan-out, real added complexity not needed to teach the run-to-completion
+ * mechanic itself.
  *
  * <p>Mirrors {@link DeploymentSpec}'s own shape closely -- same {@code moduleId}/{@code
  * artifactPath}/{@code placement}/{@code tenantId}/{@code artifactSha256} fields, same reasoning

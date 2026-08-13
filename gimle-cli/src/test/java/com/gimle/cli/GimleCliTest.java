@@ -61,8 +61,8 @@ class GimleCliTest {
   @BeforeEach
   void startServer() throws IOException {
     // A single-node gimle-mimir store, in-process, backing this test's ApiServer over a real
-    // loopback socket -- ApiServer no longer holds a StateStore directly (etcd-store-extraction
-    // design doc), so exercising it now always means standing up at least this much of a store.
+    // loopback socket -- ApiServer no longer holds a StateStore directly, so exercising it now
+    // always means standing up at least this much of a store.
     StateStore store = new StateStore(tempDir.resolve("store"));
     RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
     storeRaftNode = new RaftNode("self", Map.of(), raftLog, store);
@@ -72,8 +72,8 @@ class GimleCliTest {
     SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
     storeClient = new StoreClient(List.of(storeAddress));
 
-    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process (design
-    // doc Phase A), so every config/secrets round trip below now needs a genuine encrypt/decrypt/
+    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process,
+    // so every config/secrets round trip below now needs a genuine encrypt/decrypt/
     // versioned-store hop, not a mock.
     FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
     fafnirServer = new FafnirServer(fafnirCrypto, 0);

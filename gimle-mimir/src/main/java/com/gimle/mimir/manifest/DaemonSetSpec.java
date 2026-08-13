@@ -4,10 +4,10 @@ import com.gimle.core.module.ModuleId;
 import java.util.Optional;
 
 /**
- * Desired state for a per-node workload (priority-3 design doc §4): one instance on every node
- * currently matching {@code placement} and not cordoned -- "how many" is never a stored integer the
- * way {@link DeploymentSpec#replicas()} is, it's recomputed every reconcile tick from live node
- * state (see {@code DaemonSetReconciler}).
+ * Desired state for a per-node workload: one instance on every node currently matching {@code
+ * placement} and not cordoned -- "how many" is never a stored integer the way {@link
+ * DeploymentSpec#replicas()} is, it's recomputed every reconcile tick from live node state (see
+ * {@code DaemonSetReconciler}).
  *
  * <p>{@code placement.antiAffinityAcrossNodes} is deliberately meaningless here and rejected
  * outright by {@link DaemonSetManifestParser} if set {@code true} -- "one per node, cluster-wide"

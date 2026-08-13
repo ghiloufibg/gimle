@@ -34,13 +34,13 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Ensures a {@link DaemonSetAssignment} exists for every node currently eligible for a {@link
- * DaemonSetSpec} -- one per node, cluster-wide (priority-3 design doc §4), not a stored replica
- * count the way {@link DeploymentReconciler} reads {@code spec.replicas()}. "How many" is
- * recomputed from live node state every tick via {@link Scheduler#eligibleNodes} (§4b): the same
- * five-step filter chain {@code place} applies -- tier, cordon, anti-affinity (always a no-op here,
- * see {@link DaemonSetSpec}'s own javadoc), tenant isolation, required labels -- minus the final
- * bin-packing pick, since there is nothing to pick: every survivor gets an assignment, and {@code
- * Scheduler.place} itself is never called.
+ * DaemonSetSpec} -- one per node, cluster-wide, not a stored replica count the way {@link
+ * DeploymentReconciler} reads {@code spec.replicas()}. "How many" is recomputed from live node
+ * state every tick via {@link Scheduler#eligibleNodes}: the same five-step filter chain {@code
+ * place} applies -- tier, cordon, anti-affinity (always a no-op here, see {@link DaemonSetSpec}'s
+ * own javadoc), tenant isolation, required labels -- minus the final bin-packing pick, since there
+ * is nothing to pick: every survivor gets an assignment, and {@code Scheduler.place} itself is
+ * never called.
  *
  * <p>Level-triggered, following the exact same convergence shape {@link DeploymentReconciler} and
  * {@link JobReconciler} already establish: every tick re-derives the full desired set from the
@@ -50,9 +50,8 @@ import org.slf4j.LoggerFactory;
  * ~35-line state machine, keyed by {@code nodeId} instead of {@code instanceIndex} via {@link
  * StateStore#putRollingDaemonSetNode}/{@code getRollingDaemonSetNode}/{@code
  * clearRollingDaemonSetNode} -- deliberately duplicated rather than generalizing {@code
- * DeploymentReconciler} over a key-type parameter (design doc §4c): this codebase's own convention
- * prefers direct, readable duplication over an abstraction that would only ever have two call
- * sites.
+ * DeploymentReconciler} over a key-type parameter: this codebase's own convention prefers direct,
+ * readable duplication over an abstraction that would only ever have two call sites.
  */
 public final class DaemonSetReconciler {
 
@@ -122,8 +121,8 @@ public final class DaemonSetReconciler {
           e.getMessage());
       return;
     }
-    // Matches DeploymentReconciler's own P2-18 check exactly: an artifact silently swapped out
-    // from under a running daemonset name is refused, not silently followed.
+    // Matches DeploymentReconciler's own artifact-hash check exactly: an artifact silently
+    // swapped out from under a running daemonset name is refused, not silently followed.
     if (spec.artifactSha256().isPresent()
         && !spec.artifactSha256().get().equals(artifact.sha256())) {
       log.warn(
@@ -265,7 +264,7 @@ public final class DaemonSetReconciler {
     }
     // Fold in ordinary deployment replicas' tenant occupancy too, the same one-directional fold
     // JobReconciler.buildCandidates already documents for Job -- DeploymentReconciler is
-    // deliberately left untouched (design doc §0), so this is not symmetric.
+    // deliberately left untouched, so this is not symmetric.
     for (InstanceAssignment assignment : store.listAssignments()) {
       store
           .getDeployment(assignment.deploymentName())

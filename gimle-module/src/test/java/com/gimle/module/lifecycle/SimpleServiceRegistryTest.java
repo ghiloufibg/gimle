@@ -151,7 +151,7 @@ class SimpleServiceRegistryTest {
 
   @Test
   void lookup_prefers_the_highest_ready_version_over_a_lower_ready_version() {
-    // P2-5: a hot redeploy leaves both the old and new version registered under the same
+    // A hot redeploy leaves both the old and new version registered under the same
     // interface at once (see HotRedeployTest); cutover must be atomic per lookup, not blended.
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     Greeter oldVersion = () -> "old";

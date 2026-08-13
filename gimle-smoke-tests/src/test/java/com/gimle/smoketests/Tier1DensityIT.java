@@ -8,14 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * QA hardening pass, plaintext-cluster coverage: Tier 1 density packing (P1-1), specifically the
- * {@code MAX_TIER1_DENSITY} cap -- previously proven only by {@code AgentMainTest}'s in-process
- * fakes ({@code a_worker_at_the_density_cap_is_not_reused}), never against real worker JVMs. {@code
- * ClassloaderLeakIT} already incidentally packs two different real {@code TIER_1} modules onto one
- * worker as a side effect of needing a stable anchor, confirming the reuse mechanism works end to
- * end for two modules -- this proves the cap itself: four distinct modules really do share one
- * worker process, and a fifth genuinely gets a new one, matching {@code AgentMain
- * #findReusableTier1Worker}'s own density-limit check.
+ * Tier 1 density packing, specifically the {@code MAX_TIER1_DENSITY} cap -- previously proven only
+ * by {@code AgentMainTest}'s in-process fakes ({@code a_worker_at_the_density_cap_is_not_reused}),
+ * never against real worker JVMs. {@code ClassloaderLeakIT} already incidentally packs two
+ * different real {@code TIER_1} modules onto one worker as a side effect of needing a stable
+ * anchor, confirming the reuse mechanism works end to end for two modules -- this proves the cap
+ * itself: four distinct modules really do share one worker process, and a fifth genuinely gets a
+ * new one, matching {@code AgentMain #findReusableTier1Worker}'s own density-limit check.
  */
 @Tag("smoke")
 class Tier1DensityIT extends GreeterSmokeClusterSupport {

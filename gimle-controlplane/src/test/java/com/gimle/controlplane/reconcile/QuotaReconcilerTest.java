@@ -22,7 +22,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * {@code TestModuleBuilder.minimalDescriptor} fixes every fixture's resource request at 16Mi memory
- * / 10m cpu (Phase 5 design §5.2, §8's required convergence-from-arbitrary-state coverage).
+ * / 10m cpu, keeping quota-admission checks and the convergence-from-arbitrary-starting-state tests
+ * below comparable against a known, fixed request size.
  */
 class QuotaReconcilerTest {
 

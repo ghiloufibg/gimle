@@ -27,7 +27,7 @@ public final class GreeterProviderHooks implements ModuleLifecycleHooks {
     ctx.registerService(Greeter.class, name -> "Hello, " + name + "! (from provider)");
     ready.set(true);
     log.info("greeter-provider registered its Greeter service on the fabric");
-    // Exercises the real config/secrets delivery path end to end (design doc §11 Phase C): the
+    // Exercises the real config/secrets delivery path end to end: the
     // agent fetches this tenant's secrets straight from Fafnir and hands them down alongside plain
     // config, so this is a real write-via-API -> fetch-via-agent -> observed-inside-a-deployed-
     // module round trip, not a unit-level check. Logged, not asserted here -- gimle-smoke-tests'

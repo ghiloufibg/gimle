@@ -39,10 +39,10 @@ public final class GimleTracing {
 
   /**
    * Idempotent: a worker process that's already installed a tracer provider (or a test that
-   * pre-configured one) is left alone rather than double-registering. Unchanged by design doc Part
-   * B/O-13's {@link #install}/{@link #installWithMuninnShipping} additions below -- {@code
-   * WorkerMain}'s existing call, and any process without a configured Muninn endpoint, keeps this
-   * exact {@link LoggingSpanExporter}-over-{@link SimpleSpanProcessor} behavior.
+   * pre-configured one) is left alone rather than double-registering. Unaffected by the {@link
+   * #install}/{@link #installWithMuninnShipping} additions below -- {@code WorkerMain}'s existing
+   * call, and any process without a configured Muninn endpoint, keeps this exact {@link
+   * LoggingSpanExporter}-over-{@link SimpleSpanProcessor} behavior.
    */
   public static void installDefault() {
     synchronized (LOCK) {
@@ -61,11 +61,11 @@ public final class GimleTracing {
   }
 
   /**
-   * Generalizes {@link #installDefault()} to an arbitrary {@link SpanExporter} (design doc Part
-   * B/O-13) -- {@link BatchSpanProcessor}, not {@link SimpleSpanProcessor}: a real network-bound
-   * exporter (like {@link MuninnSpanExporter}) shouldn't block the exporting thread on every single
-   * span the way {@code SimpleSpanProcessor} does; batching is exactly what a periodic-ship-to-
-   * Muninn posture wants. Same idempotency contract as {@link #installDefault()}.
+   * Generalizes {@link #installDefault()} to an arbitrary {@link SpanExporter} -- {@link
+   * BatchSpanProcessor}, not {@link SimpleSpanProcessor}: a real network-bound exporter (like
+   * {@link MuninnSpanExporter}) shouldn't block the exporting thread on every single span the way
+   * {@code SimpleSpanProcessor} does; batching is exactly what a periodic-ship-to- Muninn posture
+   * wants. Same idempotency contract as {@link #installDefault()}.
    */
   public static void install(SpanExporter exporter) {
     synchronized (LOCK) {
@@ -84,10 +84,10 @@ public final class GimleTracing {
   }
 
   /**
-   * Convenience for the common case (design doc Part B/O-13): a process with a configured Muninn
-   * endpoint installs a {@link MuninnSpanExporter} wrapping its own already-constructed {@code
-   * shipper} (already bound to that process's own {@code /ingest/traces/{processKind}/{processId}}
-   * path the same way its metrics shipper is -- see {@code ControlPlaneMain}'s own wiring).
+   * Convenience for the common case: a process with a configured Muninn endpoint installs a {@link
+   * MuninnSpanExporter} wrapping its own already-constructed {@code shipper} (already bound to that
+   * process's own {@code /ingest/traces/{processKind}/{processId}} path the same way its metrics
+   * shipper is -- see {@code ControlPlaneMain}'s own wiring).
    */
   public static void installWithMuninnShipping(MuninnShipper shipper) {
     install(new MuninnSpanExporter(shipper));
@@ -114,10 +114,10 @@ public final class GimleTracing {
 
   /**
    * Best-effort, bounded-wait flush of the currently-installed tracer provider's {@link
-   * BatchSpanProcessor} (design doc §6d): a short-lived instance -- a completed {@code JobRun}, an
-   * instance torn down right after {@code StopModule} -- shouldn't lose its final spans to the
-   * batch processor's own periodic export interval, which may never fire again before the worker
-   * process exits. A no-op before any tracer provider has been installed.
+   * BatchSpanProcessor}: a short-lived instance -- a completed {@code JobRun}, an instance torn
+   * down right after {@code StopModule} -- shouldn't lose its final spans to the batch processor's
+   * own periodic export interval, which may never fire again before the worker process exits. A
+   * no-op before any tracer provider has been installed.
    */
   public static void flush() {
     SdkTracerProvider provider = currentTracerProvider;

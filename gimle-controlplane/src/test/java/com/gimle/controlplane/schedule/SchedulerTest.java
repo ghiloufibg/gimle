@@ -129,7 +129,7 @@ class SchedulerTest {
         () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, List.of()));
   }
 
-  // ---- tenant node-level isolation, Phase 5 design §5.4 ----
+  // ---- tenant node-level isolation ----
 
   private static NodeCandidate nodeWithTenants(
       String id, NodeCapabilities capabilities, long freeMemoryBytes, Set<String> tenantsPresent) {
@@ -193,7 +193,7 @@ class SchedulerTest {
   @Test
   void tenant_isolation_is_not_enforced_at_tier1() {
     // Tier 1 density packing across separate deployments isn't implemented anywhere in this
-    // codebase (design §5.4's own correction) -- node-level exclusion is deliberately a no-op here.
+    // codebase -- node-level exclusion is deliberately a no-op here.
     List<NodeCandidate> candidates =
         List.of(
             nodeWithTenants(
@@ -352,9 +352,9 @@ class SchedulerTest {
     assertEquals("node-free", chosen);
   }
 
-  // ---- eligibleNodes (priority-3 design doc §4b) -- same five-step filter chain `place` applies,
-  // minus the final bin-packing pick: every survivor comes back, never just one, and it never
-  // throws on an empty result.
+  // ---- eligibleNodes -- same five-step filter chain `place` applies, minus the final
+  // bin-packing pick: every survivor comes back, never just one, and it never throws on an empty
+  // result.
 
   @Test
   void eligible_nodes_returns_every_node_that_passes_every_filter() {
@@ -449,7 +449,7 @@ class SchedulerTest {
     assertEquals(List.of(), eligible);
   }
 
-  // ---- sticky placement (priority-3 design doc §5b) ----
+  // ---- sticky placement ----
 
   @Test
   void sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists() {

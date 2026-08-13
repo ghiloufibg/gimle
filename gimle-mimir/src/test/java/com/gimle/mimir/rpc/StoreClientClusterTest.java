@@ -43,11 +43,12 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * The load-bearing checkpoint for the etcd-store-extraction design's step 7: a real 3-node {@code
- * StoreNode} cluster (real Raft consensus over real sockets, real {@code StoreTransport} listeners)
- * driven entirely through one {@link StoreClient}, proving the whole protocol works -- including
- * leader-follow-retry across a forced failover -- before {@code ApiServer} is ever rewired onto it.
- * Modeled directly on {@code RaftClusterTest}'s real-loopback-TCP pattern.
+ * The load-bearing checkpoint proving the store-client-to-cluster protocol works end to end: a real
+ * 3-node {@code StoreNode} cluster (real Raft consensus over real sockets, real {@code
+ * StoreTransport} listeners) driven entirely through one {@link StoreClient}, proving the whole
+ * protocol works -- including leader-follow-retry across a forced failover -- before {@code
+ * ApiServer} is ever rewired onto it. Modeled directly on {@code RaftClusterTest}'s
+ * real-loopback-TCP pattern.
  */
 @Isolated
 class StoreClientClusterTest {
@@ -177,10 +178,10 @@ class StoreClientClusterTest {
 
   /**
    * Unlike {@link #awaitTrue}, returns the value the poll actually observed present -- reads
-   * round-robin across every node (design doc §4.5, no linearizability requirement), so a follow-up
-   * call after an {@code awaitTrue}-then-refetch pattern can legitimately land on a still-lagging
-   * replica and see it absent again, a false failure that has nothing to do with {@link
-   * StoreClient} correctness.
+   * round-robin across every node, with no linearizability requirement, so a follow-up call after
+   * an {@code awaitTrue}-then-refetch pattern can legitimately land on a still-lagging replica and
+   * see it absent again, a false failure that has nothing to do with {@link StoreClient}
+   * correctness.
    */
   private static <T> T awaitPresent(Supplier<Optional<T>> poll, Duration timeout)
       throws InterruptedException {
@@ -267,7 +268,7 @@ class StoreClientClusterTest {
     client.putHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1024, 512, 4000, 1000), List.of()));
 
-    // Heartbeats are deliberately leader-local, never replicated (P2-14) -- every one of these
+    // Heartbeats are deliberately leader-local, never replicated -- every one of these
     // reads must come back present. Before the fix, getNodeHeartbeat round-robinned across all
     // three endpoints via sendRead, so roughly 2 of every 3 calls landed on a follower whose local
     // map never had this heartbeat at all and answered empty forever, not just occasionally.

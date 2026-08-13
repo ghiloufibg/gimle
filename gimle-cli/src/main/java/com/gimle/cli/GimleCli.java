@@ -146,11 +146,10 @@ public final class GimleCli {
    * {@code apply -f} is kind-dispatched, not noun-dispatched (unlike {@code get}/{@code set}/
    * {@code delete} above) -- the same {@code kubectl apply -f x.yaml} convention this CLI already
    * follows elsewhere: the manifest file's own {@code kind:} field says what it is, so there's no
-   * separate {@code job apply -f}/{@code deployment apply -f} verb pair to remember (priority-3
-   * design doc §3e). This peeks at {@code kind:} only to route to the right command; {@link
-   * DeploymentsCommand#apply}/{@link JobsCommand#apply} each independently re-read the file for
-   * their own {@code name:} extraction and PUT, the same small-duplication shape those two classes
-   * already share for everything else.
+   * separate {@code job apply -f}/{@code deployment apply -f} verb pair to remember. This peeks at
+   * {@code kind:} only to route to the right command; {@link DeploymentsCommand#apply}/{@link
+   * JobsCommand#apply} each independently re-read the file for their own {@code name:} extraction
+   * and PUT, the same small-duplication shape those two classes already share for everything else.
    */
   private static void handleApply(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
@@ -168,7 +167,7 @@ public final class GimleCli {
   /**
    * {@code cronjob}/{@code cronjobs} as a distinct top-level verb -- not just noun dispatch under
    * {@code get}/{@code delete} -- for the same reason {@code secret} is: it needs an action ({@code
-   * trigger}) that three-verb dispatch has no shape for (priority-3 design doc §3e).
+   * trigger}) that three-verb dispatch has no shape for.
    */
   private static void handleCronJobVerb(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {

@@ -40,7 +40,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
-/** Design doc §9's rate limiting and Micrometer request metrics for {@code gimle-fafnir}. */
+/** Rate limiting and Micrometer request metrics for {@code gimle-fafnir}. */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-fafnir-server-http")
 class FafnirObservabilityTest {
@@ -190,9 +190,9 @@ class FafnirObservabilityTest {
   @Test
   @Timeout(10)
   void audit_log_records_the_decision_without_ever_logging_the_secret_value() throws Exception {
-    // Structured-log-based audit trail (design doc §9's Observability subsection) -- verified
-    // behaviorally here via the request round trip succeeding and returning the expected value,
-    // since asserting against Logback's own output stream would couple this test to logging
+    // Structured-log-based audit trail -- verified behaviorally here via the request round trip
+    // succeeding and returning the expected value, since asserting against Logback's own output
+    // stream would couple this test to logging
     // configuration rather than to FafnirServer's own behavior. The audit line itself is produced
     // unconditionally by #authorizeSecrets on every /secrets/* request; a missed line would be a
     // silent regression this test can't observe directly, but the value never leaving the process

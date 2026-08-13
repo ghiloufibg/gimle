@@ -205,9 +205,9 @@ class CertificateAuthorityTest {
   }
 
   /**
-   * Standards-compliance check per the design doc's verification plan: a real, external X.509 tool
-   * (not our own code) must parse the generated leaf certificate and agree it is well-formed --
-   * proof this isn't merely "our own encoder and decoder agreeing with each other."
+   * Standards-compliance check: a real, external X.509 tool (not our own code) must parse the
+   * generated leaf certificate and agree it is well-formed -- proof this isn't merely "our own
+   * encoder and decoder agreeing with each other."
    */
   @Test
   void generated_leaf_certificate_is_readable_by_openssl() throws Exception {

@@ -11,11 +11,11 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Fafnir's crypto boundary: the only object in the whole process (and, per the design this module
- * implements, the only object in the whole cluster outside a worker's own memory) that ever holds
- * decrypted secret-value plaintext or the key ring that produces it. Deliberately a plain Java
- * class, not tied to HTTP -- {@link FafnirServer} is the thin transport wrapper around it, so the
- * crypto logic itself is testable without spinning up a socket.
+ * Fafnir's crypto boundary: the only object in the whole process (and the only object in the whole
+ * cluster outside a worker's own memory) that ever holds decrypted secret-value plaintext or the
+ * key ring that produces it. Deliberately a plain Java class, not tied to HTTP -- {@link
+ * FafnirServer} is the thin transport wrapper around it, so the crypto logic itself is testable
+ * without spinning up a socket.
  */
 public final class FafnirCrypto {
 
@@ -69,7 +69,7 @@ public final class FafnirCrypto {
 
   /**
    * Generates a new secrets master key, makes it the active key for every future encryption, and
-   * re-encrypts every existing encrypted entry under it (P2-16, moved here verbatim from {@code
+   * re-encrypts every existing encrypted entry under it (moved here verbatim from {@code
    * ApiServer.rotateSecretsKey}) -- old keys are never deleted, so any entry this walk doesn't
    * reach still decrypts correctly either way, just not yet re-encrypted under the newest key.
    * That's true both of an entry written concurrently mid-rotation, and of {@link

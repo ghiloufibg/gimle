@@ -15,12 +15,11 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * {@code get daemonsets [name]}, {@code apply -f <file.yaml>}, {@code delete daemonset <name>} --
- * mirrors {@link DeploymentsCommand}/{@link JobsCommand} exactly (priority-3 design doc §4d).
- * Deliberately no {@code scale}-equivalent verb: a DaemonSet's replica count isn't
- * operator-settable the way a Deployment's is, it's topology-derived (one per eligible node) --
- * there is nothing here for a scale verb to set. {@code apply} itself is dispatched here by {@link
- * GimleCli} once it has peeked at the manifest's own {@code kind:} field, the same way every other
- * kind's is.
+ * mirrors {@link DeploymentsCommand}/{@link JobsCommand} exactly. Deliberately no {@code
+ * scale}-equivalent verb: a DaemonSet's replica count isn't operator-settable the way a
+ * Deployment's is, it's topology-derived (one per eligible node) -- there is nothing here for a
+ * scale verb to set. {@code apply} itself is dispatched here by {@link GimleCli} once it has peeked
+ * at the manifest's own {@code kind:} field, the same way every other kind's is.
  */
 public final class DaemonSetsCommand {
 

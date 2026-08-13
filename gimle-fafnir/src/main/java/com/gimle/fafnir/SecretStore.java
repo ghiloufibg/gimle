@@ -17,26 +17,27 @@ import java.util.OptionalInt;
 import java.util.UUID;
 
 /**
- * Fafnir's versioned secret storage -- the synthetic-key convention from design doc §7. {@code
+ * Fafnir's versioned secret storage, layered over the store as a synthetic-key convention. {@code
  * key@meta} is a mutable pointer entry ({@code {latestVersion, deleted}}, plain JSON, never
  * encrypted -- it names a version, it isn't one); {@code key@N} is an immutable, encrypted value
  * entry for version {@code N}. Both are ordinary {@link ConfigEntry} rows in the same {@code
  * gimle-mimir} store {@code gimle-controlplane}'s own {@code /config/*} traffic already uses -- no
- * store schema change, just a key-naming convention only this class ever interprets (§7's own
- * framing: "Fafnir owns policy, gimle-mimir stays a dumb store"). Deliberately a plain Java class,
- * not tied to HTTP, matching {@link FafnirCrypto}'s own separation from {@link FafnirServer}.
+ * store schema change, just a key-naming convention only this class ever interprets: Fafnir owns
+ * policy, gimle-mimir stays a dumb store. Deliberately a plain Java class, not tied to HTTP,
+ * matching {@link FafnirCrypto}'s own separation from {@link FafnirServer}.
  */
 public final class SecretStore {
 
   private static final String META_SUFFIX = "@meta";
-  // Bounds §7b's optimistic write-verify-retry loop -- contention only ever produces a harmless
-  // orphaned key@N entry and a retry, never data loss, but a pathological hot-key race still
-  // shouldn't spin forever. Generous on purpose: the design doc's own framing is "a human/CLI-
-  // driven write path, not a hot loop," so a real deployment sees at most a couple of colliding
-  // writers, not the fully-simultaneous N-way race a stress test deliberately creates.
+  // Bounds the optimistic write-verify-retry loop in #put below -- contention only ever produces
+  // a harmless orphaned key@N entry and a retry, never data loss, but a pathological hot-key race
+  // still shouldn't spin forever. Generous on purpose: this is meant as a human/CLI-driven write
+  // path, not a hot loop, so a real deployment sees at most a couple of colliding writers, not the
+  // fully-simultaneous N-way race a stress test deliberately creates.
   private static final int MAX_WRITE_ATTEMPTS = 50;
   // Held only for the narrow verify-then-advance-@meta step of #put -- see that method's own
-  // javadoc for why a lease is needed there at all, despite §7b's explicit "no lock" framing.
+  // javadoc for why a lease is needed there at all, despite the write path otherwise being
+  // lock-free.
   private static final Duration META_LEASE_TTL = Duration.ofSeconds(5);
 
   private final StoreClient storeClient;
@@ -47,7 +48,7 @@ public final class SecretStore {
     this.crypto = crypto;
   }
 
-  /** §6e's list endpoint: every logical secret's metadata for {@code tenantId}, never a value. */
+  /** The list endpoint: every logical secret's metadata for {@code tenantId}, never a value. */
   public List<SecretMetadata> list(String tenantId) {
     List<SecretMetadata> result = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
@@ -61,7 +62,7 @@ public final class SecretStore {
     return result;
   }
 
-  /** §7c: {@code key@1 .. key@latestVersion} -- every version always exists once claimed. */
+  /** {@code key@1 .. key@latestVersion} -- every version always exists once claimed. */
   public List<Integer> versions(String tenantId, String key) {
     validateKey(key);
     Meta meta = readMeta(tenantId, key).orElse(Meta.EMPTY);
@@ -73,7 +74,7 @@ public final class SecretStore {
   }
 
   /**
-   * §7c's read path: an explicit {@code version} reads {@code key@N} directly, bypassing {@code
+   * The read path for an explicit {@code version}: reads {@code key@N} directly, bypassing {@code
    * @meta} entirely (so a historical read is unaffected by concurrent writes advancing {@code
    * latestVersion}, and unaffected by a soft delete -- deletion only ever touches {@code @meta}).
    * Latest-version reads (no {@code version} given) return empty for a soft-deleted or
@@ -101,24 +102,25 @@ public final class SecretStore {
   }
 
   /**
-   * §7b's write path: optimistic insert, not a lock -- claiming a candidate {@code key@N} value
-   * entry (steps 1-2) is fully lock-free, exactly as the design doc specifies: two writers racing
-   * to write the same {@code key@N} slot is a harmless uniqueness collision, since whichever one's
-   * write to {@code key@N} lands last simply becomes what that immutable entry holds, and the loser
-   * of the race below just discards its own claim and retries with a fresh version number.
+   * The write path here: optimistic insert, not a lock -- claiming a candidate {@code key@N} value
+   * entry (steps 1-2) is fully lock-free: two writers racing to write the same {@code key@N} slot
+   * is a harmless uniqueness collision, since whichever one's write to {@code key@N} lands last
+   * simply becomes what that immutable entry holds, and the loser of the race below just discards
+   * its own claim and retries with a fresh version number.
    *
-   * <p><b>Correction to the design doc's literal §7b sequence</b>, found empirically (a concurrent-
+   * <p><b>A correction to the write-path sequence below</b>, found empirically (a concurrent-
    * writer test reliably produced duplicate version claims against the plain read-write-reread
    * check as written): comparing {@code @meta}'s value before and after writing {@code key@next}
    * only detects a writer that has *already finished* advancing {@code @meta} -- it does not
    * prevent two writers from both passing that check concurrently, since neither has written {@code
-   * @meta} yet at the moment each performs its own "after" read (a classic TOCTOU window). §7b's own
-   * "not a lock" framing is right about *claiming a version number*; it doesn't hold for the very
-   * last step, *advancing the single mutable pointer that says which version is current*, which is
-   * exactly the kind of shared-state race a lock is the correct tool for. So this method takes the
-   * narrowest possible lease -- scoped to this one key, held only across the final verify-and-
-   * advance step, never around version selection or encryption -- rather than reintroducing a lock
-   * around the whole operation the design doc correctly argued against.
+   * @meta} yet at the moment each performs its own "after" read (a classic TOCTOU window). The
+   * "not a lock" framing above is right about *claiming a version number*; it doesn't hold for the
+   * very last step, *advancing the single mutable pointer that says which version is current*,
+   * which is exactly the kind of shared-state race a lock is the correct tool for. So this method
+   * takes the narrowest possible lease -- scoped to this one key, held only across the final
+   * verify-and-advance step, never around version selection or encryption -- rather than
+   * reintroducing a lock around the whole operation that the optimistic approach above was meant
+   * to avoid.
    *
    * <p>{@code @meta} is still written last, deliberately: if Fafnir crashes between claiming {@code
    * key@next} and advancing {@code @meta}, {@code @meta} still names the old version and the
@@ -160,7 +162,7 @@ public final class SecretStore {
     throw GimleSecretsException.writeContention(tenantId, key, MAX_WRITE_ATTEMPTS);
   }
 
-  /** §7d soft delete: every {@code @N} entry stays on disk, recoverable by a future undelete. */
+  /** Soft delete: every {@code @N} entry stays on disk, recoverable by a future undelete. */
   public boolean softDelete(String tenantId, String key) {
     validateKey(key);
     Optional<Meta> meta = readMeta(tenantId, key);
@@ -171,7 +173,7 @@ public final class SecretStore {
     return true;
   }
 
-  /** §7d hard delete ({@code ?destroy=true}): removes {@code @meta} and every {@code @N}. */
+  /** Hard delete ({@code ?destroy=true}): removes {@code @meta} and every {@code @N}. */
   public boolean hardDelete(String tenantId, String key) {
     validateKey(key);
     Optional<Meta> meta = readMeta(tenantId, key);
@@ -212,9 +214,9 @@ public final class SecretStore {
   /**
    * Flat namespace: {@code /} and {@code @} both disallowed. {@code /} because Gimlé's RBAC model
    * (tenant-scoped, not path-scoped) has no enforcement mechanism today that would ever consume a
-   * hierarchical path segment (§7a); {@code @} because it's this scheme's own reserved separator --
-   * a raw key containing it could collide with a synthetic {@code @meta}/{@code @N} suffix and
-   * break the split back apart.
+   * hierarchical path segment; {@code @} because it's this scheme's own reserved separator -- a raw
+   * key containing it could collide with a synthetic {@code @meta}/{@code @N} suffix and break the
+   * split back apart.
    */
   private static void validateKey(String key) {
     if (key == null || key.isBlank()) {

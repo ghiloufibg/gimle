@@ -4,11 +4,11 @@ import java.util.Map;
 import javax.crypto.SecretKey;
 
 /**
- * A versioned, rotatable set of secrets keys sharing one base file path (P2-16): every key Fafnir
- * has ever used, keyed by the id {@link SecretCipher} embeds in each ciphertext it produces, plus
- * which one is currently active for new encryptions. Old keys stay loadable indefinitely so
- * ciphertext encrypted under them keeps decrypting -- {@link KeyFileManager#rotate} never deletes a
- * key file, only adds one and repoints {@code activeKeyId}.
+ * A versioned, rotatable set of secrets keys sharing one base file path: every key Fafnir has ever
+ * used, keyed by the id {@link SecretCipher} embeds in each ciphertext it produces, plus which one
+ * is currently active for new encryptions. Old keys stay loadable indefinitely so ciphertext
+ * encrypted under them keeps decrypting -- {@link KeyFileManager#rotate} never deletes a key file,
+ * only adds one and repoints {@code activeKeyId}.
  */
 public record KeyRing(byte activeKeyId, Map<Byte, SecretKey> keysById) {
 

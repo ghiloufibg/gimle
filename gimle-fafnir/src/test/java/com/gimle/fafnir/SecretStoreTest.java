@@ -25,7 +25,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Design doc §7's synthetic-key versioning scheme, exercised directly against a real store. {@code
+ * Fafnir's synthetic-key versioning scheme, exercised directly against a real store. {@code
  * concurrent_writers_to_the_same_key_never_lose_an_update_and_every_slot_has_one_winner}
  * deliberately drives six threads at a single-node {@code InProcessStore} simultaneously; under
  * this module's own class-level concurrency (root pom.xml), running that alongside other classes'
@@ -96,7 +96,7 @@ class SecretStoreTest {
     secrets.put("acme", "db-password", bytes("hunter2"));
 
     // SecretMetadata has no value field at all -- the type itself, not just this assertion,
-    // enforces §6e's "list vs get" distinction.
+    // enforces the "list vs get" distinction.
     List<SecretMetadata> listed = secrets.list("acme");
 
     assertEquals("db-password", listed.get(0).key());
@@ -138,8 +138,8 @@ class SecretStoreTest {
     secrets.put("acme", "db-password", bytes("hunter2"));
 
     // Reach past SecretStore's own decrypt-on-read to the raw ConfigEntry the way an operator
-    // inspecting gimle-mimir directly would -- proves §7a's "@N holds ciphertext" claim, not just
-    // that #get round-trips (which would also pass if crypto were a no-op).
+    // inspecting gimle-mimir directly would -- proves that "@N holds ciphertext", not just that
+    // #get round-trips (which would also pass if crypto were a no-op).
     byte[] raw =
         store.client().listConfigEntriesFor("acme").stream()
             .filter(e -> e.key().equals("db-password@1"))
@@ -188,8 +188,8 @@ class SecretStoreTest {
         claimedVersions.add(future.get());
       }
 
-      // Every writer claimed a distinct version number -- §7b's optimistic write-verify-retry
-      // guarantees no two racing writers ever land on the same slot.
+      // Every writer claimed a distinct version number -- the optimistic write-verify-retry
+      // loop guarantees no two racing writers ever land on the same slot.
       assertEquals(writers, claimedVersions.stream().distinct().count());
       assertEquals(
           IntStream.rangeClosed(1, writers).boxed().toList(),

@@ -12,10 +12,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Ships every exported span batch to the agent over the worker's own control channel, rather than
- * to Muninn directly (design doc §6c) -- a worker has no outbound network identity of its own (see
- * {@code MuninnServer}'s own javadoc), so it can't run a {@code MuninnSpanExporter}/{@code
- * MuninnShipper} pair the way {@code gimle-controlplane}/{@code gimle-fafnir}/{@code gimle-mimir}/
- * {@code gimle-agent} do. {@link SpanLineCodec} produces byte-identical NDJSON to what {@code
+ * to Muninn directly -- a worker has no outbound network identity of its own (see {@code
+ * MuninnServer}'s own javadoc), so it can't run a {@code MuninnSpanExporter}/{@code MuninnShipper}
+ * pair the way {@code gimle-controlplane}/{@code gimle-fafnir}/{@code gimle-mimir}/ {@code
+ * gimle-agent} do. {@link SpanLineCodec} produces byte-identical NDJSON to what {@code
  * MuninnSpanExporter} ships directly, so Muninn's own ingest/storage code never needs to know
  * whether a batch arrived straight from its owning process or relayed through an agent. This class
  * lives here rather than in {@code gimle-observability}: it needs {@code ControlMessage} and this

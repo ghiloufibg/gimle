@@ -39,10 +39,10 @@ public class GimleRaftException extends RuntimeException {
   }
 
   /**
-   * The client-side counterpart to {@link #notLeader}: a {@code StoreClient} (etcd-store-
-   * extraction design doc §4.4/§4.6) exhausted every configured store endpoint -- including one
-   * leader-follow retry against a hinted address -- without a successful response, for a
-   * leader-only operation ({@code propose}, a heartbeat, or a lease call).
+   * The client-side counterpart to {@link #notLeader}: a {@code StoreClient} exhausted every
+   * configured store endpoint -- including one leader-follow retry against a hinted address --
+   * without a successful response, for a leader-only operation ({@code propose}, a heartbeat, or a
+   * lease call).
    */
   public static GimleRaftException storeUnreachable(String operation) {
     return new GimleRaftException(

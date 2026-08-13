@@ -82,7 +82,7 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(60),
         "greeter-consumer-deployment's own log should show a real reply from greeter-provider");
 
-    // The real secret round trip (design doc §9/§11 Phase C): written via the API above, fetched
+    // The real secret round trip: written via the API above, fetched
     // by the agent straight from Fafnir, delivered to the worker, and read back by the module's
     // own onStart hook -- logged there, asserted here. onStart already ran by the time the
     // ACTIVE await above passed, so this should already be true; the await is headroom for log
@@ -95,7 +95,7 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
 
     // Playwright targets readUrl, not writeUrl: readUrl is the replica the awaits above already
     // polled until it showed fresh ACTIVE state. Store reads are deliberately loose across the
-    // M-node store cluster (design doc §4.5, no linearizability requirement), so a replica that
+    // M-node store cluster (no linearizability requirement), so a replica that
     // hasn't been read from yet could still be serving a stale view for a few hundred ms after a
     // write -- real, expected, and not what this Playwright leg exists to characterize. The
     // cross-replica-consistency property itself is already proven above via plain HTTP.

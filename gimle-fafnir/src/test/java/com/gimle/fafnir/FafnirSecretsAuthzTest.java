@@ -43,13 +43,12 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Design doc §9's corrected defense-in-depth: Fafnir runs its own, independent {@code
- * Authorizer.authorize(...)} check on {@code /secrets/*} rather than trusting "this request arrived
- * already-forwarded by gimle-controlplane" as proof of authorization by itself. Every test here
- * talks to {@link FafnirServer} directly over real mTLS -- no {@code ApiServer} in the loop -- to
- * prove Fafnir's own gate works standalone, including the specific scenario a buggy or compromised
- * proxy would exploit: a forwarded-principal header naming someone who does not actually hold the
- * permission.
+ * Fafnir runs its own, independent {@code Authorizer.authorize(...)} check on {@code /secrets/*}
+ * rather than trusting "this request arrived already-forwarded by gimle-controlplane" as proof of
+ * authorization by itself. Every test here talks to {@link FafnirServer} directly over real mTLS --
+ * no {@code ApiServer} in the loop -- to prove Fafnir's own gate works standalone, including the
+ * specific scenario a buggy or compromised proxy would exploit: a forwarded-principal header naming
+ * someone who does not actually hold the permission.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-fafnir-server-http")
@@ -172,8 +171,8 @@ class FafnirSecretsAuthzTest {
       // "mallory" is never granted anything -- a buggy or compromised proxy claims to be
       // forwarding an authorized request on her behalf; Fafnir's own independent RBAC read still
       // finds no grant and denies it, proving the proxy's own (missing, in this test) authz check
-      // is not what's actually protecting this endpoint (design doc §9's corrected
-      // defense-in-depth: never trust "arrived already-forwarded" as proof by itself).
+      // is not what's actually protecting this endpoint: Fafnir never trusts "arrived
+      // already-forwarded" as proof of authorization by itself.
       FafnirCrypto crypto =
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
@@ -306,8 +305,8 @@ class FafnirSecretsAuthzTest {
   }
 
   /**
-   * O-4 of {@code OBSERVABILITY_AUDIT_DESIGN.md}'s Part A: allowed and denied {@code /secrets/*}
-   * decisions both land in the durable audit trail alongside Fafnir's own existing SLF4J log line.
+   * Allowed and denied {@code /secrets/*} decisions both land in the durable audit trail alongside
+   * Fafnir's own existing SLF4J log line.
    */
   @Test
   @Timeout(10)
@@ -488,8 +487,8 @@ class FafnirSecretsAuthzTest {
 
   /**
    * A leaf certificate stamped {@code O=gimle:nodes} (the server-side-only stamp real CSR issuance
-   * applies, see {@code Subjects.withOrganization}) -- exercises §9's node-authorization path
-   * rather than {@link #clientWithLeaf}'s ordinary-RBAC one.
+   * applies, see {@code Subjects.withOrganization}) -- exercises the node-authorization path rather
+   * than {@link #clientWithLeaf}'s ordinary-RBAC one.
    */
   private HttpClient nodeClientWithLeaf(CertificateAuthority ca, String nodeId) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();

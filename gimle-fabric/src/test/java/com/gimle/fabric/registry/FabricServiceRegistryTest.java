@@ -296,9 +296,9 @@ class FabricServiceRegistryTest {
   void all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed()
       throws Exception {
     // Three endpoints, none reachable: a correlated failure that ejects every candidate for this
-    // interface. Without the P2-7 panic floor, once all three breakers open, lookup() would
-    // filter every candidate out and return Optional.empty() -- routing this call nowhere with no
-    // indication why, rather than at least attempting one of them.
+    // interface. Without the panic-mode ejection floor, once all three breakers open, lookup()
+    // would filter every candidate out and return Optional.empty() -- routing this call nowhere
+    // with no indication why, rather than at least attempting one of them.
     ServiceCatalog catalog = new ServiceCatalog();
     for (int i = 0; i < 3; i++) {
       catalog.localRegister(
@@ -333,7 +333,7 @@ class FabricServiceRegistryTest {
     assertThrows(GimleClusterException.class, () -> registry.lookup(Greeter.class));
   }
 
-  // ---- tenant permission filtering, Phase 5 design §5.3 ----
+  // ---- tenant permission filtering ----
 
   private FabricServiceRegistry newRegistryForTenant(
       ServiceRegistry localRegistry,
@@ -462,7 +462,7 @@ class FabricServiceRegistryTest {
     assertEquals("remote:x", greeter.greet("x"));
   }
 
-  // ---- P2-17: defaultDenyCrossTenant flips an unscoped export's default from public to
+  // ---- defaultDenyCrossTenant flips an unscoped export's default from public to
   // untenanted-only; a restricted export's own allow-list is unaffected either way ----
 
   @Test

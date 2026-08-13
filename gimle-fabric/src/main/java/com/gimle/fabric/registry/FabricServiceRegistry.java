@@ -59,9 +59,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private static final Logger log = LoggerFactory.getLogger(FabricServiceRegistry.class);
 
   /**
-   * Default panic-mode ejection floor (P2-7): once more than this fraction of a lookup's own
-   * candidates have an open circuit breaker, {@link #selectAllowedCandidate} stops excluding them
-   * -- a correlated failure that happens to be transient shouldn't route to nowhere.
+   * Default panic-mode ejection floor: once more than this fraction of a lookup's own candidates
+   * have an open circuit breaker, {@link #selectAllowedCandidate} stops excluding them -- a
+   * correlated failure that happens to be transient shouldn't route to nowhere.
    */
   private static final double DEFAULT_MAX_EJECTION_PERCENT = 0.5;
 
@@ -145,7 +145,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   /**
-   * {@code maxEjectionPercent} (P2-7) is the panic-mode floor described on {@link
+   * {@code maxEjectionPercent} is the panic-mode floor described on {@link
    * #DEFAULT_MAX_EJECTION_PERCENT}, exposed here for callers (tests, chiefly) that want a
    * non-default value; production wiring goes through one of the shorter overloads above and gets
    * the default.
@@ -180,11 +180,11 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   /**
-   * {@code defaultDenyCrossTenant} (P2-17) flips {@link ServiceExport#permitsTenant}'s own
-   * safe-by-default semantics for an export that doesn't declare {@code allowedTenantIds} at all:
-   * normally that means "any tenant may consume this," which silently makes an unscoped export
-   * public cluster-wide the moment tenancy is turned on, whether or not the module author meant it.
-   * When {@code true}, this registry additionally requires such an unscoped export's caller to be
+   * {@code defaultDenyCrossTenant} flips {@link ServiceExport#permitsTenant}'s own safe-by-default
+   * semantics for an export that doesn't declare {@code allowedTenantIds} at all: normally that
+   * means "any tenant may consume this," which silently makes an unscoped export public
+   * cluster-wide the moment tenancy is turned on, whether or not the module author meant it. When
+   * {@code true}, this registry additionally requires such an unscoped export's caller to be
    * untenanted too -- {@code ServiceExport}/{@code ServiceEndpoint} don't track the exporting
    * module's own tenant, so "the same tenant as the exporter" (the ideal, narrowest rule) isn't
    * representable without a wire-format change; "untenanted-only" is the narrowest rule expressible

@@ -4,13 +4,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * One durable, queryable entry in Gimlé's cross-resource audit trail -- the mechanism {@link
- * InstanceEvent}'s own javadoc pointed at as "the general audit-logging item still on the roadmap."
- * Where {@link InstanceEvent} is scoped to one instance's own lifecycle timeline, this records a
- * single authorization decision against any resource kind: who ({@code principal}/{@code groups}),
- * what ({@code resourceKind}/{@code verb}/{@code tenantId}/{@code targetId}), and the outcome
- * ({@code allowed}), both allowed and denied decisions alike -- a denial is exactly as auditable as
- * a grant. {@code resourceKind} and {@code verb} travel as plain {@code String}s rather than {@code
+ * One durable, queryable entry in Gimlé's cross-resource audit trail: who ({@code principal}/
+ * {@code groups}), did what ({@code resourceKind}/{@code verb}/{@code tenantId}/{@code targetId}),
+ * and the outcome ({@code allowed}), both allowed and denied decisions alike -- a denial is exactly
+ * as auditable as a grant. Where {@link InstanceEvent} is scoped to one instance's own lifecycle
+ * timeline, this records a single authorization decision against any resource kind. {@code
+ * resourceKind} and {@code verb} travel as plain {@code String}s rather than {@code
  * com.gimle.core.authz.ResourceKind}/{@code Verb} themselves, the same "gimle-core doesn't need a
  * second dependency on its own authz enums just to name them back" reasoning {@link
  * InstanceEvent#kind} already applies by carrying {@code com.gimle.module}'s lifecycle state as a

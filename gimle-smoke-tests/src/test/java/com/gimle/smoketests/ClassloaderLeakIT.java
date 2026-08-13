@@ -11,15 +11,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * QA hardening pass, Phase 3: classloader leak detection (CLAUDE.md's own framing -- "first-class",
- * a {@code PhantomReference} to a disposed module's own loader, reported if it survives a
- * configurable window). Building this scenario surfaced a real gap: {@code WorkerRuntime}'s {@code
- * LeakTracker} existed only in {@code gimle-module}'s own unit tests -- {@code WorkerMain} never
- * actually wired it into the real {@code ModuleController} it constructs, so a real leak in a real
- * deployed module went completely undetected and unreported. Fixed alongside this test: {@code
- * WorkerMain} now constructs a {@code LeakTracker} and wires {@code LeakTracker#track} as {@code
- * ModuleController}'s own {@code onDisposed} callback, logging a {@code ModuleLeakDetected} via
- * slf4j so it lands in that worker's real {@code worker-platform.log}.
+ * Classloader leak detection (CLAUDE.md's own framing -- "first-class", a {@code PhantomReference}
+ * to a disposed module's own loader, reported if it survives a configurable window). Building this
+ * scenario surfaced a real gap: {@code WorkerRuntime}'s {@code LeakTracker} existed only in {@code
+ * gimle-module}'s own unit tests -- {@code WorkerMain} never actually wired it into the real {@code
+ * ModuleController} it constructs, so a real leak in a real deployed module went completely
+ * undetected and unreported. Fixed alongside this test: {@code WorkerMain} now constructs a {@code
+ * LeakTracker} and wires {@code LeakTracker#track} as {@code ModuleController}'s own {@code
+ * onDisposed} callback, logging a {@code ModuleLeakDetected} via slf4j so it lands in that worker's
+ * real {@code worker-platform.log}.
  */
 @Tag("smoke")
 class ClassloaderLeakIT extends GreeterSmokeClusterSupport {

@@ -13,10 +13,10 @@ import javax.net.ssl.SSLException;
 /**
  * One peer's DTLS handshake/record state, wrapping a single {@link SSLEngine} in datagram mode
  * (JSSE's DTLS support is engine-based only -- there is no {@code DTLSSocket} equivalent of {@code
- * SSLSocket}, per {@code claudedocs/tls-transport-security-design.md} §2). All access is {@code
- * synchronized} on this instance: {@link SSLEngine} is explicitly documented as not safe for
- * concurrent {@code wrap}/{@code unwrap} from multiple threads, and {@link GossipMember} drives one
- * session from both its ticker (sends) and its receive loop (inbound datagrams).
+ * SSLSocket}). All access is {@code synchronized} on this instance: {@link SSLEngine} is explicitly
+ * documented as not safe for concurrent {@code wrap}/{@code unwrap} from multiple threads, and
+ * {@link GossipMember} drives one session from both its ticker (sends) and its receive loop
+ * (inbound datagrams).
  *
  * <p>Every method that can produce outbound handshake bytes returns them as a list of complete UDP
  * payloads for the caller to send -- this class never touches the network itself, keeping it

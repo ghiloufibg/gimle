@@ -23,8 +23,8 @@ import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Real inbound HTTP traffic against a real {@link MuninnServer} in plaintext mode (the default),
- * exercising the {@code /ingest/traces/*} and {@code /traces/*} routes (design doc Part B/O-13) --
- * mirrors {@code MuninnServerMetricsIngestTest}'s own shape, since both ride the identical {@link
+ * exercising the {@code /ingest/traces/*} and {@code /traces/*} routes -- mirrors {@code
+ * MuninnServerMetricsIngestTest}'s own shape, since both ride the identical {@link
  * MuninnDayFileStore}-backed ingest/read plumbing.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)

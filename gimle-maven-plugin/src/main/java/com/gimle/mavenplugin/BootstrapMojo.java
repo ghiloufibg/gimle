@@ -54,11 +54,11 @@ import org.eclipse.aether.repository.RemoteRepository;
  * because a single-node bootstrap never opens a Raft peer connection at all (zero peers). Fafnir
  * does *not* share this stand-in -- it gets its own distinct {@code fafnir} leaf, since every
  * action it takes being attributable to its own certificate Subject is directly load-bearing for
- * its audit story (design doc §6f), unlike the store's own Raft/client RPC transports. A real
- * multi-node TLS deployment would need {@code gimle-pki} to mint a real per-store-node identity too
- * -- out of scope here. Also out of scope: propagating {@code gimle.tls.*} into the worker JVM this
- * goal's agent spawns, needed only for genuine cross-machine fabric TLS (same-machine fabric is a
- * Unix domain socket, never TLS'd), which a single-machine bootstrap never exercises.
+ * its audit story, unlike the store's own Raft/client RPC transports. A real multi-node TLS
+ * deployment would need {@code gimle-pki} to mint a real per-store-node identity too -- out of
+ * scope here. Also out of scope: propagating {@code gimle.tls.*} into the worker JVM this goal's
+ * agent spawns, needed only for genuine cross-machine fabric TLS (same-machine fabric is a Unix
+ * domain socket, never TLS'd), which a single-machine bootstrap never exercises.
  */
 @Mojo(name = "bootstrap", threadSafe = true)
 public final class BootstrapMojo extends AbstractMojo {
@@ -277,7 +277,7 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("controlplane.key"),
           tlsDir.resolve("ca.crt"));
     }
-    // Optional (design doc Part B/O-10) -- see AgentMain's own javadoc on
+    // Optional -- see AgentMain's own javadoc on
     // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
     command.add("-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
@@ -304,7 +304,7 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("fafnir.key"),
           tlsDir.resolve("ca.crt"));
     }
-    // Optional (design doc Part B/O-10) -- see AgentMain's own javadoc on
+    // Optional -- see AgentMain's own javadoc on
     // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
     command.add("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
@@ -370,7 +370,7 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add("127.0.0.1:" + STORE_CLIENT_PORT);
     command.add("--fafnir-endpoint");
     command.add("127.0.0.1:" + FAFNIR_PORT);
-    // Optional (design doc Part B/O-11) -- lets this replica's /logs/* proxy fall back to
+    // Optional -- lets this replica's /logs/* proxy fall back to
     // Muninn's own shipped history for a gone node/instance instead of a bare 404/502.
     command.add("--muninn-endpoint");
     command.add("127.0.0.1:" + MUNINN_PORT);
@@ -395,13 +395,13 @@ public final class BootstrapMojo extends AbstractMojo {
           tlsDir.resolve("ca.crt"));
       command.add("-Dgimle.tls.bootstrapToken=" + bootstrapToken);
     }
-    // Lets this agent fetch secret values straight from Fafnir (design doc §9/§11 Phase C)
-    // instead of relying on the control plane to have already decrypted them -- see AgentMain's
-    // own javadoc on gimle.agent.fafnirEndpoint for why this is a system property rather than a
-    // new positional arg.
+    // Lets this agent fetch secret values straight from Fafnir instead of relying on the control
+    // plane to have already decrypted them -- see AgentMain's own javadoc on
+    // gimle.agent.fafnirEndpoint for why this is a system property rather than a new positional
+    // arg.
     command.add("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + FAFNIR_PORT);
-    // Same reasoning, for shipping this agent's own + every supervised worker's logs to Muninn
-    // (design doc Part B) -- see AgentMain's own javadoc on gimle.agent.muninnEndpoint.
+    // Same reasoning, for shipping this agent's own + every supervised worker's logs to Muninn --
+    // see AgentMain's own javadoc on gimle.agent.muninnEndpoint.
     command.add("-Dgimle.agent.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-agent"));

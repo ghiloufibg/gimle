@@ -29,7 +29,7 @@
   <properties>
     <!-- Sample/demo code, not part of Gimle's platform API surface: excluded from the aggregate
          Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
-         entry and claudedocs/docs-site-design.md). -->
+         entry). -->
     <maven.javadoc.skip>true</maven.javadoc.skip>
   </properties>
 </project>

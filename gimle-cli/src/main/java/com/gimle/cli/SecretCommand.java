@@ -13,11 +13,11 @@ import java.util.Set;
  * {@code secret list <tenantId>}, {@code secret get <tenantId> <key> [--version N]}, {@code secret
  * set <tenantId> <key> --value <v>}, {@code secret delete <tenantId> <key> [--destroy]}, {@code
  * secret versions <tenantId> <key>}, {@code secret rotate-key} -- the versioned {@code /secrets/*}
- * surface (design doc §6e/§7), reached through {@code gimle-controlplane}'s proxy to Fafnir, never
- * Fafnir directly (matching the console's own routing decision, §12). A distinct top-level verb
- * from {@code config} (not folded into {@link GimleCli}'s shared get/set/delete dispatch the way
- * {@link ConfigCommand} is) since it needs two actions -- {@code versions}, {@code rotate-key} --
- * that three-verb dispatch has no shape for.
+ * surface, reached through {@code gimle-controlplane}'s proxy to Fafnir, never Fafnir directly
+ * (matching the console's own routing decision). A distinct top-level verb from {@code config} (not
+ * folded into {@link GimleCli}'s shared get/set/delete dispatch the way {@link ConfigCommand} is)
+ * since it needs two actions -- {@code versions}, {@code rotate-key} -- that three-verb dispatch
+ * has no shape for.
  *
  * <p>Values cross the wire as base64 ({@code /secrets/*}'s own body shape is binary-safe, unlike
  * {@code /config/*}'s plain-string {@code value} field) -- this class is the one place that

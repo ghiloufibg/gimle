@@ -21,20 +21,20 @@ import java.util.Set;
  * only keeps new placements off it. Preemption and taint/toleration-style soft constraints are out
  * of scope -- this is a binary "don't schedule here" flag, nothing more.
  *
- * <p>{@link #eligibleNodes} (priority-3 design doc §4b) is the same five-step eligibility filter
- * {@link #place} applies, extracted so a caller that wants "every survivor" rather than "one pick"
- * -- {@code DaemonSetReconciler}, which places on every eligible node rather than bin-packing a
- * single replica onto one -- can reuse it directly. {@code place} is unchanged in behavior: it
- * still throws its own specific {@link GimleSchedulingException} per filter stage that eliminates
- * every remaining candidate; {@code eligibleNodes} never throws, since an empty result (no eligible
- * node at all, or not yet) is an entirely ordinary outcome for a DaemonSet reconcile tick, not an
- * error condition the way it is for a single replica that must land somewhere.
+ * <p>{@link #eligibleNodes} is the same five-step eligibility filter {@link #place} applies,
+ * extracted so a caller that wants "every survivor" rather than "one pick" -- {@code
+ * DaemonSetReconciler}, which places on every eligible node rather than bin-packing a single
+ * replica onto one -- can reuse it directly. {@code place} is unchanged in behavior: it still
+ * throws its own specific {@link GimleSchedulingException} per filter stage that eliminates every
+ * remaining candidate; {@code eligibleNodes} never throws, since an empty result (no eligible node
+ * at all, or not yet) is an entirely ordinary outcome for a DaemonSet reconcile tick, not an error
+ * condition the way it is for a single replica that must land somewhere.
  *
- * <p>The {@code stickyNodeId}-accepting {@link #place} overload (priority-3 design doc §5b) is
- * {@code StatefulSetReconciler}'s sticky-placement primitive: once a {@code StatefulSet} index's
- * local-disk volume exists on a node, every later placement attempt for that index must land back
- * on that exact node or not at all, never a different one. See that overload's own javadoc for
- * which filters still apply and which are skipped.
+ * <p>The {@code stickyNodeId}-accepting {@link #place} overload is {@code StatefulSetReconciler}'s
+ * sticky-placement primitive: once a {@code StatefulSet} index's local-disk volume exists on a
+ * node, every later placement attempt for that index must land back on that exact node or not at
+ * all, never a different one. See that overload's own javadoc for which filters still apply and
+ * which are skipped.
  */
 public final class Scheduler {
 
@@ -115,14 +115,14 @@ public final class Scheduler {
   }
 
   /**
-   * {@code stickyNodeId} is a {@code StatefulSet} index's sticky node binding (priority-3 design
-   * doc §5b): when present, this collapses the entire eligibility/bin-packing chain above to "is
-   * {@code stickyNodeId} itself still eligible? Y/N" -- tier, cordon, tenant isolation, and
-   * required labels are all still checked (they're properties of the node itself), but {@code
-   * antiAffinityAcrossNodes} and bin-packing candidate selection are both skipped entirely: there
-   * is only ever one candidate under consideration, never a choice among several, so "exclude nodes
-   * already running this deployment" and "prefer the roomiest node" have nothing to apply to. Never
-   * falls back to a different node if the sticky one fails eligibility -- see {@link
+   * {@code stickyNodeId} is a {@code StatefulSet} index's sticky node binding: when present, this
+   * collapses the entire eligibility/bin-packing chain above to "is {@code stickyNodeId} itself
+   * still eligible? Y/N" -- tier, cordon, tenant isolation, and required labels are all still
+   * checked (they're properties of the node itself), but {@code antiAffinityAcrossNodes} and
+   * bin-packing candidate selection are both skipped entirely: there is only ever one candidate
+   * under consideration, never a choice among several, so "exclude nodes already running this
+   * deployment" and "prefer the roomiest node" have nothing to apply to. Never falls back to a
+   * different node if the sticky one fails eligibility -- see {@link
    * GimleSchedulingException#stickyNodeUnavailable} for why that's the deliberate behavior, not a
    * gap.
    */

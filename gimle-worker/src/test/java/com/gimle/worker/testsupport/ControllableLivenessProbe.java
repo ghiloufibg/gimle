@@ -17,9 +17,9 @@ public final class ControllableLivenessProbe implements LivenessProbe {
 
   /**
    * Captures whatever MDC context is visible on the thread this probe is invoked on -- {@code
-   * BoundedModuleScheduler} tags that thread's MDC per-submission (design log-explorer §3), so a
-   * test can observe here whether {@code WorkerRuntime#onActive}'s identity-lookup-to-MDC-tag glue
-   * actually reached the probe dispatch, not just that it compiles.
+   * BoundedModuleScheduler} tags that thread's MDC per-submission, so a test can observe here
+   * whether {@code WorkerRuntime#onActive}'s identity-lookup-to-MDC-tag glue actually reached the
+   * probe dispatch, not just that it compiles.
    */
   public static final AtomicReference<Map<String, String>> LAST_MDC = new AtomicReference<>();
 

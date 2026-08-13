@@ -134,8 +134,8 @@ class ManifestParserTest {
 
   @Test
   void unrecognized_kind_throws() {
-    // Every priority-3 workload-diversity kind (Deployment/Job/CronJob/DaemonSet/StatefulSet) is
-    // dispatched above -- "Frobnicate" is a deliberately never-real kind name for this case,
+    // Every workload kind (Deployment/Job/CronJob/DaemonSet/StatefulSet) is dispatched above --
+    // "Frobnicate" is a deliberately never-real kind name for this case,
     // rather than reusing a real one that would go stale silently the moment it's implemented.
     assertThrows(
         GimleManifestException.class,

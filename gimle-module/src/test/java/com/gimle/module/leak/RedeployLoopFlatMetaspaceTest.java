@@ -23,7 +23,7 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The mandatory Phase 1 acceptance test: redeploy-in-a-loop with flat metaspace. Runs {@link
+ * The mandatory redeploy-in-a-loop-with-flat-metaspace acceptance test. Runs {@link
  * RedeployLoopDriver} as a subprocess with a fixed {@code -XX:MaxMetaspaceSize} so a genuine
  * classloader leak would exhaust it and crash the process, rather than just growing this test JVM's
  * own metaspace unboundedly across the run.

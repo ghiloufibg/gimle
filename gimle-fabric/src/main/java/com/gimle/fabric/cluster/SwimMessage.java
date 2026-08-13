@@ -52,8 +52,8 @@ public sealed interface SwimMessage {
       implements SwimMessage {}
 
   /**
-   * Periodic anti-entropy push (P2-8): unlike every other message type here, {@code piggyback}
-   * carries the sender's <em>entire</em> known membership table (bounded to one page -- see {@code
+   * Periodic anti-entropy push: unlike every other message type here, {@code piggyback} carries the
+   * sender's <em>entire</em> known membership table (bounded to one page -- see {@code
    * GossipMember#currentFullState}), not the usual handful of most-recently-changed entries. Exists
    * because piggyback alone (bounded to {@code GossipConfig#piggybackCount} entries per message,
    * with only the 64 most-recently-changed members ever eligible to ride it) can permanently

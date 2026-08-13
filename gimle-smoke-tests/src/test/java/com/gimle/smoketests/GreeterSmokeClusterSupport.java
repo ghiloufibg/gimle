@@ -48,11 +48,11 @@ import org.junit.jupiter.api.io.TempDir;
  * install} has already produced every jar this launches, the same precondition LOCAL_DEV.md's own
  * manual flow has. Every concrete subclass carries its own {@code @Tag("smoke")} plus this module's
  * own {@code excludedGroups} surefire configuration -- belt-and-suspenders against a real,
- * previously-observed build-wiring gap (see FLAKY_TESTS.md): an unqualified {@code
- * -Dtest='!A,!B,...'} (exclusions only, no positive pattern) has been seen to broaden Surefire's
- * own default class discovery enough to pick a class up under plain {@code mvn verify} anyway --
- * JUnit 5's own tag-based filtering is a separate mechanism from Surefire's class-name-pattern
- * selection, so it isn't affected the same way.
+ * previously-observed build-wiring gap: an unqualified {@code -Dtest='!A,!B,...'} (exclusions only,
+ * no positive pattern) has been seen to broaden Surefire's own default class discovery enough to
+ * pick a class up under plain {@code mvn verify} anyway -- JUnit 5's own tag-based filtering is a
+ * separate mechanism from Surefire's class-name-pattern selection, so it isn't affected the same
+ * way.
  */
 abstract class GreeterSmokeClusterSupport {
 
@@ -484,7 +484,7 @@ abstract class GreeterSmokeClusterSupport {
   /**
    * A real {@code greeter-provider} whose {@code greet} hangs well past {@code FabricClient
    * #DEFAULT_TIMEOUT} (5s) on <em>every</em> call, rather than throwing. Deliberately not the shape
-   * {@link #buildFaultyProviderJar()} uses: {@code FabricServiceRegistry#invokeRemote}'s own P2-6
+   * {@link #buildFaultyProviderJar()} uses: {@code FabricServiceRegistry#invokeRemote}'s own
    * app-error-vs-transport-error split (see its javadoc) scores a method that merely *throws* as
    * {@code breaker.recordSuccess()} -- "proof the endpoint was reachable and answered, not a
    * transport failure" -- so it can never open the breaker no matter how many calls fail that way.
@@ -1089,10 +1089,9 @@ abstract class GreeterSmokeClusterSupport {
 
   /**
    * Like the eleven-argument {@link #submitAutoscaleDeployment}, plus {@code mode} ({@code
-   * "worst-signal"}/{@code "weighted"}, roadmap item 10) and its four per-signal weights -- each
-   * independently optional, matching {@code AutoscalePolicy}'s own shape again: an absent weight
-   * simply defaults to {@code 1.0} inside {@code AutoscaleReconciler} once {@code mode} is {@code
-   * "weighted"}.
+   * "worst-signal"}/{@code "weighted"}) and its four per-signal weights -- each independently
+   * optional, matching {@code AutoscalePolicy}'s own shape again: an absent weight simply defaults
+   * to {@code 1.0} inside {@code AutoscaleReconciler} once {@code mode} is {@code "weighted"}.
    */
   void submitAutoscaleDeployment(
       String baseUrl,
@@ -1300,8 +1299,7 @@ abstract class GreeterSmokeClusterSupport {
 
     // Before Fafnir/control-plane, not after: Muninn only needs the store (its own read-only
     // Authorizer check), so bringing it up this early means it's already reachable to receive
-    // shipped data from every process started after it, matching BootstrapMojo's own ordering
-    // (design doc Part B/O-14).
+    // shipped data from every process started after it, matching BootstrapMojo's own ordering.
     String muninnEndpoint = "127.0.0.1:" + MUNINN_PORT;
     processes.add(
         spawnMuninn(
@@ -1312,11 +1310,12 @@ abstract class GreeterSmokeClusterSupport {
             tempDir.resolve("muninn.log")));
     awaitPortOpen("127.0.0.1", MUNINN_PORT, Duration.ofSeconds(30));
 
-    // A single key file shared across every Fafnir replica -- the design doc §8 multi-replica
-    // provisioning requirement -- unlike spawnControlPlane's own controlplane-secret-<port>.key
-    // below, which is deliberately still per-replica-distinct (that key only ever guards plain,
-    // legacy /config/* entries this suite doesn't exercise, so its own multi-replica-consistency
-    // gap is a separate, already-flagged issue outside this item's scope).
+    // A single key file shared across every Fafnir replica -- every replica must be able to
+    // decrypt secrets written through any other replica -- unlike spawnControlPlane's own
+    // controlplane-secret-<port>.key below, which is deliberately still per-replica-distinct
+    // (that key only ever guards plain, legacy /config/* entries this suite doesn't exercise,
+    // so its own multi-replica-consistency gap is a separate, already-flagged issue outside
+    // this item's scope).
     Path fafnirSecretKeyPath = tempDir.resolve("fafnir-secret.key");
     List<String> fafnirEndpoints = new ArrayList<>();
     for (int i = 0; i < FAFNIR_COUNT; i++) {
@@ -1435,7 +1434,7 @@ abstract class GreeterSmokeClusterSupport {
                 javaExecutable,
                 // MUNINN_PORT is a known constant even though Muninn itself starts after every
                 // store node does (see #startCluster's own comment) -- matches BootstrapMojo's own
-                // spawnStore wiring (design doc Part B/O-10).
+                // spawnStore wiring.
                 "-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT,
                 "-cp",
                 classpath,
@@ -1640,9 +1639,9 @@ abstract class GreeterSmokeClusterSupport {
    * Registers {@link #SECRET_TENANT_ID} with a generous quota -- large enough that {@code
    * greeter-provider}'s own {@code 64Mi}/{@code 100m} limit (see its {@code gimle-module.yaml})
    * never brushes it -- and writes {@link #SECRET_KEY} through the real {@code /secrets/*} proxy
-   * (design doc §6e) before any deployment references the tenant. A deployment's {@code tenantId}
-   * must already name a registered {@code Tenant} at admission time (see {@code DeploymentSpec}'s
-   * own javadoc), so this must run before {@link #submitDeployment}.
+   * before any deployment references the tenant. A deployment's {@code tenantId} must already name
+   * a registered {@code Tenant} at admission time (see {@code DeploymentSpec}'s own javadoc), so
+   * this must run before {@link #submitDeployment}.
    */
   void provisionTenantAndSecret(String baseUrl) throws Exception {
     String quotaBody =
@@ -1802,8 +1801,8 @@ abstract class GreeterSmokeClusterSupport {
   /**
    * The real secret round trip's own assertion point: {@link #SECRET_VALUE} written through the API
    * in {@link #provisionTenantAndSecret}, fetched by the real node agent straight from a real
-   * Fafnir replica (design doc §9/§11 Phase C), delivered down to the worker, and read back out by
-   * {@code GreeterProviderHooks#onStart}'s own {@code ctx.config(...)} call -- observed here purely
+   * Fafnir replica, delivered down to the worker, and read back out by {@code
+   * GreeterProviderHooks#onStart}'s own {@code ctx.config(...)} call -- observed here purely
    * through this instance's own application log, the same way {@link #consumerLogShowsAGreeting}
    * observes the cross-worker fabric call.
    */

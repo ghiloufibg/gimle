@@ -178,9 +178,9 @@ public final class ModuleDescriptorParser {
   }
 
   /**
-   * {@code initialDelaySeconds} (P2-4): how long after ACTIVE before the first probe tick, so a
-   * module's own post-start warmup (lazy init, cache fill, JIT) doesn't get torn down by an eager
-   * first tick.
+   * {@code initialDelaySeconds}: how long after ACTIVE before the first probe tick, so a module's
+   * own post-start warmup (lazy init, cache fill, JIT) doesn't get torn down by an eager first
+   * tick.
    */
   private static Optional<Duration> parseInitialDelay(Map<?, ?> health) {
     Object value = health.get("initialDelaySeconds");
@@ -199,20 +199,19 @@ public final class ModuleDescriptorParser {
   }
 
   /**
-   * Sibling field to {@code lifecycle.hooks} (priority-3 design doc §3a): a Job-kind module
-   * declares {@code lifecycle.jobHooks} instead, naming a class implementing {@code JobHooks}
-   * rather than {@code ModuleLifecycleHooks}. Both read from the same {@code lifecycle:} mapping,
-   * so this shares {@link #requireLifecycleMap} with {@link #parseLifecycleHooks} rather than
-   * re-validating the block twice.
+   * Sibling field to {@code lifecycle.hooks}: a Job-kind module declares {@code lifecycle.jobHooks}
+   * instead, naming a class implementing {@code JobHooks} rather than {@code ModuleLifecycleHooks}.
+   * Both read from the same {@code lifecycle:} mapping, so this shares {@link #requireLifecycleMap}
+   * with {@link #parseLifecycleHooks} rather than re-validating the block twice.
    */
   private static Optional<String> parseJobHooks(Map<?, ?> root) {
     return className(requireLifecycleMap(root), "jobHooks");
   }
 
   /**
-   * StatefulSet-kind persistent storage (priority-3 design doc §5a): {@code volume:} at the
-   * descriptor's own top level, sibling to {@code isolation:}/{@code resources:} -- absent means
-   * "no persistent storage," the only shape every pre-existing descriptor has.
+   * StatefulSet-kind persistent storage: {@code volume:} at the descriptor's own top level, sibling
+   * to {@code isolation:}/{@code resources:} -- absent means "no persistent storage," the only
+   * shape every pre-existing descriptor has.
    */
   private static Optional<VolumeRequest> parseVolume(Map<?, ?> root) {
     Object volumeObj = root.get("volume");

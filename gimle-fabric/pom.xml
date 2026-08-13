@@ -56,8 +56,8 @@
       <artifactId>opentelemetry-sdk-testing</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- Test-only: generates real test certificates for FabricServer/FabricClient's TLS support
-         (task #28), the same reason gimle-controlplane's pom.xml carries this. -->
+    <!-- Test-only: generates real test certificates for FabricServer/FabricClient's TLS support,
+         the same reason gimle-controlplane's pom.xml carries this. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>

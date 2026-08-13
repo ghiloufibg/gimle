@@ -101,8 +101,8 @@ class MuninnDayFileStoreTest {
     assertTrue(store.readOlder("logs/nodes/never-seen/PLATFORM", null, 10).lines().isEmpty());
   }
 
-  // A processId is a host:port string for every process kind except AGENT (design doc Part
-  // B/O-9/O-11) -- e.g. "metrics/CONTROLPLANE/127.0.0.1:8080". java.nio.file.Path on Windows
+  // A processId is a host:port string for every process kind except AGENT --
+  // e.g. "metrics/CONTROLPLANE/127.0.0.1:8080". java.nio.file.Path on Windows
   // reserves ':' for drive letters and throws InvalidPathException anywhere else in a path, which
   // previously made this a hard 400 on every real Windows-hosted control-plane/store/fafnir
   // replica's own metrics/traces (AGENT's plain nodeId never contains a colon, so it alone worked

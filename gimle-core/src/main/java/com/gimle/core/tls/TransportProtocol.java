@@ -1,10 +1,9 @@
 package com.gimle.core.tls;
 
 /**
- * The cluster-wide {@code gimle.transport.protocol} setting (see {@code
- * claudedocs/tls-transport-security-design.md} §1): a single switch for every network-exposed
- * transport (API server, Raft peer RPC, gossip, fabric cross-machine), not a per-component choice
- * -- a cluster is either secured or it isn't.
+ * The cluster-wide {@code gimle.transport.protocol} setting: a single switch for every
+ * network-exposed transport (API server, Raft peer RPC, gossip, fabric cross-machine), not a
+ * per-component choice -- a cluster is either secured or it isn't.
  */
 public enum TransportProtocol {
   PLAINTEXT,

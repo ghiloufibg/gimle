@@ -16,10 +16,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 /**
  * {@code get jobs [name]}, {@code apply -f <file.yaml>}, {@code delete job <name>} -- mirrors
  * {@link DeploymentsCommand} exactly, including its "parse only to extract {@code name:} client-
- * side, PUT the original bytes verbatim" pattern (priority-3 design doc §3e). {@code apply} itself
- * is dispatched here by {@link GimleCli} once it has peeked at the manifest's own {@code kind:}
- * field -- this class's own {@link #apply} doesn't re-check {@code kind}, it trusts its caller
- * already routed correctly, the same way {@link DeploymentsCommand#apply} always has.
+ * side, PUT the original bytes verbatim" pattern. {@code apply} itself is dispatched here by {@link
+ * GimleCli} once it has peeked at the manifest's own {@code kind:} field -- this class's own {@link
+ * #apply} doesn't re-check {@code kind}, it trusts its caller already routed correctly, the same
+ * way {@link DeploymentsCommand#apply} always has.
  */
 public final class JobsCommand {
 

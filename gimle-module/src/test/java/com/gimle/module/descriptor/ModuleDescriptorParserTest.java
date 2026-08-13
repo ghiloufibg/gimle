@@ -13,8 +13,8 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers {@code health.initialDelaySeconds} (P2-4); other fields are exercised end to end via
- * {@code TestModuleBuilder}-backed integration tests elsewhere in this module.
+ * Covers {@code health.initialDelaySeconds}; other fields are exercised end to end via {@code
+ * TestModuleBuilder}-backed integration tests elsewhere in this module.
  */
 class ModuleDescriptorParserTest {
 

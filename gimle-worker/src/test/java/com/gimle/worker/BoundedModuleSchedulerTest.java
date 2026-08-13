@@ -122,10 +122,10 @@ class BoundedModuleSchedulerTest {
 
   @Test
   void the_callers_ambient_context_is_restored_inside_the_submitted_task() throws Exception {
-    // P2-10: this is the mechanism a caller's OTel span (and anything else riding Context, like
-    // baggage) actually depends on to be the parent of whatever span the submitted task starts --
-    // proving Context.wrap's capture-and-restore works is the direct test of that claim, without
-    // needing a full OTel SDK dependency here just to assert on real Span parent/child ids.
+    // This is the mechanism a caller's OTel span (and anything else riding Context, like baggage)
+    // actually depends on to be the parent of whatever span the submitted task starts -- proving
+    // Context.wrap's capture-and-restore works is the direct test of that claim, without needing a
+    // full OTel SDK dependency here just to assert on real Span parent/child ids.
     ContextKey<String> key = ContextKey.named("test-value");
     Context withValue = Context.current().with(key, "hello");
 

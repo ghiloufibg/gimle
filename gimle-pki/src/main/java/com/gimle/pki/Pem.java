@@ -15,13 +15,13 @@ import java.util.Base64;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 
 /**
- * PEM encode/decode for the three artifact types that cross a wire or a file boundary in {@code
- * claudedocs/tls-transport-security-design.md} §4/§4a/§4b's CSR flow: a leaf certificate, a CSR,
- * and a private key. Deliberately hand-rolled (base64 wrap/unwrap around a {@code BEGIN}/{@code
- * END} marker pair) rather than pulling in Bouncy Castle's own {@code PEMParser}/{@code
- * JcaPEMWriter} -- the same manual approach {@code com.gimle.core.tls.SslContexts} already uses for
- * reading a private key back out of a PEM file, now shared instead of the four test classes that
- * each currently reimplement the encoding half of this privately.
+ * PEM encode/decode for the three artifact types that cross a wire or a file boundary in the CSR
+ * issuance flow: a leaf certificate, a CSR, and a private key. Deliberately hand-rolled (base64
+ * wrap/unwrap around a {@code BEGIN}/{@code END} marker pair) rather than pulling in Bouncy
+ * Castle's own {@code PEMParser}/{@code JcaPEMWriter} -- the same manual approach {@code
+ * com.gimle.core.tls.SslContexts} already uses for reading a private key back out of a PEM file,
+ * now shared instead of the four test classes that each currently reimplement the encoding half of
+ * this privately.
  */
 public final class Pem {
 

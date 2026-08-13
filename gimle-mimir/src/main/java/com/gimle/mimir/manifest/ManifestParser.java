@@ -8,8 +8,8 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
- * The one real entry point for parsing an operator-submitted manifest (priority-3 design doc §2):
- * reads {@code kind:}, then delegates to that kind's own {@code *ManifestParser.parseRoot(Map)}.
+ * The one real entry point for parsing an operator-submitted manifest: reads {@code kind:}, then
+ * delegates to that kind's own {@code *ManifestParser.parseRoot(Map)}.
  *
  * <p>{@code kind:} is a required top-level field, with no default. Per this project's own
  * no-backward-compat convention (unreleased software, no external users -- prefer clean replacement

@@ -150,7 +150,7 @@ public final class DeploymentReconciler {
           e.getMessage());
       return;
     }
-    // P2-18: a spec admitted with a recorded hash (Optional.empty() means admitted before this
+    // A spec admitted with a recorded hash (Optional.empty() means admitted before this
     // field existed, or the artifact was unreadable at admission time -- both skip the check) must
     // still match the bytes on disk at every tick, not just at admission -- an artifact silently
     // swapped out from under a running deployment name is exactly what this guards against.

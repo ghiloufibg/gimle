@@ -26,9 +26,9 @@ import org.junit.jupiter.api.Timeout;
 class RollingUpdateIT extends GreeterSmokeClusterSupport {
 
   /**
-   * QA Phase 3: rolling update / version-aware traffic cutover under real load. Deploys 2 replicas
-   * of {@code greeter-provider} at v1.0.0, confirms both reach {@code ACTIVE}, then submits a real
-   * v1.1.0 build of the same module (compiled on the fly by {@link TestModuleBuilder} -- see {@link
+   * Rolling update / version-aware traffic cutover under real load. Deploys 2 replicas of {@code
+   * greeter-provider} at v1.0.0, confirms both reach {@code ACTIVE}, then submits a real v1.1.0
+   * build of the same module (compiled on the fly by {@link TestModuleBuilder} -- see {@link
    * #buildProviderV2Jar()} -- rather than committing a second, near-duplicate example module) while
    * Gatling drives sustained real HTTP traffic through {@code greeter-load-generator}'s real fabric
    * call the whole time. {@link
@@ -147,8 +147,8 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA Phase 3 continuation: the single-replica counterpart to the 2-replica test above -- confirms
-   * the documented tradeoff is real, not just documented. {@link
+   * The single-replica counterpart to the 2-replica test above -- confirms the documented tradeoff
+   * is real, not just documented. {@link
    * com.gimle.controlplane.reconcile.DeploymentReconciler#handleRollingUpdate}'s own javadoc is
    * explicit that this is in-place index replacement (kill old at that index, then place new at the
    * same index), never additive surge-then-drain, so a single-replica deployment WILL see real

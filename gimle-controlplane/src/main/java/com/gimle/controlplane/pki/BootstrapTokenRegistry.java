@@ -9,9 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Short-lived, single-use bootstrap tokens for §4 step 1 of {@code
- * claudedocs/tls-transport-security-design.md}: a plain random secret an operator hands to a new
- * node, scoped to exactly one {@code POST /bootstrap/csr} call. In-memory only, on purpose, not
+ * Short-lived, single-use bootstrap tokens: a plain random secret an operator hands to a new node,
+ * scoped to exactly one {@code POST /bootstrap/csr} call. In-memory only, on purpose, not
  * replicated through Raft -- the same reasoning {@code StateMutation}'s own javadoc gives for
  * skipping heartbeats: short-lived, high-churn, and only the leader's own process ever needs to see
  * them within their lifetime. In a multi-node HA control plane, an operator must issue a token and
@@ -49,8 +48,8 @@ public final class BootstrapTokenRegistry {
 
   /**
    * Atomically checks {@code token} is currently valid (issued, unexpired, not already consumed)
-   * and removes it if so -- the single-use enforcement §4 step 1 requires: a leaked token replayed
-   * a second time must fail, not just eventually expire.
+   * and removes it if so -- single-use enforcement requires this: a leaked token replayed a second
+   * time must fail, not just eventually expire.
    */
   public boolean tryConsume(String token) {
     if (token == null || token.isBlank()) {

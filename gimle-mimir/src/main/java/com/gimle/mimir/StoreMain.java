@@ -36,12 +36,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The store process's entry point (etcd-store-extraction design doc): wires the Raft-replicated
- * {@code StateStore}, the peer-to-peer {@code RaftTransport}, and the client-facing {@code
- * StoreNode}/{@code StoreTransport} together -- everything {@code ControlPlaneMain} used to
- * construct itself before the split, minus anything API-server-shaped (no {@code Scheduler}, no
- * reconcilers, no HTTP surface). Deliberately mirrors {@code ControlPlaneMain}'s own
- * argument-parsing and ticker shape for a reader already familiar with that class.
+ * The store process's entry point: wires the Raft-replicated {@code StateStore}, the peer-to-peer
+ * {@code RaftTransport}, and the client-facing {@code StoreNode}/{@code StoreTransport} together --
+ * everything {@code ControlPlaneMain} used to construct itself before the split, minus anything
+ * API-server-shaped (no {@code Scheduler}, no reconcilers, no HTTP surface). Deliberately mirrors
+ * {@code ControlPlaneMain}'s own argument-parsing and ticker shape for a reader already familiar
+ * with that class.
  */
 public final class StoreMain {
 
@@ -85,9 +85,9 @@ public final class StoreMain {
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
-    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
-    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
-    // simply aren't shipped anywhere.
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern --
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped
+    // anywhere.
     String muninnEndpoint = System.getProperty("gimle.store.muninnEndpoint");
 
     System.setProperty("gimle.process.role", "STORE");
@@ -98,7 +98,7 @@ public final class StoreMain {
     StateStore store = new StateStore(stateDir);
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
 
-    // Bootstrap configuration only, per P1-5's etcd-style membership change: peers is where a
+    // Bootstrap configuration only, for etcd-style membership change: peers is where a
     // brand-new cluster starts, not a fixed configuration for its lifetime -- `gimle-cli`'s
     // add-peer/remove-peer surface (StoreClient#addServer) grows or shrinks it afterward. Both
     // maps are mutable and live: RaftNode's membershipListener keeps raftIdToClientAddress current
@@ -130,9 +130,9 @@ public final class StoreMain {
     raftNode.start();
 
     StoreNode storeNode = new StoreNode(raftNode, store, raftIdToClientAddress);
-    // Per-RPC-kind request/error/latency metrics (design doc Part B/O-10), wrapping the handler
-    // at construction time the same "decorate once, not per call site" shape FafnirServer's own
-    // #instrument already established for its HTTP contexts.
+    // Per-RPC-kind request/error/latency metrics, wrapping the handler at construction time the
+    // same "decorate once, not per call site" shape FafnirServer's own #instrument already
+    // established for its HTTP contexts.
     StoreMetrics storeMetrics = new StoreMetrics();
     StoreRpcHandler instrumentedStoreNode =
         request -> {
@@ -160,8 +160,8 @@ public final class StoreMain {
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(storeMetrics.registry());
     }
-    // Design doc Part B/O-13: a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
-    // own javadoc on why it deliberately skips tracing installation). Shipped to Muninn when
+    // A genuine RPC-serving process, unlike gimle-agent (see AgentMain's own javadoc on why it
+    // deliberately skips tracing installation). Shipped to Muninn when
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
     MuninnShipper tracesShipper =

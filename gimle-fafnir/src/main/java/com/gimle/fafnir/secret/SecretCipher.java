@@ -13,13 +13,12 @@ import javax.crypto.spec.GCMParameterSpec;
  * SecretKeySpec}, no external crypto library, matching this project's "prefer what the JDK already
  * provides" posture (AppCDS/JFR/{@code ModuleLayer} are all stock-JDK mechanisms too).
  *
- * <p>Output is {@code version(1) || keyId(1) || iv(12) || ciphertext-with-tag} (P2-16): {@code
- * keyId} lets {@link #decrypt(byte[], Map)} pick the right key out of a {@link KeyFileManager}
- * {@link KeyRing} after a rotation, without a caller having to track which key encrypted which blob
- * separately.
+ * <p>Output is {@code version(1) || keyId(1) || iv(12) || ciphertext-with-tag}: {@code keyId} lets
+ * {@link #decrypt(byte[], Map)} pick the right key out of a {@link KeyFileManager} {@link KeyRing}
+ * after a rotation, without a caller having to track which key encrypted which blob separately.
  *
- * <p>{@link #decrypt} also accepts the pre-P2-16 {@code iv || ciphertext-with-tag} layout (no
- * version/key-id prefix at all) for anything encrypted before this field existed. There is no
+ * <p>{@link #decrypt} also accepts the legacy, pre-key-id {@code iv || ciphertext-with-tag} layout
+ * (no version/key-id prefix at all) for anything encrypted before this field existed. There is no
  * reserved version byte in that legacy layout to branch on directly -- a legacy blob's first byte
  * is just the first byte of a uniformly random IV, indistinguishable by content from {@link
  * #CURRENT_VERSION}. AES-GCM's own authentication tag is the real discriminator instead: a

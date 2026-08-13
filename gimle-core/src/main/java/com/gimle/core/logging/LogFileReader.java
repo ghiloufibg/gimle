@@ -21,9 +21,9 @@ import java.util.Map;
  * .N-1} copies (oldest last, per {@code FixedWindowRollingPolicy}'s naming). Cursor is an opaque
  * ISO-8601 timestamp, not a byte offset or file index -- stable across rotation, since rotation
  * renames files but never changes what instant a given line was originally written at. A line that
- * fails to parse as JSON (raw SYSTEM capture, per {@code log-explorer-design.md} &sect;5) is
- * surfaced as {@code {timestamp, category: "SYSTEM", raw}} with a best-effort timestamp (the read
- * time, since no real one is recoverable from unstructured text).
+ * fails to parse as JSON (a raw, unstructured SYSTEM capture) is surfaced as {@code {timestamp,
+ * category: "SYSTEM", raw}} with a best-effort timestamp (the read time, since no real one is
+ * recoverable from unstructured text).
  */
 public final class LogFileReader {
 

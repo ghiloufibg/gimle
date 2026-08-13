@@ -32,10 +32,10 @@ import org.junit.jupiter.api.parallel.Resources;
  * Proves {@code gimle.transport.protocol=tls} actually swaps {@link FabricServer}/{@link
  * FabricClient}'s cross-machine (TCP) path onto real mTLS -- a genuine handshake and invocation
  * round trip, not just "the code compiles" -- while the same-machine Unix domain socket path stays
- * plaintext regardless, per {@code claudedocs/tls-transport-security-design.md} §1's own table
- * ("kernel-mediated, never leaves the machine"). Uses {@link FabricServer}/{@link FabricClient}
- * directly rather than going through {@code FabricServiceRegistry} -- lower-level, and this is a
- * transport-layer property, not a load-balancing or catalog one.
+ * plaintext regardless, since it's kernel-mediated and never leaves the machine. Uses {@link
+ * FabricServer}/{@link FabricClient} directly rather than going through {@code
+ * FabricServiceRegistry} -- lower-level, and this is a transport-layer property, not a
+ * load-balancing or catalog one.
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with
 // any other class holding the same lock, under class-level parallel execution (root pom.xml).

@@ -36,12 +36,13 @@ import java.util.List;
 
 /**
  * Encodes/decodes a {@link StoreRpc} the same length-prefix-plus-tag-byte shape {@link RaftCodec}
- * uses for {@code RaftRpc} -- deliberately not sharing transport-level code with {@code RaftCodec}
- * (design doc §4.3, deferred), but both delegate domain-type (de)serialization to {@link
- * DomainCodec} so {@code DeploymentSpec}/{@code InstanceAssignment}/RBAC/etc. are encoded exactly
- * one way across the whole module. {@code StateMutation} payloads inside a {@link StoreRpc.Propose}
- * reuse {@link RaftCodec#encodeLogEntryMutation}/{@link RaftCodec#decodeLogEntryMutation} rather
- * than a third copy of {@code StateMutation}'s own 18-variant switch.
+ * uses for {@code RaftRpc} -- deliberately not sharing transport-level code with {@code RaftCodec},
+ * since the two wire formats serve different peers and are free to diverge, but both delegate
+ * domain-type (de)serialization to {@link DomainCodec} so {@code DeploymentSpec}/{@code
+ * InstanceAssignment}/RBAC/etc. are encoded exactly one way across the whole module. {@code
+ * StateMutation} payloads inside a {@link StoreRpc.Propose} reuse {@link
+ * RaftCodec#encodeLogEntryMutation}/{@link RaftCodec#decodeLogEntryMutation} rather than a third
+ * copy of {@code StateMutation}'s own 18-variant switch.
  */
 public final class StoreCodec {
 

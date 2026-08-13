@@ -20,9 +20,9 @@ import org.slf4j.LoggerFactory;
  * The receiving side of the client-facing store RPC surface: a {@code ServerSocket} bound to a TCP
  * address, one virtual thread per accepted connection -- structurally identical to {@link
  * com.gimle.mimir.raft.RaftTransport} (itself modeled on {@code gimle-fabric}'s {@code
- * FabricServer}), deliberately a separate copy rather than a shared base class (design doc §4.3:
- * the shared-transport-plumbing extraction is deferred to a later pass, unlike {@link
- * com.gimle.mimir.codec.DomainCodec}'s domain-encoding sharing, which wasn't). {@code StoreClient}
+ * FabricServer}), deliberately a separate copy rather than a shared base class: the
+ * shared-transport-plumbing extraction is deferred to a later pass, unlike {@link
+ * com.gimle.mimir.codec.DomainCodec}'s domain-encoding sharing, which wasn't. {@code StoreClient}
  * connections are shorter-lived and less frequent than Raft's own 50ms peer heartbeat, but the same
  * long-lived-connection-served-in-a-loop shape still fits (a client typically holds one connection
  * open across many requests rather than reconnecting per call).
@@ -62,11 +62,11 @@ public final class StoreTransport implements AutoCloseable {
   }
 
   /**
-   * §6-style rotation hot-swap (matching {@code RaftTransport.reloadTlsMaterial}'s exact contract):
-   * closes and rebinds every currently open TLS listener at the same address, picking up whatever
-   * certificate material now sits at {@code gimle.tls.certFile}/{@code keyFile}. New connection
-   * attempts during the brief close-to-rebind window fail and should be retried by the caller;
-   * already-established connections are unaffected. No-op in plaintext mode.
+   * Rotation hot-swap matching {@code RaftTransport.reloadTlsMaterial}'s exact contract: closes and
+   * rebinds every currently open TLS listener at the same address, picking up whatever certificate
+   * material now sits at {@code gimle.tls.certFile}/{@code keyFile}. New connection attempts during
+   * the brief close-to-rebind window fail and should be retried by the caller; already-established
+   * connections are unaffected. No-op in plaintext mode.
    */
   public synchronized void reloadTlsMaterial() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {

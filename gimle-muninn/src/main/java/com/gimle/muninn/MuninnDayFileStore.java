@@ -43,17 +43,17 @@ final class MuninnDayFileStore {
   }
 
   /**
-   * {@code subtreePath} segments are built from a {@code processId} (design doc Part B/O-9/O-11),
-   * which is a {@code host:port} string for every process kind except {@code AGENT} -- see {@code
-   * MuninnServer}'s own {@code PROCESS_ID_SEGMENT} pattern, which allows {@code :} deliberately. On
-   * Windows, {@code java.nio.file.Path} reserves {@code :} for drive letters (e.g. {@code C:}) and
-   * rejects it anywhere else in a path with {@code InvalidPathException: Illegal char <:>} --
-   * discovered via {@code /ingest/metrics/CONTROLPLANE/127.0.0.1:8080} 400ing outright on Windows,
-   * where every real control-plane/store/fafnir processId takes exactly that shape. Substituting
-   * {@code _} for {@code :} only in the on-disk directory name (never in data returned to a caller,
-   * which always comes from the request URL's own processId, not a directory listing) sidesteps
-   * this with no wire-format change and no readback ambiguity -- nothing ever reconstructs a
-   * processId from a directory name.
+   * {@code subtreePath} segments are built from a {@code processId}, which is a {@code host:port}
+   * string for every process kind except {@code AGENT} -- see {@code MuninnServer}'s own {@code
+   * PROCESS_ID_SEGMENT} pattern, which allows {@code :} deliberately. On Windows, {@code
+   * java.nio.file.Path} reserves {@code :} for drive letters (e.g. {@code C:}) and rejects it
+   * anywhere else in a path with {@code InvalidPathException: Illegal char <:>} -- discovered via
+   * {@code /ingest/metrics/CONTROLPLANE/127.0.0.1:8080} 400ing outright on Windows, where every
+   * real control-plane/store/fafnir processId takes exactly that shape. Substituting {@code _} for
+   * {@code :} only in the on-disk directory name (never in data returned to a caller, which always
+   * comes from the request URL's own processId, not a directory listing) sidesteps this with no
+   * wire-format change and no readback ambiguity -- nothing ever reconstructs a processId from a
+   * directory name.
    */
   private Path resolveSubtree(String subtreePath) {
     return dataRoot.resolve(subtreePath.replace(':', '_'));

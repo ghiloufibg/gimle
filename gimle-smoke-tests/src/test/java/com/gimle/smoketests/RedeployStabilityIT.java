@@ -13,17 +13,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * QA hardening pass, plaintext-cluster coverage: repeated redeploy stability -- a lighter
- * substitute for CLAUDE.md's own "mandatory acceptance test" (redeploy-in-a-loop, flat metaspace),
- * which already exists at the {@code gimle-module} unit tier ({@code RedeployLoopFlatMetaspaceTest}
- * + {@code RedeployLoopDriver}, 500 cycles with a real {@code MemoryPoolMXBean} read) but has never
- * run against a real multi-process cluster. No remote metaspace reading exists anywhere in this
- * codebase for a separately-launched worker process (the metaspace gauge {@code WorkerMetrics
- * #recordMetaspaceBytes} is never actually called from production code), so this does not attempt
- * to reproduce that measurement -- it proves a narrower, still-valuable property instead: a
- * well-behaved module survives several real redeploy cycles on a real shared worker without {@code
- * LeakTracker} ever reporting a false-positive leak, something {@code ClassloaderLeakIT}'s own
- * single v1-&gt;v2 cycle can't catch.
+ * Repeated redeploy stability -- a lighter substitute for CLAUDE.md's own "mandatory acceptance
+ * test" (redeploy-in-a-loop, flat metaspace), which already exists at the {@code gimle-module} unit
+ * tier ({@code RedeployLoopFlatMetaspaceTest} + {@code RedeployLoopDriver}, 500 cycles with a real
+ * {@code MemoryPoolMXBean} read) but has never run against a real multi-process cluster. No remote
+ * metaspace reading exists anywhere in this codebase for a separately-launched worker process (the
+ * metaspace gauge {@code WorkerMetrics #recordMetaspaceBytes} is never actually called from
+ * production code), so this does not attempt to reproduce that measurement -- it proves a narrower,
+ * still-valuable property instead: a well-behaved module survives several real redeploy cycles on a
+ * real shared worker without {@code LeakTracker} ever reporting a false-positive leak, something
+ * {@code ClassloaderLeakIT}'s own single v1-&gt;v2 cycle can't catch.
  */
 @Tag("smoke")
 class RedeployStabilityIT extends GreeterSmokeClusterSupport {

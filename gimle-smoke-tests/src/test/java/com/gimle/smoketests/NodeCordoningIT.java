@@ -12,15 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * QA hardening pass, plaintext-cluster coverage: node cordoning (P1-6), never exercised by any
- * prior real-cluster smoke test. {@code Scheduler}'s own class javadoc states the contract this
- * proves against a real cluster rather than the in-JVM {@code SchedulerTest}/{@code ApiServerTest}
- * fakes: cordoning "never evicts an instance already running on a cordoned node, only keeps new
- * placements off it." This fixture's single-node topology (the sole tier-eligible candidate,
- * cordoned) is exactly the shape that makes {@code Scheduler#place} throw {@code
- * GimleSchedulingException#nodeCordoned} on every reconciler attempt while a new deployment is
- * pending -- the same code path a genuinely capacity-exhausted multi-node cluster would hit, just
- * forced deterministically with one node instead of needing several.
+ * Node cordoning, never exercised by any prior real-cluster smoke test. {@code Scheduler}'s own
+ * class javadoc states the contract this proves against a real cluster rather than the in-JVM
+ * {@code SchedulerTest}/{@code ApiServerTest} fakes: cordoning "never evicts an instance already
+ * running on a cordoned node, only keeps new placements off it." This fixture's single-node
+ * topology (the sole tier-eligible candidate, cordoned) is exactly the shape that makes {@code
+ * Scheduler#place} throw {@code GimleSchedulingException#nodeCordoned} on every reconciler attempt
+ * while a new deployment is pending -- the same code path a genuinely capacity-exhausted multi-node
+ * cluster would hit, just forced deterministically with one node instead of needing several.
  */
 @Tag("smoke")
 class NodeCordoningIT extends GreeterSmokeClusterSupport {

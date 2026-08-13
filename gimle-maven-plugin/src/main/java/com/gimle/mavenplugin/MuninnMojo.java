@@ -10,8 +10,8 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 /**
  * {@code mvn gimle:muninn} -- launches a real {@code MuninnMain} process using {@code
  * gimle-muninn}'s own resolved runtime classpath: the unified logs/metrics/traces sink as its own
- * process (design doc Part B), talking to a {@code gimle-mimir} store cluster over the network for
- * its own read-only {@code Authorizer} check, the same way {@code gimle-fafnir} does. {@code
+ * process, talking to a {@code gimle-mimir} store cluster over the network for its own read-only
+ * {@code Authorizer} check, the same way {@code gimle-fafnir} does. {@code
  * gimle.muninn.storeEndpoints} defaults to {@code gimle:store}'s own default client port, so the
  * goals keep working together with zero extra flags for single-node local dev. No-ops in every
  * other reactor module (see {@link AbstractGimleMojo}).

@@ -40,19 +40,19 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The client side of {@link StoreRpc}: what {@code ApiServer}, the reconcilers, and {@code
- * Authorizer} talk to in place of a direct {@code StateStore} reference (etcd-store-extraction
- * design doc, replacing the module's former in-process {@code StateStore}/{@code RaftNode} fields).
- * Deliberately mirrors every {@code StateStore} read method's name and signature exactly -- a call
- * site that used to read {@code store.listDeployments()} still reads {@code
- * storeClient.listDeployments()} -- and implements {@link MutationSink} so it drops straight into
- * every reconciler's existing constructor parameter with no other code change.
+ * Authorizer} talk to in place of a direct {@code StateStore} reference, replacing what used to be
+ * the module's own in-process {@code StateStore}/{@code RaftNode} fields. Deliberately mirrors
+ * every {@code StateStore} read method's name and signature exactly -- a call site that used to
+ * read {@code store.listDeployments()} still reads {@code storeClient.listDeployments()} -- and
+ * implements {@link MutationSink} so it drops straight into every reconciler's existing constructor
+ * parameter with no other code change.
  *
- * <p>Reads (design doc §4.5) go to any configured endpoint, rotating on transport failure -- no
- * leader-awareness, matching how a follower's own co-located {@code StateStore} could already be
- * slightly stale today. {@link #propose}, {@link #putHeartbeat}, {@link #tryAcquireOrRenewLease},
- * and {@link #releaseLease} are leader-only: on {@link StoreRpc.NotLeader}, this client follows the
- * returned address and retries once (§4.4/§4.6) rather than a {@code StoreNode} silently forwarding
- * the write itself, then caches the successful endpoint as the preferred leader for next time.
+ * <p>Reads go to any configured endpoint, rotating on transport failure -- no leader-awareness,
+ * matching how a follower's own co-located {@code StateStore} could already be slightly stale
+ * today. {@link #propose}, {@link #putHeartbeat}, {@link #tryAcquireOrRenewLease}, and {@link
+ * #releaseLease} are leader-only: on {@link StoreRpc.NotLeader}, this client follows the returned
+ * address and retries once rather than a {@code StoreNode} silently forwarding the write itself,
+ * then caches the successful endpoint as the preferred leader for next time.
  */
 public final class StoreClient implements MutationSink, StoreReader, AutoCloseable {
 
@@ -94,12 +94,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   /**
-   * Adds {@code peerId} to the cluster's Raft membership -- etcd-style, one server at a time
-   * (P1-5). Leader-only, same redirect-and-retry posture as {@link #propose}: a rejection for any
-   * reason (already a member, another change still in flight, or a genuine non-leader) surfaces as
-   * {@link com.gimle.core.exception.GimleRaftException#storeUnreachable} once every endpoint --
-   * including the leader hint -- has been tried, matching {@link #sendLeaderOnly}'s existing
-   * behavior for every other leader-only write.
+   * Adds {@code peerId} to the cluster's Raft membership -- etcd-style, one server at a time.
+   * Leader-only, same redirect-and-retry posture as {@link #propose}: a rejection for any reason
+   * (already a member, another change still in flight, or a genuine non-leader) surfaces as {@link
+   * com.gimle.core.exception.GimleRaftException#storeUnreachable} once every endpoint -- including
+   * the leader hint -- has been tried, matching {@link #sendLeaderOnly}'s existing behavior for
+   * every other leader-only write.
    */
   public void addServer(String peerId, PeerAddress address) {
     sendLeaderOnly(
@@ -113,11 +113,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   /**
-   * Leader-routed, unlike every other read below (P2-14): node heartbeats are deliberately never
-   * replicated through the Raft log, so a follower's local copy is never anything but empty --
-   * round-robining this the way every other read here does would silently answer "no heartbeat"
-   * from a replica that never held leadership, forever, not just return a stale-but-eventually-
-   * correct answer. Reuses {@link #sendLeaderOnly}'s existing preferred-leader cache and {@code
+   * Leader-routed, unlike every other read below: node heartbeats are deliberately never replicated
+   * through the Raft log, so a follower's local copy is never anything but empty -- round-robining
+   * this the way every other read here does would silently answer "no heartbeat" from a replica
+   * that never held leadership, forever, not just return a stale-but-eventually- correct answer.
+   * Reuses {@link #sendLeaderOnly}'s existing preferred-leader cache and {@code
    * NotLeader}-hint-follow machinery; callers already handle a {@link
    * com.gimle.core.exception.GimleRaftException#storeUnreachable} from every other leader-only call
    * on this client (a reconciler tick's own {@code propose} can already throw the same way during a
@@ -367,8 +367,8 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /**
    * Tries every configured endpoint in rotation, starting from a shared cursor so repeated calls
-   * spread across the pool rather than pinning to one -- reads never need leader-awareness (design
-   * doc §4.5), only tolerance of one endpoint being unreachable.
+   * spread across the pool rather than pinning to one -- reads never need leader-awareness, only
+   * tolerance of one endpoint being unreachable.
    */
   private StoreRpc.Response sendRead(StoreRpc.Request request) {
     int start = readCursor.getAndUpdate(i -> (i + 1) % endpoints.size());
@@ -423,7 +423,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     throw GimleRaftException.storeUnreachable(operationName);
   }
 
-  /** One direct retry against a {@link StoreRpc.NotLeader} hint's address, per §4.4/§4.6. */
+  /** One direct retry against a {@link StoreRpc.NotLeader} hint's address. */
   private StoreRpc.Response followLeaderHint(
       StoreRpc.NotLeader notLeader, StoreRpc.Request request) {
     if (notLeader.leaderClientAddress().isBlank()) {

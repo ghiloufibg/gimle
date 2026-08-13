@@ -522,15 +522,15 @@ public final class MuninnServer implements AutoCloseable {
   }
 
   /**
-   * Metrics ingest (design doc Part B/O-9/O-12, and traces in O-13) comes from every process kind
-   * -- control plane, Fafnir, Mimir, and the agent -- whose {@code processId} path segment is a
-   * self-reported {@code host:port} (matching each process's own {@code gimle.node.id} value), not
-   * that process's own certificate CN (a fixed per-role alias like {@code "controlplane"}/{@code
-   * "fafnir"} minted by {@code PkiBootstrapMain}). A strict CN-equals-processId check the way
-   * node/instance log ingest uses above therefore doesn't generalize here; the weaker-but-still-
-   * real check available is that TLS mode requires *some* certificate the cluster CA actually
-   * issued to have completed the mTLS handshake at all -- this only additionally rejects a
-   * handshake that somehow completed with no peer certificate present.
+   * Metrics and traces ingest comes from every process kind -- control plane, Fafnir, Mimir, and
+   * the agent -- whose {@code processId} path segment is a self-reported {@code host:port}
+   * (matching each process's own {@code gimle.node.id} value), not that process's own certificate
+   * CN (a fixed per-role alias like {@code "controlplane"}/{@code "fafnir"} minted by {@code
+   * PkiBootstrapMain}). A strict CN-equals-processId check the way node/instance log ingest uses
+   * above therefore doesn't generalize here; the weaker-but-still- real check available is that TLS
+   * mode requires *some* certificate the cluster CA actually issued to have completed the mTLS
+   * handshake at all -- this only additionally rejects a handshake that somehow completed with no
+   * peer certificate present.
    */
   private boolean identityAllowedToIngestMetricsOrTraces(HttpExchange exchange) {
     if (!(exchange instanceof HttpsExchange httpsExchange)) {

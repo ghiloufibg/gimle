@@ -21,11 +21,11 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The design's mandatory Phase 2 integration test (§9, test plan): a real agent-side {@link
- * ControlChannelServer}/{@link WorkerProcessSupervisor} pair spawning a real {@code gimle-worker}
- * subprocess (not an in-process fake), installing a module over the actual control channel and
- * observing it reach {@code ACTIVE}. Runs natively and identically on whatever OS executes the
- * suite -- no Docker, no Linux-only gate, no skip path -- because nothing here is platform-gated.
+ * A real agent-side {@link ControlChannelServer}/{@link WorkerProcessSupervisor} pair spawning a
+ * real {@code gimle-worker} subprocess (not an in-process fake), installing a module over the
+ * actual control channel and observing it reach {@code ACTIVE}. Runs natively and identically on
+ * whatever OS executes the suite -- no Docker, no Linux-only gate, no skip path -- because nothing
+ * here is platform-gated.
  *
  * <p>The worker subprocess is launched with this test JVM's own classpath ({@code
  * java.class.path}), which already carries the fully-resolved {@code gimle-worker} runtime and
@@ -60,9 +60,9 @@ class AgentWorkerIntegrationTest {
     Path socketPath = Files.createTempDirectory("gimle-agent-uds-").resolve("c.sock");
     String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
-    // WorkerMain's third argument is tenantId-or-empty (Phase 5 design §5.1); this scenario doesn't
-    // exercise tenancy, so it's blank -- WorkerProcessSupervisor appends the control-socket path
-    // itself as the final argument.
+    // WorkerMain's third argument is tenantId-or-empty; this scenario doesn't exercise tenancy,
+    // so it's blank -- WorkerProcessSupervisor appends the control-socket path itself as the
+    // final argument.
     List<String> baseCommand =
         List.of(javaExecutable, "-cp", classpath, "com.gimle.worker.WorkerMain", "test-node", "");
     RestartTracker restartTracker =

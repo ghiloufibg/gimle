@@ -25,12 +25,12 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Phase 4 §10's autoscaling formula: average observed CPU utilization against the module's own
- * {@code resourceRequest.cpuMillicores()} (10m in {@code TestModuleBuilder.minimalDescriptor}),
- * adjusted by exactly one replica per tick toward the computed ideal and clamped to {@code
- * [minReplicas, maxReplicas]}. Part C extends this with three additional, independently-optional
- * signals (request rate, error rate, queue depth) -- whichever configured signal proposes the
- * highest ideal replica count wins, matching Kubernetes' own multi-metric HPA behavior.
+ * The autoscaling formula: average observed CPU utilization against the module's own {@code
+ * resourceRequest.cpuMillicores()} (10m in {@code TestModuleBuilder.minimalDescriptor}), adjusted
+ * by exactly one replica per tick toward the computed ideal and clamped to {@code [minReplicas,
+ * maxReplicas]}. It's further extended with three additional, independently-optional signals
+ * (request rate, error rate, queue depth) -- whichever configured signal proposes the highest ideal
+ * replica count wins, matching Kubernetes' own multi-metric HPA behavior.
  */
 class AutoscaleReconcilerTest {
 

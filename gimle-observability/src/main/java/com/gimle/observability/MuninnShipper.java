@@ -113,10 +113,10 @@ public final class MuninnShipper implements AutoCloseable {
 
   /**
    * Starts a periodic tick snapshotting every meter currently in {@code registry} and shipping one
-   * NDJSON line per meter -- a periodic push, not a pull-based scrape endpoint (design doc §5b/§5f:
-   * no Prometheus-shaped exporter). {@link Meter#measure()}'s generic {@code Statistic}-keyed
-   * iteration is what makes this uniform across Counter/Gauge/Timer/DistributionSummary without
-   * hand-special-casing each meter type.
+   * NDJSON line per meter -- a periodic push, not a pull-based scrape endpoint; Muninn has no
+   * Prometheus-shaped scrape exporter to poll. {@link Meter#measure()}'s generic {@code
+   * Statistic}-keyed iteration is what makes this uniform across
+   * Counter/Gauge/Timer/DistributionSummary without hand-special-casing each meter type.
    */
   public void startShippingMetrics(MeterRegistry registry) {
     startTicker(() -> tickMetrics(registry));
@@ -138,10 +138,10 @@ public final class MuninnShipper implements AutoCloseable {
   /**
    * Hands Muninn an NDJSON body the caller already built (via {@link MeterSnapshotCodec}/{@link
    * SpanLineCodec}) instead of deriving one from a local registry/span list -- the generalization
-   * {@code AgentMain}'s worker-metrics/traces relay needs (design doc §6d): the agent doesn't own
-   * the {@link MeterRegistry}/span batch a worker's own snapshot was built from, only the
-   * pre-serialized text that worker already sent over its control channel. One-shot, best-effort,
-   * same posture as {@link #shipTraceBatch}; a no-op for an empty body.
+   * {@code AgentMain}'s worker-metrics/traces relay needs: the agent doesn't own the {@link
+   * MeterRegistry}/span batch a worker's own snapshot was built from, only the pre-serialized text
+   * that worker already sent over its control channel. One-shot, best-effort, same posture as
+   * {@link #shipTraceBatch}; a no-op for an empty body.
    */
   public void shipPreparedBatch(String ndjsonBody) {
     if (ndjsonBody.isEmpty()) {

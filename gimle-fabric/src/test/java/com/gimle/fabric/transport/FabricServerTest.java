@@ -93,7 +93,7 @@ class FabricServerTest {
   @Test
   @Timeout(10)
   void baggage_from_the_caller_survives_an_inbound_call_into_the_handler() throws Exception {
-    // P2-10: baggage isn't just decoded and discarded -- it must actually be the ambient
+    // Baggage isn't just decoded and discarded -- it must actually be the ambient
     // Baggage.current() the target module's own handler observes, the same way it would if the
     // call had never left the caller's own thread.
     SimpleServiceRegistry registry = new SimpleServiceRegistry();

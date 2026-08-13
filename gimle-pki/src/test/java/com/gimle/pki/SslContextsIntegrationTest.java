@@ -35,10 +35,11 @@ import org.junit.jupiter.api.io.TempDir;
  * CertificateAuthority} actually interoperate: a real mTLS handshake between two live sockets, not
  * just "the code compiles." Lives here rather than in {@code gimle-core} because generating real
  * certificate material to test against needs Bouncy Castle, which {@code gimle-core} deliberately
- * doesn't depend on (see the design doc's own module-placement rationale). Asserts on handshake
- * completion (via {@link SSLSession}) rather than an application-data round trip -- exercising the
- * handshake itself is the property under test, and sending/reading app bytes on top would only add
- * an unrelated stream-lifecycle race to the test.
+ * doesn't depend on -- pulling Bouncy Castle into {@code gimle-core} would hand every other module
+ * a dependency on a substantial third-party crypto library none of them ever use. Asserts on
+ * handshake completion (via {@link SSLSession}) rather than an application-data round trip --
+ * exercising the handshake itself is the property under test, and sending/reading app bytes on top
+ * would only add an unrelated stream-lifecycle race to the test.
  */
 class SslContextsIntegrationTest {
 
@@ -68,8 +69,8 @@ class SslContextsIntegrationTest {
 
     TlsSettings serverSettings = issueLeaf(realCa, "server");
     // A fully self-consistent client identity (its own cert really is signed by its own caFile's
-    // CA) -- just a different CA than the server's, the actual scenario the design's verification
-    // plan §5 item 3 calls for: "a peer presenting a cert not signed by the configured CA."
+    // CA) -- just a different CA than the server's: a peer presenting a cert not signed by the
+    // configured CA, exactly the case mutual TLS is supposed to reject.
     TlsSettings clientSettings = issueLeaf(impostorCa, "client");
 
     assertThrows(IOException.class, () -> handshake(serverSettings, clientSettings));

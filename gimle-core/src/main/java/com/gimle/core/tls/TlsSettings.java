@@ -5,9 +5,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * This component's own certificate material, per {@code
- * claudedocs/tls-transport-security-design.md} §1: its own leaf certificate and private key (both
- * PEM), plus the shared cluster CA certificate (PEM) used to verify peers. Every network-exposed
+ * This component's own certificate material: its own leaf certificate and private key (both PEM),
+ * plus the shared cluster CA certificate (PEM) used to verify peers. Every network-exposed
  * transport does mTLS, so a component always needs all three, never just a subset.
  */
 public record TlsSettings(Path certFile, Path keyFile, Path caFile) {

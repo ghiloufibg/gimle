@@ -18,10 +18,10 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 
 /**
  * Builds a PKCS#10 certificate signing request for an already-generated key pair -- the agent-side
- * (or human-operator-side) half of {@code claudedocs/tls-transport-security-design.md} §4's join
- * flow. Deliberately takes the {@link KeyPair} as a parameter rather than generating one itself:
- * key generation is a single {@code KeyPairGenerator} call, fully public JDK API a caller can do
- * without this class at all -- this class's only job is the CSR structure itself.
+ * (or human-operator-side) half of requesting a leaf certificate from the cluster CA. Deliberately
+ * takes the {@link KeyPair} as a parameter rather than generating one itself: key generation is a
+ * single {@code KeyPairGenerator} call, fully public JDK API a caller can do without this class at
+ * all -- this class's only job is the CSR structure itself.
  */
 public final class CertificateSigningRequests {
 

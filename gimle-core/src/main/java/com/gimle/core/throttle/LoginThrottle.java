@@ -8,13 +8,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-memory, per-key exponential backoff for repeated failures against a key of the caller's own
- * choosing (P2-11). {@code gimle-controlplane}'s {@code ApiServer} tracks one key per username and
- * a second per remote address for login attempts, so a locked-out username doesn't block a
- * legitimate caller from a different IP, and a single IP hammering many usernames still gets
- * throttled even though no individual username crossed its own threshold. {@code gimle-fafnir}
- * constructs its own separate instance keyed by calling principal/node identity, incrementing on an
- * authorization failure rather than a login failure -- the class itself is generic over what {@code
- * key} means, so no changes are needed to support a second, independent caller.
+ * choosing. {@code gimle-controlplane}'s {@code ApiServer} tracks one key per username and a second
+ * per remote address for login attempts, so a locked-out username doesn't block a legitimate caller
+ * from a different IP, and a single IP hammering many usernames still gets throttled even though no
+ * individual username crossed its own threshold. {@code gimle-fafnir} constructs its own separate
+ * instance keyed by calling principal/node identity, incrementing on an authorization failure
+ * rather than a login failure -- the class itself is generic over what {@code key} means, so no
+ * changes are needed to support a second, independent caller.
  *
  * <p>Deliberately in-memory and per-replica, not a {@code StateMutation} replicated through the
  * store: every process using this is already multi-replica and stateless by design, and a

@@ -50,20 +50,20 @@ import org.slf4j.LoggerFactory;
  * plus a bounded number of the most-recently-changed other members' states -- the same slot the
  * service catalog rides on.
  *
- * <p><b>{@code gimle.transport.protocol=tls}</b>: gossip is UDP, so mTLS here means DTLS (see
- * {@code claudedocs/tls-transport-security-design.md} §2), driven per-peer through {@link
- * DtlsPeerSession} rather than a single connection-oriented socket. Because any member can ping any
- * other at any time, a full mesh needs a rule for who originates each pair's handshake, or two
- * nodes pinging each other in the same tick would send simultaneous, colliding ClientHellos. Rather
- * than resolve that after the fact by inspecting handshake bytes, this class prevents it by
- * construction: {@link #isDesignatedInitiator} deterministically picks the lexicographically lower
- * gossip address as the sole initiator for a given pair, computed identically by both sides, so the
- * higher-addressed side never creates a competing client session. The trade-off -- the
- * non-initiating side's own probe attempts toward that peer silently no-op until the peer dials in,
- * or a later tick's random target selection happens to favor the correctly-ordered direction -- is
- * a transport-establishment latency detail, not a correctness gap; {@link #join} is the one
- * exception, since a joining node must always be free to dial a configured seed regardless of
- * address ordering (a seed has no way to know about, and therefore dial, a not-yet-joined peer).
+ * <p><b>{@code gimle.transport.protocol=tls}</b>: gossip is UDP, so mTLS here means DTLS, driven
+ * per-peer through {@link DtlsPeerSession} rather than a single connection-oriented socket. Because
+ * any member can ping any other at any time, a full mesh needs a rule for who originates each
+ * pair's handshake, or two nodes pinging each other in the same tick would send simultaneous,
+ * colliding ClientHellos. Rather than resolve that after the fact by inspecting handshake bytes,
+ * this class prevents it by construction: {@link #isDesignatedInitiator} deterministically picks
+ * the lexicographically lower gossip address as the sole initiator for a given pair, computed
+ * identically by both sides, so the higher-addressed side never creates a competing client session.
+ * The trade-off -- the non-initiating side's own probe attempts toward that peer silently no-op
+ * until the peer dials in, or a later tick's random target selection happens to favor the
+ * correctly-ordered direction -- is a transport-establishment latency detail, not a correctness
+ * gap; {@link #join} is the one exception, since a joining node must always be free to dial a
+ * configured seed regardless of address ordering (a seed has no way to know about, and therefore
+ * dial, a not-yet-joined peer).
  */
 public final class GossipMember implements AutoCloseable {
 
@@ -95,12 +95,12 @@ public final class GossipMember implements AutoCloseable {
   private static final int MAX_FULL_STATE_PAGE = 128;
 
   /**
-   * Clamp on {@link #localHealthMultiplier} (P2-9, a simplified Lifeguard-style local-health
-   * adaptation -- not the full paper: no buddy-system suspicion, no k-independent-confirmation
-   * decay, just the multiplier itself). A node whose own probes keep timing out, or that keeps
-   * getting suspected by others, is more likely sitting on a slow/overloaded host or link than
-   * every peer it's probing is actually down -- scaling this node's own timeouts up avoids it
-   * flooding the cluster with false suspicions of everyone else.
+   * Clamp on {@link #localHealthMultiplier}, a simplified Lifeguard-style local-health adaptation
+   * -- not the full paper: no buddy-system suspicion, no k-independent-confirmation decay, just the
+   * multiplier itself. A node whose own probes keep timing out, or that keeps getting suspected by
+   * others, is more likely sitting on a slow/overloaded host or link than every peer it's probing
+   * is actually down -- scaling this node's own timeouts up avoids it flooding the cluster with
+   * false suspicions of everyone else.
    */
   private static final int MAX_LOCAL_HEALTH_MULTIPLIER = 8;
 
@@ -295,14 +295,13 @@ public final class GossipMember implements AutoCloseable {
   }
 
   /**
-   * Periodic full-state push-pull (P2-8): fires roughly every {@link
-   * GossipConfig#antiEntropyInterval} to one random peer, using the same round-robin target
-   * selection {@link #pingRandomMember} uses. Piggyback alone can't guarantee eventual convergence
-   * -- it carries at most {@link GossipConfig#piggybackCount} entries per message, and only the 64
-   * most-recently-changed members are ever eligible ({@link #markChanged}) -- so a node partitioned
-   * or slow long enough to miss enough gossip rounds would otherwise diverge permanently. Tracked
-   * by wall-clock elapsed time rather than a tick counter so it stays correct regardless of {@code
-   * protocolPeriod}.
+   * Periodic full-state push-pull: fires roughly every {@link GossipConfig#antiEntropyInterval} to
+   * one random peer, using the same round-robin target selection {@link #pingRandomMember} uses.
+   * Piggyback alone can't guarantee eventual convergence -- it carries at most {@link
+   * GossipConfig#piggybackCount} entries per message, and only the 64 most-recently-changed members
+   * are ever eligible ({@link #markChanged}) -- so a node partitioned or slow long enough to miss
+   * enough gossip rounds would otherwise diverge permanently. Tracked by wall-clock elapsed time
+   * rather than a tick counter so it stays correct regardless of {@code protocolPeriod}.
    */
   private void maybeSyncWithRandomMember() {
     Instant now = Instant.now();
@@ -943,14 +942,14 @@ public final class GossipMember implements AutoCloseable {
   }
 
   /**
-   * §6 rotation hot-swap: rebuilds the DTLS {@link SSLContext} from whatever certificate material
-   * now sits at {@code gimle.tls.certFile}/{@code keyFile} and swaps it in for every DTLS session
+   * Rotation hot-swap: rebuilds the DTLS {@link SSLContext} from whatever certificate material now
+   * sits at {@code gimle.tls.certFile}/{@code keyFile} and swaps it in for every DTLS session
    * created from this point on -- both directions, unlike {@link RaftTransport}/{@code
    * FabricServer}, since {@link #dtlsContext} is read by both {@link #createClientSession} and
    * {@link #handleSecureDatagram}. No socket rebind: {@link #channel} is protocol-agnostic and
    * untouched by this. Already-established {@link DtlsPeerSession}s keep using the {@link
    * javax.net.ssl.SSLEngine} they were built with, the same "existing connections unaffected"
-   * contract every other §6 reload has. No-op in plaintext mode.
+   * contract every other TLS-material reload in this codebase has. No-op in plaintext mode.
    */
   public void reloadDtlsMaterial() {
     if (transportProtocol == TransportProtocol.PLAINTEXT) {

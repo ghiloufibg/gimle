@@ -43,10 +43,10 @@ public final class Subjects {
   /**
    * {@code CN=} becomes the principal's name, every {@code O=} an entry in its groups -- moved here
    * (originally a private method on {@code ApiServer}) so {@code gimle-fafnir}'s own independent
-   * authorization check (design doc §9's corrected defense-in-depth) can derive the identical
-   * {@link Principal} from a peer certificate without duplicating the RDN-walking logic. {@code O=}
-   * is trustworthy here because it is stamped server-side at issuance ({@code
-   * ApiServer#handleBootstrapCsrSubmit}), never taken verbatim from a client's own CSR.
+   * authorization check can derive the identical {@link Principal} from a peer certificate without
+   * duplicating the RDN-walking logic. {@code O=} is trustworthy here because it is stamped
+   * server-side at issuance ({@code ApiServer#handleBootstrapCsrSubmit}), never taken verbatim from
+   * a client's own CSR.
    */
   public static Principal principalFrom(X509Certificate certificate) {
     X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());

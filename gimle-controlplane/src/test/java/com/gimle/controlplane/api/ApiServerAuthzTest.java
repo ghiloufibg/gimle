@@ -50,11 +50,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * The RBAC behaviors that only exist at the real HTTP/mTLS layer -- {@code claudedocs/
- * authn-authz-design.md} §11's test list, the parts not already covered by unit-level {@code
- * AuthorizerTest} or the existing PKI flow tests ({@code HumanOperatorCsrTest}, {@code
- * NodeBootstrapCsrTest}, {@code CertificateRotationTest}, all updated for RBAC in the same change
- * this test class lands with).
+ * The RBAC behaviors that only exist at the real HTTP/mTLS layer -- the parts not already covered
+ * by unit-level {@code AuthorizerTest} or the existing PKI flow tests ({@code
+ * HumanOperatorCsrTest}, {@code NodeBootstrapCsrTest}, {@code CertificateRotationTest}, all updated
+ * for RBAC alongside this test class).
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-controlplane-api-server-http")
@@ -84,10 +83,9 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * The specific privilege-escalation regression {@code claudedocs/authn-authz-design.md} §2a
-   * exists to prevent: a {@code NODE_CLIENT} CSR whose own Subject already self-declares {@code
-   * O=gimle:operators} must still be signed with {@code O=gimle:nodes} -- proof the server-side
-   * reconstruction wins, not the CSR's own claim.
+   * The privilege-escalation regression this test guards against: a {@code NODE_CLIENT} CSR whose
+   * own Subject already self-declares {@code O=gimle:operators} must still be signed with {@code
+   * O=gimle:nodes} -- proof the server-side reconstruction wins, not the CSR's own claim.
    */
   @Test
   void a_node_csr_cannot_self_declare_the_operators_group() throws Exception {
@@ -279,9 +277,9 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * P2-11: repeated failed logins against the same username eventually get throttled to a 429 with
-   * a {@code Retry-After} header -- even a subsequently-correct password doesn't bypass it, since
-   * the point is slowing down a guessing attempt, not just rejecting wrong guesses.
+   * Repeated failed logins against the same username eventually get throttled to a 429 with a
+   * {@code Retry-After} header -- even a subsequently-correct password doesn't bypass it, since the
+   * point is slowing down a guessing attempt, not just rejecting wrong guesses.
    */
   @Test
   void repeated_failed_logins_are_throttled_with_429_and_a_retry_after_header() throws Exception {
@@ -409,10 +407,9 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * O-3 of {@code OBSERVABILITY_AUDIT_DESIGN.md}'s Part A: every {@code WRITE}/{@code DELETE}
-   * decision {@code requireAuthorized} makes lands in the durable audit trail, allowed and denied
-   * alike -- but {@code READ} and a bare {@code 401} (no principal resolved at all) deliberately
-   * don't.
+   * Every {@code WRITE}/{@code DELETE} decision {@code requireAuthorized} makes lands in the
+   * durable audit trail, allowed and denied alike -- but {@code READ} and a bare {@code 401} (no
+   * principal resolved at all) deliberately don't.
    */
   @Test
   void write_and_delete_decisions_are_audited_allowed_and_denied_but_reads_and_401s_are_not()
@@ -494,11 +491,11 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * Roadmap item 8: {@code gimle.controlplane.audit.readResourceKinds} opts a resource kind into
-   * READ-decision auditing too, both allowed and denied -- but only for the kind(s) named, and a
-   * bare 401 stays unaudited regardless, exactly like the WRITE/DELETE path already pinned above.
-   * Uses {@code DEPLOYMENT} (not {@code CONFIG}, unlike the WRITE/DELETE test above) because {@code
-   * GET /config/*} is the one list endpoint in this class that bypasses {@link
+   * {@code gimle.controlplane.audit.readResourceKinds} opts a resource kind into READ-decision
+   * auditing too, both allowed and denied -- but only for the kind(s) named, and a bare 401 stays
+   * unaudited regardless, exactly like the WRITE/DELETE path already pinned above. Uses {@code
+   * DEPLOYMENT} (not {@code CONFIG}, unlike the WRITE/DELETE test above) because {@code GET
+   * /config/*} is the one list endpoint in this class that bypasses {@link
    * ApiServer#requireAuthorized} entirely for its own per-entry access-control reasons (see {@code
    * handleListConfig}'s own javadoc) -- {@code GET /deployments} is a uniform, {@code
    * requireAuthorized}-gated READ like every other resource kind's list endpoint.
@@ -596,9 +593,9 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * P2-16 end to end: a secret written before rotation stays readable afterward (re-encrypted under
-   * the new key, transparently to the caller), and a secret written after rotation round- trips
-   * too.
+   * Key rotation end to end: a secret written before rotation stays readable afterward
+   * (re-encrypted under the new key, transparently to the caller), and a secret written after
+   * rotation round-trips too.
    */
   @Test
   void a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key() throws Exception {

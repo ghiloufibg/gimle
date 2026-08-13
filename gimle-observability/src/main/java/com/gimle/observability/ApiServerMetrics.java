@@ -8,12 +8,12 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 
 /**
- * Per-endpoint Micrometer wiring for {@code gimle-controlplane}'s {@code ApiServer} (design doc
- * Part B/O-10) -- the identical {@link MeterRegistry}/tag/counter/timer shape {@link FafnirMetrics}
- * already establishes for {@code gimle-fafnir}, kept as its own class rather than shared with it
- * because the two track different callers' endpoint namespaces and neither's tag set means anything
- * on the other's. Defaults to an in-memory {@link SimpleMeterRegistry}, matching every other
- * metrics wrapper in this module.
+ * Per-endpoint Micrometer wiring for {@code gimle-controlplane}'s {@code ApiServer} -- the
+ * identical {@link MeterRegistry}/tag/counter/timer shape {@link FafnirMetrics} already establishes
+ * for {@code gimle-fafnir}, kept as its own class rather than shared with it because the two track
+ * different callers' endpoint namespaces and neither's tag set means anything on the other's.
+ * Defaults to an in-memory {@link SimpleMeterRegistry}, matching every other metrics wrapper in
+ * this module.
  */
 public final class ApiServerMetrics {
 

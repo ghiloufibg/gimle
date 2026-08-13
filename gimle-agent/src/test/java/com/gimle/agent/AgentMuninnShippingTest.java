@@ -158,7 +158,7 @@ class AgentMuninnShippingTest {
     assertEquals(countAtStop, requestCount.get());
   }
 
-  // ---- worker-scoped metrics/traces shipping (design doc §6b/§6d) ----
+  // ---- worker-scoped metrics/traces shipping ----
 
   @Test
   void a_null_muninn_endpoint_starts_no_worker_shippers() {
@@ -239,10 +239,10 @@ class AgentMuninnShippingTest {
    * client speaking the same {@link ControlMessageCodec} line protocol {@code
    * ControlChannelClient}/{@code WorkerConnection} use, avoiding a dependency on {@code
    * gimle-worker}'s package-private client class from this module) connects, sends a real {@code
-   * Hello} (which must establish the worker-scoped shipper pair per §6d), then a {@code
+   * Hello} (which must establish the worker-scoped shipper pair), then a {@code
    * MetricsSnapshot}/{@code TracesSnapshot} pair -- both must reach the stub Muninn ingest server
-   * with their payload forwarded byte-for-byte, no re-serialization (design doc §6d: "a trivial
-   * relay... no re-serialization, no re-derivation").
+   * with their payload forwarded byte-for-byte, no re-serialization: a trivial relay, not a
+   * re-derivation.
    */
   @Test
   @Timeout(15)

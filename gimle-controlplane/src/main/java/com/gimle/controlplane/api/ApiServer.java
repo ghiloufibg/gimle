@@ -137,15 +137,15 @@ public final class ApiServer implements AutoCloseable {
   // with ControlPlaneMain's own scheduled-tick reconciler, only the same store.
   private final CronJobReconciler cronJobReconciler;
   // gimle-fafnir owns the master key ring and every encrypt/decrypt/rotate operation now -- this
-  // client is a thin, pure-HTTP caller against it (design doc Phase A), replacing the in-process
+  // client is a thin, pure-HTTP caller against it, replacing the in-process
   // SecretCipher/KeyFileManager/KeyRing calls this field's predecessor made directly.
   private final FafnirClient fafnirClient;
-  // Nullable, unlike fafnirClient: Muninn's /logs/* fallback (design doc Part B/O-11) is
+  // Nullable, unlike fafnirClient: Muninn's /logs/* fallback is
   // genuinely optional -- a cluster with none configured just keeps today's 404/502 behavior for
   // a gone node/instance, the same "opt in, degrade gracefully" posture gimle-agent's own
   // muninnEndpoint already has.
   private final MuninnClient muninnClient;
-  // Per-endpoint request/error/latency metrics (design doc Part B/O-10), the same shape
+  // Per-endpoint request/error/latency metrics, the same shape
   // FafnirServer's own metrics field already established -- see #instrument. Not exposed through
   // any public constructor parameter (no test/caller has ever needed to inject a custom
   // registry); a same-package test reads it back through #metrics().
@@ -157,7 +157,7 @@ public final class ApiServer implements AutoCloseable {
   // precisely because it's not secret-value material Fafnir's own security boundary is about.
   private final SecretKey sessionSigningKey;
   private final Authorizer authorizer;
-  // Per-resource-kind opt-in for auditing READ decisions too (roadmap item 8) -- WRITE/DELETE are
+  // Per-resource-kind opt-in for auditing READ decisions too -- WRITE/DELETE are
   // always audited (see #requireAuthorized), but a console page-load's worth of GETs would dwarf
   // the mutating-action volume by default, matching Kubernetes' own Metadata-level audit policy.
   // Empty (the default: no property set) reproduces that exact pre-existing behavior. Comma-
@@ -171,7 +171,7 @@ public final class ApiServer implements AutoCloseable {
   private final HttpClient agentHttpClient =
       HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
   private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
-  // P2-11: throttles /auth/login by username and by remote address independently -- see the
+  // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
@@ -182,7 +182,7 @@ public final class ApiServer implements AutoCloseable {
   private final Optional<CertificateAuthority> certificateAuthority =
       loadCertificateAuthorityIfConfigured();
 
-  // Not final: §4b rotation of this node's own leaf certificate needs to stop and rebuild the
+  // Not final: rotating this node's own leaf certificate needs to stop and rebuild the
   // whole HttpsServer (see #reloadTlsMaterial) -- confirmed against the real JDK implementation
   // that HttpsConfigurator#getSSLContext() is read exactly once, when setHttpsConfigurator() is
   // called, and cached from then on by ServerImpl; there is no supported way to swap key/trust
@@ -221,11 +221,11 @@ public final class ApiServer implements AutoCloseable {
    * {@code secretKeyFilePath} is only this replica's own persistent AES-256 session-signing key
    * anymore (generated on first run if absent) -- the secrets master key ring it used to also name
    * now lives entirely in Fafnir, reached through {@code fafnirClient}. {@code storeClient} is this
-   * replica's already-constructed client against the store cluster (etcd-store-extraction design
-   * doc) -- unlike the pre-split {@code RaftNode}-based constructors this replaces, there is no
-   * "auto-build a trivial single-node store" convenience here: standing up even a single {@code
-   * StoreNode} requires a real listener, which is the caller's job (production: {@code
-   * ControlPlaneMain}; tests: a small in-process fixture spinning up exactly one).
+   * replica's already-constructed client against the store cluster -- unlike the pre-split {@code
+   * RaftNode}-based constructors this replaces, there is no "auto-build a trivial single-node
+   * store" convenience here: standing up even a single {@code StoreNode} requires a real listener,
+   * which is the caller's job (production: {@code ControlPlaneMain}; tests: a small in-process
+   * fixture spinning up exactly one).
    */
   public ApiServer(
       StoreClient storeClient, int port, Path secretKeyFilePath, FafnirClient fafnirClient)
@@ -318,12 +318,12 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Wraps a handler with request-count/latency/error Micrometer recording (design doc Part B/O-10),
-   * at context-registration time rather than inside each handler body -- the identical pattern
-   * {@code FafnirServer.instrument} already established, copied rather than shared since the two
-   * classes have no common base to hang it on. {@code error} is read from the exchange's own
-   * response code after the delegate finishes, not from an escaping exception -- every handler here
-   * already sends a real status and closes the exchange itself.
+   * Wraps a handler with request-count/latency/error Micrometer recording, at context-registration
+   * time rather than inside each handler body -- the identical pattern {@code
+   * FafnirServer.instrument} already established, copied rather than shared since the two classes
+   * have no common base to hang it on. {@code error} is read from the exchange's own response code
+   * after the delegate finishes, not from an escaping exception -- every handler here already sends
+   * a real status and closes the exchange itself.
    */
   private HttpHandler instrument(String endpoint, HttpHandler delegate) {
     return exchange -> {
@@ -342,9 +342,8 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Public so {@code ControlPlaneMain} can hand this registry to a {@code MuninnShipper} when
-   * {@code --muninn-endpoint} is configured (design doc Part B/O-10), and so a same-package test
-   * can assert on it directly -- see {@link #metrics}'s own field javadoc for why this isn't a
-   * constructor parameter instead.
+   * {@code --muninn-endpoint} is configured, and so a same-package test can assert on it directly
+   * -- see {@link #metrics}'s own field javadoc for why this isn't a constructor parameter instead.
    */
   public ApiServerMetrics metrics() {
     return metrics;
@@ -385,14 +384,12 @@ public final class ApiServer implements AutoCloseable {
   /**
    * {@link TransportProtocol#PLAINTEXT} (the default) is untouched: a plain {@link HttpServer},
    * exactly what every existing caller/test already gets. {@link TransportProtocol#TLS} swaps in
-   * {@link HttpsServer} instead -- the JDK-bundled, direct drop-in the design doc calls out as the
-   * smallest, lowest-risk change in the whole TLS rollout (see {@code
-   * claudedocs/tls-transport-security-design.md} §2). {@code wantClientAuth}, not {@code
-   * needClientAuth}: {@link HttpsConfigurator}/{@link HttpsParameters} negotiate once per
-   * *connection*, before the HTTP request path is ever read, so there's no way to make client-auth
-   * conditional on path at this layer -- every handler enforces it itself instead, via {@link
-   * #requireAuthorized}, except the deliberately bootstrap-token-authenticated {@code
-   * /bootstrap/csr} endpoints.
+   * {@link HttpsServer} instead -- the JDK-bundled, direct drop-in, the smallest, lowest-risk
+   * change in the whole TLS rollout. {@code wantClientAuth}, not {@code needClientAuth}: {@link
+   * HttpsConfigurator}/{@link HttpsParameters} negotiate once per *connection*, before the HTTP
+   * request path is ever read, so there's no way to make client-auth conditional on path at this
+   * layer -- every handler enforces it itself instead, via {@link #requireAuthorized}, except the
+   * deliberately bootstrap-token-authenticated {@code /bootstrap/csr} endpoints.
    */
   private static HttpServer createHttpServer(int port) throws IOException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
@@ -429,10 +426,10 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * §4b rotation's hot-swap point for this node's own leaf certificate: there is no supported way
-   * to swap key material into an already-running {@link HttpsServer} (see the field javadoc on
-   * {@link #server}), so this stops the current one and rebuilds a fresh {@link HttpsServer} bound
-   * to the same {@link #boundPort} from whatever certificate material now sits at {@code
+   * The hot-swap point for rotating this node's own leaf certificate: there is no supported way to
+   * swap key material into an already-running {@link HttpsServer} (see the field javadoc on {@link
+   * #server}), so this stops the current one and rebuilds a fresh {@link HttpsServer} bound to the
+   * same {@link #boundPort} from whatever certificate material now sits at {@code
    * gimle.tls.certFile}/{@code keyFile} (already overwritten by the caller before this runs), with
    * every context -- including {@code /console} if {@link #serveConsole} was ever called --
    * re-registered. New connection attempts during the brief stop-to-restart window fail and should
@@ -455,13 +452,13 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Checked periodically by {@code ControlPlaneMain}'s reconcile ticker (unconditionally, not
-   * leader-gated -- a follower needs its own cert fresh too), per §4b. Delegates the actual
+   * leader-gated -- a follower needs its own cert fresh too). Delegates the actual
    * check-and-rotate-over-mTLS logic to {@link OwnCertificateRotator}, shared with {@code
-   * StoreMain} once the etcd-store-extraction split needed the identical mechanism a second caller
+   * StoreMain} once the store-extraction split needed the identical mechanism for a second caller
    * -- this method's own job is just knowing *where* to submit the rotation CSR (its own loopback
    * {@code /bootstrap/csr}, since this process is the CA-signing authority itself) and reloading
    * its own {@code HttpsServer} afterward. No-op in plaintext mode. Returns {@code true} iff a
-   * rotation actually happened this call -- §6's own listener-owning components ({@code
+   * rotation actually happened this call -- other listener-owning components ({@code
    * RaftTransport}, {@code GossipMember}) key their own reload off this same on-disk material, so
    * the caller needs to know whether to refresh them too, not just whether the check ran.
    */
@@ -488,9 +485,9 @@ public final class ApiServer implements AutoCloseable {
    * gimle-pki}'s {@code PkiBootstrapMain} wrote to disk, exactly once: a no-op the instant {@code
    * storeClient.listAccounts()} is non-empty, so this stays safe to call on every future tick
    * forever after. This method itself no longer checks leadership -- {@code storeClient.propose}
-   * already follows the store's current leader internally (etcd-store-extraction design doc
-   * §4.4/§4.6), and *which* {@code ApiServer} replica calls this at all is the caller's lease-based
-   * election to decide, not a concern of the method being called.
+   * already follows the store's current leader internally, and *which* {@code ApiServer} replica
+   * calls this at all is the caller's lease-based election to decide, not a concern of the method
+   * being called.
    */
   public void seedBootstrapAccountIfNeeded() {
     if (!storeClient.listAccounts().isEmpty()) {
@@ -512,8 +509,7 @@ public final class ApiServer implements AutoCloseable {
       // Unscoped (Optional.empty() tenant) for every verb here -- tenant-scoped deployment
       // permissions would need this handler to resolve an existing deployment's own tenantId (or
       // a PUT's requested one) before authorizing, real additional plumbing not built this round;
-      // a known, deliberate gap, not a silent omission (claudedocs/authn-authz-design.md
-      // refinement #3).
+      // a known, deliberate gap, not a silent omission.
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.empty())) {
@@ -545,7 +541,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
-    // Every manifest now requires kind: (priority-3 design doc §2) -- ManifestParser is what
+    // Every manifest now requires kind: -- ManifestParser is what
     // enforces that at this, the real operator-facing admission surface; DeploymentManifestParser
     // itself stays kind-agnostic (see its own updated javadoc), still used directly only by
     // StateStore's own reload-on-restart path and this class's parser-shape unit tests.
@@ -564,7 +560,7 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    // P2-18: computed here, once, regardless of tenancy -- never trusted from the submitted
+    // Computed here, once, regardless of tenancy -- never trusted from the submitted
     // manifest itself (DeploymentManifestParser only parses artifactSha256 back out of StateStore's
     // own previously-written YAML on reload, never treats a caller-supplied value as
     // authoritative).
@@ -680,7 +676,7 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  // ---- /jobs/{name}, /jobs (priority-3 design doc §3e) ----
+  // ---- /jobs/{name}, /jobs ----
 
   private void handleJob(HttpExchange exchange) {
     try {
@@ -733,7 +729,7 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    // P2-18-equivalent, same reasoning as handlePutDeployment's own identical step: never trusted
+    // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
     Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
     JobSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
@@ -834,7 +830,7 @@ public final class ApiServer implements AutoCloseable {
                     .findFirst());
   }
 
-  // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger (priority-3 design doc §3e) ----
+  // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger ----
 
   private void handleCronJob(HttpExchange exchange) {
     try {
@@ -989,7 +985,7 @@ public final class ApiServer implements AutoCloseable {
     return status;
   }
 
-  // ---- /daemonsets/{name}, /daemonsets (priority-3 design doc §4d) ----
+  // ---- /daemonsets/{name}, /daemonsets ----
 
   private void handleDaemonSet(HttpExchange exchange) {
     try {
@@ -1142,7 +1138,7 @@ public final class ApiServer implements AutoCloseable {
                     .findFirst());
   }
 
-  // ---- /statefulsets/{name}, /statefulsets (priority-3 design doc §5c) ----
+  // ---- /statefulsets/{name}, /statefulsets ----
 
   private void handleStatefulSet(HttpExchange exchange) {
     try {
@@ -1260,9 +1256,9 @@ public final class ApiServer implements AutoCloseable {
   /**
    * {@code instances[].nodeId} is surfaced explicitly and unconditionally (not just folded into
    * {@code observation}) -- the one place across every workload kind's own status JSON where doing
-   * so is more than a convenience: it's the sticky-placement contract (design doc §5b) made visible
-   * to an operator, not just implemented silently, the same reasoning the design doc itself gives
-   * for why the CLI's own {@code get statefulsets} output must show it too.
+   * so is more than a convenience: it makes the sticky-placement contract visible to an operator,
+   * not just implemented silently, the same reasoning behind why the CLI's own {@code get
+   * statefulsets} output must show it too.
    */
   private Map<String, Object> statefulSetStatus(StatefulSetSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
@@ -1333,10 +1329,10 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Serializes an {@link AutoscalePolicy} onto the wire (roadmap item 9 -- the console's own {@code
+   * Serializes an {@link AutoscalePolicy} onto the wire -- the console's own {@code
    * DeploymentSpec}/{@code DeploymentSpecInput} TypeScript types don't model this today precisely
-   * because it was never in this response to begin with). Mirrors {@link #auditEventToJson}'s
-   * style: required fields always written, every {@code Optional*} field written only via {@code
+   * because it was never in this response to begin with. Mirrors {@link #auditEventToJson}'s style:
+   * required fields always written, every {@code Optional*} field written only via {@code
    * ifPresent} so an unconfigured signal/weight is omitted from the JSON entirely rather than
    * serialized as {@code null} -- the same "absent means not evaluated" convention {@link
    * AutoscalePolicy}'s own javadoc documents for the record itself.
@@ -1490,10 +1486,10 @@ public final class ApiServer implements AutoCloseable {
    * Heartbeats are deliberately never Raft-replicated: high-frequency, tolerate a brief gap after a
    * leader change, and replicating every one would make the log's write rate scale with cluster
    * size for no correctness benefit. Only the store's current leader ever receives them directly --
-   * {@link StoreClient#putHeartbeat} follows the leader internally (etcd-store-extraction design
-   * doc §4.4/§4.6) the same way {@code storeClient.propose} does, throwing {@link
-   * GimleRaftException} on the same store-unavailable response every other write uses if no leader
-   * could be reached, even though this path never touches the Raft log.
+   * {@link StoreClient#putHeartbeat} follows the leader internally the same way {@code
+   * storeClient.propose} does, throwing {@link GimleRaftException} on the same store-unavailable
+   * response every other write uses if no leader could be reached, even though this path never
+   * touches the Raft log.
    */
   private void handleHeartbeat(HttpExchange exchange, String nodeId) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -1546,7 +1542,7 @@ public final class ApiServer implements AutoCloseable {
               spec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
-    // Job runs (priority-3 design doc §3c) reuse this exact same AssignedInstance wire shape --
+    // Job runs reuse this exact same AssignedInstance wire shape --
     // from the agent's point of view a JobRun is indistinguishable from an ordinary deployment
     // replica assignment, jobName/attempt playing deploymentName/instanceIndex's own role. No
     // agent-side or worker-side code needs to know or care which kind actually placed it; the
@@ -1569,7 +1565,7 @@ public final class ApiServer implements AutoCloseable {
               jobSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
-    // DaemonSet assignments (priority-3 design doc §4) reuse the same AssignedInstance wire shape
+    // DaemonSet assignments reuse the same AssignedInstance wire shape
     // once more, the identical reasoning JobRun's own block above documents: daemonSetName/0 play
     // deploymentName/instanceIndex's own role -- instanceIndex is always 0 since a DaemonSet places
     // at most one instance per node, so no second index is ever needed to disambiguate.
@@ -1591,7 +1587,7 @@ public final class ApiServer implements AutoCloseable {
               daemonSetSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
-    // StatefulSet assignments (priority-3 design doc §5) reuse the same AssignedInstance wire
+    // StatefulSet assignments reuse the same AssignedInstance wire
     // shape one more time -- statefulSetName/instanceIndex map directly onto deploymentName/
     // instanceIndex, the exact same fit InstanceAssignment itself already has, since a
     // StatefulSet index is a real, stable identity like an ordinary deployment replica's own
@@ -2072,13 +2068,13 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * {@code true} for a {@code ConfigEntry} key Fafnir's own versioned {@code /secrets/*} surface
-   * owns -- {@code <key>@meta} or {@code <key>@N} (design doc §7a) -- rather than one written
-   * through this process's own {@code /config/*} endpoints. Both keyspaces share the same
-   * underlying {@code ConfigEntry} rows in {@code gimle-mimir} (§7's own framing: no store schema
-   * change), so without this filter every secret written through {@code /secrets/*} would leak into
-   * a plain {@code GET /config/{tenantId}} listing as a handful of oddly-named, ciphertext- bearing
-   * "config entries" -- exactly the resource-kind blurring the {@code CONFIG}/{@code SECRET} RBAC
-   * split (§6e's closing sentence) exists to avoid.
+   * owns -- {@code <key>@meta} or {@code <key>@N} -- rather than one written through this process's
+   * own {@code /config/*} endpoints. Both keyspaces share the same underlying {@code ConfigEntry}
+   * rows in {@code gimle-mimir}, with no separate store schema for secrets, so without this filter
+   * every secret written through {@code /secrets/*} would leak into a plain {@code GET
+   * /config/{tenantId}} listing as a handful of oddly-named, ciphertext-bearing "config entries" --
+   * exactly the resource-kind blurring the {@code CONFIG}/{@code SECRET} RBAC split exists to
+   * avoid.
    */
   private static boolean isFafnirManagedSecretKey(String key) {
     int at = key.lastIndexOf('@');
@@ -2387,8 +2383,8 @@ public final class ApiServer implements AutoCloseable {
    * pre-extraction body -- see {@code FafnirCrypto.rotate}'s javadoc for the re-encryption walk's
    * exact semantics, unchanged by the move). Gated on the same {@code SECRET:WRITE} permission a
    * config write itself requires, unscoped since rotation is cluster-wide, not per-tenant -- this
-   * process's own authorization check, not yet Fafnir's own independent one (design doc §9's
-   * corrected defense-in-depth mechanism is a later addition, not this phase's scope).
+   * process's own authorization check; Fafnir does not yet re-run its own independent authorization
+   * check here the way it does for the versioned {@code /secrets/*} proxy below.
    */
   private void handleRotateSecretsKey(HttpExchange exchange) {
     try {
@@ -2411,18 +2407,17 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  // ---- /secrets/{tenantId}/... (design doc §6e/§7) -- a byte-for-byte proxy to Fafnir ----
+  // ---- /secrets/{tenantId}/... -- a byte-for-byte proxy to Fafnir ----
 
   /**
    * This gate doesn't move -- {@code ApiServer} still performs its own {@code requireAuthorized}
    * check exactly as it does for every other resource kind, before ever forwarding anything. Unlike
-   * Phase A's fixed internal operations above, this endpoint's body/response shape is Fafnir's own
-   * evolving API (§6e), so this handler never parses either -- it relays the request verbatim
-   * ({@code method}, path tail, query string, body) and attaches the calling principal's identity
-   * as an internal claim header for Fafnir's own independent re-check (§9's corrected
-   * defense-in-depth: skipping *re-authentication* here is fine, skipping *re-authorization* on
-   * Fafnir's side is not, so this process's own {@link #requireAuthorized} call is not a substitute
-   * for Fafnir's).
+   * the fixed internal operations above, this endpoint's body/response shape is Fafnir's own
+   * evolving API, so this handler never parses either -- it relays the request verbatim ({@code
+   * method}, path tail, query string, body) and attaches the calling principal's identity as an
+   * internal claim header for Fafnir's own independent re-check: skipping *re-authentication* here
+   * is fine, skipping *re-authorization* on Fafnir's side is not, so this process's own {@link
+   * #requireAuthorized} call is not a substitute for Fafnir's.
    */
   private void handleSecretsProxy(HttpExchange exchange) {
     try {
@@ -2583,9 +2578,8 @@ public final class ApiServer implements AutoCloseable {
   /**
    * No {@link #requireAuthorized} call in any of these three, deliberately: {@code /auth/login} and
    * {@code /auth/session} must both be reachable with no identity yet (that's the whole point of a
-   * login endpoint, and how the console tells "logged out" apart from "logged in" -- {@code
-   * claudedocs/authn-authz-design.md} §6a), and {@code /auth/logout} only ever clears whatever
-   * cookie is presented, authenticated or not.
+   * login endpoint, and how the console tells "logged out" apart from "logged in"), and {@code
+   * /auth/logout} only ever clears whatever cookie is presented, authenticated or not.
    */
   private void handleAuthLogin(HttpExchange exchange) {
     try {
@@ -2712,8 +2706,8 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Log reads are GETs against whichever control-plane replica receives them, which then makes its
-   * own direct call to the target agent -- no write/consensus involved, so §5's leader-redirect
-   * handling doesn't apply here (matches {@code log-explorer-design.md} §6).
+   * own direct call to the target agent -- no write/consensus involved, so the leader-redirect
+   * handling every write path needs doesn't apply here.
    */
   private void handleLogs(HttpExchange exchange) {
     try {
@@ -2753,15 +2747,14 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code GET /metrics-history/{processKind}/{processId}} (design doc Part B/O-10) -- a thin,
-   * read-only proxy to Muninn's own {@code GET /metrics/{processKind}/{processId}} (B-9), the same
-   * {@code ResourceKind.LOGS}/{@code Verb.READ} gate the rest of this class's own {@code /logs/*}
-   * surface uses (design doc §5c: "these are all the same shape of thing" -- no dedicated {@code
-   * METRICS} resource kind). {@code since}-only, no backward paging this phase (a deliberate
-   * scope-narrowing, not an oversight -- see the design doc's own O-10 note). Unlike {@code
-   * /logs/*}, there is no live-agent path to fall back from here: Muninn's shipped history *is* the
-   * only place a process's own metrics ever live, so a missing {@code muninnClient} is a plain 404
-   * rather than a proxy failure.
+   * {@code GET /metrics-history/{processKind}/{processId}} -- a thin, read-only proxy to Muninn's
+   * own {@code GET /metrics/{processKind}/{processId}}, the same {@code ResourceKind.LOGS}/{@code
+   * Verb.READ} gate the rest of this class's own {@code /logs/*} surface uses (metrics and traces
+   * are treated as the same shape of thing as logs -- no dedicated {@code METRICS} resource kind).
+   * {@code since}-only, no backward paging -- a deliberate scope-narrowing, not an oversight.
+   * Unlike {@code /logs/*}, there is no live-agent path to fall back from here: Muninn's shipped
+   * history *is* the only place a process's own metrics ever live, so a missing {@code
+   * muninnClient} is a plain 404 rather than a proxy failure.
    */
   private void handleMetricsHistory(HttpExchange exchange) {
     try {
@@ -2798,9 +2791,9 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code GET /traces-history/{processKind}/{processId}} (design doc Part B/O-13) -- structurally
-   * identical to {@link #handleMetricsHistory} above, proxying to Muninn's own {@code GET
-   * /traces/{processKind}/{processId}} (B-11) instead of {@code /metrics/...}. Same {@code
+   * {@code GET /traces-history/{processKind}/{processId}} -- structurally identical to {@link
+   * #handleMetricsHistory} above, proxying to Muninn's own {@code GET
+   * /traces/{processKind}/{processId}} instead of {@code /metrics/...}. Same {@code
    * ResourceKind.LOGS}/{@code Verb.READ} gate, same {@code since}-only convention, same "no
    * live-agent fallback, a missing muninnClient is a plain 404" posture.
    */
@@ -2884,7 +2877,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "invalid instanceIndex");
       return;
     }
-    // Muninn only ever ingested the plain PLATFORM/APPLICATION shape (design doc §5c) -- a
+    // Muninn only ever ingested the plain PLATFORM/APPLICATION shape -- a
     // crashdumps sub-path (a whole-file directory listing/fetch, never routed through
     // LogFileReader in the first place) has no Muninn-side equivalent to fall back to.
     // Same "only when actually configured" gating as handleNodeLogsProxy above, on top of the
@@ -2914,9 +2907,9 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code /logs/nodes/{nodeId}/{category}} -- Muninn's own path-segment convention for category
-   * (design doc §5c), translated from this surface's own query-parameter convention (matching
-   * {@code AgentLogServer.handleNodeLogs}'s {@code category} default of {@code PLATFORM}). {@code
+   * {@code /logs/nodes/{nodeId}/{category}} -- Muninn's own path-segment convention for category,
+   * translated from this surface's own query-parameter convention (matching {@code
+   * AgentLogServer.handleNodeLogs}'s {@code category} default of {@code PLATFORM}). {@code
    * follow}/{@code category} are stripped from the forwarded query; everything else ({@code
    * cursor}/{@code since}/{@code limit}) passes through unchanged -- {@code follow=true} reaching
    * this fallback is silently dropped rather than erroring (Muninn only ever serves shipped
@@ -2982,12 +2975,12 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Looks up the owning node's self-reported log-server address and forwards the request as-is --
-   * falling back to Muninn (design doc Part B/O-11) whenever a live agent genuinely isn't
-   * reachable: an unregistered node, a registered node with no advertised log-server address yet,
-   * or a registered-and-advertised node whose agent the actual request still couldn't reach. {@code
-   * muninnFallbackPath} is {@code null} for a request shape Muninn has no equivalent for (see
-   * {@link #handleInstanceLogsProxy}'s crashdumps case), in which case these three conditions keep
-   * their original 404/502 behavior unchanged.
+   * falling back to Muninn whenever a live agent genuinely isn't reachable: an unregistered node, a
+   * registered node with no advertised log-server address yet, or a registered-and-advertised node
+   * whose agent the actual request still couldn't reach. {@code muninnFallbackPath} is {@code null}
+   * for a request shape Muninn has no equivalent for (see {@link #handleInstanceLogsProxy}'s
+   * crashdumps case), in which case these three conditions keep their original 404/502 behavior
+   * unchanged.
    */
   private void proxyToAgent(
       HttpExchange exchange, String nodeId, String path, String muninnFallbackPath)
@@ -3161,12 +3154,12 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * No {@link #requireAuthorized} call here, deliberately: this is the one endpoint that by design
-   * must be reachable without a client certificate (§4) -- it exists specifically to issue the cert
-   * that makes mTLS possible everywhere else. Three distinct auth contexts, distinguished entirely
-   * by what the request carries: a verified peer certificate present at all means rotation (§4b,
-   * subject must match); none present and {@code purpose == NODE_CLIENT} means a node join,
-   * authenticated by a one-time bootstrap token (§4); none present and {@code purpose ==
-   * OPERATOR_CLIENT} means a human operator request, never auto-approved (§4a).
+   * must be reachable without a client certificate -- it exists specifically to issue the cert that
+   * makes mTLS possible everywhere else. Three distinct auth contexts, distinguished entirely by
+   * what the request carries: a verified peer certificate present at all means rotation (subject
+   * must match); none present and {@code purpose == NODE_CLIENT} means a node join, authenticated
+   * by a one-time bootstrap token; none present and {@code purpose == OPERATOR_CLIENT} means a
+   * human operator request, never auto-approved.
    */
   private void handleBootstrapCsrSubmit(HttpExchange exchange) {
     try {
@@ -3241,7 +3234,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 401, "missing or invalid bootstrap token");
       return;
     }
-    // Server-stamped O=, never the CSR's own -- claudedocs/authn-authz-design.md §2a: a
+    // Server-stamped O=, never the CSR's own: a
     // NODE_CLIENT CSR that self-declared O=gimle:operators must not be signed with it.
     respondSigned(
         exchange, 200, csr, Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_NODES));
@@ -3317,7 +3310,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * §4a: {@link #handleBootstrapCsrSubResource}'s {@code /approve} branch already requires {@code
+   * {@link #handleBootstrapCsrSubResource}'s {@code /approve} branch already requires {@code
    * CERTIFICATE_REQUEST:APPROVE} before this runs -- by default only a {@code
    * group:gimle:operators} principal has it, via the built-in {@code cluster-admin} binding, so
    * this is behavior-preserving for today's only-operators-exist clusters, no longer "any cert
@@ -3412,13 +3405,13 @@ public final class ApiServer implements AutoCloseable {
    * (and therefore the path) is ever read -- there is no JDK API to make client-auth conditional on
    * which path is about to be requested. So every handler that needs an authenticated, *authorized*
    * identity enforces it itself, here, instead: {@code true} immediately in plaintext mode
-   * (unchanged behavior, no enforcement, matching today's baseline -- see {@code
-   * claudedocs/authn-authz-design.md} §7), else resolves a {@link Principal} from either a verified
-   * peer certificate or a verified session cookie and checks it against {@link #authorizer}. Two
-   * distinct status codes where the pre-RBAC {@code requireClientCertificate} this replaces only
-   * ever wrote one: {@code 401} when there is no usable identity at all, {@code 403} when the
-   * identity is known but lacks the permission. Writes the response itself on failure so every call
-   * site can just {@code return} without duplicating it.
+   * (unchanged behavior, no enforcement, matching today's baseline), else resolves a {@link
+   * Principal} from either a verified peer certificate or a verified session cookie and checks it
+   * against {@link #authorizer}. Two distinct status codes where the pre-RBAC {@code
+   * requireClientCertificate} this replaces only ever wrote one: {@code 401} when there is no
+   * usable identity at all, {@code 403} when the identity is known but lacks the permission. Writes
+   * the response itself on failure so every call site can just {@code return} without duplicating
+   * it.
    *
    * <p>Also the single choke point every mutating decision passes through with its principal,
    * resource, and verb already in hand -- so for {@link Verb#WRITE}/{@link Verb#DELETE} (never
@@ -3594,11 +3587,11 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * A write that {@code storeClient} couldn't get any store endpoint to serve -- every configured
-   * endpoint was tried, including one leader-follow retry against a {@code NotLeader} hint (design
-   * doc §4.4/§4.6), before {@link GimleRaftException} was thrown. {@code 503}, not the pre-split
-   * {@code 307} redirect: leader routing is now entirely internal to {@code StoreClient}, invisible
-   * to the HTTP caller, so this process has no leader address left to redirect anyone to -- a
-   * simplification of the client contract, not a lesser response, per the design doc's own framing.
+   * endpoint was tried, including one leader-follow retry against a {@code NotLeader} hint, before
+   * {@link GimleRaftException} was thrown. {@code 503}, not the pre-split {@code 307} redirect:
+   * leader routing is now entirely internal to {@code StoreClient}, invisible to the HTTP caller,
+   * so this process has no leader address left to redirect anyone to -- a simplification of the
+   * client contract, not a lesser response.
    */
   private void respondStoreUnavailable(HttpExchange exchange) {
     respondQuietly(exchange, 503, "store temporarily unavailable; retry shortly");

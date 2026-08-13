@@ -23,14 +23,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The agent's read-only log-serving HTTP surface, letting the control plane proxy a console/CLI log
- * request to whichever node actually hosts the target instance -- {@code log-explorer-design.md}
- * &sect;6's "proxy-and-tail" design, the same architecture {@code kubectl logs} uses (API server
- * &rarr; kubelet &rarr; the node's own local log file). Every route reads straight off this agent's
- * own {@code logRoot}: node-level routes read files this process writes directly, and instance
- * routes read {@code workers/<deploymentName>#<instanceIndex>/...} -- the per-worker subtree {@code
- * AgentMain} points each spawned worker JVM's own {@code -Dgimle.log.root} at, so every worker's
- * platform/application logs land somewhere this agent can find them and distinct instances never
- * collide on one shared filename.
+ * request to whichever node actually hosts the target instance -- a proxy-and-tail design, the same
+ * architecture {@code kubectl logs} uses (API server &rarr; kubelet &rarr; the node's own local log
+ * file). Every route reads straight off this agent's own {@code logRoot}: node-level routes read
+ * files this process writes directly, and instance routes read {@code
+ * workers/<deploymentName>#<instanceIndex>/...} -- the per-worker subtree {@code AgentMain} points
+ * each spawned worker JVM's own {@code -Dgimle.log.root} at, so every worker's platform/application
+ * logs land somewhere this agent can find them and distinct instances never collide on one shared
+ * filename.
  */
 final class AgentLogServer implements AutoCloseable {
 
@@ -96,8 +96,8 @@ final class AgentLogServer implements AutoCloseable {
         // No single canonical "node system log" exists -- SYSTEM capture is keyed per instance
         // (workers/<deploymentName>#<instanceIndex>-system.log, per AgentMain). Reading "this
         // node's SYSTEM log" as the union of every instance's raw-capture file currently on disk
-        // for this node, merged by timestamp -- a reasonable interpretation, flagged as one in the
-        // design doc this implements.
+        // for this node, merged by timestamp -- a reasonable interpretation, not the only one
+        // that could apply here.
         if (follow) {
           respond(
               exchange,

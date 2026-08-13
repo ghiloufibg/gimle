@@ -33,9 +33,9 @@ import org.junit.jupiter.api.parallel.Isolated;
  * (bind several real servers on {@code 127.0.0.1:0}, track for teardown, drive real calls). Each
  * peer-to-peer edge is wrapped in a {@link ToggleablePeerClient} so a test can simulate a network
  * partition without tearing down and rebuilding the whole cluster. Every node -- including the ones
- * a cluster starts with -- is built through the address-aware {@link RaftNode} constructor (design
- * plan P1-5), so any node, once elected leader, can call {@link RaftNode#addServer}/{@link
- * RaftNode#removeServer} the same way a real {@code StoreMain} process would.
+ * a cluster starts with -- is built through the address-aware {@link RaftNode} constructor, so any
+ * node, once elected leader, can call {@link RaftNode#addServer}/{@link RaftNode#removeServer} the
+ * same way a real {@code StoreMain} process would.
  */
 // Real multi-node in-process Raft cluster with real heartbeat/election-timeout-driven timing
 // (awaitLeader/awaitTrue polling against wall-clock @Timeout budgets). Unlike a ResourceLock
@@ -229,7 +229,7 @@ class RaftClusterTest {
 
   /**
    * Adds a brand-new node to the cluster live, via {@code leader}'s own {@link RaftNode#addServer},
-   * matching P1-5's etcd-style one-at-a-time membership change. Deliberately never calls {@link
+   * matching the etcd-style one-at-a-time membership change. Deliberately never calls {@link
    * RaftNode#start} on the new node: with an empty initial peer set, {@code start()} would elect it
    * leader of its own one-node "cluster" immediately (see that method's own javadoc) -- exactly
    * wrong for a node about to join as a follower. Its RPC handlers work regardless of whether
@@ -416,7 +416,7 @@ class RaftClusterTest {
         Duration.ofSeconds(10));
   }
 
-  // ---- P1-5: etcd-style live membership change ----
+  // ---- etcd-style live membership change ----
 
   @Test
   @Timeout(20)

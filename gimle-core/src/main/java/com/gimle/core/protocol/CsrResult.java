@@ -3,8 +3,7 @@ package com.gimle.core.protocol;
 import java.util.Optional;
 
 /**
- * The outcome of a {@code /bootstrap/csr} interaction, per {@code
- * claudedocs/tls-transport-security-design.md} §4/§4a/§4b: returned synchronously by {@code POST
+ * The outcome of a {@code /bootstrap/csr} interaction: returned synchronously by {@code POST
  * /bootstrap/csr} for an auto-approved request (node join, rotation), or by {@code GET
  * /bootstrap/csr/{requestId}} while polling an {@link CsrPurpose#OPERATOR_CLIENT} request through
  * to approval. {@code requestId} is present only for the {@link CsrRequestStatus#PENDING} case

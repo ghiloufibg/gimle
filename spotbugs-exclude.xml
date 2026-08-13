@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  SpotBugs (P2-12) baseline exclusions. Each entry documents *why* the pattern is a false
+  SpotBugs baseline exclusions. Each entry documents *why* the pattern is a false
   positive here, not just what it silences, matching this repo's own convention for
   checkstyle-suppressions.xml. Keep this file the narrowest set that gets a clean `mvn verify`;
   a new exclusion added later needs the same "why," not just "make the build pass."

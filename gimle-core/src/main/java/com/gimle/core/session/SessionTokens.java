@@ -19,11 +19,11 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * Stateless, HMAC-SHA256-signed console session tokens -- {@code claudedocs/authn-authz-design.md}
- * §6. Format: {@code payload || HMAC-SHA256(key, payload)}, where {@code payload} is the username
- * plus an expiry timestamp, mirroring {@code SecretCipher}'s self-contained {@code iv ||
- * ciphertext} shape (here, {@code payload || tag}) so a single opaque string round-trips through
- * {@link #verify} without a caller tracking anything separately.
+ * Stateless, HMAC-SHA256-signed console session tokens. Format: {@code payload || HMAC-SHA256(key,
+ * payload)}, where {@code payload} is the username plus an expiry timestamp, mirroring {@code
+ * SecretCipher}'s self-contained {@code iv || ciphertext} shape (here, {@code payload || tag}) so a
+ * single opaque string round-trips through {@link #verify} without a caller tracking anything
+ * separately.
  *
  * <p>Deliberately not a lookup table: unlike {@code BootstrapTokenRegistry}'s single-use tokens
  * (checked once, against one control-plane node's memory, at issuance), a session token must keep

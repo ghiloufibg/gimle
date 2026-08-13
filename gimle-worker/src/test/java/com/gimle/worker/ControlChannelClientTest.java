@@ -20,9 +20,10 @@ import org.junit.jupiter.api.Test;
 /**
  * Exercises the worker's half of the control channel against a real Unix domain socket -- the same
  * kind of listener {@code gimle-agent} will run, stood up directly here rather than via a full
- * agent process, since the agent side (§4.2's "server side") is {@code gimle-agent}'s own Task
- * 20/22 concern. This proves {@link ControlChannelClient} itself, not {@link WorkerMain}'s full
- * command loop, which needs a real subprocess pair to test end-to-end.
+ * agent process, since building and testing the listener side of that channel is {@code
+ * gimle-agent}'s own concern, not this module's. This proves {@link ControlChannelClient} itself,
+ * not {@link WorkerMain}'s full command loop, which needs a real subprocess pair to test
+ * end-to-end.
  */
 class ControlChannelClientTest {
 

@@ -19,14 +19,14 @@ import java.util.Optional;
 import javax.net.ssl.SSLContext;
 
 /**
- * {@code gimle-controlplane}'s HTTP calling logic for Fafnir's internal crypto surface (design doc
- * Phase A) -- a thin, purpose-built client, not a reuse of {@code gimle-cli}'s own {@code
- * ControlPlaneClient} (different audience, different endpoint shapes, and this class has no
- * business depending on {@code gimle-cli}). Deliberately carries **no** compile-time dependency on
- * {@code gimle-fafnir} itself -- plain HTTP+JSON over the wire, the same "pure network relay" shape
- * the eventual {@code /secrets/*} proxy to Fafnir uses (design doc §6d), just with typed request/
- * response handling here instead of a byte relay, since these are Phase A's fixed, small, internal
- * operations rather than a pass-through of an evolving public API.
+ * {@code gimle-controlplane}'s HTTP calling logic for Fafnir's internal crypto surface -- a thin,
+ * purpose-built client, not a reuse of {@code gimle-cli}'s own {@code ControlPlaneClient}
+ * (different audience, different endpoint shapes, and this class has no business depending on
+ * {@code gimle-cli}). Deliberately carries **no** compile-time dependency on {@code gimle-fafnir}
+ * itself -- plain HTTP+JSON over the wire, the same "pure network relay" shape the eventual {@code
+ * /secrets/*} proxy to Fafnir uses, just with typed request/response handling here instead of a
+ * byte relay, since these are fixed, small, internal operations rather than a pass-through of an
+ * evolving public API.
  */
 public final class FafnirClient implements AutoCloseable {
 
@@ -78,13 +78,13 @@ public final class FafnirClient implements AutoCloseable {
   }
 
   /**
-   * A byte-for-byte proxy hop for the versioned {@code /secrets/*} surface (design doc §6e) --
-   * {@code ApiServer} doesn't need typed request/response handling here the way it does for Phase
-   * A's fixed internal operations above, since it never inspects the body, only relays it (§6d:
-   * "pure network relay"). {@code headers} carries the calling principal's identity as an internal
-   * claim (§9's corrected defense-in-depth) -- an {@code X-Gimle-Forwarded-Principal}/{@code
-   * X-Gimle-Forwarded-Groups} pair, trusted by Fafnir only because it arrives over this
-   * mTLS-authenticated connection, never treated by Fafnir as itself proof of authorization.
+   * A byte-for-byte proxy hop for the versioned {@code /secrets/*} surface -- {@code ApiServer}
+   * doesn't need typed request/response handling here the way it does for the fixed internal
+   * operations above, since it never inspects the body, only relays it ("pure network relay").
+   * {@code headers} carries the calling principal's identity as an internal claim -- an {@code
+   * X-Gimle-Forwarded-Principal}/{@code X-Gimle-Forwarded-Groups} pair, trusted by Fafnir only
+   * because it arrives over this mTLS-authenticated connection, never treated by Fafnir as itself
+   * proof of authorization.
    */
   public RawResponse forward(String method, String path, byte[] body, Map<String, String> headers) {
     try {

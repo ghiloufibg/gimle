@@ -5,10 +5,10 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Desired state for a scheduled, repeating {@link JobSpec} generator (priority-3 design doc §3d): a
- * thin policy layer over {@link JobSpec}/{@code JobReconciler}, never a second execution engine --
- * {@code CronJobReconciler} only ever writes a {@link JobSpec} via a normal {@code PutJobSpec}
- * mutation once a firing is due, the same way {@code AutoscaleReconciler} only ever writes {@code
+ * Desired state for a scheduled, repeating {@link JobSpec} generator: a thin policy layer over
+ * {@link JobSpec}/{@code JobReconciler}, never a second execution engine -- {@code
+ * CronJobReconciler} only ever writes a {@link JobSpec} via a normal {@code PutJobSpec} mutation
+ * once a firing is due, the same way {@code AutoscaleReconciler} only ever writes {@code
  * effectiveReplicas} rather than touching {@code InstanceAssignment} directly.
  *
  * <p>{@code schedule} is a standard 5-field cron expression (see {@link CronSchedule}), validated

@@ -37,7 +37,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * §4a's human-operator flow: an {@code OPERATOR_CLIENT} CSR sits {@code PENDING} until an existing
+ * The human-operator flow: an {@code OPERATOR_CLIENT} CSR sits {@code PENDING} until an existing
  * operator explicitly approves it -- proving the *default* behavior is "wait," not "sign," which is
  * the property that actually matters here. Plus the negative case: an approval attempt from a
  * caller without a currently-valid operator certificate of its own must be rejected.

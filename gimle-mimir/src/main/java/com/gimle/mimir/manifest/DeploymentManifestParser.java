@@ -139,7 +139,7 @@ public final class DeploymentManifestParser {
   }
 
   /**
-   * {@code artifactSha256} (P2-18) is never trusted from an operator-submitted manifest -- {@code
+   * {@code artifactSha256} is never trusted from an operator-submitted manifest -- {@code
    * ApiServer} always overwrites whatever this parses with its own freshly-computed hash at
    * admission. Parsing it here exists solely so {@code StateStore.loadAll}'s reload path (which
    * reuses this same parser against its own previously-written YAML, not user input) round-trips

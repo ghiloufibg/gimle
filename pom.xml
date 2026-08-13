@@ -356,7 +356,7 @@
           </configuration>
         </plugin>
         <!--
-          P2-13: CycloneDX SBOM generation, offline only: reads the reactor's already-resolved
+          CycloneDX SBOM generation, offline only: reads the reactor's already-resolved
           dependency graph and writes a manifest, no vulnerability-database lookup. Live CVE
           scanning (e.g. OWASP dependency-check) is a deliberate, documented deferral, not an
           oversight: this sandbox's network policy blocks both services.nvd.nist.gov and
@@ -438,8 +438,8 @@
 
   <profiles>
     <!--
-      Opt-in per-role runtime image (Phase 6 stretch goal, CLAUDE.md's own "jlink/jpackage:
-      minimal per-node-role runtime images"). Not part of the default build (it's a packaging
+      Opt-in per-role runtime image (CLAUDE.md's own "jlink/jpackage: minimal per-node-role runtime
+      images"). Not part of the default build (it's a packaging
       step, not a correctness check), so it only runs when a module both sets
       gimle.runtimeImage.jdkModules/launcherClass (today: gimle-agent, gimle-worker,
       gimle-controlplane) and this profile is explicitly requested, e.g.
@@ -535,9 +535,9 @@
     </profile>
 
     <!--
-      Opt-in reactor membership for gimle-docs (the developer documentation site, Docusaurus/Bun;
-      see claudedocs/docs-site-design.md). Generating an aggregate Javadoc across nine modules plus
-      a full Docusaurus build is real wall-clock cost with no payoff on every routine `mvn verify`,
+      Opt-in reactor membership for gimle-docs (the developer documentation site, Docusaurus/Bun).
+      Generating an aggregate Javadoc across nine modules plus a full Docusaurus build is real
+      wall-clock cost with no payoff on every routine `mvn verify`,
       so, unlike gimle-console, which is always in the default `<modules>` list, gimle-docs
       only joins the reactor when this profile is active: `mvn verify` never touches it; `mvn
       verify -P docs` (or `-P docs -pl gimle-docs -am`) builds everything and the site. Unlike the

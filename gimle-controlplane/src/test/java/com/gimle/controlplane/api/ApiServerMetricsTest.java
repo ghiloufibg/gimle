@@ -21,11 +21,11 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * {@link ApiServer}'s per-endpoint request/error/latency metrics (design doc Part B/O-10),
- * mirroring {@code FafnirObservabilityTest}'s own "real request against a real server, assert on
- * the registry" shape -- but reading the registry back through {@link ApiServer#metrics()} rather
- * than constructor injection, since {@code ApiServerMetrics} isn't a constructor parameter here
- * (see that field's own javadoc for why).
+ * {@link ApiServer}'s per-endpoint request/error/latency metrics, mirroring {@code
+ * FafnirObservabilityTest}'s own "real request against a real server, assert on the registry" shape
+ * -- but reading the registry back through {@link ApiServer#metrics()} rather than constructor
+ * injection, since {@code ApiServerMetrics} isn't a constructor parameter here (see that field's
+ * own javadoc for why).
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-controlplane-api-server-http")

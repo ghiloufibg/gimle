@@ -18,10 +18,10 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Hot redeploy is deliberately not a distinct state-machine path (see the design notes): it's two
- * ordinary lifecycles overlapping. This proves that end to end through {@link ModuleController} —
- * old and new dependency versions active at once, dependents pinned to whichever version they
- * resolved against, draining the old side afterward.
+ * Hot redeploy is deliberately not a distinct state-machine path: it's two ordinary lifecycles
+ * overlapping. This proves that end to end through {@link ModuleController} — old and new
+ * dependency versions active at once, dependents pinned to whichever version they resolved against,
+ * draining the old side afterward.
  */
 class HotRedeployTest {
 

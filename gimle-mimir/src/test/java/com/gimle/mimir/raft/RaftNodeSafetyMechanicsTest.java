@@ -24,9 +24,9 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Drives {@link RaftNode} instances directly through their {@link RaftRpcHandler} methods -- no
  * sockets, no {@code RaftTransport} -- under full test control of message ordering, exactly the
- * design §2.3 safety mechanics this class targets: election restriction, the {@code AppendEntries}
- * consistency check with conflicting-entry truncation, the commit-index term rule (the paper's
- * Figure 8 scenario), and strict, gap-free apply ordering.
+ * safety mechanics this class targets: election restriction, the {@code AppendEntries} consistency
+ * check with conflicting-entry truncation, the commit-index term rule (the paper's Figure 8
+ * scenario), and strict, gap-free apply ordering.
  */
 class RaftNodeSafetyMechanicsTest {
 

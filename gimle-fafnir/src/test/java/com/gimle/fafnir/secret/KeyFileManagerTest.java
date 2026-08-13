@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Platform-generated local key file (Phase 5 design §6.1). */
+/** Platform-generated local key file. */
 class KeyFileManagerTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)
@@ -57,7 +57,7 @@ class KeyFileManagerTest {
     assertThrows(GimleSecretsException.class, () -> KeyFileManager.loadOrCreate(keyFile));
   }
 
-  // ---- P2-16: multi-key ring load and rotation ----
+  // ---- multi-key ring load and rotation ----
 
   @Test
   void a_fresh_ring_holds_exactly_key_id_zero_active() {

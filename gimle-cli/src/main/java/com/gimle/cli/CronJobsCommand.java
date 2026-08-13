@@ -16,11 +16,11 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * {@code get cronjobs [name]}, {@code apply -f <file.yaml>}, {@code delete cronjob <name>}, {@code
- * cronjob trigger <name>} -- mirrors {@link JobsCommand} exactly for the CRUD verbs (priority-3
- * design doc §3e), plus the one action {@code trigger} that doesn't fit CRUD: firing a CronJob
- * immediately, bypassing its own schedule (the same operational need {@code kubectl create job
- * --from=cronjob/x} answers). {@code apply} is dispatched here by {@link GimleCli} once it has
- * peeked at the manifest's own {@code kind:} field, the same way {@link JobsCommand#apply} is.
+ * cronjob trigger <name>} -- mirrors {@link JobsCommand} exactly for the CRUD verbs, plus the one
+ * action {@code trigger} that doesn't fit CRUD: firing a CronJob immediately, bypassing its own
+ * schedule (the same operational need {@code kubectl create job --from=cronjob/x} answers). {@code
+ * apply} is dispatched here by {@link GimleCli} once it has peeked at the manifest's own {@code
+ * kind:} field, the same way {@link JobsCommand#apply} is.
  */
 public final class CronJobsCommand {
 

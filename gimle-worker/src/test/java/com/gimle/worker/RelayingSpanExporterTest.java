@@ -13,10 +13,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 
 /**
- * A worker has no outbound network identity of its own (design doc §6a) -- {@link
- * RelayingSpanExporter} hands every batch to a {@code Consumer<ControlMessage>} sink instead of
- * shipping to Muninn directly, exercised here against a real SDK-produced span the same way {@code
- * SpanLineCodecTest}/{@code MuninnSpanExporterTest} do.
+ * A worker has no outbound network identity of its own -- {@link RelayingSpanExporter} hands every
+ * batch to a {@code Consumer<ControlMessage>} sink instead of shipping to Muninn directly,
+ * exercised here against a real SDK-produced span the same way {@code SpanLineCodecTest}/{@code
+ * MuninnSpanExporterTest} do.
  */
 class RelayingSpanExporterTest {
 

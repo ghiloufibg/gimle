@@ -42,9 +42,8 @@ import org.junit.jupiter.api.parallel.Resources;
 /**
  * Mirrors {@link RaftClusterTest}'s own scenarios (leader election, write replication, leader-crash
  * re-election) but with {@code gimle.transport.protocol=tls}, proving mTLS doesn't break consensus
- * mechanics -- design doc §5 verification item 2. Every simulated node shares one CA-issued
- * identity rather than a distinct one per node: {@link
- * com.gimle.core.tls.TransportProtocol#fromConfig()}/{@link
+ * mechanics. Every simulated node shares one CA-issued identity rather than a distinct one per
+ * node: {@link com.gimle.core.tls.TransportProtocol#fromConfig()}/{@link
  * com.gimle.core.tls.TlsSettings#fromConfig()} read process-global system properties, and this
  * test's "nodes" are threads in one JVM, not separate processes the way a real cluster's nodes are
  * -- a real per-node identity difference isn't expressible here, but is exactly what {@link
@@ -52,13 +51,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * What this test proves instead -- and what those can't -- is that {@link RaftTransport}/{@link
  * PeerConnection}'s socket-factory swap doesn't disturb Raft's own RPC framing or timing.
  *
- * <p>The negative case (§5 item 3, "a peer cert not signed by the configured CA is rejected") is
- * exercised here too, exploiting the one piece of state that *does* stay put across a system
- * property change mid-test: {@link RaftTransport#listen} bakes its {@code SSLServerSocketFactory}
- * in at bind time, so reconfiguring the global CA *after* a listener is already bound and
- * connecting a fresh {@link PeerConnection} against a *different* CA afterward is a genuine,
- * deterministic cross-CA handshake -- not a workaround, an actual exploit of how the config is
- * read.
+ * <p>The negative case -- a peer cert not signed by the configured CA is rejected -- is exercised
+ * here too, exploiting the one piece of state that *does* stay put across a system property change
+ * mid-test: {@link RaftTransport#listen} bakes its {@code SSLServerSocketFactory} in at bind time,
+ * so reconfiguring the global CA *after* a listener is already bound and connecting a fresh {@link
+ * PeerConnection} against a *different* CA afterward is a genuine, deterministic cross-CA handshake
+ * -- not a workaround, an actual exploit of how the config is read.
  */
 // System.setProperty mutates a JVM-global; @ResourceLock excludes this class from running
 // concurrently with any other class holding the same lock. That alone isn't enough for a real
@@ -295,8 +293,8 @@ class RaftClusterTlsTest {
     before.requestVote(new RequestVote(1, "server", 0, 0));
     before.close();
 
-    // Rotate: a fresh CA-signed leaf, written over the *same* cert/key file paths -- exactly what
-    // §4b's own rotation does to gimle.tls.certFile/keyFile in place.
+    // Rotate: a fresh CA-signed leaf, written over the *same* cert/key file paths -- exactly how
+    // live cert rotation overwrites gimle.tls.certFile/keyFile in place.
     KeyPair rotatedKeyPair = generateRsaKeyPair();
     PKCS10CertificationRequest rotatedCsr =
         CertificateSigningRequests.generate(rotatedKeyPair, new X500Name("CN=raft-node"));

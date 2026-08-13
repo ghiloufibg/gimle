@@ -23,13 +23,13 @@ import org.junit.jupiter.api.Timeout;
 class SelfHealingIT extends GreeterSmokeClusterSupport {
 
   /**
-   * QA hardening pass, Phase 3: the agent-death test above (and every other existing scenario in
-   * this class) never kills the *worker* JVM itself -- a genuinely different failure domain (see
-   * CLAUDE.md's own "tiered self-healing" framing: module dispose+reinstantiate vs. worker
-   * destroyForcibly+respawn vs. machine-level reschedule are three distinct recovery paths). This
-   * proves the middle tier: WorkerProcessSupervisor (gimle-agent) actually respawns a killed worker
-   * process and the deployment genuinely recovers to ACTIVE again, not just that the agent's own
-   * bookkeeping believes it should.
+   * The agent-death test above (and every other existing scenario in this class) never kills the
+   * *worker* JVM itself -- a genuinely different failure domain (see CLAUDE.md's own "tiered
+   * self-healing" framing: module dispose+reinstantiate vs. worker destroyForcibly+respawn vs.
+   * machine-level reschedule are three distinct recovery paths). This proves the middle tier:
+   * WorkerProcessSupervisor (gimle-agent) actually respawns a killed worker process and the
+   * deployment genuinely recovers to ACTIVE again, not just that the agent's own bookkeeping
+   * believes it should.
    */
   @Test
   @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -82,13 +82,12 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA hardening pass, Phase 3: the module tier of the same escalation chain the test above
-   * exercises at the worker tier -- this module ({@link
-   * GreeterSmokeClusterSupport#buildAlwaysUnhealthyProviderJar()}) starts and serves normally but
-   * its own {@code LivenessProbe} always reports {@code isAlive() == false}, so {@code
-   * WorkerRuntime#onLivenessResult} drives its own module-tier {@code RestartTracker} (dispose +
-   * reinstantiate, never a worker-JVM respawn) through repeated backoff-delayed restart attempts.
-   * Proves the give-up path specifically: once that tracker's budget is exhausted, {@code
+   * The module tier of the same escalation chain the test above exercises at the worker tier --
+   * this module ({@link GreeterSmokeClusterSupport#buildAlwaysUnhealthyProviderJar()}) starts and
+   * serves normally but its own {@code LivenessProbe} always reports {@code isAlive() == false}, so
+   * {@code WorkerRuntime#onLivenessResult} drives its own module-tier {@code RestartTracker}
+   * (dispose + reinstantiate, never a worker-JVM respawn) through repeated backoff-delayed restart
+   * attempts. Proves the give-up path specifically: once that tracker's budget is exhausted, {@code
    * ModuleController#forceFailed} flips the instance to {@code FAILED} for good, which is the real,
    * observable end state {@code WorkerProcessSupervisorTest}'s own worker-tier equivalent only
    * proves in-process via a package-private accessor.

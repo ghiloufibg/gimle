@@ -23,14 +23,14 @@ import java.util.Optional;
  * server at admission, not by this record's own compact constructor, which has no {@code
  * StateStore} to check against.
  *
- * <p>{@code artifactSha256} (P2-18) is the SHA-256 {@code ApiServer} computed from the artifact at
- * {@code artifactPath} when this spec was admitted -- {@code Optional.empty()} means either the
- * spec was admitted before this field existed, or the artifact was unreadable at that moment (the
- * same tolerant posture {@code tenantId}'s own back-compat constructors already establish for a
- * field added after specs already existed). {@code DeploymentReconciler} re-reads the artifact
- * every tick and refuses to place new instances if the bytes on disk no longer match -- ties a spec
- * to the specific artifact it was admitted against, not just whatever currently happens to be at
- * that path.
+ * <p>{@code artifactSha256} is the SHA-256 {@code ApiServer} computed from the artifact at {@code
+ * artifactPath} when this spec was admitted -- {@code Optional.empty()} means either the spec was
+ * admitted before this field existed, or the artifact was unreadable at that moment (the same
+ * tolerant posture {@code tenantId}'s own back-compat constructors already establish for a field
+ * added after specs already existed). {@code DeploymentReconciler} re-reads the artifact every tick
+ * and refuses to place new instances if the bytes on disk no longer match -- ties a spec to the
+ * specific artifact it was admitted against, not just whatever currently happens to be at that
+ * path.
  */
 public record DeploymentSpec(
     String name,

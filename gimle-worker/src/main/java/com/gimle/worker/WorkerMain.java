@@ -118,13 +118,14 @@ public final class WorkerMain {
     long pid = ProcessHandle.current().pid();
     String workerId = "worker-" + pid;
 
-    // A worker has no outbound network identity of its own (design doc §6a) -- every exported span
-    // relays to the agent over this same control channel rather than shipping to Muninn directly,
-    // the same reasoning behind installDefault()'s pre-§6 behavior (LoggingSpanExporter, spans real
-    // and correctly parented, just not shipped anywhere) being replaced here rather than kept as a
-    // fallback: RelayingSpanExporter degrades to "the agent has nothing configured to forward to"
-    // exactly the same way an unset gimle.agent.muninnEndpoint already does on the agent side, so
-    // there's no case where installDefault() behaves differently from this in a way worth keeping.
+    // A worker has no outbound network identity of its own -- every exported span relays to the
+    // agent over this same control channel rather than shipping to Muninn directly, replacing
+    // installDefault()'s previous behavior (LoggingSpanExporter, spans real and correctly parented,
+    // just not shipped anywhere) rather than keeping it as a fallback: RelayingSpanExporter
+    // degrades
+    // to "the agent has nothing configured to forward to" exactly the same way an unset
+    // gimle.agent.muninnEndpoint already does on the agent side, so there's no case where
+    // installDefault() behaves differently from this in a way worth keeping.
     GimleTracing.install(
         new RelayingSpanExporter(workerId, message -> sendQuietly(channel, message)));
 
@@ -139,8 +140,8 @@ public final class WorkerMain {
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
-    // P2-17: forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker
-    // it spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
+    // Forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker it
+    // spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
     // launched by hand outside the agent.
     boolean defaultDenyCrossTenant =
         Boolean.parseBoolean(System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
@@ -278,10 +279,10 @@ public final class WorkerMain {
    * matching {@code PortableJvmFlagsResourceLimiter}'s own portability bar -- once per {@link
    * #METRICS_REPORT_INTERVAL}, against every module currently ACTIVE in this worker. One JVM-wide
    * figure reported per module rather than a true per-module breakdown: a reasonable approximation
-   * under Tier 1 density packing (several modules genuinely sharing this worker JVM, implemented
-   * since P1-5), not just a placeholder for a since-closed gap. Feeds {@code AutoscaleReconciler}'s
-   * CPU-utilization math, which previously always saw zero since nothing on this side ever sent a
-   * {@code MetricsReport} at all.
+   * under Tier 1 density packing (several modules genuinely sharing this worker JVM), not just a
+   * placeholder for a since-closed gap. Feeds {@code AutoscaleReconciler}'s CPU-utilization math,
+   * which previously always saw zero since nothing on this side ever sent a {@code MetricsReport}
+   * at all.
    *
    * <p>Request/error rate comes from {@code workerMetrics}' cumulative counters, diffed against the
    * previous tick's reading and divided by the interval -- {@code WorkerMetrics} itself only
@@ -343,14 +344,14 @@ public final class WorkerMain {
 
   /**
    * Ships this worker JVM's own {@code WorkerMetrics} registry to the agent as one NDJSON snapshot
-   * per tick (design doc §6b/§6c) -- one shipper's worth of data per worker process, not per module
-   * the way {@link #metricsReportLoop}'s autoscaling-facing {@code MetricsReport} is; {@code
-   * MeterSnapshotCodec} already tags every meter by its own module internally, so nothing here
-   * needs to iterate {@code activeModules}. Deliberately a separate loop/thread from {@link
-   * #metricsReportLoop}, not a shared tick: the two report different things to different consumers
-   * (autoscaling signal vs. observability export payload) and conflating them would make both
-   * harder to reason about, the same split {@code ControlMessage.MetricsReport}'s own javadoc draws
-   * against {@code MetricsSnapshot}.
+   * per tick -- one shipper's worth of data per worker process, not per module the way {@link
+   * #metricsReportLoop}'s autoscaling-facing {@code MetricsReport} is; {@code MeterSnapshotCodec}
+   * already tags every meter by its own module internally, so nothing here needs to iterate {@code
+   * activeModules}. Deliberately a separate loop/thread from {@link #metricsReportLoop}, not a
+   * shared tick: the two report different things to different consumers (autoscaling signal vs.
+   * observability export payload) and conflating them would make both harder to reason about, the
+   * same split {@code ControlMessage.MetricsReport}'s own javadoc draws against {@code
+   * MetricsSnapshot}.
    */
   private static void muninnMetricsRelayLoop(
       ControlChannelClient channel, String workerId, WorkerMetrics workerMetrics) {
@@ -450,7 +451,7 @@ public final class WorkerMain {
             channel,
             mdcTagsFor(m.id(), identityRegistry),
             () -> controller.stop(m.id()));
-        // A well-behaved log appender flushes remaining lines before closing (design doc §6d) --
+        // A well-behaved log appender flushes remaining lines before closing --
         // this instance may be a Job run torn down moments after completing, with no guarantee the
         // next MUNINN_SHIP_INTERVAL tick ever fires before the worker process exits. One extra
         // best-effort snapshot per StopModule, not gated on "is this the worker's last instance":
@@ -636,8 +637,8 @@ public final class WorkerMain {
   /**
    * Threads the {@link FabricServer} instance itself out of {@link #bindFabricServer} alongside the
    * endpoints it already returned -- needed so {@link #main} can hand it to a {@link
-   * FabricServerTlsWatcher}; before §6, nothing past {@code bindFabricServer} ever needed to hold a
-   * reference to the server itself.
+   * FabricServerTlsWatcher}; previously, nothing past {@code bindFabricServer} ever needed to hold
+   * a reference to the server itself.
    */
   private record FabricBinding(FabricServer server, FabricEndpoints endpoints) {}
 }

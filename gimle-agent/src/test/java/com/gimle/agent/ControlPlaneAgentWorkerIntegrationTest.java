@@ -41,17 +41,16 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The design's mandatory Phase 3 integration test (§10): a real control plane (state store,
- * scheduler, all three reconcilers, HTTP API server -- the exact objects {@code ControlPlaneMain}
- * wires, just constructed directly here for test-friendly fast tick/timeout parameters) driving two
- * real {@code gimle-agent} subprocesses, each of which spawns its own real {@code gimle-worker}
- * subprocess -- extending {@code AgentWorkerIntegrationTest}'s pattern one level up. Submits a
- * {@code replicas: 2} deployment, observes both instances reach {@code ACTIVE} on two distinct real
- * agent-managed nodes, kills one agent process, and observes {@link ReplicaCountReconciler} notice
- * the resulting gap and {@link DeploymentReconciler} re-place it on the surviving node. Runs
- * natively on whatever OS executes the suite -- no Docker, no Linux-only gate; "distinct nodes"
- * here means distinct agent processes with distinct node ids, which exercises every code path this
- * phase adds without needing separate hardware.
+ * A real control plane (state store, scheduler, all three reconcilers, HTTP API server -- the exact
+ * objects {@code ControlPlaneMain} wires, just constructed directly here for test-friendly fast
+ * tick/timeout parameters) driving two real {@code gimle-agent} subprocesses, each of which spawns
+ * its own real {@code gimle-worker} subprocess -- extending {@code AgentWorkerIntegrationTest}'s
+ * pattern one level up. Submits a {@code replicas: 2} deployment, observes both instances reach
+ * {@code ACTIVE} on two distinct real agent-managed nodes, kills one agent process, and observes
+ * {@link ReplicaCountReconciler} notice the resulting gap and {@link DeploymentReconciler} re-place
+ * it on the surviving node. Runs natively on whatever OS executes the suite -- no Docker, no
+ * Linux-only gate; "distinct nodes" here means distinct agent processes with distinct node ids,
+ * which exercises every relevant code path without needing separate hardware.
  *
  * <p>Anti-affinity itself is already covered by {@code DeploymentReconcilerTest} against synthetic
  * node candidates; this test runs with it disabled so killing either agent has a single, always-
@@ -131,8 +130,8 @@ class ControlPlaneAgentWorkerIntegrationTest {
     StateStore store = new StateStore(tempDir.resolve("cp-state"));
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler = new DeploymentReconciler(store, scheduler);
-    // nodeDarkTimeout must comfortably exceed the agent's own 5s heartbeat cadence (design §11.3
-    // confirms 15s = 3 missed 5s heartbeats), or a perfectly healthy node between two of its own
+    // nodeDarkTimeout must comfortably exceed the agent's own 5s heartbeat cadence (15s covers 3
+    // missed 5s heartbeats), or a perfectly healthy node between two of its own
     // heartbeats would look dark. placementGracePeriod covers the agent's own poll-then-start
     // latency (up to one 5s poll tick, plus real JVM/install/resolve/start time) before a
     // just-created assignment the node hasn't reported yet is treated as failed-to-start.
@@ -141,8 +140,9 @@ class ControlPlaneAgentWorkerIntegrationTest {
     HealthReconciler healthReconciler = new HealthReconciler(store);
 
     // A single-node gimle-mimir store, in-process, wrapping this same StateStore over a real
-    // loopback socket -- ApiServer no longer holds a StateStore directly (etcd-store-extraction
-    // design doc); the reconcilers above still read/write it directly, same as always.
+    // loopback socket -- ApiServer no longer holds a StateStore directly, now that the store
+    // lives in its own process and is reached over the network; the reconcilers above still
+    // read/write it directly, same as always.
     RaftLog storeRaftLog = new RaftLog(tempDir.resolve("cp-raft"));
     storeRaftNode = new RaftNode("self", Map.of(), storeRaftLog, store);
     storeRaftNode.start();
@@ -151,8 +151,9 @@ class ControlPlaneAgentWorkerIntegrationTest {
     SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
     storeClient = new StoreClient(List.of(storeAddress));
 
-    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process (design
-    // doc Phase A), so standing up ApiServer at all now needs a genuine FafnirClient to talk to.
+    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process, now
+    // that secret crypto lives in its own process, so standing up ApiServer at all now needs a
+    // genuine FafnirClient to talk to.
     FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
     fafnirServer = new FafnirServer(fafnirCrypto, 0);
     fafnirServer.start();

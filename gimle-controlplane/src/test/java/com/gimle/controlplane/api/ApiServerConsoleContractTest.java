@@ -24,11 +24,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Design doc §12: scoped field-presence assertions against the exact JSON shapes {@code
- * web-console-design.md} §1 documents the console's {@code src/types/} needs -- not a re-test of
- * everything {@link ApiServerTest} already covers, just a schema-drift tripwire so a future change
- * to these routes' JSON shapes is caught here rather than silently breaking the console once it's
- * wired in.
+ * Scoped field-presence assertions against the exact JSON shapes the console's own {@code
+ * src/types/} code expects -- not a re-test of everything {@link ApiServerTest} already covers,
+ * just a schema-drift tripwire so a future change to these routes' JSON shapes is caught here
+ * rather than silently breaking the console once it's wired in.
  */
 // See ApiServerTest for why: real ApiServer + real HttpClient on a loopback ephemeral port,
 // excluded from running concurrently with any other class doing the same.

@@ -99,11 +99,11 @@ public final class StateStore implements StoreReader {
   // rollingIndices/rollingDaemonSetNodes above. A separate map from rollingIndices: the two
   // resource kinds never share a namespace.
   private final Map<String, Integer> rollingStatefulSetIndices = new ConcurrentHashMap<>();
-  // The sticky node binding for one StatefulSet index (priority-3 design doc §5b), keyed by
-  // statefulSetAssignmentKey -- survives an ordinary assignment removal (mid-rollout, or a dark
-  // node), cleared only on genuinely permanent removal (scale-down below the index, or the whole
-  // spec deleted). See StateMutation.PutStatefulSetIndexNode's own javadoc for why this can't just
-  // be read off the current StatefulSetAssignment record.
+  // The sticky node binding for one StatefulSet index, keyed by statefulSetAssignmentKey --
+  // survives an ordinary assignment removal (mid-rollout, or a dark node), cleared only on
+  // genuinely permanent removal (scale-down below the index, or the whole spec deleted). See
+  // StateMutation.PutStatefulSetIndexNode's own javadoc for why this can't just be read off the
+  // current StatefulSetAssignment record.
   private final Map<String, String> statefulSetIndexNodes = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
@@ -599,8 +599,8 @@ public final class StateStore implements StoreReader {
    * tolerant of a brief gap after a leader change), so only whichever replica is currently leader
    * ever has a given node's heartbeat in its own {@code nodeHeartbeats} map. {@link
    * com.gimle.mimir.rpc.StoreNode}/{@code StoreClient} route both {@code PutHeartbeat} and {@code
-   * GetNodeHeartbeat} through the current leader specifically for this reason (P2-14) -- a
-   * follower's own copy here is never anything but empty, not merely stale.
+   * GetNodeHeartbeat} through the current leader specifically for this reason -- a follower's own
+   * copy here is never anything but empty, not merely stale.
    */
   public void putNodeHeartbeat(NodeHeartbeat heartbeat) {
     Instant receivedAt = clock.instant();
@@ -623,9 +623,8 @@ public final class StateStore implements StoreReader {
    * Non-replicated, leader-local coordination state -- same category as {@code nodeHeartbeats}
    * above, not {@code StateMutation}-backed and excluded from {@link #snapshot}/{@link
    * #restoreFromSnapshot} for the identical reason. Backs the reconciler-leader election among
-   * {@code ApiServer} replicas once they're decoupled from the store's own Raft membership
-   * (claudedocs/etcd-store-extraction-design.md's lease-based-election resolution) -- the same
-   * shape Kubernetes' own {@code coordination.k8s.io/v1 Lease} serves for {@code
+   * {@code ApiServer} replicas once they're decoupled from the store's own Raft membership -- the
+   * same shape Kubernetes' own {@code coordination.k8s.io/v1 Lease} serves for {@code
    * kube-controller-manager}/{@code kube-scheduler} elections, just held in memory rather than
    * replicated, since losing an uncommitted lease on a leader failover only costs one election
    * cycle, not correctness.
@@ -1657,9 +1656,9 @@ public final class StateStore implements StoreReader {
 
   private static String deploymentToYaml(DeploymentSpec spec) {
     Map<String, Object> root = new LinkedHashMap<>();
-    // Every manifest carries kind: now (priority-3 design doc §2) -- this is our own round-trip
-    // write, not operator input, but DeploymentManifestParser.parseRoot ignores unknown/extra keys
-    // regardless, so including it costs nothing and keeps this file self-describing on disk.
+    // Every manifest carries kind: now -- this is our own round-trip write, not operator input,
+    // but DeploymentManifestParser.parseRoot ignores unknown/extra keys regardless, so including
+    // it costs nothing and keeps this file self-describing on disk.
     root.put("kind", "Deployment");
     root.put("name", spec.name());
     Map<String, Object> module = new LinkedHashMap<>();

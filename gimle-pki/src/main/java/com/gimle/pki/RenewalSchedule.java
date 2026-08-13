@@ -6,12 +6,12 @@ import java.time.Instant;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * When a certificate should be renewed, per {@code claudedocs/tls-transport-security-design.md}
- * §4b: a randomized point within the last 20-30% of the certificate's validity window, not a fixed
- * threshold -- if many nodes were provisioned at the same moment, a fixed threshold means they all
- * try to renew in the same instant, a self-inflicted thundering herd against the control plane. The
- * random point is picked once, at construction, and cached -- a caller polling {@link #isDue}
- * repeatedly (e.g. once per tick) must see a stable answer, not a new coin flip every time.
+ * When a certificate should be renewed: a randomized point within the last 20-30% of the
+ * certificate's validity window, not a fixed threshold -- if many nodes were provisioned at the
+ * same moment, a fixed threshold means they all try to renew in the same instant, a self-inflicted
+ * thundering herd against the control plane. The random point is picked once, at construction, and
+ * cached -- a caller polling {@link #isDue} repeatedly (e.g. once per tick) must see a stable
+ * answer, not a new coin flip every time.
  */
 public final class RenewalSchedule {
 

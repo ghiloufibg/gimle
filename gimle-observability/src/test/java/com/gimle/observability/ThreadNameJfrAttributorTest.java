@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * JFR sampling itself is inherently timing-dependent (the JVM decides when to sample), so — same
- * posture as Phase 1's {@code OldObjectSampleCorrelator} tests — this verifies the deterministic
- * parts (construction, registration bookkeeping, shutdown) rather than asserting on real sample
- * arrival within a fast unit test's window.
+ * posture as {@code OldObjectSampleCorrelator}'s own tests — this verifies the deterministic parts
+ * (construction, registration bookkeeping, shutdown) rather than asserting on real sample arrival
+ * within a fast unit test's window.
  */
 class ThreadNameJfrAttributorTest {
 

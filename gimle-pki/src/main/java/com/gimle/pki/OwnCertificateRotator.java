@@ -33,13 +33,13 @@ import org.slf4j.LoggerFactory;
  * The renewal half of a node's own leaf-certificate lifecycle, shared between {@code ApiServer}
  * (calling its own loopback {@code /bootstrap/csr}) and {@code StoreMain} (calling a reachable
  * {@code ApiServer} replica's {@code /bootstrap/csr} over the network) -- extracted once {@code
- * StoreMain} needed the identical logic a second caller (etcd-store-extraction design doc §4.7/§9:
- * {@code gimle-mimir} replicas get CA-signed leaf certs from the same single cluster CA every other
- * component uses, via the same renewal-over-mTLS mechanism, not an ad-hoc self-signed cert or a
- * second CSR-signing authority). Deliberately does not reload any listener itself -- {@code
- * RaftTransport}/{@code StoreTransport}/{@code ApiServer}'s own {@code HttpsServer} are each a
- * different caller's concern, so the boolean return tells the caller whether *any* reload is
- * needed, same contract {@code ApiServer.checkAndRotateOwnCertificateIfDue} already had.
+ * StoreMain} needed the identical logic as a second caller: {@code gimle-mimir} replicas get
+ * CA-signed leaf certs from the same single cluster CA every other component uses, via the same
+ * renewal-over-mTLS mechanism, not an ad-hoc self-signed cert or a second CSR-signing authority.
+ * Deliberately does not reload any listener itself -- {@code RaftTransport}/{@code
+ * StoreTransport}/{@code ApiServer}'s own {@code HttpsServer} are each a different caller's
+ * concern, so the boolean return tells the caller whether *any* reload is needed, same contract
+ * {@code ApiServer.checkAndRotateOwnCertificateIfDue} already had.
  */
 public final class OwnCertificateRotator {
 

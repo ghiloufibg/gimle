@@ -90,14 +90,13 @@ public sealed interface ControlMessage {
 
   /**
    * A worker's own periodic Micrometer snapshot / OpenTelemetry span batch, pre-serialized as
-   * NDJSON by the worker itself (design doc §6c) -- the agent doesn't own the {@code
-   * MeterRegistry}/span batch these were built from, only the text a worker already sent over this
-   * control channel, the one channel that crosses the process boundary at all (workers have no
-   * outbound network identity of their own -- see {@code MuninnServer}'s own javadoc). {@code
-   * workerId} is this worker's own {@code Hello#workerId}, matching the {@code {nodeId}:{workerId}}
-   * shape the agent's relay ships under. A trivial relay on the agent side: {@code AgentMain} hands
-   * {@code ndjsonPayload} straight to {@code MuninnShipper#shipPreparedBatch} with no
-   * re-serialization.
+   * NDJSON by the worker itself -- the agent doesn't own the {@code MeterRegistry}/span batch these
+   * were built from, only the text a worker already sent over this control channel, the one channel
+   * that crosses the process boundary at all (workers have no outbound network identity of their
+   * own -- see {@code MuninnServer}'s own javadoc). {@code workerId} is this worker's own {@code
+   * Hello#workerId}, matching the {@code {nodeId}:{workerId}} shape the agent's relay ships under.
+   * A trivial relay on the agent side: {@code AgentMain} hands {@code ndjsonPayload} straight to
+   * {@code MuninnShipper#shipPreparedBatch} with no re-serialization.
    */
   record MetricsSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
 
@@ -123,14 +122,13 @@ public sealed interface ControlMessage {
 
   /**
    * {@code dataDirectory} is the host path a {@code StatefulSet}-shaped instance's persistent
-   * volume was allocated at (priority-3 design doc §5a) -- resolved by the agent (which alone knows
-   * the placement identity a volume path is keyed by) via {@code VolumeManager.allocate} before
-   * this message is sent, and populated on the worker's {@link
-   * com.gimle.module.lifecycle.ModuleContext#dataDirectory()} the moment this instance's {@code
-   * ModuleContext} is created -- {@code resolve()}, not {@code start()}, since a hook may need it
-   * as early as {@code onInstall}. Empty for every module that doesn't declare {@code volume:}, the
-   * only shape every pre-existing call site has; the two-argument constructor preserves that shape
-   * for them.
+   * volume was allocated at -- resolved by the agent (which alone knows the placement identity a
+   * volume path is keyed by) via {@code VolumeManager.allocate} before this message is sent, and
+   * populated on the worker's {@link com.gimle.module.lifecycle.ModuleContext#dataDirectory()} the
+   * moment this instance's {@code ModuleContext} is created -- {@code resolve()}, not {@code
+   * start()}, since a hook may need it as early as {@code onInstall}. Empty for every module that
+   * doesn't declare {@code volume:}, the only shape every pre-existing call site has; the
+   * two-argument constructor preserves that shape for them.
    */
   record ResolveModule(String correlationId, ModuleId id, String dataDirectory)
       implements ControlMessage {

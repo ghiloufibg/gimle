@@ -14,13 +14,13 @@ import javax.net.ssl.SSLContext;
 
 /**
  * {@code gimle-controlplane}'s HTTP calling logic for Muninn's {@code /logs/*} history read surface
- * (design doc Part B/O-11) -- a thin, purpose-built client mirroring {@code FafnirClient}'s own
- * shape (scheme selection off {@link TransportProtocol#fromConfig()}, no compile-time dependency on
- * {@code gimle-muninn} itself, plain HTTP+JSON over the wire). Unlike {@code fafnirClient}, this
- * one is genuinely optional on {@link com.gimle.controlplane.api.ApiServer}: a cluster with no
- * Muninn endpoint configured simply never gets the {@code /logs/*} fallback for a gone
- * node/instance, the exact same "optional, degrade gracefully" posture {@code gimle-agent}'s own
- * {@code muninnEndpoint} already has.
+ * -- a thin, purpose-built client mirroring {@code FafnirClient}'s own shape (scheme selection off
+ * {@link TransportProtocol#fromConfig()}, no compile-time dependency on {@code gimle-muninn}
+ * itself, plain HTTP+JSON over the wire). Unlike {@code fafnirClient}, this one is genuinely
+ * optional on {@link com.gimle.controlplane.api.ApiServer}: a cluster with no Muninn endpoint
+ * configured simply never gets the {@code /logs/*} fallback for a gone node/instance, the exact
+ * same "optional, degrade gracefully" posture {@code gimle-agent}'s own {@code muninnEndpoint}
+ * already has.
  */
 public final class MuninnClient implements AutoCloseable {
 

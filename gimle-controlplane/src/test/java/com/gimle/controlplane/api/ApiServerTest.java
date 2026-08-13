@@ -146,9 +146,9 @@ class ApiServerTest {
         .formatted(name);
   }
 
-  // Roadmap item 9: the console reads the deployment JSON this test asserts on to build its own
-  // Autoscale panel -- before deploymentStatus() put this on the wire, the field was accepted by
-  // PUT (DeploymentManifestParser) but silently dropped from every GET response.
+  // The console reads the deployment JSON this test asserts on to build its own Autoscale panel
+  // -- before deploymentStatus() put this on the wire, the field was accepted by PUT
+  // (DeploymentManifestParser) but silently dropped from every GET response.
   @Test
   void put_then_get_a_deployment_round_trips_its_autoscale_policy() throws Exception {
     HttpResponse<String> put =
@@ -1227,7 +1227,7 @@ class ApiServerTest {
     assertEquals(405, response.statusCode());
   }
 
-  // ---- tenants (Phase 5 design §5.1) ----
+  // ---- tenants ----
 
   private static String tenantJson(long maxMemoryBytes, long maxCpuMillicores, int maxInstances) {
     return """
@@ -1274,7 +1274,7 @@ class ApiServerTest {
     assertEquals(404, get.statusCode());
   }
 
-  // ---- tenant quota admission (Phase 5 design §5.2) ----
+  // ---- tenant quota admission ----
 
   /** {@code TestModuleBuilder.minimalDescriptor} fixes the request at 16Mi memory / 10m cpu. */
   private Path buildFixtureJar(String uniqueName) {
@@ -1367,7 +1367,7 @@ class ApiServerTest {
     assertEquals(409, put.statusCode());
   }
 
-  // ---- config/secrets distribution (Phase 5 design §6) ----
+  // ---- config/secrets distribution ----
 
   @Test
   void plain_config_put_and_list_round_trips() throws Exception {
@@ -1431,7 +1431,7 @@ class ApiServerTest {
     assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
   }
 
-  // ---- /secrets/{tenantId}/... proxy to Fafnir (design doc §6e) ----
+  // ---- /secrets/{tenantId}/... proxy to Fafnir ----
 
   @Test
   void secrets_put_and_get_round_trip_through_the_fafnir_proxy() throws Exception {
@@ -1473,7 +1473,8 @@ class ApiServerTest {
 
     // Fafnir's own synthetic db-password@meta/db-password@1 bookkeeping entries must never leak
     // into the plain /config/{tenantId} listing -- the two resource kinds stay on two distinct
-    // API surfaces, matching the RBAC split this design follows (§6e's closing sentence).
+    // API surfaces because SECRET and CONFIG are independently grantable ResourceKinds, so a role
+    // holding one must not implicitly see the other.
     HttpResponse<String> configList =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
     assertTrue(Json.asObjectList(Json.parse(configList.body())).isEmpty());

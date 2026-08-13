@@ -29,7 +29,7 @@ public final class FabricCodec {
 
   /**
    * The only wire-protocol version any writer produces today; bump this when the shape changes.
-   * Bumped 1 -> 2 by P2-10's {@code tracestate}/{@code baggage} additions to {@link TraceContext}.
+   * Bumped 1 -> 2 by the {@code tracestate}/{@code baggage} additions to {@link TraceContext}.
    */
   private static final int CURRENT_VERSION = 2;
 

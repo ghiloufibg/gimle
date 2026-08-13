@@ -15,13 +15,13 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * {@code get statefulsets [name]}, {@code apply -f <file.yaml>}, {@code delete statefulset <name>}
- * -- mirrors {@link DeploymentsCommand} exactly (priority-3 design doc §5c), including having no
- * dedicated {@code scale} verb: like a Deployment, {@code replicas} is changed by resubmitting the
- * manifest via {@code apply}, not a separate command. {@code get statefulsets <name>}'s table
- * output surfaces each index's assigned {@code nodeId} without any StatefulSet-specific rendering
- * code -- {@code OutputFormat.printObject} already renders {@code instances[].nodeId} generically,
- * the same way it already does for {@code get daemonsets <name>}, which is what makes the
- * sticky-placement contract (§5b) visible to an operator here, not a separate feature to build.
+ * -- mirrors {@link DeploymentsCommand} exactly, including having no dedicated {@code scale} verb:
+ * like a Deployment, {@code replicas} is changed by resubmitting the manifest via {@code apply},
+ * not a separate command. {@code get statefulsets <name>}'s table output surfaces each index's
+ * assigned {@code nodeId} without any StatefulSet-specific rendering code -- {@code
+ * OutputFormat.printObject} already renders {@code instances[].nodeId} generically, the same way it
+ * already does for {@code get daemonsets <name>}, which is what makes the sticky-placement contract
+ * visible to an operator here, not a separate feature to build.
  */
 public final class StatefulSetsCommand {
 

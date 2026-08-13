@@ -38,10 +38,10 @@ public class GimleSecretsException extends RuntimeException {
   }
 
   /**
-   * {@code gimle-fafnir}'s own versioned write path (design doc §7b) lost the optimistic
-   * write-verify-retry race to a concurrent writer on every bounded attempt -- possible only under
-   * sustained, unrealistic contention on one key, since each retry only costs a harmless orphaned
-   * {@code key@N} entry, never data loss.
+   * {@code gimle-fafnir}'s own versioned write path lost the optimistic write-verify-retry race to
+   * a concurrent writer on every bounded attempt -- possible only under sustained, unrealistic
+   * contention on one key, since each retry only costs a harmless orphaned {@code key@N} entry,
+   * never data loss.
    */
   public static GimleSecretsException writeContention(String tenantId, String key, int attempts) {
     return new GimleSecretsException(

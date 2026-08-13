@@ -36,9 +36,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Ensures a {@link StatefulSetAssignment} exists for every index {@code 0..replicas-1} of every
- * {@link StatefulSetSpec} -- the last priority-3 workload-diversity item, and the only one
- * requiring a genuinely new worker/agent capability ({@code VolumeManager}/{@code
- * ModuleContext.dataDirectory()}) rather than reusing existing machinery unchanged.
+ * {@link StatefulSetSpec} -- the only workload kind requiring a genuinely new worker/agent
+ * capability ({@code VolumeManager}/{@code ModuleContext.dataDirectory()}) rather than reusing
+ * existing machinery unchanged.
  *
  * <p>Two properties set this apart from {@link DeploymentReconciler}, both because a StatefulSet
  * index may own a local-disk volume that cannot move: <b>{@code OrderedReady}</b> (Kubernetes
@@ -48,9 +48,8 @@ import org.slf4j.LoggerFactory;
  * present-but-not-yet-ready (stop without placing anything) -- and <b>sticky placement</b>: once an
  * index is first placed on a node, {@link StateStore#getStatefulSetIndexNode} supplies that same
  * node back to {@link Scheduler#place} on every later placement attempt for that index, via {@code
- * place}'s {@code stickyNodeId} parameter (priority-3 design doc §5b) -- a rolling update or a
- * temporarily-dark node never causes an index's data to relocate; it either lands back on the same
- * node or stays unplaced.
+ * place}'s {@code stickyNodeId} parameter -- a rolling update or a temporarily-dark node never
+ * causes an index's data to relocate; it either lands back on the same node or stays unplaced.
  *
  * <p>Rolling updates reuse the same {@code remove-mismatched-then-let-ordinary-placement-repick}
  * shape {@link DeploymentReconciler#handleRollingUpdate} established, persisted via {@link
@@ -145,8 +144,8 @@ public final class StatefulSetReconciler {
           e.getMessage());
       return;
     }
-    // Matches DeploymentReconciler's own P2-18 check exactly: an artifact silently swapped out
-    // from under a running statefulset name is refused, not silently followed.
+    // Matches DeploymentReconciler's own artifact-hash check exactly: an artifact silently
+    // swapped out from under a running statefulset name is refused, not silently followed.
     if (spec.artifactSha256().isPresent()
         && !spec.artifactSha256().get().equals(artifact.sha256())) {
       log.warn(
@@ -166,8 +165,8 @@ public final class StatefulSetReconciler {
     // Re-read: handleRollingUpdate above may have just removed an entry.
     List<StatefulSetAssignment> existing = store.listStatefulSetAssignmentsFor(spec.name());
 
-    // OrderedReady (priority-3 design doc §5a): scan indices low to high, stopping at the first
-    // one that isn't both present and ready. Placing that one missing index (if any) and
+    // OrderedReady (Kubernetes StatefulSet's own default): scan indices low to high, stopping at
+    // the first one that isn't both present and ready. Placing that one missing index (if any) and
     // returning is what keeps index i+1 from ever being attempted before index i is ready --
     // no separate "am I mid-rollout" bookkeeping needed beyond this scan itself.
     for (int index = 0; index < spec.replicas(); index++) {
@@ -237,7 +236,7 @@ public final class StatefulSetReconciler {
       // Left unplaced; the next tick retries from the same full snapshot -- matches every other
       // reconciler's "a missed placement this tick is indistinguishable from a retried one"
       // posture. For a sticky index specifically, this is also the documented "data does not
-      // survive node loss" outcome (design doc §5b): it stays unplaced-and-retrying, never
+      // survive node loss" outcome: it stays unplaced-and-retrying, never
       // silently relocated to a different node.
       log.warn("could not place {} instance {}: {}", spec.name(), index, e.getMessage());
     }
@@ -307,8 +306,8 @@ public final class StatefulSetReconciler {
    * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link
    * StatefulSetAssignment}s. Folds in {@link InstanceAssignment} and {@link DaemonSetAssignment}
    * tenant occupancy too, the same one-directional fold {@code DaemonSetReconciler.buildCandidates}
-   * already documents for Deployment -- {@code DeploymentReconciler} is deliberately left untouched
-   * (design doc §0), so this is not symmetric.
+   * already documents for Deployment -- {@code DeploymentReconciler} is deliberately left
+   * untouched, so this is not symmetric.
    */
   private List<NodeCandidate> buildCandidates(String statefulSetName) {
     Set<String> nodesAlreadyRunningThisStatefulSet = new HashSet<>();

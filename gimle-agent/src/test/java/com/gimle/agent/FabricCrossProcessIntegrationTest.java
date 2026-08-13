@@ -41,14 +41,13 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The design's mandatory Phase 4 integration test (§13): two real {@code gimle-agent} subprocesses
- * on distinct simulated nodes (distinct node ids, distinct gossip ports, same machine -- same
- * "distinct nodes means distinct registered identities" reasoning {@code
- * ControlPlaneAgentWorkerIntegrationTest} already established for Phase 3), each spawning its own
- * real {@code gimle-worker} subprocess, with a real cross-process fabric call: a module on one node
- * exports a service, a module on the other looks it up and calls it over a real cross-machine TCP
- * hop, then the exporting worker's whole node is killed and the consumer is expected to observe a
- * failure rather than hang.
+ * Two real {@code gimle-agent} subprocesses on distinct simulated nodes (distinct node ids,
+ * distinct gossip ports, same machine -- same "distinct nodes means distinct registered identities"
+ * reasoning {@code ControlPlaneAgentWorkerIntegrationTest} already established), each spawning its
+ * own real {@code gimle-worker} subprocess, with a real cross-process fabric call: a module on one
+ * node exports a service, a module on the other looks it up and calls it over a real cross-machine
+ * TCP hop, then the exporting worker's whole node is killed and the consumer is expected to observe
+ * a failure rather than hang.
  *
  * <p>Placement is steered without any explicit node-targeting mechanism (none exists yet): the
  * provider deployment is submitted while only node-a is registered, then node-b starts and the
@@ -137,8 +136,9 @@ class FabricCrossProcessIntegrationTest {
     HealthReconciler healthReconciler = new HealthReconciler(store);
 
     // A single-node gimle-mimir store, in-process, wrapping this same StateStore over a real
-    // loopback socket -- ApiServer no longer holds a StateStore directly (etcd-store-extraction
-    // design doc); the reconcilers above still read/write it directly, same as always.
+    // loopback socket -- ApiServer no longer holds a StateStore directly, now that the store
+    // lives in its own process and is reached over the network; the reconcilers above still
+    // read/write it directly, same as always.
     RaftLog storeRaftLog = new RaftLog(tempDir.resolve("cp-raft"));
     storeRaftNode = new RaftNode("self", Map.of(), storeRaftLog, store);
     storeRaftNode.start();
@@ -147,8 +147,9 @@ class FabricCrossProcessIntegrationTest {
     SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
     storeClient = new StoreClient(List.of(storeAddress));
 
-    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process (design
-    // doc Phase A), so standing up ApiServer at all now needs a genuine FafnirClient to talk to.
+    // A real, in-process Fafnir replica -- ApiServer no longer performs crypto in-process, now
+    // that secret crypto lives in its own process, so standing up ApiServer at all now needs a
+    // genuine FafnirClient to talk to.
     FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
     fafnirServer = new FafnirServer(fafnirCrypto, 0);
     fafnirServer.start();
@@ -220,7 +221,7 @@ class FabricCrossProcessIntegrationTest {
     submitDeployment(httpClient, baseUrl, "fabric-consumer", consumerJar, 1);
 
     // Deliberately not awaiting "ACTIVE" here: the consumer's onStart hook itself blocks for its
-    // whole lookup-retry-then-call-loop duration (§9's gating-hook semantics -- onStart runs
+    // whole lookup-retry-then-call-loop duration (gating-hook semantics -- onStart runs
     // synchronously as part of the STARTING -> ACTIVE transition), so ACTIVE is only reported
     // once that entire routine returns. Poll the output file directly instead.
     await(

@@ -27,25 +27,24 @@ import java.util.Optional;
 /**
  * The client-facing wire protocol {@code StoreClient} speaks to a {@code StoreNode} -- the store's
  * equivalent of etcd's client gRPC API, everything {@code ApiServer}/the reconcilers/{@code
- * Authorizer} used to get "for free" via a direct {@code StateStore} reference before the
- * etcd-store-extraction (see {@code claudedocs/etcd-store-extraction-design.md}). One request/
- * response record pair per {@code StateStore} method actually called outside the {@code store}
- * package, nested here the same way {@link StateMutation}'s own variants are nested in one file,
- * rather than {@link com.gimle.mimir.raft.RaftRpc}'s one-file-per-variant shape -- at this many
- * variants (StoreRpc's surface is larger than Raft's own three-RPC-kind shape), StateMutation's
- * single-file precedent is the better fit.
+ * Authorizer} used to get "for free" via a direct {@code StateStore} reference before the store
+ * became its own process. One request/response record pair per {@code StateStore} method actually
+ * called outside the {@code store} package, nested here the same way {@link StateMutation}'s own
+ * variants are nested in one file, rather than {@link com.gimle.mimir.raft.RaftRpc}'s
+ * one-file-per-variant shape -- at this many variants (StoreRpc's surface is larger than Raft's own
+ * three-RPC-kind shape), StateMutation's single-file precedent is the better fit.
  *
  * <p>{@link Propose}, {@link PutHeartbeat}, {@link AcquireOrRenewLease}, {@link ReleaseLease},
  * {@link AddServer}, and {@link RemoveServer} are writes that must land on the current Raft leader
- * specifically; {@link GetNodeHeartbeat} is a leader-only *read* for a different reason (P2-14) --
- * node heartbeats are deliberately never replicated through the log, so a follower's local copy is
- * never anything but empty, and answering from it the way every other read here does would be
- * silently wrong, not just stale. Every other request may be served by any {@code StoreNode}
- * (design doc §4.5 -- reads stay exactly as loose as today, no linearizability requirement). Every
- * leader-only request shares one {@link NotLeader} response for the same reason {@link
- * com.gimle.mimir.raft.RaftNode#propose} already rejects a non-leader immediately rather than
- * silently forwarding (design doc §4.6): {@code StoreClient} follows the returned leader address
- * and retries once, rather than a {@code StoreNode} proxying the write internally.
+ * specifically; {@link GetNodeHeartbeat} is a leader-only *read* for a different reason -- node
+ * heartbeats are deliberately never replicated through the log, so a follower's local copy is never
+ * anything but empty, and answering from it the way every other read here does would be silently
+ * wrong, not just stale. Every other request may be served by any {@code StoreNode} -- reads stay
+ * exactly as loose as today, no linearizability requirement. Every leader-only request shares one
+ * {@link NotLeader} response for the same reason {@link com.gimle.mimir.raft.RaftNode#propose}
+ * already rejects a non-leader immediately rather than silently forwarding: {@code StoreClient}
+ * follows the returned leader address and retries once, rather than a {@code StoreNode} proxying
+ * the write internally.
  */
 public sealed interface StoreRpc {
 
@@ -152,11 +151,11 @@ public sealed interface StoreRpc {
 
   /**
    * Adds {@code peerId} (reachable at {@code host}/{@code raftPort}/{@code clientPort}) to the
-   * cluster's Raft membership -- etcd-style, one server at a time (design doc: production-hardening
-   * backlog P1-5). Leader-only, same {@link NotLeader}-redirect posture as {@link Propose}; {@code
-   * StoreClient} maps any rejection (already a member, another change still in flight, or a genuine
-   * non-leader) onto the same retry-the-leader-hint path {@link Propose} already uses, rather than
-   * a new response shape per rejection reason.
+   * cluster's Raft membership -- etcd-style, one server at a time. Leader-only, same {@link
+   * NotLeader}-redirect posture as {@link Propose}; {@code StoreClient} maps any rejection (already
+   * a member, another change still in flight, or a genuine non-leader) onto the same
+   * retry-the-leader-hint path {@link Propose} already uses, rather than a new response shape per
+   * rejection reason.
    */
   record AddServer(String peerId, String host, int raftPort, int clientPort) implements Request {}
 
@@ -164,11 +163,11 @@ public sealed interface StoreRpc {
   record RemoveServer(String peerId) implements Request {}
 
   /**
-   * The one leader-only *read* in this group (P2-14): node heartbeats are deliberately never
-   * replicated through the Raft log (too high-frequency, tolerant of a brief gap after a leader
-   * change -- see {@code StateStore.putNodeHeartbeat}'s own javadoc), so a follower's local copy is
-   * never anything but empty. Routing this through the leader the same way a write would be is what
-   * makes the answer actually correct instead of merely available.
+   * The one leader-only *read* in this group: node heartbeats are deliberately never replicated
+   * through the Raft log (too high-frequency, tolerant of a brief gap after a leader change -- see
+   * {@code StateStore.putNodeHeartbeat}'s own javadoc), so a follower's local copy is never
+   * anything but empty. Routing this through the leader the same way a write would be is what makes
+   * the answer actually correct instead of merely available.
    */
   record GetNodeHeartbeat(String nodeId) implements Request {}
 
@@ -280,7 +279,7 @@ public sealed interface StoreRpc {
    * {@code leaderClientAddress} is empty when this node has no current leader hint either (a
    * mid-election gap) -- {@code StoreClient} treats that the same as any other unreachable
    * endpoint: try the next configured endpoint, matching how {@code ApiServer}'s own former
-   * 307-redirect path handled an absent {@code leaderHint()} (design doc §4.6).
+   * 307-redirect path handled an absent {@code leaderHint()}.
    */
   record NotLeader(String leaderClientAddress) implements Response {}
 

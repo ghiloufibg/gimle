@@ -16,10 +16,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * Pure (no-I/O) NDJSON serialization for a {@link MeterRegistry} snapshot -- one JSON line per
  * meter, the exact shape {@link MuninnShipper#startShippingMetrics} has always shipped, extracted
- * here (design doc §6c) so a worker's own periodic snapshot ({@code WorkerMain}, relayed to Muninn
- * through its agent over the control channel, since workers have no outbound network identity of
- * their own) produces byte-identical output to a process shipping directly, without either path
- * duplicating the meter-to-JSON mapping.
+ * here so a worker's own periodic snapshot ({@code WorkerMain}, relayed to Muninn through its agent
+ * over the control channel, since workers have no outbound network identity of their own) produces
+ * byte-identical output to a process shipping directly, without either path duplicating the
+ * meter-to-JSON mapping.
  */
 public final class MeterSnapshotCodec {
 

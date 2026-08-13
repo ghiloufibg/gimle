@@ -5,11 +5,11 @@ import java.util.Optional;
 
 /**
  * Desired state for a workload needing stable per-index identity and (optionally) persistent
- * local-disk storage (priority-3 design doc §5) -- an index space {@code 0..replicas-1} exactly
- * like {@link DeploymentSpec}, but {@code StatefulSetReconciler} enforces {@code OrderedReady}
- * semantics (index {@code i+1} never placed before index {@code i} reports ready; scale-down
- * removes the highest index first) rather than {@link DeploymentReconciler}'s all-at-once
- * placement, and sticky-binds each index to whichever node it first lands on.
+ * local-disk storage -- an index space {@code 0..replicas-1} exactly like {@link DeploymentSpec},
+ * but {@code StatefulSetReconciler} enforces {@code OrderedReady} semantics (index {@code i+1}
+ * never placed before index {@code i} reports ready; scale-down removes the highest index first)
+ * rather than {@link DeploymentReconciler}'s all-at-once placement, and sticky-binds each index to
+ * whichever node it first lands on.
  *
  * <p>Deliberately does <em>not</em> carry its own {@code volume:} field -- persistent storage is
  * declared once, on the module's own {@code gimle-module.yaml} (sibling to {@code isolation:}/

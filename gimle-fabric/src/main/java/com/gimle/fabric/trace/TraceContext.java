@@ -10,14 +10,14 @@ package com.gimle.fabric.trace;
  * trace-flags byte (bit 0 = sampled), the smallest representation that still lets a receiving span
  * honor the caller's sampling decision.
  *
- * <p>{@code tracestate}/{@code baggage} (P2-10) are the W3C {@code tracestate} and {@code baggage}
- * headers' own {@code key1=value1,key2=value2} wire syntax, captured and replayed verbatim by
- * {@code FabricServiceRegistry}/{@code FabricServer} rather than decomposed into a richer type here
- * -- this record's whole job is "bytes that cross the wire," not modeling either header's
- * semantics. Empty string means "none present," never {@code null}, matching the field-added-later
- * back-compat shape {@code DeploymentSpec}'s own {@code Optional} fields use elsewhere in this
- * codebase (a plain empty string rather than {@code Optional} here since this type crosses the wire
- * directly, with no YAML/manifest layer to make {@code Optional} worth its own encoding).
+ * <p>{@code tracestate}/{@code baggage} are the W3C {@code tracestate} and {@code baggage} headers'
+ * own {@code key1=value1,key2=value2} wire syntax, captured and replayed verbatim by {@code
+ * FabricServiceRegistry}/{@code FabricServer} rather than decomposed into a richer type here --
+ * this record's whole job is "bytes that cross the wire," not modeling either header's semantics.
+ * Empty string means "none present," never {@code null}, matching the field-added-later back-compat
+ * shape {@code DeploymentSpec}'s own {@code Optional} fields use elsewhere in this codebase (a
+ * plain empty string rather than {@code Optional} here since this type crosses the wire directly,
+ * with no YAML/manifest layer to make {@code Optional} worth its own encoding).
  */
 public record TraceContext(
     long traceIdHigh, long traceIdLow, long spanId, byte flags, String tracestate, String baggage) {
@@ -31,7 +31,10 @@ public record TraceContext(
     }
   }
 
-  /** Back-compat: defaults {@code tracestate} and {@code baggage} to empty (added by P2-10). */
+  /**
+   * Back-compat: defaults {@code tracestate} and {@code baggage} to empty, for callers built before
+   * those fields existed.
+   */
   public TraceContext(long traceIdHigh, long traceIdLow, long spanId, byte flags) {
     this(traceIdHigh, traceIdLow, spanId, flags, "", "");
   }

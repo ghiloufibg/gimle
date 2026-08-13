@@ -34,7 +34,7 @@
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
     </dependency>
-    <!-- CertCommand generates its own CSRs locally (design doc §4/§4a/§4b's operator-facing
+    <!-- CertCommand generates its own CSRs locally (its own operator-facing
          verbs); never signs anything itself, that's gimle-controlplane's job. -->
     <dependency>
       <groupId>com.gimle</groupId>
@@ -45,7 +45,7 @@
       <artifactId>gimle-controlplane</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- ApiServer no longer performs crypto in-process (design doc Phase A): GimleCliTest needs
+    <!-- ApiServer no longer performs crypto in-process: GimleCliTest needs
          a real, in-process FafnirServer/FafnirClient pair backing it, the same "small enough to
          duplicate rather than a new coupling" InProcessFafnir fixture shape gimle-controlplane's
          own tests already use. -->

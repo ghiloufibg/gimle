@@ -39,11 +39,10 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 
 /**
  * A loaded (or freshly generated) certificate authority: its own certificate plus the private key
- * needed to sign other certificates with it. Per {@code
- * claudedocs/tls-transport-security-design.md} §3/§4/§4a/§4b, {@link #signCertificateRequest} is
- * the single signing code path shared by initial cluster bootstrap, a node joining, a newly
- * approved human operator, and certificate rotation -- those four cases are differentiated entirely
- * by who is allowed to call it and under what authentication, never by different signing code.
+ * needed to sign other certificates with it. {@link #signCertificateRequest} is the single signing
+ * code path shared by initial cluster bootstrap, a node joining, a newly approved human operator,
+ * and certificate rotation -- those four cases are differentiated entirely by who is allowed to
+ * call it and under what authentication, never by different signing code.
  */
 public final class CertificateAuthority {
 
@@ -116,8 +115,10 @@ public final class CertificateAuthority {
    * Signs {@code request} as a leaf certificate under this CA. {@code KeyUsage: digitalSignature}
    * (critical) and {@code ExtendedKeyUsage: serverAuth, clientAuth} -- every Gimlé component does
    * mTLS both as client and server, so one leaf cert covers both roles rather than splitting them
-   * the way Kubernetes' {@code kubelet-serving} vs. client certs do (a deliberate simplification,
-   * see the design doc's own note on it).
+   * the way Kubernetes' {@code kubelet-serving} vs. client certs do -- a deliberate simplification:
+   * every Gimlé component already trusts the single cluster CA regardless of role, so splitting
+   * into separate server/client certs would only double certificate management overhead without
+   * adding any real isolation.
    *
    * <p>Verifies the CSR's own signature before trusting the public key it carries -- proof the
    * requester actually holds the matching private key, not just an unverified assertion.

@@ -25,8 +25,7 @@ import org.slf4j.LoggerFactory;
  * virtual threads make blocking I/O just as cheap here, and {@link javax.net.ssl.SSLServerSocket}
  * -- the only JSSE type with this classic streams-based shape -- has no channel-based equivalent;
  * unifying on {@code Socket} lets {@link #listen} pick a plain or TLS {@link ServerSocketFactory}
- * with the accept loop and codec layer (both stream-based already) completely unchanged either way,
- * per {@code claudedocs/tls-transport-security-design.md} §2.
+ * with the accept loop and codec layer (both stream-based already) completely unchanged either way.
  */
 public final class RaftTransport implements AutoCloseable {
 
@@ -63,13 +62,12 @@ public final class RaftTransport implements AutoCloseable {
   }
 
   /**
-   * §6 rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
+   * Rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
    * picking up whatever certificate material now sits at {@code gimle.tls.certFile}/ {@code
    * keyFile} (already overwritten by the caller before this runs) via {@link
    * #serverSocketFactory()}, which already reads {@link TlsSettings#fromConfig()} fresh. New
    * connection attempts during the brief close-to-rebind window fail and should be retried by the
-   * caller; already-established connections are unaffected, per {@code
-   * claudedocs/tls-transport-security-design.md} §6.2. No-op in plaintext mode.
+   * caller; already-established connections are unaffected. No-op in plaintext mode.
    */
   public synchronized void reloadTlsMaterial() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {

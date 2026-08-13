@@ -18,8 +18,8 @@
 
   <dependencies>
     <!-- Compile-scope (not runtime-only anymore): gimle-core's own com.gimle.core.logging package
-         (log-explorer-design.md §4/§5) hand-rolls a JSON Encoder and two file Appenders directly
-         against the Logback API, plus MDC tagging via slf4j-api. gimle-core still hosts the one
+         hand-rolls a JSON Encoder and two file Appenders directly against the Logback API, plus
+         MDC tagging via slf4j-api. gimle-core still hosts the one
          central logback.xml (src/main/resources), which every module gets transitively on its
          runtime classpath without redeclaring it. -->
     <dependency>

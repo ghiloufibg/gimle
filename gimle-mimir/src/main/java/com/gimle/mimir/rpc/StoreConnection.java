@@ -16,11 +16,12 @@ import javax.net.SocketFactory;
  * The outbound side of the client-facing store RPC surface: one persistent, lazily-reconnecting
  * {@code Socket} to a single {@code StoreNode} endpoint -- structurally identical to {@link
  * com.gimle.mimir.raft.PeerConnection}, a separate copy for the same reason {@link StoreTransport}
- * is (design doc §4.3). {@code StoreClient} (not this class) owns the pool of endpoints and the
- * leader-follow-retry policy; this class only knows how to talk to the one address it was built
- * with. Any {@link IOException} closes the socket and lets the *next* call attempt reopen it, same
- * tolerance {@code PeerConnection} already accepts rather than inventing a retry-with-backoff
- * policy here too.
+ * is a separate copy of {@code RaftTransport}: the two connect to different peers over different
+ * protocols and are free to diverge. {@code StoreClient} (not this class) owns the pool of
+ * endpoints and the leader-follow-retry policy; this class only knows how to talk to the one
+ * address it was built with. Any {@link IOException} closes the socket and lets the *next* call
+ * attempt reopen it, same tolerance {@code PeerConnection} already accepts rather than inventing a
+ * retry-with-backoff policy here too.
  */
 public final class StoreConnection implements AutoCloseable {
 

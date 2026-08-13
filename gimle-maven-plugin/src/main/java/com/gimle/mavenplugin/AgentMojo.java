@@ -41,8 +41,7 @@ public final class AgentMojo extends AbstractGimleMojo {
   private String fafnirEndpoint;
 
   /**
-   * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
-   * claudedocs/tls-transport-security-design.md} §1 -- same shape as {@code
+   * Local-dev convenience for {@code gimle.transport.protocol} -- same shape as {@code
    * ControlPlaneMojo#transportProtocol}, unset by default.
    */
   @Parameter(property = "gimle.agent.transportProtocol")

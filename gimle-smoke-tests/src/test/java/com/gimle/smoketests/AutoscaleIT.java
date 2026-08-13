@@ -112,16 +112,15 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA Phase 3 continuation: the error-rate autoscaling signal under real load. {@code
-   * targetErrorRatePercent} is the one Part C signal never exercised against a real cluster before
-   * this -- request rate found a real bug (the {@code DomainCodec} truncation, see above); error
-   * rate and queue depth were still unit/integration-only. Deploys {@link
-   * #buildFaultyProviderJar()} (real {@code greet} calls, deterministically ~50% of which throw) so
-   * the fabric server's own dispatch (see {@code FabricServer#dispatch}) records real errors
-   * against the instance's own {@code WorkerMetrics} -- the actual signal {@code
-   * AutoscaleReconciler}'s {@code errorRatePercent} helper reads, not a synthetic stand-in. CPU and
-   * request-rate targets are both set unreachable so only the error-rate signal can explain a
-   * scale-up.
+   * The error-rate autoscaling signal under real load. {@code targetErrorRatePercent} is the one
+   * Part C signal never exercised against a real cluster before this -- request rate found a real
+   * bug (the {@code DomainCodec} truncation, see above); error rate and queue depth were still
+   * unit/integration-only. Deploys {@link #buildFaultyProviderJar()} (real {@code greet} calls,
+   * deterministically ~50% of which throw) so the fabric server's own dispatch (see {@code
+   * FabricServer#dispatch}) records real errors against the instance's own {@code WorkerMetrics} --
+   * the actual signal {@code AutoscaleReconciler}'s {@code errorRatePercent} helper reads, not a
+   * synthetic stand-in. CPU and request-rate targets are both set unreachable so only the
+   * error-rate signal can explain a scale-up.
    */
   @Test
   @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -194,15 +193,14 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA Phase 3 continuation: the queue-depth autoscaling signal under real load. Deploys {@link
-   * #buildSlowProviderJar()} (real {@code greet} calls, each sleeping ~300ms) and drives Gatling's
-   * <i>closed</i> injection model (see {@code GreeterAutoscaleSimulation}'s own javadoc) to hold
-   * more requests continuously in flight than {@code WorkerRuntime}'s per-module {@code
-   * BoundedModuleScheduler} concurrency bound (4) -- the only way to build a real, sustained
-   * backlog on it. {@code queueDepth} comes straight off that scheduler (see {@code
-   * WorkerMain#metricsReportLoop}), the actual signal {@code AutoscaleReconciler}'s {@code
-   * targetQueueDepth} reads. CPU, request-rate, and error-rate targets are all unreachable/absent
-   * so only the queue-depth signal can explain a scale-up.
+   * The queue-depth autoscaling signal under real load. Deploys {@link #buildSlowProviderJar()}
+   * (real {@code greet} calls, each sleeping ~300ms) and drives Gatling's <i>closed</i> injection
+   * model (see {@code GreeterAutoscaleSimulation}'s own javadoc) to hold more requests continuously
+   * in flight than {@code WorkerRuntime}'s per-module {@code BoundedModuleScheduler} concurrency
+   * bound (4) -- the only way to build a real, sustained backlog on it. {@code queueDepth} comes
+   * straight off that scheduler (see {@code WorkerMain#metricsReportLoop}), the actual signal
+   * {@code AutoscaleReconciler}'s {@code targetQueueDepth} reads. CPU, request-rate, and error-rate
+   * targets are all unreachable/absent so only the queue-depth signal can explain a scale-up.
    */
   @Test
   @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -275,15 +273,15 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * Roadmap item 10: {@code CombinationMode.WEIGHTED} under real load, blending two genuinely
-   * simultaneous signals rather than isolating one at a time the way the three scenarios above each
-   * deliberately do. Reuses {@link #buildSlowProviderJar()} and the same closed-injection
-   * concurrency Gatling drives for the queue-depth scenario above -- 20 concurrent ~300ms-each
-   * callers against a concurrency bound of 4 real, simultaneous request-rate <i>and</i> queue-depth
-   * signals, both configured with real, individually-reachable targets and different weights (queue
-   * depth weighted 3x request rate), proving the full weighted pipeline (manifest parse -&gt; wire
-   * codec -&gt; {@code AutoscaleReconciler}'s blended-ratio math) end to end against a real
-   * cluster, not just {@code AutoscaleReconcilerTest}'s in-process bypass.
+   * {@code CombinationMode.WEIGHTED} under real load, blending two genuinely simultaneous signals
+   * rather than isolating one at a time the way the three scenarios above each deliberately do.
+   * Reuses {@link #buildSlowProviderJar()} and the same closed-injection concurrency Gatling drives
+   * for the queue-depth scenario above -- 20 concurrent ~300ms-each callers against a concurrency
+   * bound of 4 real, simultaneous request-rate <i>and</i> queue-depth signals, both configured with
+   * real, individually-reachable targets and different weights (queue depth weighted 3x request
+   * rate), proving the full weighted pipeline (manifest parse -&gt; wire codec -&gt; {@code
+   * AutoscaleReconciler}'s blended-ratio math) end to end against a real cluster, not just {@code
+   * AutoscaleReconcilerTest}'s in-process bypass.
    */
   @Test
   @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)

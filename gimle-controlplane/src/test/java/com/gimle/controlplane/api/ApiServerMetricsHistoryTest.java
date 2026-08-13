@@ -49,11 +49,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * {@code GET /metrics-history/{processKind}/{processId}} (design doc Part B/O-10): a thin, {@code
- * ResourceKind.LOGS}/{@code Verb.READ}-gated proxy to Muninn's own {@code GET
- * /metrics/{processKind}/{processId}}. The plaintext-mode proxy behavior mirrors {@code
- * ApiServerLogsFallbackTest}'s own shape; the 403 case needs real TLS+RBAC, reusing {@code
- * ApiServerAuthzTest}'s own session-login/role-binding pattern.
+ * {@code GET /metrics-history/{processKind}/{processId}}: a thin, {@code ResourceKind.LOGS}/{@code
+ * Verb.READ}-gated proxy to Muninn's own {@code GET /metrics/{processKind}/{processId}}. The
+ * plaintext-mode proxy behavior mirrors {@code ApiServerLogsFallbackTest}'s own shape; the 403 case
+ * needs real TLS+RBAC, reusing {@code ApiServerAuthzTest}'s own session-login/role-binding pattern.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-controlplane-api-server-http")

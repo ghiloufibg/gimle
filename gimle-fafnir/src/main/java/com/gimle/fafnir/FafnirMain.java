@@ -98,9 +98,8 @@ public final class FafnirMain {
     FafnirServer fafnirServer = new FafnirServer(crypto, port);
     fafnirServer.start();
 
-    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
-    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
-    // simply aren't shipped anywhere.
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern --
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped anywhere.
     String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
     MuninnShipper metricsShipper =
         muninnEndpoint == null
@@ -112,8 +111,9 @@ public final class FafnirMain {
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(fafnirServer.metrics().registry());
     }
-    // Design doc Part B/O-13: a genuine RPC-serving process, unlike gimle-agent (see AgentMain's
-    // own javadoc on why it deliberately skips tracing installation). Shipped to Muninn when
+    // Tracing is installed here, unlike gimle-agent (see AgentMain's own javadoc on why it
+    // deliberately skips tracing installation), because this is a genuine RPC-serving process, not
+    // a pure supervisor. Shipped to Muninn when
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
     MuninnShipper tracesShipper =

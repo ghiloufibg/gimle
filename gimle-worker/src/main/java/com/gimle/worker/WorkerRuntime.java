@@ -199,9 +199,9 @@ public final class WorkerRuntime {
     }
     ModuleLayerHandle handle = handleOpt.get();
 
-    // Absent means the pre-P2-4 default: first tick fires one probeInterval after ACTIVE, same as
-    // every interval after it -- ProbeLoop's own back-compat overload handles that when passed
-    // probeInterval unchanged here.
+    // Absent means the no-initial-delay default: first tick fires one probeInterval after ACTIVE,
+    // same as every interval after it -- ProbeLoop's own back-compat overload handles that when
+    // passed probeInterval unchanged here.
     Duration initialDelay = descriptor.healthProbes().initialDelay().orElse(probeInterval);
 
     descriptor
@@ -240,14 +240,14 @@ public final class WorkerRuntime {
   }
 
   /**
-   * Priority-3 design doc §3a/§3b: a Job-kind module declares {@code lifecycle.jobHooks} instead of
-   * {@code health.liveness}/{@code .readiness} -- there's nothing to probe, only a unit of work to
-   * run to completion, exactly once, on its own virtual thread so a long-running (or blocking)
-   * {@link JobHooks#run} never ties up a probe-loop or control-channel thread. The result -- or a
-   * thrown exception, treated the same as an explicit {@link CompletionStatus#FAILED} -- feeds
-   * {@link ModuleController#complete}, which drives the {@code ACTIVE -&gt; COMPLETED}/{@code
-   * ACTIVE -&gt; FAILED} transition and its {@link LifecycleEvent} the same {@link
-   * #onLifecycleEvent} sink every other transition already flows through.
+   * A Job-kind module declares {@code lifecycle.jobHooks} instead of {@code health.liveness}/{@code
+   * .readiness} -- there's nothing to probe, only a unit of work to run to completion, exactly
+   * once, on its own virtual thread so a long-running (or blocking) {@link JobHooks#run} never ties
+   * up a probe-loop or control-channel thread. The result -- or a thrown exception, treated the
+   * same as an explicit {@link CompletionStatus#FAILED} -- feeds {@link ModuleController#complete},
+   * which drives the {@code ACTIVE -&gt; COMPLETED}/{@code ACTIVE -&gt; FAILED} transition and its
+   * {@link LifecycleEvent} the same {@link #onLifecycleEvent} sink every other transition already
+   * flows through.
    */
   private void runJobHooks(ModuleId id, String className, ModuleLayerHandle handle) {
     JobHooks hooks = instantiate(id, className, handle, JobHooks.class);

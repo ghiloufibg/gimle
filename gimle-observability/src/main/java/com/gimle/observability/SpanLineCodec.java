@@ -11,14 +11,13 @@ import java.util.Map;
  * Pure (no-I/O) NDJSON serialization for an exported {@link SpanData} batch -- the same no-envelope
  * JSON-line shape {@link MuninnSpanExporter} has always shipped ({@code traceId}/{@code spanId}/
  * {@code parentSpanId}/{@code name}/{@code kind}/{@code timestamp}/{@code status}, plus every span
- * attribute flattened directly onto the line), extracted here (design doc §6c) so {@code
- * gimle-worker}'s own {@code RelayingSpanExporter} -- which relays through the agent over the
- * control channel rather than shipping to Muninn directly, since workers have no outbound network
- * identity of their own -- produces byte-identical output to {@link MuninnSpanExporter}, without
- * either exporter duplicating the span-to-JSON mapping. Lives in {@code gimle-observability}, not
- * {@code gimle-worker}: unlike {@code RelayingSpanExporter} itself, this class needs no control-
- * channel dependency, only the OpenTelemetry SDK types {@code gimle-observability} already depends
- * on.
+ * attribute flattened directly onto the line), extracted here so {@code gimle-worker}'s own {@code
+ * RelayingSpanExporter} -- which relays through the agent over the control channel rather than
+ * shipping to Muninn directly, since workers have no outbound network identity of their own --
+ * produces byte-identical output to {@link MuninnSpanExporter}, without either exporter duplicating
+ * the span-to-JSON mapping. Lives in {@code gimle-observability}, not {@code gimle-worker}: unlike
+ * {@code RelayingSpanExporter} itself, this class needs no control- channel dependency, only the
+ * OpenTelemetry SDK types {@code gimle-observability} already depends on.
  */
 public final class SpanLineCodec {
 

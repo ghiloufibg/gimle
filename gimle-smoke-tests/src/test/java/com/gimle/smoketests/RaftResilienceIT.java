@@ -85,20 +85,20 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA Phase 3 continuation: failover under real *concurrent* writes, not a write submitted only
-   * after the dust settles (the test above proves the surviving majority eventually serves writes
-   * again; this proves nothing acknowledged during the transition is ever lost). A background
-   * writer thread {@code PUT}s a new, distinct tenant (a real, lightweight {@code StoreClient
-   * #propose} write against the same 3-node Raft cluster, with no scheduler/agent/worker side
-   * effects to confound the signal the way a real module deployment's placement would) roughly
-   * every 200ms, continuously, before, during, and after one store node is killed -- deliberately
-   * not targeting the leader specifically ({@code StoreRpc} deliberately doesn't expose "who is
-   * leader" to a client, see the sibling test above), since Raft's own safety guarantee (a write is
-   * only acknowledged once committed to a majority) must hold regardless of which node is lost.
-   * Every write that received a real {@code 200} is recorded; once the writer stops, this asserts
-   * three things: writes kept succeeding after the kill (real recovery under load, not just a
-   * pre-kill snapshot), and -- the actual property under test -- every single acknowledged write is
-   * still durably readable afterward, none silently lost.
+   * Failover under real *concurrent* writes, not a write submitted only after the dust settles (the
+   * test above proves the surviving majority eventually serves writes again; this proves nothing
+   * acknowledged during the transition is ever lost). A background writer thread {@code PUT}s a
+   * new, distinct tenant (a real, lightweight {@code StoreClient #propose} write against the same
+   * 3-node Raft cluster, with no scheduler/agent/worker side effects to confound the signal the way
+   * a real module deployment's placement would) roughly every 200ms, continuously, before, during,
+   * and after one store node is killed -- deliberately not targeting the leader specifically
+   * ({@code StoreRpc} deliberately doesn't expose "who is leader" to a client, see the sibling test
+   * above), since Raft's own safety guarantee (a write is only acknowledged once committed to a
+   * majority) must hold regardless of which node is lost. Every write that received a real {@code
+   * 200} is recorded; once the writer stops, this asserts three things: writes kept succeeding
+   * after the kill (real recovery under load, not just a pre-kill snapshot), and -- the actual
+   * property under test -- every single acknowledged write is still durably readable afterward,
+   * none silently lost.
    */
   @Test
   @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -193,7 +193,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * Etcd-style live membership change (P1-5, {@code StoreClient#addServer}/{@code removeServer}),
+   * Etcd-style live membership change ({@code StoreClient#addServer}/{@code removeServer}),
    * exercised for the first time against real {@code StoreMain} processes talking real wire
    * protocol -- every existing coverage of this (e.g. {@code RaftMembershipChangeTest},
    * RaftClusterTest's own membership-change tests) constructs {@code RaftNode} directly in-process.
@@ -203,9 +203,9 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
    * only after the join, then removed again the same way, proven by a third deployment submitted
    * only after the removal. Deliberately removes the node it just added rather than one of the
    * original three: {@code RaftNode} has no dedicated handling for a leader removing itself from
-   * its own membership (a real, harder Raft edge case -- see the design's own single-server-change
-   * safety rule in {@code pendingMembershipChangeIndex}'s javadoc), and the freshly-joined follower
-   * is, by construction, never the leader (it joins well after the bootstrap cluster's own election
+   * its own membership (a real, harder Raft edge case -- see the single-server-change safety rule
+   * in {@code pendingMembershipChangeIndex}'s javadoc), and the freshly-joined follower is, by
+   * construction, never the leader (it joins well after the bootstrap cluster's own election
    * already settled, and nothing about a plain {@code addServer} triggers a new one) -- so this
    * proves the addServer/removeServer roundtrip itself without also gambling on that untested edge
    * case within the same run.

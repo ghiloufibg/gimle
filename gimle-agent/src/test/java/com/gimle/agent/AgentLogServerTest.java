@@ -28,9 +28,8 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 /**
- * Contract test for the agent's log-serving HTTP surface -- {@code log-explorer-design.md}
- * &sect;6's per-node half. Verifies the JSON shapes {@code src/repositories/http/logs.ts} and
- * {@code gimle-cli}'s {@code LogsCommand} both need.
+ * Contract test for the agent's log-serving HTTP surface's per-node half. Verifies the JSON shapes
+ * {@code src/repositories/http/logs.ts} and {@code gimle-cli}'s {@code LogsCommand} both need.
  *
  * <p><b>{@code follow=true} is deliberately not exercised here.</b> Investigated at length while
  * building this: a genuinely long-blocking/chunked HTTP read against this server only works

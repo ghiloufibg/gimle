@@ -24,9 +24,9 @@ import org.junit.jupiter.api.parallel.Resources;
 import org.slf4j.LoggerFactory;
 
 /**
- * Verifies &sect;-mirroring-kubelet log rotation (size+count bounded, no time-based retention) and
- * that {@link LogFileReader}'s timestamp cursor keeps resolving correctly once a rollover has
- * happened -- the property a byte-offset/file-index cursor would have silently broken (see {@link
+ * Verifies kubelet-style log rotation (size+count bounded, no time-based retention) and that {@link
+ * LogFileReader}'s timestamp cursor keeps resolving correctly once a rollover has happened -- the
+ * property a byte-offset/file-index cursor would have silently broken (see {@link
  * RollingFileAppenders}'s javadoc).
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with

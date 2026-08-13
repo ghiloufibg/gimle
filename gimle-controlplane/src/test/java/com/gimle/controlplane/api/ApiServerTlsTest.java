@@ -38,7 +38,7 @@ import org.junit.jupiter.api.parallel.Resources;
  * HttpsServer} with real mTLS -- a real HTTPS request over loopback with a real, CA-signed client
  * certificate, not just "the code compiles." Real certificate material comes from {@code
  * gimle-pki}, a real (main-scope) dependency of this module since the control plane now signs CSRs
- * itself (design doc §4).
+ * itself.
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with
 // any other class holding the same lock, under class-level parallel execution (root pom.xml).

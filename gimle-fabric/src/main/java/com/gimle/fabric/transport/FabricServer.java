@@ -50,8 +50,7 @@ import org.slf4j.LoggerFactory;
 /**
  * The receiving side of a cross-hop service call: accepts already-connected byte channels -- one
  * {@code ServerSocketChannel} bound to a {@link UnixDomainSocketAddress} for the same-machine tier
- * (always plaintext -- kernel-mediated, never leaves the machine, per {@code
- * claudedocs/tls-transport-security-design.md} §1's own table), another bound to a TCP {@link
+ * (always plaintext -- kernel-mediated, never leaves the machine), another bound to a TCP {@link
  * java.net.InetSocketAddress} for the cross-machine tier, gated on {@link
  * TransportProtocol#fromConfig()} between a plain {@code ServerSocketChannel} and a TLS {@link
  * SSLServerSocket} (the same reasoning and code shape as {@code RaftTransport}'s own swap, since
@@ -155,14 +154,15 @@ public final class FabricServer implements AutoCloseable {
   }
 
   /**
-   * §6 rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
+   * Rotation hot-swap: closes and rebinds every currently open TLS listener at the same address,
    * picking up whatever certificate material now sits at {@code gimle.tls.certFile}/ {@code
    * keyFile} via {@link #listenTls}, which already reads {@link TlsSettings#fromConfig()} fresh.
    * Never touches the always-plaintext Unix-domain-socket listener -- distinguishable in {@link
    * #listeners} by {@code instanceof SSLServerSocket}, since a UDS {@link ServerSocketChannel}
    * never is one. New connection attempts during the brief close-to-rebind window fail and should
-   * be retried by the caller; already-established connections are unaffected, per {@code
-   * claudedocs/tls-transport-security-design.md} §6.2. No-op in plaintext mode.
+   * be retried by the caller; already-established connections hold their own accepted {@code
+   * Socket}, independent of the listening {@link SSLServerSocket} being closed and rebound, so they
+   * are unaffected. No-op in plaintext mode.
    */
   public synchronized void reloadTlsMaterial() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
@@ -388,8 +388,8 @@ public final class FabricServer implements AutoCloseable {
   /**
    * Builds the {@link Context} that becomes current for the duration of one dispatched call -- the
    * new child span layered on top of a base context that already carries the caller's {@code
-   * baggage} (P2-10), so {@code invokeLocally}'s handler sees both {@link Span#current()} and
-   * {@link Baggage#current()} exactly as the caller had them, not just the span.
+   * baggage}, so {@code invokeLocally}'s handler sees both {@link Span#current()} and {@link
+   * Baggage#current()} exactly as the caller had them, not just the span.
    */
   private Context startChildSpanContext(FabricFrame.InvokeRequest request) {
     var trace = request.trace();

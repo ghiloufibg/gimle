@@ -25,13 +25,13 @@ import org.junit.jupiter.api.Timeout;
 class QuotaIT extends GreeterSmokeClusterSupport {
 
   /**
-   * QA hardening pass, Phase 3 continuation: {@code QuotaReconciler}'s own class javadoc states it
-   * deliberately never evicts instances to force compliance, only surfaces a quota violation for a
-   * human operator to resolve -- covered at the reconciler-unit tier ({@code QuotaReconcilerTest}),
-   * but nothing previously proved this against a real running deployment. A tenant's quota is
-   * retroactively lowered below what's already running (the exact scenario that reconciler's own
-   * javadoc names), and this asserts both halves: the violation becomes visible on the real API
-   * surface, and the already-running instance is never touched.
+   * {@code QuotaReconciler}'s own class javadoc states it deliberately never evicts instances to
+   * force compliance, only surfaces a quota violation for a human operator to resolve -- covered at
+   * the reconciler-unit tier ({@code QuotaReconcilerTest}), but nothing previously proved this
+   * against a real running deployment. A tenant's quota is retroactively lowered below what's
+   * already running (the exact scenario that reconciler's own javadoc names), and this asserts both
+   * halves: the violation becomes visible on the real API surface, and the already-running instance
+   * is never touched.
    */
   @Test
   @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -81,9 +81,9 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     // that the flag can be set.
     Thread.sleep(Duration.ofSeconds(5).toMillis());
     // A single isActive() read can be a false negative under heavy sandbox load (a momentary
-    // heartbeat/store-read staleness -- see FLAKY_TESTS.md's own recurring theme -- not a real
-    // eviction), so require the reading to recover within a short confirmation window before
-    // concluding anything was actually touched: a genuine eviction (the instance actually stopped,
+    // heartbeat/store-read staleness, not a real eviction), so require the reading to recover
+    // within a short confirmation window before concluding anything was actually touched: a
+    // genuine eviction (the instance actually stopped,
     // never restarted, per QuotaReconciler's own never-evict-never-restart contract) would stay
     // non-ACTIVE throughout this whole window, not just the original single sample.
     boolean confirmedActive = false;
@@ -100,16 +100,15 @@ class QuotaIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * QA Phase 3 continuation: the admission-time counterpart to the flag-but-don't-evict scenario
-   * above. {@code ApiServer#checkTenantQuota} is a real, already-implemented 409 rejection at
-   * submission time -- distinct from {@code QuotaReconciler}'s own after-the-fact flag for a quota
-   * lowered *below* what's already running -- but nothing previously proved it against a real
-   * cluster either. A tenant's quota is sized to fit exactly one {@code greeter-provider} replica
-   * (32Mi/20m request, see its {@code gimle-module.yaml}) and no more; a second deployment for the
-   * same tenant is submitted once the first is already {@code ACTIVE}, and this asserts the
-   * rejection is real (409, the deployment never created at all -- {@code GET /deployments/*}
-   * returns 404, not an empty/pending record) and that it never touched the first, already-running
-   * deployment.
+   * The admission-time counterpart to the flag-but-don't-evict scenario above. {@code
+   * ApiServer#checkTenantQuota} is a real, already-implemented 409 rejection at submission time --
+   * distinct from {@code QuotaReconciler}'s own after-the-fact flag for a quota lowered *below*
+   * what's already running -- but nothing previously proved it against a real cluster either. A
+   * tenant's quota is sized to fit exactly one {@code greeter-provider} replica (32Mi/20m request,
+   * see its {@code gimle-module.yaml}) and no more; a second deployment for the same tenant is
+   * submitted once the first is already {@code ACTIVE}, and this asserts the rejection is real
+   * (409, the deployment never created at all -- {@code GET /deployments/*} returns 404, not an
+   * empty/pending record) and that it never touched the first, already-running deployment.
    */
   @Test
   @Timeout(value = 4, unit = java.util.concurrent.TimeUnit.MINUTES)

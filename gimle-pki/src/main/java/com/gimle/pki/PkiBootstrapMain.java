@@ -23,9 +23,9 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
  * brand-new cluster needs to start in {@code gimle.transport.protocol=tls} mode: the self-signed
  * cluster CA, the control plane's own leaf certificate, Fafnir's and Muninn's own leaf
  * certificates, and the first human operator's leaf certificate. A node agent deliberately gets
- * nothing here -- it obtains its own certificate later, live, via {@code
- * claudedocs/tls-transport-security-design.md} §4's CSR bootstrap flow, the same reason {@code
- * gimle-worker} never depends on this module at all.
+ * nothing here -- it obtains its own certificate later, live, via the CSR bootstrap flow ({@link
+ * CertificateSigningRequests}/{@link OwnCertificateRotator}), the same reason {@code gimle-worker}
+ * never depends on this module at all.
  *
  * <p>Known limitation: the control plane's leaf SAN only carries DNS names (this module's {@link
  * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a control plane reached by
@@ -60,10 +60,10 @@ public final class PkiBootstrapMain {
     issueLeaf(outputDir, ca, "controlplane", "CN=" + hostname, List.of(hostname, "localhost"));
     // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
     // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
-    // local dev, per that class's own code comment) -- see PROJECT design doc §6f: every action
-    // Fafnir takes being attributable to its own certificate Subject, not a borrowed one, is
-    // directly load-bearing for its audit story, since it's the one component whose entire job is
-    // being the trust boundary for secret material.
+    // local dev, per that class's own code comment): every action Fafnir takes being attributable
+    // to its own certificate Subject, not a borrowed one, is directly load-bearing for its audit
+    // story, since it's the one component whose entire job is being the trust boundary for secret
+    // material.
     issueLeaf(outputDir, ca, "fafnir", "CN=" + hostname, List.of(hostname, "localhost"));
     // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
     // own independent Authorizer.authorize(...) check on every proxied read rather than trusting

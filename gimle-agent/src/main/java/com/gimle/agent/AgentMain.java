@@ -152,8 +152,7 @@ public final class AgentMain {
     URI fafnirBaseUrl =
         fafnirEndpoint == null ? null : URI.create((baseUrl.getScheme()) + "://" + fafnirEndpoint);
     // Same optional-system-property posture as gimle.agent.fafnirEndpoint above: null means "ship
-    // nowhere," and local-only tailing via AgentLogServer keeps working entirely unchanged --
-    // design doc Part B/O-10.
+    // nowhere," and local-only tailing via AgentLogServer keeps working entirely unchanged.
     String muninnEndpoint = System.getProperty("gimle.agent.muninnEndpoint");
 
     System.setProperty("gimle.process.role", "AGENT");
@@ -161,9 +160,9 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
-    // One Timer/Counter pair around this agent's own tick body (design doc Part B/O-10) --
-    // constructed unconditionally (cheap, in-memory-only unless shipped) so #agentTick can record
-    // into it regardless of whether muninnEndpoint is configured.
+    // One Timer/Counter pair around this agent's own tick body -- constructed unconditionally
+    // (cheap, in-memory-only unless shipped) so #agentTick can record into it regardless of
+    // whether muninnEndpoint is configured.
     AgentMetrics agentMetrics = new AgentMetrics();
 
     if (muninnEndpoint != null) {
@@ -185,8 +184,8 @@ public final class AgentMain {
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
-    // StatefulSet-kind persistent storage (priority-3 design doc §5a) -- a sibling data root to
-    // gimle.log.root above, defaulting alongside it rather than under it, matching the same
+    // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
+    // defaulting alongside it rather than under it, matching the same
     // "own top-level directory, own property" convention gimle.log.root itself established.
     VolumeManager volumeManager =
         new LocalDiskVolumeManager(Path.of(System.getProperty("gimle.data.root", "gimle-data")));
@@ -201,8 +200,8 @@ public final class AgentMain {
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
     // Keyed by the worker-JVM-generated Hello#workerId, NOT by the agent-side instance key
     // instanceShippers above uses -- one metrics shipper and one traces shipper per worker
-    // *process* (design doc §6b), established the moment that worker's Hello arrives (readLoop)
-    // and closed when the last SupervisedInstance sharing its connection is torn down
+    // *process*, established the moment that worker's Hello arrives (readLoop) and closed when
+    // the last SupervisedInstance sharing its connection is torn down
     // (stopInstance). Empty (never populated) when muninnEndpoint is unset, same as
     // instanceShippers.
     Map<String, WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
@@ -344,7 +343,7 @@ public final class AgentMain {
     return labels;
   }
 
-  // ---- TLS bootstrap (§4) and rotation (§4b) ----
+  // ---- TLS bootstrap and rotation ----
 
   private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
@@ -363,12 +362,11 @@ public final class AgentMain {
   /**
    * On first startup with {@code gimle.transport.protocol=tls} and no local cert/key files present
    * yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap token
-   * an operator provisioned this agent with) to {@code POST /bootstrap/csr}, per {@code
-   * claudedocs/tls-transport-security-design.md} §4. Reachable over server-authenticated-only TLS
-   * (the agent already has {@code gimle.tls.caFile}, handed to it out of band -- same as every
-   * other {@code gimle.tls.*} property -- so it can verify the control plane's identity before it
-   * has one of its own). No-op if the cert/key files already exist (a redeploy of an
-   * already-bootstrapped node) or if TLS isn't enabled at all.
+   * an operator provisioned this agent with) to {@code POST /bootstrap/csr}. Reachable over
+   * server-authenticated-only TLS (the agent already has {@code gimle.tls.caFile}, handed to it out
+   * of band -- same as every other {@code gimle.tls.*} property -- so it can verify the control
+   * plane's identity before it has one of its own). No-op if the cert/key files already exist (a
+   * redeploy of an already-bootstrapped node) or if TLS isn't enabled at all.
    */
   private static void bootstrapCertificateIfNeeded(String nodeId, URI baseUrl)
       throws IOException, InterruptedException {
@@ -420,7 +418,7 @@ public final class AgentMain {
   }
 
   /**
-   * §6's "did rotation actually happen this tick" signal: {@code rotateCertificateIfDue} has three
+   * The "did rotation actually happen this tick" signal: {@code rotateCertificateIfDue} has three
    * distinct not-rotated exits (plaintext, not due, request failed) plus one success exit, and the
    * caller needs to tell them apart to know whether to also refresh {@code gossipMember}'s own DTLS
    * material -- a raw {@link HttpClient} return gives no such signal.
@@ -428,10 +426,10 @@ public final class AgentMain {
   private record RotationOutcome(HttpClient httpClient, boolean rotated) {}
 
   /**
-   * Checked once per tick (§4b): if the agent's currently-loaded leaf certificate is due for
-   * renewal, submits a same-subject/fresh-key-pair rotation CSR over its *current* (still-valid)
-   * mTLS connection, writes the new cert/key, and returns a freshly-built {@link HttpClient} for
-   * the caller to use from then on -- unlike {@code ApiServer}, the agent isn't a TLS *server*
+   * Checked once per tick: if the agent's currently-loaded leaf certificate is due for renewal,
+   * submits a same-subject/fresh-key-pair rotation CSR over its *current* (still-valid) mTLS
+   * connection, writes the new cert/key, and returns a freshly-built {@link HttpClient} for the
+   * caller to use from then on -- unlike {@code ApiServer}, the agent isn't a TLS *server*
    * anywhere, so "hot-swap" here is just handing back a new outbound client, not the JDK
    * listening-socket rebuild {@code ApiServer#reloadTlsMaterial} needs. Returns {@code current}
    * unchanged (no-op) in plaintext mode, when not yet due, or if the rotation request fails --
@@ -469,8 +467,8 @@ public final class AgentMain {
         return new RotationOutcome(current, false);
       }
       CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-      // Key written *before* cert, deliberately: gimle-worker's FabricServerTlsWatcher (§6.2)
-      // polls only certFile's mtime to detect a rotation happened, from a separate process with no
+      // Key written *before* cert, deliberately: gimle-worker's FabricServerTlsWatcher polls
+      // only certFile's mtime to detect a rotation happened, from a separate process with no
       // synchronization with this one. Writing the key first guarantees that by the time the
       // watcher ever observes certFile's mtime move, the matching key is already fully on disk --
       // otherwise a poll landing between the two writes could pair a fresh cert with the stale key.
@@ -603,9 +601,9 @@ public final class AgentMain {
   static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
     // alive is an EXCLUSION check ("not known-crashed"), not an inclusion check ("is one of the
-    // states I expect") -- deliberately, so a COMPLETED job (priority-3 design doc §3b) already
-    // reports alive=true without this line needing to change: a successfully finished Job is not a
-    // crash HealthReconciler should reschedule. Rewriting this as an inclusion list (e.g.
+    // states I expect") -- deliberately, so a COMPLETED job already reports alive=true without
+    // this line needing to change: a successfully finished Job is not a crash HealthReconciler
+    // should reschedule. Rewriting this as an inclusion list (e.g.
     // "ACTIVE".equals(state) || "COMPLETED".equals(state)) would silently break for the next
     // terminal state this file doesn't yet know about -- keep it an exclusion check.
     boolean alive = !"FAILED".equals(state);
@@ -661,8 +659,8 @@ public final class AgentMain {
    * by {@code ApiServer}: {@code GET /config/{tenantId}} returns every {@code ConfigEntry} for that
    * tenant, both plaintext and any legacy {@code encrypted=true} entry (unchanged from before
    * Fafnir's own extraction). Fafnir's own synthetic {@code key@meta}/{@code key@N}
-   * secret-versioning entries are filtered out of this endpoint's response server-side (design doc
-   * §6e) -- {@link #fetchSecretsForTenant} is the only path that ever returns them.
+   * secret-versioning entries are filtered out of this endpoint's response server-side -- {@link
+   * #fetchSecretsForTenant} is the only path that ever returns them.
    */
   private static List<ConfigValue> fetchConfigForTenant(
       HttpClient httpClient, URI baseUrl, String tenantId)
@@ -685,13 +683,13 @@ public final class AgentMain {
   }
 
   /**
-   * Fetches this tenant's Fafnir-native secrets (design doc §9, §11 Phase C) -- talked to directly,
-   * over this agent's own mTLS node identity, never relayed through the control plane: Fafnir
-   * authorizes the request itself, scoped to tenants this node actually has an active assignment
-   * for ({@code FafnirServer}'s own node-tenant-scoping check), rather than trusting anything the
-   * control plane might have forwarded. Soft-deleted secrets are skipped (§7d: a soft-deleted
-   * secret's latest-version read returns 404, exactly the shape a real deletion should have from a
-   * consuming instance's point of view).
+   * Fetches this tenant's Fafnir-native secrets -- talked to directly, over this agent's own mTLS
+   * node identity, never relayed through the control plane: Fafnir authorizes the request itself,
+   * scoped to tenants this node actually has an active assignment for ({@code FafnirServer}'s own
+   * node-tenant-scoping check), rather than trusting anything the control plane might have
+   * forwarded. Soft-deleted secrets are skipped (a soft-deleted secret's latest-version read
+   * returns 404, exactly the shape a real deletion should have from a consuming instance's point of
+   * view).
    */
   private static List<ConfigValue> fetchSecretsForTenant(
       HttpClient httpClient, URI fafnirBaseUrl, String tenantId)
@@ -1010,11 +1008,11 @@ public final class AgentMain {
 
   /**
    * Relays a {@link CrashInfo} classification to every {@code SupervisedInstance} the crashed
-   * worker hosted -- under Tier 1 density (P1-5) that can be more than one, all sharing the same
-   * {@link WorkerProcessSupervisor}, so this can't just look up {@code spawnedWorkerId} alone.
-   * Reuses {@link InstanceEventKind#TRANSITION_FAILED} rather than a new kind: adding {@code
-   * CRASHED} would break the documented 1:1 mirror with {@code gimle-module}'s own {@code
-   * LifecycleEvent} variants for no benefit a {@code causeSummary} doesn't already give a reader.
+   * worker hosted -- under Tier 1 density that can be more than one, all sharing the same {@link
+   * WorkerProcessSupervisor}, so this can't just look up {@code spawnedWorkerId} alone. Reuses
+   * {@link InstanceEventKind#TRANSITION_FAILED} rather than a new kind: adding {@code CRASHED}
+   * would break the documented 1:1 mirror with {@code gimle-module}'s own {@code LifecycleEvent}
+   * variants for no benefit a {@code causeSummary} doesn't already give a reader.
    */
   private static void onWorkerCrash(
       CrashInfo crash,
@@ -1092,13 +1090,13 @@ public final class AgentMain {
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
     baseCommand.add(LEAK_DETECTION_JFR_FLAG);
-    // P2-3: makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather
-    // than indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
+    // Makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather than
+    // indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
     // classification depends on this being set on every worker, unconditionally.
     baseCommand.add("-XX:+ExitOnOutOfMemoryError");
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
-    // P2-17: forwarded unconditionally (defaulting to this agent's own unset-property "false")
-    // rather than only when explicitly set, so every worker this agent spawns gets an explicit,
+    // Forwarded unconditionally (defaulting to this agent's own unset-property "false") rather
+    // than only when explicitly set, so every worker this agent spawns gets an explicit,
     // consistent value instead of silently inheriting whatever WorkerMain's own default happens
     // to be.
     baseCommand.add(
@@ -1168,10 +1166,10 @@ public final class AgentMain {
    * only difference is whether the connection was just accepted or already open.
    *
    * <p>Also the single choke point that resolves this instance's persistent volume, if its
-   * descriptor declares one (priority-3 design doc §5a) -- {@code allocateVolumeIfNeeded} runs
-   * before {@code ResolveModule} is built, since that message is what carries the resolved host
-   * path down to the worker, which needs it no later than {@code resolve()} time (the worker's own
-   * {@code ModuleContext} is created there, before {@code onInstall} fires).
+   * descriptor declares one -- {@code allocateVolumeIfNeeded} runs before {@code ResolveModule} is
+   * built, since that message is what carries the resolved host path down to the worker, which
+   * needs it no later than {@code resolve()} time (the worker's own {@code ModuleContext} is
+   * created there, before {@code onInstall} fires).
    */
   private static void sendInstallStartSequence(
       SupervisedInstance instance,
@@ -1233,11 +1231,11 @@ public final class AgentMain {
 
   /**
    * Plain config still comes from {@code ApiServer}'s own {@code /config/{tenantId}}, decrypted
-   * server-side exactly as before (design doc §11, Phase C: "only where decryption happens
-   * changes") -- unaffected by this split. Secret values, by contrast, are fetched directly from
-   * Fafnir, authorized by this agent's own node identity certificate rather than relayed through
-   * the control plane, so a compromised or buggy control-plane replica is never in a position to
-   * see a decrypted secret value pass through it. {@code fafnirBaseUrl} is {@code null} when {@code
+   * server-side exactly as before -- unaffected by this split, since only where decryption happens
+   * changed, not this call. Secret values, by contrast, are fetched directly from Fafnir,
+   * authorized by this agent's own node identity certificate rather than relayed through the
+   * control plane, so a compromised or buggy control-plane replica is never in a position to see a
+   * decrypted secret value pass through it. {@code fafnirBaseUrl} is {@code null} when {@code
    * -Dgimle.agent.fafnirEndpoint} was never configured -- instances still start, simply without any
    * secret values delivered, exactly like a tenant that never uses secrets.
    */
@@ -1495,8 +1493,8 @@ public final class AgentMain {
       } catch (IOException e) {
         log.warn("failed to close control channel server for instance {}: {}", key, e.getMessage());
       }
-      // The worker-scoped metrics/traces shipper pair (design doc §6b) survives as long as any
-      // instance still shares this worker's connection under Tier 1 density -- only tear it down
+      // The worker-scoped metrics/traces shipper pair survives as long as any instance still
+      // shares this worker's connection under Tier 1 density -- only tear it down
       // the same tick the worker process itself is going away. instance.fabricWorkerId is null for
       // a worker that never completed its Hello handshake (e.g. it crashed before connecting), in
       // which case nothing was ever started to stop.
@@ -1557,12 +1555,12 @@ public final class AgentMain {
 
   /**
    * Establishes this worker JVM's own metrics/traces shipper pair the moment its {@code Hello}
-   * arrives (design doc §6b/§6d) -- a no-op when {@code muninnEndpoint} is unset, or when {@code
-   * workerId} already has a pair (Tier 1 density: a second/third instance sharing this already-
-   * connected worker never sends a second {@code Hello}, so this only ever fires once per worker
-   * process). {@code processId} matches {@code MuninnServer}'s own {@code {nodeId}:{workerId}}
-   * shape for the new {@code WORKER} processKind (§6b) -- worker JVMs have no {@code host:port} of
-   * their own the way ControlPlane/Fafnir/Mimir/Agent do.
+   * arrives -- a no-op when {@code muninnEndpoint} is unset, or when {@code workerId} already has a
+   * pair (Tier 1 density: a second/third instance sharing this already-connected worker never sends
+   * a second {@code Hello}, so this only ever fires once per worker process). {@code processId}
+   * matches {@code MuninnServer}'s own {@code {nodeId}:{workerId}} shape for the new {@code WORKER}
+   * processKind -- worker JVMs have no {@code host:port} of their own the way
+   * ControlPlane/Fafnir/Mimir/Agent do.
    */
   static void startShippingWorkerMetricsAndTraces(
       String muninnEndpoint,
@@ -1595,10 +1593,10 @@ public final class AgentMain {
   }
 
   /**
-   * The metrics/traces shipper pair for one worker JVM (design doc §6b/§6d) -- unlike {@code
-   * instanceShippers}' {@code List<MuninnShipper>}, a named pair so {@code readLoop}'s relay cases
-   * can route a {@code MetricsSnapshot} vs. a {@code TracesSnapshot} to the right one without a
-   * fragile positional index.
+   * The metrics/traces shipper pair for one worker JVM -- unlike {@code instanceShippers}' {@code
+   * List<MuninnShipper>}, a named pair so {@code readLoop}'s relay cases can route a {@code
+   * MetricsSnapshot} vs. a {@code TracesSnapshot} to the right one without a fragile positional
+   * index.
    */
   record WorkerShipperPair(MuninnShipper metrics, MuninnShipper traces) implements AutoCloseable {
     @Override

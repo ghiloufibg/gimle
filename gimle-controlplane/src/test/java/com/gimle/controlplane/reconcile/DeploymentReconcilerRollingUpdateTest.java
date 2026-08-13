@@ -26,10 +26,10 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Phase 4 §9's rolling-update behavior, layered onto {@link DeploymentReconciler}'s existing
- * convergence loop: one in-flight index replacement at a time, state that survives a reconciler
- * restart because it's read back from disk rather than kept only in memory, and a rollout that
- * never sees its new index turn ready stalling in place without touching other indices.
+ * The rolling-update behavior, layered onto {@link DeploymentReconciler}'s existing convergence
+ * loop: one in-flight index replacement at a time, state that survives a reconciler restart because
+ * it's read back from disk rather than kept only in memory, and a rollout that never sees its new
+ * index turn ready stalling in place without touching other indices.
  */
 class DeploymentReconcilerRollingUpdateTest {
 
@@ -195,13 +195,13 @@ class DeploymentReconcilerRollingUpdateTest {
   }
 
   /**
-   * QA Phase 3 finding: a real node agent that has fetched a rolled-forward assignment but hasn't
-   * actually replaced the worker yet (or -- the real bug this reproduces -- never will, see {@code
-   * AgentMain#requiresReplacement}) can still be mid-heartbeat-cycle reporting the OLD instance as
-   * {@code ready} for that exact index. {@code isReady} must reject that stale-but-present
-   * observation by its {@code moduleId}, not just its {@code ready} flag, or {@link
-   * DeploymentReconciler#handleRollingUpdate} would clear {@code rollingIndex} and move on to
-   * migrating the next index while the first one is still silently running old code.
+   * A regression this test guards against: a real node agent that has fetched a rolled-forward
+   * assignment but hasn't actually replaced the worker yet (or -- the real bug this reproduces --
+   * never will, see {@code AgentMain#requiresReplacement}) can still be mid-heartbeat-cycle
+   * reporting the OLD instance as {@code ready} for that exact index. {@code isReady} must reject
+   * that stale-but-present observation by its {@code moduleId}, not just its {@code ready} flag, or
+   * {@link DeploymentReconciler#handleRollingUpdate} would clear {@code rollingIndex} and move on
+   * to migrating the next index while the first one is still silently running old code.
    */
   @Test
   void a_ready_observation_still_reporting_the_old_module_id_does_not_clear_the_rollout() {

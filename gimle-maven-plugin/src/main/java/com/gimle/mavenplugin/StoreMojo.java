@@ -9,9 +9,9 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 
 /**
  * {@code mvn gimle:store} -- launches a real {@code StoreMain} process using {@code gimle-mimir}'s
- * own resolved runtime classpath: the Raft-replicated state store as its own process
- * (etcd-store-extraction design doc), what {@code mvn gimle:controlplane} used to embed directly
- * before the split. No-ops in every other reactor module (see {@link AbstractGimleMojo}).
+ * own resolved runtime classpath: the Raft-replicated state store as its own process, what {@code
+ * mvn gimle:controlplane} used to embed directly before the split. No-ops in every other reactor
+ * module (see {@link AbstractGimleMojo}).
  */
 @Mojo(name = "store", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class StoreMojo extends AbstractGimleMojo {

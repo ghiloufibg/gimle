@@ -38,10 +38,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * §4's node-join flow end to end: a brand-new agent with no pre-provisioned certificate, given only
+ * The node-join flow end to end: a brand-new agent with no pre-provisioned certificate, given only
  * a bootstrap token and the CA cert, ends up with a real CA-signed certificate and can complete a
- * full mTLS handshake against the control plane afterward. Plus the negative cases §5 item 5 calls
- * for: an invalid token is rejected, and a token already consumed once cannot be replayed into
+ * full mTLS handshake against the control plane afterward. Plus the negative cases that matter
+ * here: an invalid token is rejected, and a token already consumed once cannot be replayed into
  * minting a second certificate.
  */
 // System.setProperty mutates a JVM-global; excludes this class from running concurrently with

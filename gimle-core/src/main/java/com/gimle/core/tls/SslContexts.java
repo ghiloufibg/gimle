@@ -23,9 +23,8 @@ import javax.net.ssl.TrustManagerFactory;
  * certificate and private key as the {@code KeyManager} side (what it presents to peers), and the
  * shared cluster CA as the sole {@code TrustManager} entry (what it accepts from peers). Pure
  * public JDK API only -- unlike {@code gimle-pki}'s certificate *generation*, *loading*
- * already-issued material needs no Bouncy Castle, per {@code
- * claudedocs/tls-transport-security-design.md} §3's own point that only issuance was ever the JDK's
- * gap.
+ * already-issued material needs no Bouncy Castle: the JDK's standard library has always been able
+ * to parse existing certificates and PKCS#8 keys, the gap was only ever in generating new ones.
  *
  * <p>Returns a context with both key and trust managers initialized; every caller (API server, Raft
  * peer RPC, fabric cross-machine) still owns the decision to set {@code needClientAuth}/ {@code
@@ -55,12 +54,11 @@ public final class SslContexts {
   }
 
   /**
-   * Trust-the-server-only, present-nothing-as-a-client -- for the two call sites in {@code
-   * claudedocs/tls-transport-security-design.md} §4/§4a that genuinely have no certificate yet: an
-   * agent's very first CSR submission, and {@code gimle cert request} for a brand-new human
-   * operator. Both still need to verify *the control plane's* identity (it already has a leaf cert
-   * signed by the cluster CA by the time either of these ever runs), just not present one of their
-   * own.
+   * Trust-the-server-only, present-nothing-as-a-client -- for the two call sites that genuinely
+   * have no certificate yet: an agent's very first CSR submission, and {@code gimle cert request}
+   * for a brand-new human operator. Both still need to verify *the control plane's* identity (it
+   * already has a leaf cert signed by the cluster CA by the time either of these ever runs), just
+   * not present one of their own.
    */
   public static SSLContext forServerTrustOnly(Path caFile) {
     try {
@@ -140,7 +138,7 @@ public final class SslContexts {
     }
     byte[] encoded = Base64.getDecoder().decode(base64.toString());
     try {
-      // The design's leaf certificates are always RSA-signed (SHA256withRSA, see gimle-pki's
+      // This project's leaf certificates are always RSA-signed (SHA256withRSA, see gimle-pki's
       // CertificateAuthority), so the private key being loaded back is always an RSA key too.
       KeyFactory keyFactory = KeyFactory.getInstance("RSA");
       return keyFactory.generatePrivate(new PKCS8EncodedKeySpec(encoded));

@@ -12,9 +12,9 @@ import java.nio.file.Path;
  * to a loopback ephemeral port -- backing a ready {@link FafnirClient}, the same "real but
  * embedded" fixture shape {@link InProcessStore} already established for {@code gimle-mimir}. Every
  * {@code ApiServer} test that touches encrypted config now needs one of these, since {@code
- * ApiServer} itself no longer does any crypto in-process (design doc Phase A) -- a genuine HTTP
- * round trip happens on every encrypt/decrypt/rotate call, just to a same-JVM, loopback-bound
- * server rather than a separately-deployed process.
+ * ApiServer} itself no longer does any crypto in-process -- a genuine HTTP round trip happens on
+ * every encrypt/decrypt/rotate call, just to a same-JVM, loopback-bound server rather than a
+ * separately-deployed process.
  */
 public final class InProcessFafnir implements AutoCloseable {
 

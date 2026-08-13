@@ -10,10 +10,10 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 /**
  * {@code mvn gimle:controlplane} -- launches a real {@code ControlPlaneMain} process using {@code
  * gimle-controlplane}'s own resolved runtime classpath. Talks to a {@code gimle-mimir} store
- * cluster over the network rather than embedding one (etcd-store-extraction design doc) -- {@code
- * gimle.controlplane.storeEndpoints} defaults to {@code gimle:store}'s own default client port, and
- * {@code gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, so
- * the three goals keep working together with zero extra flags for single-node local dev. No-ops in
+ * cluster over the network rather than embedding one -- {@code gimle.controlplane.storeEndpoints}
+ * defaults to {@code gimle:store}'s own default client port, and {@code
+ * gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, so the
+ * three goals keep working together with zero extra flags for single-node local dev. No-ops in
  * every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(
@@ -40,20 +40,20 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   private String fafnirEndpoint;
 
   /**
-   * Local-dev convenience for {@code gimle.transport.protocol}, per {@code
-   * claudedocs/tls-transport-security-design.md} §1 -- unset by default (plaintext, matching {@code
-   * TransportProtocol}'s own default), passed through as a {@code -D} JVM flag on the spawned
-   * process when set, matching {@code gimle.tls.certFile}/{@code keyFile}/{@code caFile}'s own
-   * plain system-property convention rather than inventing a parallel one just for this Mojo.
+   * Local-dev convenience for {@code gimle.transport.protocol} -- unset by default (plaintext,
+   * matching {@code TransportProtocol}'s own default), passed through as a {@code -D} JVM flag on
+   * the spawned process when set, matching {@code gimle.tls.certFile}/{@code keyFile}/{@code
+   * caFile}'s own plain system-property convention rather than inventing a parallel one just for
+   * this Mojo.
    */
   @Parameter(property = "gimle.controlplane.transportProtocol")
   private String transportProtocol;
 
   /**
-   * Comma-separated {@code ResourceKind} names to opt into READ-decision audit-trail coverage
-   * (roadmap item 8) -- unset by default, matching {@code ApiServer}'s own pre-existing behavior of
-   * only auditing {@code WRITE}/{@code DELETE}. See {@code
-   * gimle-docs/docs/architecture/authn-authz.md}'s Audit logging section.
+   * Comma-separated {@code ResourceKind} names to opt into READ-decision audit-trail coverage --
+   * unset by default, matching {@code ApiServer}'s own pre-existing behavior of only auditing
+   * {@code WRITE}/{@code DELETE}. See {@code gimle-docs/docs/architecture/authn-authz.md}'s Audit
+   * logging section.
    */
   @Parameter(property = "gimle.controlplane.audit.readResourceKinds")
   private String auditReadResourceKinds;

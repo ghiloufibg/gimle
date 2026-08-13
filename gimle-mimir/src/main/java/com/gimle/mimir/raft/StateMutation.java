@@ -189,12 +189,12 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
-   * The single "index currently in flight" marker governing StatefulSet forward progress
-   * (priority-3 design doc §5a) -- reused for both {@code OrderedReady} scale-up admission and
-   * rolling-update admission, the same one-index-at-a-time gate {@code DeploymentReconciler}'s own
-   * {@code rollingIndex} enforces for rolling updates alone. A separate map from {@code
-   * rollingIndex} (keyed by {@code statefulSetName}, not {@code deploymentName}) -- the two
-   * resource kinds never share a namespace.
+   * The single "index currently in flight" marker governing StatefulSet forward progress -- reused
+   * for both {@code OrderedReady} scale-up admission and rolling-update admission, the same
+   * one-index-at-a-time gate {@code DeploymentReconciler}'s own {@code rollingIndex} enforces for
+   * rolling updates alone. A separate map from {@code rollingIndex} (keyed by {@code
+   * statefulSetName}, not {@code deploymentName}) -- the two resource kinds never share a
+   * namespace.
    */
   record PutRollingStatefulSetIndex(String statefulSetName, int instanceIndex)
       implements StateMutation {
@@ -212,14 +212,13 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
-   * The sticky node-binding memory for one StatefulSet index (priority-3 design doc §5b): written
-   * once, the first time an index is ever placed, and read back by every subsequent placement
-   * attempt for that same index -- including a rolling-update remove-then-replace, which would
-   * otherwise lose track of which node the index's local-disk volume physically lives on. Survives
-   * an ordinary assignment removal (mid-rollout, or a node going dark and this index sitting
-   * unplaced awaiting that same node's return); only {@link RemoveStatefulSetIndexNode} clears it,
-   * fired solely on the two genuinely permanent cases -- index scaled below the replica count, or
-   * the whole spec deleted.
+   * The sticky node-binding memory for one StatefulSet index: written once, the first time an index
+   * is ever placed, and read back by every subsequent placement attempt for that same index --
+   * including a rolling-update remove-then-replace, which would otherwise lose track of which node
+   * the index's local-disk volume physically lives on. Survives an ordinary assignment removal
+   * (mid-rollout, or a node going dark and this index sitting unplaced awaiting that same node's
+   * return); only {@link RemoveStatefulSetIndexNode} clears it, fired solely on the two genuinely
+   * permanent cases -- index scaled below the replica count, or the whole spec deleted.
    */
   record PutStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId)
       implements StateMutation {

@@ -14,22 +14,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Observability round trips through Muninn (design doc Part B): a deployed instance's own log line
- * survives its owning agent's death, served from Muninn's shipped history instead of a 502 with no
- * client-visible difference in how the request is made; and a real control-plane request metric is
- * shipped to Muninn and readable back through {@code GET /metrics-history/*} by name.
+ * Observability round trips through Muninn: a deployed instance's own log line survives its owning
+ * agent's death, served from Muninn's shipped history instead of a 502 with no client-visible
+ * difference in how the request is made; and a real control-plane request metric is shipped to
+ * Muninn and readable back through {@code GET /metrics-history/*} by name.
  */
 @Tag("smoke")
 class ObservabilityIT extends GreeterSmokeClusterSupport {
 
   /**
-   * The Muninn logs fallback (design doc Part B/O-11), end to end: a real deployed instance's own
-   * log line is observed once through the live agent, survives that agent's own death, and is still
-   * observable through the identical {@code /logs/instances/*} request afterward -- served from
-   * Muninn's shipped history instead of a 502, with no client-visible difference in how the request
-   * is made. Reuses {@link #providerLogShowsTheSecret} both before and after the kill: the exact
-   * same substring match against the exact same JSON shape either endpoint returns is itself proof
-   * the fallback is genuinely transparent, not a client-visible failover with different output.
+   * The Muninn logs fallback, end to end: a real deployed instance's own log line is observed once
+   * through the live agent, survives that agent's own death, and is still observable through the
+   * identical {@code /logs/instances/*} request afterward -- served from Muninn's shipped history
+   * instead of a 502, with no client-visible difference in how the request is made. Reuses {@link
+   * #providerLogShowsTheSecret} both before and after the kill: the exact same substring match
+   * against the exact same JSON shape either endpoint returns is itself proof the fallback is
+   * genuinely transparent, not a client-visible failover with different output.
    */
   @Test
   @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
@@ -78,10 +78,10 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * The metrics round trip (design doc Part B/O-10): a real request against a real control-plane
-   * replica increments a real counter, that counter is shipped to Muninn, and the shipped value is
-   * readable back through {@code GET /metrics-history/*} -- not just that the endpoint returns
-   * *something*, but that the specific meter this test's own traffic drives shows up by name.
+   * The metrics round trip: a real request against a real control-plane replica increments a real
+   * counter, that counter is shipped to Muninn, and the shipped value is readable back through
+   * {@code GET /metrics-history/*} -- not just that the endpoint returns *something*, but that the
+   * specific meter this test's own traffic drives shows up by name.
    */
   @Test
   @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)

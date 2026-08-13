@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/** {@code allowedTenantIds}/{@code permitsTenant} (Phase 5 design §5.3). */
+/** {@code allowedTenantIds}/{@code permitsTenant}. */
 class ServiceExportTenantTest {
 
   private static final Version V1 = Version.parse("1.0.0");

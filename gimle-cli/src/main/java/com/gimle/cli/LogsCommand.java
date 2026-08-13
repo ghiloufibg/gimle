@@ -13,10 +13,9 @@ import java.util.Map;
 /**
  * A real {@code kubectl logs} equivalent: {@code gimle logs <target> [--category=...] [--follow]
  * [--since=<cursor>]}, sharing the identical backend routes and JSON shapes {@code
- * src/repositories/http/logs.ts} uses (see {@code log-explorer-design.md} &sect;6). Without {@code
- * --follow}, one request, print, exit. With {@code --follow}, opens the same chunked stream the
- * console's {@code openFollow} equivalent reads from and prints lines as they arrive until the
- * process is interrupted.
+ * src/repositories/http/logs.ts} uses. Without {@code --follow}, one request, print, exit. With
+ * {@code --follow}, opens the same chunked stream the console's {@code openFollow} equivalent reads
+ * from and prints lines as they arrive until the process is interrupted.
  */
 public final class LogsCommand {
 

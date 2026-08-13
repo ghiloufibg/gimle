@@ -55,9 +55,8 @@ import java.util.Set;
  * DeploymentSpec}/{@code InstanceAssignment}/{@code NodeRegistration}/{@code Tenant}/{@code
  * ConfigEntry}/RBAC encoding, rather than the second codec copying ~150 lines from the first.
  * Deliberately distinct from the *transport*-plumbing sharing (accept-loop, socket lifecycle, TLS)
- * that stays duplicated between {@code RaftTransport} and {@code StoreTransport} for now (see the
- * etcd-store-extraction design doc §4.3) -- this is data encoding, not networking, and the DRY case
- * for it was immediate rather than deferred.
+ * that stays duplicated between {@code RaftTransport} and {@code StoreTransport} for now -- this is
+ * data encoding, not networking, and the DRY case for it was immediate rather than deferred.
  */
 public final class DomainCodec {
 
@@ -322,7 +321,7 @@ public final class DomainCodec {
       writeOptionalDouble(out, p.targetRequestRatePerSecond());
       writeOptionalDouble(out, p.targetErrorRatePercent());
       writeOptionalInt(out, p.targetQueueDepth());
-      // combinationMode + the four per-signal weights (roadmap item 10) -- added in the same
+      // combinationMode + the four per-signal weights -- added in the same
       // change that added the fields themselves, unlike the three multi-signal fields above,
       // which is exactly what this method's own bug-fix history two paragraphs up warns against
       // repeating: any new AutoscalePolicy field belongs here the moment it's added, not later.
@@ -545,8 +544,8 @@ public final class DomainCodec {
   }
 
   // NodeHeartbeat/ObservedHeartbeat: never Raft-replicated (RaftCodec never needed these), but
-  // travel over StoreRpc's PutHeartbeat/GetNodeHeartbeat -- the one write §4.4/§4.6 of the
-  // etcd-store-extraction design doc call out as leader-only but non-replicated, same as today.
+  // travel over StoreRpc's PutHeartbeat/GetNodeHeartbeat -- the one write that stays leader-only
+  // but non-replicated, same as today.
   public static void writeResourceUsageSnapshot(DataOutputStream out, ResourceUsageSnapshot usage)
       throws IOException {
     out.writeLong(usage.totalMemoryBytes());

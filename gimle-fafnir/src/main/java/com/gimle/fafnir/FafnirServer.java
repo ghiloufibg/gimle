@@ -66,13 +66,14 @@ import org.slf4j.LoggerFactory;
  * {@code ApiServer} needs to keep its existing {@code /config/*} behavior working with crypto now
  * living out-of-process ({@code /internal/secrets/encrypt}, {@code /internal/secrets/decrypt}) plus
  * {@code /secrets/rotate-key}, moved here verbatim from {@code ApiServer.rotateSecretsKey}; and the
- * public, versioned {@code /secrets/{tenantId}/...} surface (design doc §6e/§7), proxied to by
- * {@code ApiServer} but authorized independently here (§9's corrected defense-in-depth).
+ * public, versioned {@code /secrets/{tenantId}/...} surface, proxied to by {@code ApiServer} but
+ * authorized independently here -- never trusting the proxy's own forwarded claim as proof of
+ * authorization by itself.
  */
 public final class FafnirServer implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(FafnirServer.class);
-  // A dedicated logger, not `log` -- design doc §9's Observability subsection: every /secrets/*
+  // A dedicated logger, not `log` -- every /secrets/*
   // request (principal, tenant, key, verb, allow/deny) also lands in the durable, queryable
   // AuditEvent trail (see #authorizeSecrets), but this line has independent value for an operator
   // tailing this process's own log file directly, no query needed.
@@ -192,13 +193,13 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   /**
-   * Wraps a handler with request-count/latency/error Micrometer recording (design doc §9's
-   * Observability subsection, mirroring {@code WorkerMetrics}/{@code FabricServer}'s own request-
-   * metrics pattern) -- at context-registration time rather than inside each handler body, so every
-   * endpoint gets identical instrumentation with zero per-handler boilerplate. {@code error} is
-   * read from the exchange's own response code after the delegate finishes (every handler here
-   * already sends a real status and closes the exchange itself in its own {@code finally} block),
-   * not from an escaping exception -- these handlers deliberately never let one escape.
+   * Wraps a handler with request-count/latency/error Micrometer recording, mirroring {@code
+   * WorkerMetrics}/{@code FabricServer}'s own request-metrics pattern -- at context-registration
+   * time rather than inside each handler body, so every endpoint gets identical instrumentation
+   * with zero per-handler boilerplate. {@code error} is read from the exchange's own response code
+   * after the delegate finishes (every handler here already sends a real status and closes the
+   * exchange itself in its own {@code finally} block), not from an escaping exception -- these
+   * handlers deliberately never let one escape.
    */
   private HttpHandler instrument(String endpoint, HttpHandler delegate) {
     return exchange -> {
@@ -225,8 +226,8 @@ public final class FafnirServer implements AutoCloseable {
 
   /**
    * Public so {@code FafnirMain} can hand this registry to a {@code MuninnShipper} when {@code
-   * -Dgimle.fafnir.muninnEndpoint} is configured (design doc Part B/O-10) -- the same shape {@code
-   * ApiServer#metrics()} already established for the control plane.
+   * -Dgimle.fafnir.muninnEndpoint} is configured -- the same shape {@code ApiServer#metrics()}
+   * already established for the control plane.
    */
   public FafnirMetrics metrics() {
     return metrics;
@@ -304,10 +305,9 @@ public final class FafnirServer implements AutoCloseable {
   /**
    * Same semantics as the {@code ApiServer.handleRotateSecretsKey} endpoint it replaces: generates
    * a new active key and re-encrypts every existing entry under it, gated on the caller having
-   * already been authorized upstream (Phase A: {@code gimle-controlplane}'s own {@code
-   * requireAuthorized} check; §9's independent Fafnir-side re-check is wired for the versioned
-   * {@code /secrets/*} surface below, not yet extended to this cluster-wide, non-tenant-scoped
-   * operation).
+   * already been authorized upstream ({@code gimle-controlplane}'s own {@code requireAuthorized}
+   * check). Fafnir's own independent re-check below is wired for the versioned {@code /secrets/*}
+   * surface, not yet extended to this cluster-wide, non-tenant-scoped operation.
    */
   private void handleRotateKey(HttpExchange exchange) {
     try {
@@ -325,7 +325,7 @@ public final class FafnirServer implements AutoCloseable {
     }
   }
 
-  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions] (design doc §6e) ----
+  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions] ----
 
   private void handleSecrets(HttpExchange exchange) {
     try {
@@ -465,20 +465,18 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   /**
-   * Fafnir's own, independent authorization decision (design doc §9's corrected defense-in-depth):
-   * never treats "this request arrived already-forwarded by gimle-controlplane" as proof of
-   * authorization by itself -- reads RBAC data through its own {@link Authorizer}/{@code
-   * StoreClient} and reaches its own conclusion, so a buggy or compromised control-plane replica
-   * that forwards an unauthorized principal is still caught here. Same default-plaintext posture as
-   * every other Gimlé process (§9): no TLS means no identity to check in the first place, so every
-   * request passes -- {@code gimle.transport.protocol=tls} is the one switch that turns this check
-   * on, cluster-wide.
+   * Fafnir's own, independent authorization decision: never treats "this request arrived
+   * already-forwarded by gimle-controlplane" as proof of authorization by itself -- reads RBAC data
+   * through its own {@link Authorizer}/{@code StoreClient} and reaches its own conclusion, so a
+   * buggy or compromised control-plane replica that forwards an unauthorized principal is still
+   * caught here. Same default-plaintext posture as every other Gimlé process: no TLS means no
+   * identity to check in the first place, so every request passes -- {@code
+   * gimle.transport.protocol=tls} is the one switch that turns this check on, cluster-wide.
    *
    * <p>Also the single point every {@code /secrets/*} request passes through with its principal,
-   * tenant, key, and verb all in hand -- so this is where §9's rate limiting (a {@link
-   * #authzThrottle} keyed by principal, incrementing on a denial) and the audit log entry (§9's
-   * Observability subsection) both live, rather than duplicating either concern into every
-   * individual handler.
+   * tenant, key, and verb all in hand -- so this is where rate limiting (a {@link #authzThrottle}
+   * keyed by principal, incrementing on a denial) and the audit log entry both live, rather than
+   * duplicating either concern into every individual handler.
    */
   private boolean authorizeSecrets(
       HttpExchange exchange, Verb verb, String tenantId, Optional<String> key) {
@@ -512,12 +510,9 @@ public final class FafnirServer implements AutoCloseable {
         key.orElse("-"),
         verb,
         allowed);
-    // The durable, queryable counterpart to the auditLog line above --
-    // OBSERVABILITY_AUDIT_DESIGN.md
-    // Part A closes the "gimle-observability has no general-purpose audit-event-log mechanism
-    // today" gap this class's own auditLog field javadoc originally flagged. The SLF4J line stays:
-    // it has independent value for an operator tailing this process's own log file, no query
-    // needed.
+    // The durable, queryable counterpart to the auditLog line above, giving gimle-observability
+    // a general-purpose audit-event-log mechanism it previously lacked. The SLF4J line stays: it
+    // has independent value for an operator tailing this process's own log file, no query needed.
     crypto
         .storeClient()
         .propose(
@@ -543,24 +538,23 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   /**
-   * §9's node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
+   * Node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
    * {@code gimle:nodes} principal (a node agent's own certificate identity, {@code CN=nodeId}) may
    * read a tenant's secrets only if that node currently has at least one active instance assignment
    * for that tenant -- read-only, never write/delete, and never the ordinary RBAC path (a node
    * certificate has no {@code Role}/{@code RoleBinding} of its own to check against).
    *
-   * <p>Design-doc correction: the original text cited {@code
-   * StoreClient.listAssignmentsFor(nodeId)} as the primitive for this, but that method is
-   * deployment-scoped ({@code listAssignmentsFor(String deploymentName)}), not node-scoped -- there
-   * is no direct "assignments for this node" query. This walks every assignment via {@link
+   * <p>There is no direct "assignments for this node" query -- {@code
+   * StoreClient.listAssignmentsFor(nodeId)} is deployment-scoped ({@code listAssignmentsFor(String
+   * deploymentName)}), not node-scoped. So this walks every assignment via {@link
    * StoreClient#listAssignments()}, filters to this node, and joins each surviving assignment's
    * {@code deploymentName} back to its {@code DeploymentSpec} to read that deployment's own {@code
    * tenantId}.
    *
-   * <p>Honest limitation, stated rather than hidden (§9's own caveat): this is tenant-scoped, not
-   * per-key-scoped -- a node with any assignment for a tenant can read every secret that tenant
-   * owns, not just the ones its own deployed modules actually declared a dependency on, since the
-   * module manifest has no per-key secret-dependency declaration today.
+   * <p>Honest limitation, stated rather than hidden: this is tenant-scoped, not per-key-scoped -- a
+   * node with any assignment for a tenant can read every secret that tenant owns, not just the ones
+   * its own deployed modules actually declared a dependency on, since the module manifest has no
+   * per-key secret-dependency declaration today.
    */
   private boolean isTenantAssignedToNode(String nodeId, String tenantId) {
     StoreClient storeClient = crypto.storeClient();
@@ -576,10 +570,10 @@ public final class FafnirServer implements AutoCloseable {
    * the connection's own peer certificate when both are present, since a proxied request's peer
    * certificate identifies the control-plane replica making the call, not the human or node that
    * originated it. Falls back to the peer certificate for a caller reaching Fafnir without going
-   * through the proxy at all (a node agent's own direct fetch, design doc §9's third subsection, or
-   * a test simulating one), and finally to Fafnir's own console session cookie -- a human operator
-   * signed in through {@link #handleAuthLogin} directly, the one caller shape with neither a
-   * forwarded header nor a client certificate of its own.
+   * through the proxy at all (a node agent's own direct fetch, or a test simulating one), and
+   * finally to Fafnir's own console session cookie -- a human operator signed in through {@link
+   * #handleAuthLogin} directly, the one caller shape with neither a forwarded header nor a client
+   * certificate of its own.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
