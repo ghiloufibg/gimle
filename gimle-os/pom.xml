@@ -15,8 +15,8 @@
 
   <name>Gimle OS</name>
   <description>
-    Platform capability detection and resource limiting: cgroup v2 management on Linux,
-    a portable JVM-flags-only fallback everywhere else.
+    Platform capability detection and resource limiting: a portable JVM-flags-only resource
+    limiter today; kernel-level cgroup v2 enforcement on Linux is a planned future implementation.
   </description>
 
   <dependencies>

@@ -12,13 +12,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 class LocalDiskVolumeManagerTest {
 
-  @TempDir(cleanup = CleanupMode.NEVER)
-  Path tempDir;
+  @TempDir Path tempDir;
 
   @Test
   void allocate_creates_a_directory_keyed_by_statefulset_name_and_index() {
