@@ -1,7 +1,11 @@
 # Gimlé Code Quality Review — Maintainability, Clarity, Readability
 
-**Date:** 2026-08-13
+**Date:** 2026-08-13 (initial review) · **incrementally updated 2026-08-13** after rebasing onto `master`
 **Method:** One independent review agent per Maven module (20 modules), each scoped strictly to that module's own source.
+
+## Incremental update
+
+This branch was rebased onto `master` after two new commits landed there (`42c481c` "feat: add maxUnavailable disruption budgets for rolling updates" and its merge commit `5d0e043`), touching `gimle-controlplane`, `gimle-mimir`, and `gimle-docs`. Those three modules were re-reviewed in full against the current code; the other 17 modules were untouched by the rebase and their findings below are unchanged from the initial pass. New findings from this round are marked **(new)** in the sections below.
 
 ## Scope and exclusions
 
@@ -24,10 +28,10 @@ Concretely, each agent looked for: unclear/inconsistent naming, oversized method
 | [gimle-observability](#gimle-observability) | 23 | 7 | Thorough javadoc; one convention violation, some stale comments, 5-way metrics-class duplication |
 | [gimle-worker](#gimle-worker) | 18 | 5 | Clean overall; `WorkerMain` is an oversized, magic-value-heavy entry point |
 | [gimle-agent](#gimle-agent) | 21 | 5 | Well-commented; `AgentMain` (1629 lines) mixes many concerns, long parameter lists |
-| [gimle-mimir](#gimle-mimir) | 25 | 5 | Well-documented; `StateStore` (2228 lines) and repeated manifest-parsing helpers |
+| [gimle-mimir](#gimle-mimir) | 30 | 12 | Well-documented; `StateStore` (now ~2304 lines) and manifest-parsing duplication both grew further with the new disruption-budget feature |
 | [gimle-muninn](#gimle-muninn) | 10 | 5 | Disciplined; `MuninnServer` handler duplication, one stale/convention-violating comment |
 | [gimle-fafnir](#gimle-fafnir) | 18 | 5 | Well-documented; triplicated TLS test fixtures, one long handler method |
-| [gimle-controlplane](#gimle-controlplane) | — | 8 | Heavily commented; `ApiServer` (3599 lines) is a God class with repeated dispatch skeletons |
+| [gimle-controlplane](#gimle-controlplane) | 49 | 11 | Heavily commented; `ApiServer` (3599 lines) is a God class with repeated dispatch skeletons; disruption-budget change left two stale `rollingIndex` comments |
 | [gimle-fabric](#gimle-fabric) | 28 | 3 | Unusually readable; telescoping constructors, one large-but-organized class |
 | [gimle-cli](#gimle-cli) | 21 | 3 | Very clean; one design-doc citation, one 6-way duplicated parsing block |
 | [gimle-maven-plugin](#gimle-maven-plugin) | 10 | 4 | Clean; `BootstrapMojo` is a 650-line outlier vs. its ~100-line siblings |
@@ -36,9 +40,9 @@ Concretely, each agent looked for: unclear/inconsistent naming, oversized method
 | [gimle-examples/greeter-consumer](#gimle-examplesgreeter-consumer) | 5 | 0 | Clean |
 | [gimle-examples/greeter-load-generator](#gimle-examplesgreeter-load-generator) | 5 | 0 | Clean |
 | [gimle-smoke-tests](#gimle-smoke-tests) | — | 8 | Well-documented tests; `GreeterSmokeClusterSupport` (1961 lines) mixes six concerns, two `QA_FINDINGS.md` citations |
-| [gimle-docs](#gimle-docs) | 14 | 6 | Clean TS/MDX; five separate `claudedocs/` citations on the *published* docs site itself |
+| [gimle-docs](#gimle-docs) | 27 | 8 | Clean TS/MDX; seven separate planning-artifact citations on the *published* docs site itself (five `claudedocs/`, two `design doc §N`) |
 
-**Total: 77 findings across 16 modules; 4 modules came back clean.**
+**Total: 89 findings across 16 modules; 4 modules came back clean.** (77 from the initial pass + 12 new from the incremental re-review of `gimle-controlplane`/`gimle-mimir`/`gimle-docs`.)
 
 The single most common theme across the whole codebase is **duplication a human maintainer has to keep in sync by hand** — repeated dispatch/handler skeletons, repeated manifest/YAML (de)serialization helpers, repeated test fixtures — usually well-commented in isolation but requiring the same edit in 3–8 places when it changes. The second most common theme is a handful of **outsized "do everything" classes** (`ApiServer`, `StateStore`, `AgentMain`, `WorkerMain`, `GreeterSmokeClusterSupport`) that are internally well-organized but too large to hold in working memory at once. Third, several modules have one or two **comments that cite a planning artifact** (`claudedocs/...`, `QA_FINDINGS.md`, a phase/section number) or have **gone stale relative to the code**, which this repo's own conventions explicitly flag as a readability defect.
 
@@ -111,13 +115,20 @@ The single most common theme across the whole codebase is **duplication a human 
 
 ## gimle-mimir
 
-**Overall:** Unusually well-documented for AI-generated code — javadoc explains Raft safety mechanics, leak/pruning ordering, leader-only-vs-round-robin reads. Naming is consistent (`xLocked` suffix convention, `snake_case` test names). The main risks are size and duplication.
+**Overall:** Unusually well-documented for AI-generated code — javadoc explains Raft safety mechanics, leak/pruning ordering, leader-only-vs-round-robin reads. Naming is consistent (`xLocked` suffix convention, `snake_case` test names). The main risks are size and duplication — and the new disruption-budget feature (`DisruptionBudget`, rolling-set bookkeeping in `StateStore`, a sixth duplicated manifest parser helper) made both pre-existing risks measurably worse rather than better, while the feature's own new code is otherwise integrated in a style consistent with the rest of the module.
 
 1. **[duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentManifestParser.java:191` — `requireString`, `requireMap`, `parseModuleId`, `parsePlacement`/`parseRequiredLabels`, and `booleanField` are byte-for-byte duplicated across all five manifest parser classes. *Suggestion:* extract a shared `ManifestFields` utility, mirroring the existing `AtomicFiles` precedent.
 2. **[method-or-class-size]** `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java:67` — `StateStore` is a single 2228-line class combining CRUD, disk-path layout, and hand-rolled YAML (de)serialization for ~25 unrelated resource kinds. *Suggestion:* split by resource-kind family, or at minimum separate the YAML codec methods into their own class.
 3. **[duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java:1712` — the moduleId-to-YAML-map-and-back encoding is repeated verbatim at least six times; the "null-safe Optional-from-map-value" idiom is repeated close to a dozen times. *Suggestion:* add `moduleIdToYamlMap`/`moduleIdFromYamlMap`/`optionalString` helpers once.
 4. **[consistency]** `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java:457` — `parseAddress` uses a fully-qualified `new java.net.InetSocketAddress(...)` instead of an import, the only such reference in an otherwise fully-imported file.
 5. **[naming]** `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentManifestParser.java:159` — `requiredIntField`/`optionalDoubleField`/`optionalIntField` read as general-purpose but hardcode an `"autoscale."` prefix in their error messages. *Suggestion:* rename to scope-specific names, or take the field path as a parameter.
+6. **(new) [duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentManifestParser.java:107` — the new disruption-budget optional-int-field parsing helper is copy-pasted between `DeploymentManifestParser` (`optionalDisruptionIntField`) and `DaemonSetManifestParser` (`optionalIntField`) under two different names for the identical logic — finding #1's duplication pattern extended to a sixth helper, with inconsistent naming added on top. *Suggestion:* fold both into one shared helper.
+7. **(new) [duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java:73` — `parseDisruptionBudget` is duplicated near-verbatim between `DaemonSetManifestParser` and `DeploymentManifestParser` (same map validation, same `maxUnavailable` default, same exception wrapping; only `maxSurge` handling differs). *Suggestion:* extract the common "parse an optional disruption block" shape, then let each caller layer its own `maxSurge` policy on top.
+8. **(new) [method-or-class-size]** `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` — `StateStore` has grown from the already-flagged 2228 lines to ~2304 lines with this change, adding a whole new add/remove/get/clearAll block rather than shrinking the file — finding #2 getting incrementally worse with each new workload feature. *Suggestion:* as previously noted, split by resource-kind family before the next feature adds yet another block.
+9. **(new) [duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java:425` — `addRollingDaemonSetNode`/`removeRollingDaemonSetNode`/`getRollingDaemonSetNodes`/`clearAllRollingDaemonSetNodes` structurally duplicate `addRollingIndex`/`removeRollingIndex`/`getRollingIndices`/`clearAllRollingIndices` almost line for line, differing only in `String` vs `Integer` keys and DaemonSet vs. Deployment naming. *Suggestion:* extract a small generic "rolling set" helper keyed by resource name that both bookkeeping pairs delegate to.
+10. **(new) [test-readability]** `gimle-mimir/src/test/java/com/gimle/mimir/raft/RaftCodecTest.java:102` — the parameterized test method `roundTripsThroughStreams` uses camelCase, inconsistent with every other test in the same class (`round_trips_an_install_snapshot_carrying_arbitrary_bytes`, etc.) and the project's mandated snake_case-sentence test naming. *Suggestion:* rename to match, e.g. `round_trips_simple_rpc_variants_through_streams`.
+11. **(new) [complexity-density]** `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java:976` — `snapshot()`'s single `StateSnapshot` constructor call now embeds two multi-line `Collectors.toUnmodifiableMap` stream pipelines inline among roughly 25 other positional constructor arguments, making it harder to visually match each argument to its record component. *Suggestion:* extract the two rolling-set snapshot pipelines into small private helper methods, mirroring how `auditEventsSnapshotOrder()` is already broken out just below.
+12. **(new) [duplication]** `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java:82` — `DeploymentSpec` now carries four overlapping telescoping back-compat constructors (grew from three when the disruption field was added), each just delegating to the canonical constructor with `Optional.empty()` defaults. *Suggestion:* if these overloads exist only for legacy/test call sites, consolidate on named/builder-style construction so a new field doesn't require stacking another overload — the same anti-pattern already flagged in `gimle-core`'s `InstanceObservation`.
 
 ## gimle-muninn
 
@@ -141,7 +152,7 @@ The single most common theme across the whole codebase is **duplication a human 
 
 ## gimle-controlplane
 
-**Overall:** Heavily and thoughtfully commented; tests read as clear behavioral sentences. The main risk is concentrated in `ApiServer.java`, a single 3599-line God class.
+**Overall:** Heavily and thoughtfully commented; tests read as clear behavioral sentences. The main risk is concentrated in `ApiServer.java`, a single 3599-line God class. The disruption-budget change was carried through `DeploymentReconciler`/`DaemonSetReconciler`/`ApiServer`/the rolling-update test consistently and mostly re-worded surrounding comments to match — except two now-stale references to the old singular `rollingIndex` concept the refactor replaced with a per-index `Set`.
 
 1. **[method-or-class-size]** `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java:126` — `ApiServer` handles HTTP routing, JSON (de)serialization, RBAC, PKI/CSR issuance, secrets/log/metrics proxying, and session management all in one file, far larger than a human can hold in working memory at once even with clear section-banner comments. *Suggestion:* split by concern into cooperating handler classes.
 2. **[duplication]** `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java:502` — `handleDeployment`/`handleJob`/`handleCronJob`/`handleDaemonSet`/`handleStatefulSet` repeat the identical try/switch/catch dispatch skeleton five times. *Suggestion:* a shared generic dispatcher.
@@ -151,8 +162,11 @@ The single most common theme across the whole codebase is **duplication a human 
 6. **[complexity-density]** `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java:64` — a single-element `Boolean[]` array is used purely as a mutable box to escape lambda-capture rules. *Suggestion:* replace the `ifPresent(lambda)` with a plain `if` block.
 7. **[magic-values]** `gimle-controlplane/src/main/java/com/gimle/controlplane/tenant/TenantUsage.java:41` — `excludingDeploymentName` uses the string literal `""` as an undocumented-by-example sentinel, inconsistent with the module's own `Optional`-based convention for absence, and untested. *Suggestion:* change to `Optional<String>`.
 8. **[method-or-class-size]** `gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java:66` — `reconcileDeployment` is a ~115-line method mixing several abstraction levels (artifact reading, per-signal averaging, ideal-replica computation, combination-mode selection, clamping, single-step adjustment). *Suggestion:* split into named steps.
+9. **(new) [comment-quality]** `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java:281` — javadoc on `isReady()` still says `handleRollingUpdate` "clears rollingIndex," a name retired by the disruption-budget refactor (the single `Optional<Integer> rollingIndex` became a per-index `Set` via `getRollingIndices`/`addRollingIndex`/`removeRollingIndex`); every *other* comment in this file was updated to the new plural phrasing, just not this one. *Suggestion:* reword to "clear this index's in-flight marker," matching the rest of the file.
+10. **(new) [comment-quality]** `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java:57` — class javadoc still contrasts StatefulSet's rolling-update marker with `DeploymentReconciler`'s "rollingIndex," a name that no longer exists there — collateral staleness in a file the disruption-budget commit didn't itself touch. *Suggestion:* update the cross-reference to "DeploymentReconciler's own in-flight index set."
+11. **(new) [magic-values]** `gimle-controlplane/src/test/java/com/gimle/controlplane/reconcile/DeploymentReconcilerRollingUpdateTest.java:395` — the new drain loop's bailout bound (10 ticks) is an unexplained literal, unlike the rest of this test file which otherwise explains every non-obvious choice. *Suggestion:* add a one-line comment on why 10 ticks is guaranteed enough (or is just a safety margin) for 5 replicas at `maxUnavailable=2`.
 
-*(Also noted: `ApiServer.java:152` has several 5–10-line paragraph-style comments stacked on adjacent private fields, making the declaration block harder to scan than it needs to be — worth trimming to one sentence per field with deeper rationale moved to the class javadoc.)*
+*(Also noted: `ApiServer.java:152` has several 5–10-line paragraph-style comments stacked on adjacent private fields, making the declaration block harder to scan than it needs to be — worth trimming to one sentence per field with deeper rationale moved to the class javadoc. The incremental round's reviewer independently flagged the same `ApiServer.java` God-class problem as finding #1 above, noting the disruption-budget change itself had to touch two separate near-duplicate `withArtifactSha256`-rebuilding call sites — Deployment and DaemonSet — because of it, i.e. finding #3 above is exactly the kind of miss this file's size invites.)*
 
 ## gimle-fabric
 
@@ -212,7 +226,7 @@ The single most common theme across the whole codebase is **duplication a human 
 
 ## gimle-docs
 
-**Overall:** No Java source (a Docusaurus/Bun static site wrapped as a `pom`-packaging Maven module); the small amount of TS/TSX/CSS it has is clean and well-named. The recurring defect is systemic: this is the module that most violates the repo's own "never cite `claudedocs/`" rule — and does so on the *published, user-facing* docs site itself, not just in internal comments.
+**Overall:** No Java source (a Docusaurus/Bun static site wrapped as a `pom`-packaging Maven module); the small amount of TS/TSX/CSS it has is clean and well-named. The recurring defect is systemic: this is the module that most violates the repo's own "never cite a planning artifact" rule — and does so on the *published, user-facing* docs site itself, not just in internal comments. The three files touched by the disruption-budget commit (`control-plane.md`, `roadmap.md`, `manifest-schema.md`) are consistent in tone with the rest of the site, but re-review confirmed all six previously-flagged issues are still unaddressed, and surfaced two more instances of the same pattern (a `design doc §N` citation, distinct from the `claudedocs/` path citations) in files this commit touched.
 
 1. **[convention-violation]** `gimle-docs/docs/architecture/transport-security.md:9` — the published page tells readers "Full design: `claudedocs/tls-transport-security-design.md`," a path that doesn't exist for anyone without that gitignored file. *Suggestion:* inline the relevant rationale or drop the pointer.
 2. **[convention-violation]** `gimle-docs/docusaurus.config.ts:17` (and again at line 55) — build-config comments cite `claudedocs/docs-site-design.md §1` to justify a placeholder `url: 'https://example.com'`. *Suggestion:* state the actual reason inline.
@@ -220,7 +234,9 @@ The single most common theme across the whole codebase is **duplication a human 
 4. **[convention-violation]** `gimle-docs/src/css/custom.css:22` — a theme-color comment cites `claudedocs/docs-site-design.md §1.6`. *Suggestion:* state inline why the re-theme is partial.
 5. **[convention-violation]** `gimle-docs/docs/contributing/conventions.md:74` — the published "repo hygiene" page names `claudedocs/` as holding design notes/QA findings, immediately after stating the very rule the module's other pages break. Arguably compliant on its own, but worth fixing alongside the other four for internal consistency.
 6. **[dead-or-commented-out-code]** `gimle-docs/sidebars.ts:20` — a leftover, never-used `create-docusaurus` scaffold example (`tutorialSidebar`, commented out) plus generic top-of-file JSDoc about generic Docusaurus concepts rather than this project's actual config. *Suggestion:* delete both.
+7. **(new) [convention-violation]** `gimle-docs/docs/reference/manifest-schema.md:52` — the volume field description cites "priority-3 design doc §5a," an external planning artifact by section number, in a file this commit modified. *Suggestion:* drop the parenthetical; the sentence already stands on its own without it.
+8. **(new) [convention-violation]** `gimle-docs/docs/contributing/roadmap.md:62` — roadmap prose cites "design doc §6" as the source for the worker-to-agent metrics/traces relay mechanism, in a file this commit modified. *Suggestion:* remove the "§6" pointer; the surrounding sentence already explains the relay mechanism (`ControlMessage.MetricsSnapshot`/`TracesSnapshot`) without it.
 
 ---
 
-*Generated by 20 independent per-module review agents; each agent read only its own module's source and was instructed to ignore performance, security, and correctness concerns.*
+*Generated by 20 independent per-module review agents; each agent read only its own module's source and was instructed to ignore performance, security, and correctness concerns. `gimle-controlplane`, `gimle-mimir`, and `gimle-docs` were independently re-reviewed in full after the branch was rebased onto `master`'s disruption-budget commits.*
