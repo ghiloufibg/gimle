@@ -7,4 +7,14 @@
     <artifactId>maven-build-cache-extension</artifactId>
     <version>1.2.3</version>
   </extension>
+  <!-- Opt-in per-build profiling report (phase/goal/module timing), not a background service: a
+       registered extension only actually runs its listener logic when the build passes
+       -Dprofile, so this has zero effect on every normal mvn invocation. Answers "why was this
+       one build slow" with an HTML report under .profiler/ (JSON/console formats also
+       available); see README.md's "Faster local builds" section. -->
+  <extension>
+    <groupId>fr.jcgay.maven</groupId>
+    <artifactId>maven-profiler</artifactId>
+    <version>3.3</version>
+  </extension>
 </extensions>

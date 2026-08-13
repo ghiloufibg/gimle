@@ -3,6 +3,10 @@ target/
 *.log
 claudedocs/
 
+# maven-profiler's own report output (.mvn/extensions.xml), written at the reactor root when a
+# build runs with -Dprofile -- regenerated per profiled build, not authored content.
+.profiler/
+
 # mvn gimle:bootstrap's own state dir (store raft state, control-plane secret key, TLS material) --
 # not under target/, and contains non-.log files the blanket *.log rule above doesn't catch.
 gimle-bootstrap/

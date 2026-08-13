@@ -37,3 +37,8 @@ On top of that, for iterating on one module:
 - [`mvnd`](https://github.com/apache/maven-mvnd) (the Maven Daemon) as a drop-in `mvn` replacement
   — keeps a warm JVM resident across invocations, which matters most for a tight edit/build loop on
   one machine; not applicable in CI, where every run starts a fresh runner.
+
+To see where time actually went in a specific build, run with `-Dprofile` (e.g.
+`mvn -Dprofile verify`): the Maven Profiler extension (`.mvn/extensions.xml`) writes an HTML
+report under `.profiler/` breaking down execution time per module, phase, and plugin goal. It's
+a no-op on every other invocation — only active when `-Dprofile` is passed.
