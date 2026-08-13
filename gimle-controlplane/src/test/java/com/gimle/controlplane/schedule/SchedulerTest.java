@@ -448,4 +448,174 @@ class SchedulerTest {
 
     assertEquals(List.of(), eligible);
   }
+
+  // ---- sticky placement (priority-3 design doc §5b) ----
+
+  @Test
+  void sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-sticky", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false),
+            node("node-roomier", TIER_1_AND_2, 800L * 1024 * 1024, 1000, false));
+
+    String chosen =
+        scheduler.place(
+            "orders-statefulset",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            false,
+            Optional.empty(),
+            Set.of(),
+            Optional.of("node-sticky"),
+            candidates);
+
+    assertEquals("node-sticky", chosen);
+  }
+
+  @Test
+  void sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-other", TIER_1_AND_2, 800L * 1024 * 1024, 1000, false));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders-statefulset",
+                0,
+                IsolationTier.TIER_1,
+                REQUEST,
+                false,
+                Optional.empty(),
+                Set.of(),
+                Optional.of("node-sticky"),
+                candidates));
+  }
+
+  @Test
+  void sticky_placement_fails_when_the_sticky_node_is_cordoned() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithCordon("node-sticky", 800L * 1024 * 1024, 1000, true));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders-statefulset",
+                0,
+                IsolationTier.TIER_1,
+                REQUEST,
+                false,
+                Optional.empty(),
+                Set.of(),
+                Optional.of("node-sticky"),
+                candidates));
+  }
+
+  @Test
+  void sticky_placement_fails_when_the_sticky_node_no_longer_has_enough_free_capacity() {
+    List<NodeCandidate> candidates =
+        List.of(node("node-sticky", TIER_1_AND_2, 10L * 1024 * 1024, 1000, false));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders-statefulset",
+                0,
+                IsolationTier.TIER_1,
+                REQUEST,
+                false,
+                Optional.empty(),
+                Set.of(),
+                Optional.of("node-sticky"),
+                candidates));
+  }
+
+  @Test
+  void sticky_placement_ignores_anti_affinity_since_there_is_only_ever_one_candidate() {
+    // node-sticky is flagged alreadyRunsThisDeployment=true (as it would be for an index revisiting
+    // its own prior node) -- anti-affinity must not exclude a node from being sticky-placed onto
+    // itself, unlike ordinary (non-sticky) placement where that same flag would disqualify it.
+    List<NodeCandidate> candidates =
+        List.of(node("node-sticky", TIER_1_AND_2, 800L * 1024 * 1024, 1000, true));
+
+    String chosen =
+        scheduler.place(
+            "orders-statefulset",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            true,
+            Optional.empty(),
+            Set.of(),
+            Optional.of("node-sticky"),
+            candidates);
+
+    assertEquals("node-sticky", chosen);
+  }
+
+  @Test
+  void sticky_placement_still_enforces_required_labels_on_the_sticky_node() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithLabels("node-sticky", 800L * 1024 * 1024, Set.of()));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders-statefulset",
+                0,
+                IsolationTier.TIER_1,
+                REQUEST,
+                false,
+                Optional.empty(),
+                Set.of("gpu"),
+                Optional.of("node-sticky"),
+                candidates));
+  }
+
+  @Test
+  void sticky_placement_still_enforces_tenant_isolation_on_the_sticky_node() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants("node-sticky", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+
+    assertThrows(
+        GimleSchedulingException.class,
+        () ->
+            scheduler.place(
+                "orders-statefulset",
+                0,
+                IsolationTier.TIER_2,
+                REQUEST,
+                false,
+                Optional.of("tenant-a"),
+                Set.of(),
+                Optional.of("node-sticky"),
+                candidates));
+  }
+
+  @Test
+  void absent_sticky_node_id_behaves_exactly_like_the_non_sticky_overload() {
+    List<NodeCandidate> candidates =
+        List.of(
+            node("node-small", TIER_1_AND_2, 200L * 1024 * 1024, 1000, false),
+            node("node-big", TIER_1_AND_2, 800L * 1024 * 1024, 1000, false));
+
+    String chosen =
+        scheduler.place(
+            "orders",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            false,
+            Optional.empty(),
+            Set.of(),
+            Optional.empty(),
+            candidates);
+
+    assertEquals("node-big", chosen);
+  }
 }

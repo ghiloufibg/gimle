@@ -179,6 +179,43 @@ export interface DaemonSet {
   instances: DaemonSetInstance[];
 }
 
+/* ---------------------------------------------------------------------------
+ * StatefulSets (priority-3 design doc §5) -- the last workload-diversity kind: stable per-index
+ * identity plus (optionally, declared on the module's own artifact, not modeled here) persistent
+ * local-disk storage. `instances[]` carries a real `instanceIndex` like Deployment's own (never a
+ * fixed 0 the way DaemonSet's does), since a StatefulSet index is a stable, individually-addressed
+ * identity. No `autoscale` -- unlike Deployment, a StatefulSet's replica count is never
+ * autoscaler-managed.
+ * ------------------------------------------------------------------------ */
+
+export interface StatefulSetSpec {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  replicas: number;
+  tenantId: string | null;
+}
+
+export interface StatefulSetSpecInput {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  replicas: number;
+  tenantId: string | null;
+}
+
+export interface StatefulSetInstance {
+  instanceIndex: number;
+  nodeId: string;
+  observation: InstanceObservation;
+}
+
+export interface StatefulSet {
+  spec: StatefulSetSpec;
+  instances: StatefulSetInstance[];
+  unplacedCount: number;
+}
+
 export interface Node {
   nodeId: string;
   capabilities: { supportedTiers: Tier[] };

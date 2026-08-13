@@ -46,6 +46,7 @@ class AgentMainTest {
         LIMIT,
         HealthProbes.NONE,
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -317,6 +318,7 @@ class AgentMainTest {
         LIMIT,
         HealthProbes.NONE,
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -515,6 +517,7 @@ class AgentMainTest {
             REQUEST,
             LIMIT,
             HealthProbes.NONE,
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
     AssignedInstance assignedV2 =

@@ -377,7 +377,12 @@ public final class WorkerMain {
               m.correlationId(),
               channel,
               mdcTagsFor(m.id(), identityRegistry),
-              () -> controller.resolve(m.id()));
+              () ->
+                  controller.resolve(
+                      m.id(),
+                      m.dataDirectory().isBlank()
+                          ? Optional.empty()
+                          : Optional.of(Path.of(m.dataDirectory()))));
       case ControlMessage.StartModule m ->
           runCommand(
               m.correlationId(),

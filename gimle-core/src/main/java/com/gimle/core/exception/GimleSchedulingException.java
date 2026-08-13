@@ -83,4 +83,26 @@ public class GimleSchedulingException extends RuntimeException {
             + instanceIndex
             + " cannot be placed because every node with capacity and tier support is cordoned");
   }
+
+  /**
+   * A sticky-placed replica (priority-3 design doc §5b -- a {@code StatefulSet} index whose local
+   * disk volume already exists on one specific node) cannot be placed because that node is no
+   * longer eligible: gone, cordoned, or out of capacity/tier support. Deliberately never falls back
+   * to a different node -- the whole point of sticky placement is that the data doesn't move, so
+   * this replica stays unplaced (and this exception keeps firing every retry tick) until the sticky
+   * node itself becomes eligible again, exactly matching the documented "data does not survive node
+   * loss" contract rather than silently relocating and orphaning the volume.
+   */
+  public static GimleSchedulingException stickyNodeUnavailable(
+      String deploymentName, int instanceIndex, String nodeId) {
+    return new GimleSchedulingException(
+        "deployment "
+            + deploymentName
+            + " instance "
+            + instanceIndex
+            + " is sticky-bound to node "
+            + nodeId
+            + ", which is no longer eligible (gone, cordoned, or out of capacity/tier support) --"
+            + " it will not be rescheduled elsewhere");
+  }
 }

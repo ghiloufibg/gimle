@@ -15,6 +15,7 @@ import {
   ListChecks,
   Clock,
   LayoutGrid,
+  Database,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -43,6 +44,7 @@ const items = [
   { title: "Jobs", url: "/jobs", icon: ListChecks },
   { title: "CronJobs", url: "/cronjobs", icon: Clock },
   { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid },
+  { title: "StatefulSets", url: "/statefulsets", icon: Database },
   { title: "Instances", url: "/instances", icon: Cpu },
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Tenants", url: "/tenants", icon: Users },

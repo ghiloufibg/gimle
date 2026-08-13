@@ -2,7 +2,9 @@ package com.gimle.agent;
 
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.AssignedInstance;
+import com.gimle.os.VolumeHandle;
 import java.net.InetSocketAddress;
+import java.util.Optional;
 
 /**
  * Everything the agent tracks for one instance the control plane has assigned to this node: the
@@ -52,6 +54,15 @@ final class SupervisedInstance {
   volatile double errorRatePerSecond;
 
   volatile int queueDepth;
+
+  /**
+   * Present only when {@link #descriptor} declares {@code volume:} and allocation succeeded
+   * (priority-3 design doc §5a) -- recorded here so {@code stopInstance} can release the exact same
+   * handle on permanent removal without needing to recompute it (and without ever calling {@code
+   * VolumeManager.release} on a rolling-update teardown-then-replace, which must not happen -- see
+   * {@code AgentMain.stopInstance}'s own {@code releaseVolume} parameter).
+   */
+  volatile Optional<VolumeHandle> volumeHandle = Optional.empty();
 
   SupervisedInstance(
       AssignedInstance assigned,

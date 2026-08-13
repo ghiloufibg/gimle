@@ -10,6 +10,7 @@ import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.module.VolumeRequest;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.protocol.CsrPurpose;
@@ -32,6 +33,9 @@ import com.gimle.observability.AgentMetrics;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
+import com.gimle.os.VolumeHandle;
+import com.gimle.os.VolumeManager;
+import com.gimle.os.localdisk.LocalDiskVolumeManager;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
@@ -181,6 +185,11 @@ public final class AgentMain {
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    // StatefulSet-kind persistent storage (priority-3 design doc §5a) -- a sibling data root to
+    // gimle.log.root above, defaulting alongside it rather than under it, matching the same
+    // "own top-level directory, own property" convention gimle.log.root itself established.
+    VolumeManager volumeManager =
+        new LocalDiskVolumeManager(Path.of(System.getProperty("gimle.data.root", "gimle-data")));
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     bootstrapCertificateIfNeeded(nodeId, baseUrl);
     HttpClient httpClient = buildHttpClient();
@@ -218,6 +227,7 @@ public final class AgentMain {
             javaExecutable,
             commandTail,
             resourceLimiter,
+            volumeManager,
             capacityTracker,
             gossipMember,
             catalog,
@@ -719,6 +729,7 @@ public final class AgentMain {
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
+      VolumeManager volumeManager,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
       ServiceCatalog catalog,
@@ -747,7 +758,10 @@ public final class AgentMain {
             key,
             current.assigned.moduleId(),
             assigned.moduleId());
-        stopInstance(key, supervised, capacityTracker, instanceShippers);
+        // false: a rolling-update teardown-then-immediate-replace, not a permanent removal -- the
+        // volume (if any) must stay put for the replacement about to be started below. See
+        // stopInstance's own releaseVolume javadoc.
+        stopInstance(key, supervised, capacityTracker, instanceShippers, volumeManager, false);
       }
       if (!supervised.containsKey(key)) {
         try {
@@ -772,7 +786,8 @@ public final class AgentMain {
                 fafnirBaseUrl,
                 muninnEndpoint,
                 instanceShippers,
-                logRoot);
+                logRoot,
+                volumeManager);
           } else {
             startInstance(
                 assigned,
@@ -791,7 +806,8 @@ public final class AgentMain {
                 fafnirBaseUrl,
                 muninnEndpoint,
                 instanceShippers,
-                logRoot);
+                logRoot,
+                volumeManager);
           }
         } catch (IOException | RuntimeException e) {
           log.error("failed to start instance {}: {}", key, e.getMessage(), e);
@@ -800,7 +816,10 @@ public final class AgentMain {
     }
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
-        stopInstance(key, supervised, capacityTracker, instanceShippers);
+        // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the
+        // one case a volume's data is actually meant to go away. See stopInstance's own
+        // releaseVolume javadoc.
+        stopInstance(key, supervised, capacityTracker, instanceShippers, volumeManager, true);
       }
     }
   }
@@ -866,7 +885,8 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
-      Path logRoot) {
+      Path logRoot,
+      VolumeManager volumeManager) {
     SupervisedInstance instance =
         new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
     instance.connection = existing.connection;
@@ -877,7 +897,8 @@ public final class AgentMain {
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
     startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
     try {
-      sendInstallStartSequence(instance, instance.connection, httpClient, baseUrl, fafnirBaseUrl);
+      sendInstallStartSequence(
+          instance, instance.connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
       log.error("failed to install {} into shared worker: {}", key, e.getMessage());
       supervised.remove(key);
@@ -903,7 +924,8 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
-      Path logRoot)
+      Path logRoot,
+      VolumeManager volumeManager)
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
@@ -955,7 +977,8 @@ public final class AgentMain {
                     baseUrl,
                     fafnirBaseUrl,
                     nodeId,
-                    supervised));
+                    supervised,
+                    volumeManager));
   }
 
   /**
@@ -1082,7 +1105,8 @@ public final class AgentMain {
       URI baseUrl,
       URI fafnirBaseUrl,
       String nodeId,
-      Map<String, SupervisedInstance> supervised) {
+      Map<String, SupervisedInstance> supervised,
+      VolumeManager volumeManager) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
@@ -1099,7 +1123,8 @@ public final class AgentMain {
                       baseUrl,
                       nodeId,
                       supervised));
-      sendInstallStartSequence(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
+      sendInstallStartSequence(
+          instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
     }
@@ -1110,13 +1135,20 @@ public final class AgentMain {
    * worker gets right after connecting ({@link #driveInstanceUp}) and a shared worker gets when a
    * new Tier-1 instance joins it ({@link #installIntoExistingWorker}) -- identical either way, the
    * only difference is whether the connection was just accepted or already open.
+   *
+   * <p>Also the single choke point that resolves this instance's persistent volume, if its
+   * descriptor declares one (priority-3 design doc §5a) -- {@code allocateVolumeIfNeeded} runs
+   * before {@code ResolveModule} is built, since that message is what carries the resolved host
+   * path down to the worker, which needs it no later than {@code resolve()} time (the worker's own
+   * {@code ModuleContext} is created there, before {@code onInstall} fires).
    */
   private static void sendInstallStartSequence(
       SupervisedInstance instance,
       WorkerConnection connection,
       HttpClient httpClient,
       URI baseUrl,
-      URI fafnirBaseUrl)
+      URI fafnirBaseUrl,
+      VolumeManager volumeManager)
       throws IOException {
     connection.send(
         new ControlMessage.InstallModule(
@@ -1124,14 +1156,48 @@ public final class AgentMain {
             instance.assigned.artifactPath(),
             instance.assigned.deploymentName(),
             instance.assigned.instanceIndex()));
+    instance.volumeHandle = allocateVolumeIfNeeded(volumeManager, instance);
+    String dataDirectory =
+        instance.volumeHandle.map(volumeManager::hostPath).map(Path::toString).orElse("");
     connection.send(
-        new ControlMessage.ResolveModule(nextCorrelationId(), instance.assigned.moduleId()));
+        new ControlMessage.ResolveModule(
+            nextCorrelationId(), instance.assigned.moduleId(), dataDirectory));
     // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
     // Start, over this same ordered channel, so every module hook's config(key) lookups are
     // already backed by real values from the moment it starts.
     deliverConfig(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
     connection.send(
         new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
+  }
+
+  /**
+   * {@code Optional.empty()} for every module that doesn't declare {@code volume:} (the common
+   * case) -- {@code volumeManager.allocate} is only ever called for a {@code StatefulSet}-shaped
+   * instance's own descriptor. A failed allocation (insufficient disk space, an I/O error) is
+   * logged and treated as "no volume" rather than blocking the instance from starting at all --
+   * matches {@code prepareResourceLimit}'s own sibling failure posture for CPU/memory, and leaves
+   * {@code ModuleContext.dataDirectory()} empty for a hook to detect and react to on its own terms.
+   */
+  private static Optional<VolumeHandle> allocateVolumeIfNeeded(
+      VolumeManager volumeManager, SupervisedInstance instance) {
+    Optional<VolumeRequest> request = instance.descriptor.volume();
+    if (request.isEmpty()) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(
+          volumeManager.allocate(
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex(),
+              request.get()));
+    } catch (RuntimeException e) {
+      log.error(
+          "failed to allocate volume for {}#{}: {}",
+          instance.assigned.deploymentName(),
+          instance.assigned.instanceIndex(),
+          e.getMessage());
+      return Optional.empty();
+    }
   }
 
   /**
@@ -1335,15 +1401,28 @@ public final class AgentMain {
     }
   }
 
+  /**
+   * {@code releaseVolume} distinguishes a genuinely permanent removal (real scale-down, or the
+   * whole spec deleted -- {@code true}, called from the "no longer in {@code currentKeys}" sweep)
+   * from a rolling-update teardown-then-immediate-replace at the very same key ({@code false},
+   * called from {@code requiresReplacement}'s branch) -- see {@code VolumeManager}'s own javadoc
+   * for why the latter must never release: the whole point of sticky placement is that the data at
+   * {@code volumeHandle}'s host path survives exactly that case.
+   */
   private static void stopInstance(
       String key,
       Map<String, SupervisedInstance> supervised,
       CapacityTracker capacityTracker,
-      Map<String, List<MuninnShipper>> instanceShippers) {
+      Map<String, List<MuninnShipper>> instanceShippers,
+      VolumeManager volumeManager,
+      boolean releaseVolume) {
     SupervisedInstance instance = supervised.remove(key);
     stopShippingInstanceLogs(instanceShippers, key);
     if (instance == null) {
       return;
+    }
+    if (releaseVolume) {
+      instance.volumeHandle.ifPresent(volumeManager::release);
     }
     WorkerConnection connection = instance.connection;
     if (connection != null) {

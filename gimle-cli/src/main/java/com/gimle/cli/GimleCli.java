@@ -23,12 +23,14 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *   gimle get jobs [name]
  *   gimle get cronjobs [name]
  *   gimle get daemonsets [name]
- *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, or DaemonSet, read from the
- *                                     file itself)
+ *   gimle get statefulsets [name]
+ *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet,
+ *                                     read from the file itself)
  *   gimle delete deployment &lt;name&gt;
  *   gimle delete job &lt;name&gt;
  *   gimle delete cronjob &lt;name&gt;
  *   gimle delete daemonset &lt;name&gt;
+ *   gimle delete statefulset &lt;name&gt;
  *   gimle cronjob trigger &lt;name&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
@@ -158,6 +160,7 @@ public final class GimleCli {
       case "Job" -> new JobsCommand(client, output, out).apply(args);
       case "CronJob" -> new CronJobsCommand(client, output, out).apply(args);
       case "DaemonSet" -> new DaemonSetsCommand(client, output, out).apply(args);
+      case "StatefulSet" -> new StatefulSetsCommand(client, output, out).apply(args);
       case String other -> throw new CliException("unknown manifest kind: " + other);
     }
   }
@@ -232,6 +235,7 @@ public final class GimleCli {
       case "job", "jobs" -> new JobsCommand(client, output, out).get(rest);
       case "cronjob", "cronjobs" -> new CronJobsCommand(client, output, out).get(rest);
       case "daemonset", "daemonsets" -> new DaemonSetsCommand(client, output, out).get(rest);
+      case "statefulset", "statefulsets" -> new StatefulSetsCommand(client, output, out).get(rest);
       case "node", "nodes" -> new NodesCommand(client, output, out).list();
       case "node-assignments" ->
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
@@ -276,6 +280,8 @@ public final class GimleCli {
           new CronJobsCommand(client, output, out).delete(requireOne(rest, "cronjob"));
       case "daemonset", "daemonsets" ->
           new DaemonSetsCommand(client, output, out).delete(requireOne(rest, "daemonset"));
+      case "statefulset", "statefulsets" ->
+          new StatefulSetsCommand(client, output, out).delete(requireOne(rest, "statefulset"));
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
@@ -321,11 +327,13 @@ public final class GimleCli {
           get jobs [name]
           get cronjobs [name]
           get daemonsets [name]
-          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, or DaemonSet, read from the file itself)
+          get statefulsets [name]
+          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet, read from the file itself)
           delete deployment <name>
           delete job <name>
           delete cronjob <name>
           delete daemonset <name>
+          delete statefulset <name>
           cronjob trigger <name>
           get nodes
           get node-assignments <nodeId>

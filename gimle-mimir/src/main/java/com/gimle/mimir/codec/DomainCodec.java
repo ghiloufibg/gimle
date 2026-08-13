@@ -28,11 +28,13 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -223,6 +225,49 @@ public final class DomainCodec {
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
     return new DaemonSetAssignment(daemonSetName, nodeId, moduleId, artifactPath);
+  }
+
+  public static void writeStatefulSetSpec(DataOutputStream out, StatefulSetSpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    writeModuleId(out, spec.moduleId());
+    out.writeUTF(spec.artifactPath());
+    out.writeInt(spec.replicas());
+    writePlacementConstraints(out, spec.placement());
+    writeOptionalString(out, spec.tenantId());
+    writeOptionalString(out, spec.artifactSha256());
+  }
+
+  public static StatefulSetSpec readStatefulSetSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    int replicas = in.readInt();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<String> tenantId = readOptionalString(in);
+    Optional<String> artifactSha256 = readOptionalString(in);
+    return new StatefulSetSpec(
+        name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256);
+  }
+
+  public static void writeStatefulSetAssignment(
+      DataOutputStream out, StatefulSetAssignment assignment) throws IOException {
+    out.writeUTF(assignment.statefulSetName());
+    out.writeInt(assignment.instanceIndex());
+    out.writeUTF(assignment.nodeId());
+    writeModuleId(out, assignment.moduleId());
+    out.writeUTF(assignment.artifactPath());
+  }
+
+  public static StatefulSetAssignment readStatefulSetAssignment(DataInputStream in)
+      throws IOException {
+    String statefulSetName = in.readUTF();
+    int instanceIndex = in.readInt();
+    String nodeId = in.readUTF();
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    return new StatefulSetAssignment(
+        statefulSetName, instanceIndex, nodeId, moduleId, artifactPath);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)

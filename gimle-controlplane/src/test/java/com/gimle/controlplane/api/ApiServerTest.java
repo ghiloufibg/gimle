@@ -778,6 +778,135 @@ class ApiServerTest {
     assertEquals(405, response.statusCode());
   }
 
+  private static String statefulSetYaml(String name) {
+    return """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 3
+        """
+        .formatted(name);
+  }
+
+  @Test
+  void put_then_get_a_statefulset_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+                .PUT(HttpRequest.BodyPublishers.ofString(statefulSetYaml("orders")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("orders", spec.get("name"));
+    assertEquals(3L, spec.get("replicas"));
+    assertTrue(Json.asObjectList(status.get("instances")).isEmpty(), "nothing reconciled yet");
+    assertEquals(3L, status.get("unplacedCount"));
+  }
+
+  @Test
+  void put_a_statefulset_with_a_deployment_kind_manifest_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders", 1)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_statefulset_with_a_manifest_name_mismatch_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/other-name"))
+                .PUT(HttpRequest.BodyPublishers.ofString(statefulSetYaml("orders")))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_statefulset_with_malformed_yaml_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+                .PUT(HttpRequest.BodyPublishers.ofString("not: [valid"))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void get_of_an_unknown_statefulset_is_404() throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/nope")).GET().build());
+
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void delete_removes_a_statefulset() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+            .PUT(HttpRequest.BodyPublishers.ofString(statefulSetYaml("orders")))
+            .build());
+
+    HttpResponse<String> delete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void statefulsets_list_endpoint_returns_every_statefulset() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+            .PUT(HttpRequest.BodyPublishers.ofString(statefulSetYaml("orders")))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/inventory"))
+            .PUT(HttpRequest.BodyPublishers.ofString(statefulSetYaml("inventory")))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(2, body.size());
+  }
+
+  @Test
+  void statefulsets_list_endpoint_is_empty_with_none_submitted() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void statefulsets_endpoint_method_not_allowed_for_post() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/orders"))
+                .POST(HttpRequest.BodyPublishers.ofString("irrelevant"))
+                .build());
+
+    assertEquals(405, response.statusCode());
+  }
+
   @Test
   void nodes_list_endpoint_returns_registered_nodes_with_their_last_heartbeat() throws Exception {
     send(

@@ -3,4 +3,5 @@ module com.gimle.os {
 
   exports com.gimle.os;
   exports com.gimle.os.portable;
+  exports com.gimle.os.localdisk;
 }

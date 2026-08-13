@@ -11,12 +11,14 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.time.Instant;
 
 /**
@@ -154,6 +156,84 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.clearRollingDaemonSetNode(daemonSetName);
+    }
+  }
+
+  record PutStatefulSetSpec(StatefulSetSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetSpec(spec);
+    }
+  }
+
+  record RemoveStatefulSetSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetSpec(name);
+    }
+  }
+
+  record PutStatefulSetAssignment(StatefulSetAssignment assignment) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetAssignment(assignment);
+    }
+  }
+
+  record RemoveStatefulSetAssignment(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetAssignment(statefulSetName, instanceIndex);
+    }
+  }
+
+  /**
+   * The single "index currently in flight" marker governing StatefulSet forward progress
+   * (priority-3 design doc §5a) -- reused for both {@code OrderedReady} scale-up admission and
+   * rolling-update admission, the same one-index-at-a-time gate {@code DeploymentReconciler}'s own
+   * {@code rollingIndex} enforces for rolling updates alone. A separate map from {@code
+   * rollingIndex} (keyed by {@code statefulSetName}, not {@code deploymentName}) -- the two
+   * resource kinds never share a namespace.
+   */
+  record PutRollingStatefulSetIndex(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putRollingStatefulSetIndex(statefulSetName, instanceIndex);
+    }
+  }
+
+  record ClearRollingStatefulSetIndex(String statefulSetName) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.clearRollingStatefulSetIndex(statefulSetName);
+    }
+  }
+
+  /**
+   * The sticky node-binding memory for one StatefulSet index (priority-3 design doc §5b): written
+   * once, the first time an index is ever placed, and read back by every subsequent placement
+   * attempt for that same index -- including a rolling-update remove-then-replace, which would
+   * otherwise lose track of which node the index's local-disk volume physically lives on. Survives
+   * an ordinary assignment removal (mid-rollout, or a node going dark and this index sitting
+   * unplaced awaiting that same node's return); only {@link RemoveStatefulSetIndexNode} clears it,
+   * fired solely on the two genuinely permanent cases -- index scaled below the replica count, or
+   * the whole spec deleted.
+   */
+  record PutStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putStatefulSetIndexNode(statefulSetName, instanceIndex, nodeId);
+    }
+  }
+
+  record RemoveStatefulSetIndexNode(String statefulSetName, int instanceIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeStatefulSetIndexNode(statefulSetName, instanceIndex);
     }
   }
 

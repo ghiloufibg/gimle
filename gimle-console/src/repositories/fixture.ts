@@ -10,6 +10,8 @@ import type {
   LifecycleState,
   Node,
   SecretMetadata,
+  StatefulSet,
+  StatefulSetInstance,
   Tenant,
 } from "@/types";
 
@@ -289,6 +291,50 @@ export const daemonSets: DaemonSet[] = Array.from({ length: 4 }, (_, i) => {
   };
 });
 
+// ---------- StatefulSets (priority-3 design doc §5) ----------
+function makeStatefulSetInstance(idx: number, nodeId: string): StatefulSetInstance {
+  const state = weightedLifecycle();
+  const active = state === "ACTIVE";
+  const ready = active && rand() > 0.08;
+  const alive = state !== "UNINSTALLED" && state !== "INSTALLED";
+  return {
+    instanceIndex: idx,
+    nodeId,
+    observation: {
+      lifecycleState: state,
+      alive,
+      ready,
+      requestRatePerSecond: active ? +(rand() * 100).toFixed(1) : 0,
+      queueDepth: active ? intBetween(0, 15) : 0,
+      cpuMillicoresUsed: active ? intBetween(50, 800) : intBetween(0, 30),
+      memoryBytesUsed: intBetween(128, 2048) * 1024 * 1024,
+    },
+  };
+}
+
+export const statefulSets: StatefulSet[] = Array.from({ length: 5 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-statefulset-${i}`;
+  const replicas = intBetween(1, 3);
+  const placed = Math.max(0, replicas - (rand() < 0.15 ? 1 : 0));
+  const instances = Array.from({ length: placed }, (_, ix) =>
+    makeStatefulSetInstance(ix, pick(nodes).nodeId),
+  );
+  const tenantId = rand() < 0.2 ? pick(tenants).id : null;
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      replicas,
+      tenantId,
+    },
+    instances,
+    unplacedCount: replicas - placed,
+  };
+});
+
 // ---------- Config ----------
 const CONFIG_KEYS = [
   "db.url",
@@ -371,6 +417,15 @@ export function addDaemonSet(d: DaemonSet) {
 export function removeDaemonSet(name: string) {
   const idx = daemonSets.findIndex((d) => d.spec.name === name);
   if (idx >= 0) daemonSets.splice(idx, 1);
+}
+
+export function addStatefulSet(s: StatefulSet) {
+  statefulSets.unshift(s);
+}
+
+export function removeStatefulSet(name: string) {
+  const idx = statefulSets.findIndex((s) => s.spec.name === name);
+  if (idx >= 0) statefulSets.splice(idx, 1);
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

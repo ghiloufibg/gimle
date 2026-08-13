@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,10 @@ public record StateSnapshot(
     List<DaemonSetSpec> daemonSetSpecs,
     List<DaemonSetAssignment> daemonSetAssignments,
     Map<String, String> rollingDaemonSetNodes,
+    List<StatefulSetSpec> statefulSetSpecs,
+    List<StatefulSetAssignment> statefulSetAssignments,
+    Map<String, Integer> rollingStatefulSetIndices,
+    Map<String, String> statefulSetIndexNodes,
     List<NodeRegistration> nodeRegistrations,
     Map<String, Integer> rollingIndices,
     Map<String, Integer> effectiveReplicas,
@@ -59,6 +64,10 @@ public record StateSnapshot(
     daemonSetSpecs = List.copyOf(daemonSetSpecs);
     daemonSetAssignments = List.copyOf(daemonSetAssignments);
     rollingDaemonSetNodes = Map.copyOf(rollingDaemonSetNodes);
+    statefulSetSpecs = List.copyOf(statefulSetSpecs);
+    statefulSetAssignments = List.copyOf(statefulSetAssignments);
+    rollingStatefulSetIndices = Map.copyOf(rollingStatefulSetIndices);
+    statefulSetIndexNodes = Map.copyOf(statefulSetIndexNodes);
     nodeRegistrations = List.copyOf(nodeRegistrations);
     rollingIndices = Map.copyOf(rollingIndices);
     effectiveReplicas = Map.copyOf(effectiveReplicas);

@@ -70,7 +70,8 @@ public final class ControlMessageCodec {
               escape(m.artifactPath()),
               escape(m.deploymentName()),
               Integer.toString(m.instanceIndex()));
-      case ControlMessage.ResolveModule m -> line("RESOLVE", m.correlationId(), encodeId(m.id()));
+      case ControlMessage.ResolveModule m ->
+          line("RESOLVE", m.correlationId(), encodeId(m.id()), escape(m.dataDirectory()));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
       case ControlMessage.UninstallModule m ->
@@ -155,7 +156,8 @@ public final class ControlMessageCodec {
               unescape(field(fields, 3)),
               Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->
-          new ControlMessage.ResolveModule(field(fields, 1), decodeId(field(fields, 2)));
+          new ControlMessage.ResolveModule(
+              field(fields, 1), decodeId(field(fields, 2)), unescape(field(fields, 3)));
       case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));
       case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decodeId(field(fields, 2)));
       case "UNINSTALL" ->

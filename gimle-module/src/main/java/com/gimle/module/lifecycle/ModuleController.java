@@ -8,6 +8,7 @@ import com.gimle.module.layer.ModuleLayerHandle;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.module.resolve.ModuleWiring;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -146,6 +147,17 @@ public final class ModuleController {
   }
 
   public ModuleWiring resolve(ModuleId id) {
+    return resolve(id, Optional.empty());
+  }
+
+  /**
+   * {@code dataDirectory} is this instance's persistent-volume host path (priority-3 design doc
+   * §5a), already resolved by the agent and delivered over {@code ControlMessage.ResolveModule} --
+   * present only for a {@code StatefulSet}-shaped instance whose descriptor declares {@code
+   * volume:}. Populated on {@link SimpleModuleContext#dataDirectory()} before {@code onInstall}
+   * fires below, so a hook can rely on it from its very first callback.
+   */
+  public ModuleWiring resolve(ModuleId id, Optional<Path> dataDirectory) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
@@ -181,7 +193,8 @@ public final class ModuleController {
     registry.markResolved(id, wiring, handle);
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
-    SimpleModuleContext ctx = new SimpleModuleContext(id, serviceRegistry, configValues);
+    SimpleModuleContext ctx =
+        new SimpleModuleContext(id, serviceRegistry, configValues, dataDirectory);
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);

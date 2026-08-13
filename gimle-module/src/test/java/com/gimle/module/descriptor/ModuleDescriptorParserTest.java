@@ -95,4 +95,56 @@ class ModuleDescriptorParserTest {
                           initialDelaySeconds: soon
                         """)));
   }
+
+  @Test
+  void no_volume_leaves_it_empty() {
+    ModuleDescriptor descriptor = ModuleDescriptorParser.parse(yaml(BASE));
+
+    assertTrue(descriptor.volume().isEmpty());
+  }
+
+  @Test
+  void parses_volume_size_and_mount_path() {
+    ModuleDescriptor descriptor =
+        ModuleDescriptorParser.parse(
+            yaml(
+                BASE
+                    + """
+                    volume:
+                      sizeBytes: 10737418240
+                      mountPath: /data
+                    """));
+
+    assertEquals(10737418240L, descriptor.volume().orElseThrow().sizeBytes());
+    assertEquals("/data", descriptor.volume().orElseThrow().mountPath());
+  }
+
+  @Test
+  void volume_with_missing_mount_path_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ModuleDescriptorParser.parse(
+                yaml(
+                    BASE
+                        + """
+                        volume:
+                          sizeBytes: 10737418240
+                        """)));
+  }
+
+  @Test
+  void volume_with_non_positive_size_bytes_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ModuleDescriptorParser.parse(
+                yaml(
+                    BASE
+                        + """
+                        volume:
+                          sizeBytes: 0
+                          mountPath: /data
+                        """)));
+  }
 }

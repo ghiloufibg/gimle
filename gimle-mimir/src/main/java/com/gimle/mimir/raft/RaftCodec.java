@@ -14,12 +14,14 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -98,6 +100,14 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_DAEMONSET_ASSIGNMENT = 35;
   private static final byte MUT_PUT_ROLLING_DAEMONSET_NODE = 36;
   private static final byte MUT_CLEAR_ROLLING_DAEMONSET_NODE = 37;
+  private static final byte MUT_PUT_STATEFULSET_SPEC = 38;
+  private static final byte MUT_REMOVE_STATEFULSET_SPEC = 39;
+  private static final byte MUT_PUT_STATEFULSET_ASSIGNMENT = 40;
+  private static final byte MUT_REMOVE_STATEFULSET_ASSIGNMENT = 41;
+  private static final byte MUT_PUT_ROLLING_STATEFULSET_INDEX = 42;
+  private static final byte MUT_CLEAR_ROLLING_STATEFULSET_INDEX = 43;
+  private static final byte MUT_PUT_STATEFULSET_INDEX_NODE = 44;
+  private static final byte MUT_REMOVE_STATEFULSET_INDEX_NODE = 45;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -504,6 +514,43 @@ public final class RaftCodec {
         out.writeByte(MUT_CLEAR_ROLLING_DAEMONSET_NODE);
         out.writeUTF(m.daemonSetName());
       }
+      case StateMutation.PutStatefulSetSpec m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_SPEC);
+        DomainCodec.writeStatefulSetSpec(out, m.spec());
+      }
+      case StateMutation.RemoveStatefulSetSpec m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutStatefulSetAssignment m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_ASSIGNMENT);
+        DomainCodec.writeStatefulSetAssignment(out, m.assignment());
+      }
+      case StateMutation.RemoveStatefulSetAssignment m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_ASSIGNMENT);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
+      case StateMutation.PutRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_PUT_ROLLING_STATEFULSET_INDEX);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
+      case StateMutation.ClearRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_CLEAR_ROLLING_STATEFULSET_INDEX);
+        out.writeUTF(m.statefulSetName());
+      }
+      case StateMutation.PutStatefulSetIndexNode m -> {
+        out.writeByte(MUT_PUT_STATEFULSET_INDEX_NODE);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+        out.writeUTF(m.nodeId());
+      }
+      case StateMutation.RemoveStatefulSetIndexNode m -> {
+        out.writeByte(MUT_REMOVE_STATEFULSET_INDEX_NODE);
+        out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
+      }
     }
   }
 
@@ -569,6 +616,21 @@ public final class RaftCodec {
           new StateMutation.PutRollingDaemonSetNode(in.readUTF(), in.readUTF());
       case MUT_CLEAR_ROLLING_DAEMONSET_NODE ->
           new StateMutation.ClearRollingDaemonSetNode(in.readUTF());
+      case MUT_PUT_STATEFULSET_SPEC ->
+          new StateMutation.PutStatefulSetSpec(DomainCodec.readStatefulSetSpec(in));
+      case MUT_REMOVE_STATEFULSET_SPEC -> new StateMutation.RemoveStatefulSetSpec(in.readUTF());
+      case MUT_PUT_STATEFULSET_ASSIGNMENT ->
+          new StateMutation.PutStatefulSetAssignment(DomainCodec.readStatefulSetAssignment(in));
+      case MUT_REMOVE_STATEFULSET_ASSIGNMENT ->
+          new StateMutation.RemoveStatefulSetAssignment(in.readUTF(), in.readInt());
+      case MUT_PUT_ROLLING_STATEFULSET_INDEX ->
+          new StateMutation.PutRollingStatefulSetIndex(in.readUTF(), in.readInt());
+      case MUT_CLEAR_ROLLING_STATEFULSET_INDEX ->
+          new StateMutation.ClearRollingStatefulSetIndex(in.readUTF());
+      case MUT_PUT_STATEFULSET_INDEX_NODE ->
+          new StateMutation.PutStatefulSetIndexNode(in.readUTF(), in.readInt(), in.readUTF());
+      case MUT_REMOVE_STATEFULSET_INDEX_NODE ->
+          new StateMutation.RemoveStatefulSetIndexNode(in.readUTF(), in.readInt());
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -619,6 +681,24 @@ public final class RaftCodec {
       }
       out.writeInt(snapshot.rollingDaemonSetNodes().size());
       for (Map.Entry<String, String> e : snapshot.rollingDaemonSetNodes().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeUTF(e.getValue());
+      }
+      out.writeInt(snapshot.statefulSetSpecs().size());
+      for (StatefulSetSpec spec : snapshot.statefulSetSpecs()) {
+        DomainCodec.writeStatefulSetSpec(out, spec);
+      }
+      out.writeInt(snapshot.statefulSetAssignments().size());
+      for (StatefulSetAssignment assignment : snapshot.statefulSetAssignments()) {
+        DomainCodec.writeStatefulSetAssignment(out, assignment);
+      }
+      out.writeInt(snapshot.rollingStatefulSetIndices().size());
+      for (Map.Entry<String, Integer> e : snapshot.rollingStatefulSetIndices().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue());
+      }
+      out.writeInt(snapshot.statefulSetIndexNodes().size());
+      for (Map.Entry<String, String> e : snapshot.statefulSetIndexNodes().entrySet()) {
         out.writeUTF(e.getKey());
         out.writeUTF(e.getValue());
       }
@@ -735,6 +815,26 @@ public final class RaftCodec {
       for (int i = 0; i < rollingDaemonSetNodeCount; i++) {
         rollingDaemonSetNodes.put(in.readUTF(), in.readUTF());
       }
+      List<StatefulSetSpec> statefulSetSpecs = new ArrayList<>();
+      int statefulSetSpecCount = in.readInt();
+      for (int i = 0; i < statefulSetSpecCount; i++) {
+        statefulSetSpecs.add(DomainCodec.readStatefulSetSpec(in));
+      }
+      List<StatefulSetAssignment> statefulSetAssignments = new ArrayList<>();
+      int statefulSetAssignmentCount = in.readInt();
+      for (int i = 0; i < statefulSetAssignmentCount; i++) {
+        statefulSetAssignments.add(DomainCodec.readStatefulSetAssignment(in));
+      }
+      Map<String, Integer> rollingStatefulSetIndices = new LinkedHashMap<>();
+      int rollingStatefulSetIndexCount = in.readInt();
+      for (int i = 0; i < rollingStatefulSetIndexCount; i++) {
+        rollingStatefulSetIndices.put(in.readUTF(), in.readInt());
+      }
+      Map<String, String> statefulSetIndexNodes = new LinkedHashMap<>();
+      int statefulSetIndexNodeCount = in.readInt();
+      for (int i = 0; i < statefulSetIndexNodeCount; i++) {
+        statefulSetIndexNodes.put(in.readUTF(), in.readUTF());
+      }
       List<NodeRegistration> registrations = new ArrayList<>();
       int registrationCount = in.readInt();
       for (int i = 0; i < registrationCount; i++) {
@@ -811,6 +911,10 @@ public final class RaftCodec {
           daemonSetSpecs,
           daemonSetAssignments,
           rollingDaemonSetNodes,
+          statefulSetSpecs,
+          statefulSetAssignments,
+          rollingStatefulSetIndices,
+          statefulSetIndexNodes,
           registrations,
           rollingIndices,
           effectiveReplicas,

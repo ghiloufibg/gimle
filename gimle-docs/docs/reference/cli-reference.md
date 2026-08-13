@@ -22,11 +22,13 @@ gimle get deployments [name]
 gimle get jobs [name]
 gimle get cronjobs [name]
 gimle get daemonsets [name]
-gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, or DaemonSet, read from the file itself)
+gimle get statefulsets [name]
+gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet, read from the file itself)
 gimle delete deployment <name>
 gimle delete job <name>
 gimle delete cronjob <name>
 gimle delete daemonset <name>
+gimle delete statefulset <name>
 gimle cronjob trigger <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
@@ -131,6 +133,10 @@ gimle cronjob trigger nightly-cleanup --server 127.0.0.1:8080
 # Run one instance on every eligible node (topology-derived, no --replicas flag to set)
 gimle apply -f daemonset.yaml --server 127.0.0.1:8080
 gimle get daemonsets node-exporter --server 127.0.0.1:8080
+
+# Ordered rollout, sticky per-index placement -- get shows each index's own nodeId
+gimle apply -f statefulset.yaml --server 127.0.0.1:8080
+gimle get statefulsets orders-statefulset --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

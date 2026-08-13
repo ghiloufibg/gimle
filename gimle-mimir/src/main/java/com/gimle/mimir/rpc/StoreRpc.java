@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -19,6 +20,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.util.List;
 import java.util.Optional;
 
@@ -75,6 +77,12 @@ public sealed interface StoreRpc {
           ListDaemonSetAssignments,
           ListDaemonSetAssignmentsFor,
           GetRollingDaemonSetNode,
+          GetStatefulSetSpec,
+          ListStatefulSetSpecs,
+          ListStatefulSetAssignments,
+          ListStatefulSetAssignmentsFor,
+          GetRollingStatefulSetIndex,
+          GetStatefulSetIndexNode,
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
@@ -109,6 +117,9 @@ public sealed interface StoreRpc {
           DaemonSetSpecResult,
           DaemonSetSpecListResult,
           DaemonSetAssignmentListResult,
+          StatefulSetSpecResult,
+          StatefulSetSpecListResult,
+          StatefulSetAssignmentListResult,
           StringResult,
           TenantResult,
           RoleResult,
@@ -207,6 +218,18 @@ public sealed interface StoreRpc {
 
   record GetRollingDaemonSetNode(String daemonSetName) implements Request {}
 
+  record GetStatefulSetSpec(String name) implements Request {}
+
+  record ListStatefulSetSpecs() implements Request {}
+
+  record ListStatefulSetAssignments() implements Request {}
+
+  record ListStatefulSetAssignmentsFor(String statefulSetName) implements Request {}
+
+  record GetRollingStatefulSetIndex(String statefulSetName) implements Request {}
+
+  record GetStatefulSetIndexNode(String statefulSetName, int instanceIndex) implements Request {}
+
   record ListNodeRegistrations() implements Request {}
 
   record ListTenants() implements Request {}
@@ -302,6 +325,12 @@ public sealed interface StoreRpc {
   record DaemonSetSpecListResult(List<DaemonSetSpec> values) implements Response {}
 
   record DaemonSetAssignmentListResult(List<DaemonSetAssignment> values) implements Response {}
+
+  record StatefulSetSpecResult(boolean present, StatefulSetSpec value) implements Response {}
+
+  record StatefulSetSpecListResult(List<StatefulSetSpec> values) implements Response {}
+
+  record StatefulSetAssignmentListResult(List<StatefulSetAssignment> values) implements Response {}
 
   /**
    * {@code present == false} means the value is absent, matching {@code Optional<String>}'s own

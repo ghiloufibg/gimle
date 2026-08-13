@@ -9,6 +9,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.module.VersionRange;
+import com.gimle.core.module.VolumeRequest;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -65,10 +66,11 @@ public final class ModuleDescriptorParser {
     HealthProbes probes = parseHealth(root);
     Optional<String> hooks = parseLifecycleHooks(root);
     Optional<String> jobHooks = parseJobHooks(root);
+    Optional<VolumeRequest> volume = parseVolume(root);
 
     try {
       return new ModuleDescriptor(
-          name, version, requires, exports, tier, request, limit, probes, hooks, jobHooks);
+          name, version, requires, exports, tier, request, limit, probes, hooks, jobHooks, volume);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid gimle-module.yaml for " + name + ": " + e.getMessage(), e);
@@ -205,6 +207,31 @@ public final class ModuleDescriptorParser {
    */
   private static Optional<String> parseJobHooks(Map<?, ?> root) {
     return className(requireLifecycleMap(root), "jobHooks");
+  }
+
+  /**
+   * StatefulSet-kind persistent storage (priority-3 design doc §5a): {@code volume:} at the
+   * descriptor's own top level, sibling to {@code isolation:}/{@code resources:} -- absent means
+   * "no persistent storage," the only shape every pre-existing descriptor has.
+   */
+  private static Optional<VolumeRequest> parseVolume(Map<?, ?> root) {
+    Object volumeObj = root.get("volume");
+    if (volumeObj == null) {
+      return Optional.empty();
+    }
+    if (!(volumeObj instanceof Map<?, ?> volume)) {
+      throw new GimleManifestException("'volume' must be a mapping");
+    }
+    Object sizeBytesObj = volume.get("sizeBytes");
+    if (!(sizeBytesObj instanceof Number sizeBytesNumber) || sizeBytesNumber.longValue() <= 0) {
+      throw new GimleManifestException("'volume.sizeBytes' must be a positive number");
+    }
+    String mountPath = requireString(volume, "mountPath");
+    try {
+      return Optional.of(new VolumeRequest(sizeBytesNumber.longValue(), mountPath));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid volume: " + e.getMessage(), e);
+    }
   }
 
   private static Map<?, ?> requireLifecycleMap(Map<?, ?> root) {

@@ -2,6 +2,7 @@
 import { HttpCronJobsRepository } from "./http/cronjobs";
 import { HttpDaemonSetsRepository } from "./http/daemonsets";
 import { HttpDeploymentsRepository } from "./http/deployments";
+import { HttpStatefulSetsRepository } from "./http/statefulsets";
 import { HttpJobsRepository } from "./http/jobs";
 import { HttpInstancesRepository } from "./http/instances";
 import { HttpNodesRepository } from "./http/nodes";
@@ -18,6 +19,7 @@ export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
 export const cronJobsRepo = new HttpCronJobsRepository();
 export const daemonSetsRepo = new HttpDaemonSetsRepository();
+export const statefulSetsRepo = new HttpStatefulSetsRepository();
 export const instancesRepo = new HttpInstancesRepository(deploymentsRepo);
 export const nodesRepo = new HttpNodesRepository();
 export const tenantsRepo = new HttpTenantsRepository();

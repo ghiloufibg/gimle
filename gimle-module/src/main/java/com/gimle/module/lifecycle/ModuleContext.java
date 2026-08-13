@@ -1,5 +1,6 @@
 package com.gimle.module.lifecycle;
 
+import java.nio.file.Path;
 import java.util.Optional;
 
 /**
@@ -36,4 +37,13 @@ public interface ModuleContext {
    * rest. Absent if the key was never delivered.
    */
   Optional<String> config(String key);
+
+  /**
+   * The host path this instance's persistent volume was allocated at (priority-3 design doc §5a),
+   * present only if the module's own descriptor declares {@code volume:} -- absent for every
+   * ordinary (non-{@code StatefulSet}) instance, the only shape every pre-existing hook has ever
+   * seen. Already populated by the time {@code onInstall} runs, not just {@code onStart}: the agent
+   * resolves and delivers it before this context is even created.
+   */
+  Optional<Path> dataDirectory();
 }

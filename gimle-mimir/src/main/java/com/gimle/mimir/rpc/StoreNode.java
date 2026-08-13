@@ -80,6 +80,19 @@ public final class StoreNode implements StoreRpcHandler {
               store.listDaemonSetAssignmentsFor(r.daemonSetName()));
       case StoreRpc.GetRollingDaemonSetNode r ->
           stringResult(store.getRollingDaemonSetNode(r.daemonSetName()));
+      case StoreRpc.GetStatefulSetSpec r ->
+          statefulSetSpecResult(store.getStatefulSetSpec(r.name()));
+      case StoreRpc.ListStatefulSetSpecs r ->
+          new StoreRpc.StatefulSetSpecListResult(store.listStatefulSetSpecs());
+      case StoreRpc.ListStatefulSetAssignments r ->
+          new StoreRpc.StatefulSetAssignmentListResult(store.listStatefulSetAssignments());
+      case StoreRpc.ListStatefulSetAssignmentsFor r ->
+          new StoreRpc.StatefulSetAssignmentListResult(
+              store.listStatefulSetAssignmentsFor(r.statefulSetName()));
+      case StoreRpc.GetRollingStatefulSetIndex r ->
+          intResult(store.getRollingStatefulSetIndex(r.statefulSetName()));
+      case StoreRpc.GetStatefulSetIndexNode r ->
+          stringResult(store.getStatefulSetIndexNode(r.statefulSetName(), r.instanceIndex()));
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
@@ -238,6 +251,13 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.DaemonSetSpecResult(true, v))
         .orElseGet(() -> new StoreRpc.DaemonSetSpecResult(false, null));
+  }
+
+  private static StoreRpc.StatefulSetSpecResult statefulSetSpecResult(
+      Optional<com.gimle.mimir.manifest.StatefulSetSpec> value) {
+    return value
+        .map(v -> new StoreRpc.StatefulSetSpecResult(true, v))
+        .orElseGet(() -> new StoreRpc.StatefulSetSpecResult(false, null));
   }
 
   private static StoreRpc.StringResult stringResult(Optional<String> value) {

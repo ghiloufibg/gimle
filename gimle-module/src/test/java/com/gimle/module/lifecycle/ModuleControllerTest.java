@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -93,6 +94,26 @@ class ModuleControllerTest {
   }
 
   @Test
+  void resolve_without_a_data_directory_leaves_the_context_field_empty() {
+    Fixture f = fixtureFor("com.gimle.fixture.no_volume");
+
+    f.controller().resolve(f.id());
+
+    assertTrue(f.controller().context(f.id()).orElseThrow().dataDirectory().isEmpty());
+  }
+
+  @Test
+  void resolve_with_a_data_directory_populates_the_context_before_any_hook_runs() {
+    Fixture f = fixtureFor("com.gimle.fixture.with_volume");
+    Path volumePath = tempDir.resolve("volumes/orders-statefulset/0");
+
+    f.controller().resolve(f.id(), Optional.of(volumePath));
+
+    assertEquals(
+        Optional.of(volumePath), f.controller().context(f.id()).orElseThrow().dataDirectory());
+  }
+
+  @Test
   void start_before_resolve_is_illegal() {
     Fixture f = fixtureFor("com.gimle.fixture.early_start");
     assertThrows(GimleLifecycleException.class, () -> f.controller().start(f.id()));
@@ -125,7 +146,8 @@ class ModuleControllerTest {
                 baseArtifact.descriptor().resourceLimit(),
                 baseArtifact.descriptor().healthProbes(),
                 baseArtifact.descriptor().lifecycleHooksClass(),
-                baseArtifact.descriptor().jobHooksClass()),
+                baseArtifact.descriptor().jobHooksClass(),
+                baseArtifact.descriptor().volume()),
             baseArtifact.sha256());
     ModuleId id = registry.register(withMissingDep);
     ModuleResolver resolver = new ModuleResolver(registry);

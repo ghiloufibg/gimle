@@ -1,6 +1,7 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +20,7 @@ public final class SimpleModuleContext implements ModuleContext {
   private final ModuleId id;
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
+  private final Optional<Path> dataDirectory;
   private final AtomicInteger inFlight = new AtomicInteger();
 
   public SimpleModuleContext(ModuleId id, ServiceRegistry serviceRegistry) {
@@ -27,9 +29,18 @@ public final class SimpleModuleContext implements ModuleContext {
 
   public SimpleModuleContext(
       ModuleId id, ServiceRegistry serviceRegistry, Map<String, String> configValues) {
+    this(id, serviceRegistry, configValues, Optional.empty());
+  }
+
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Optional<Path> dataDirectory) {
     this.id = id;
     this.serviceRegistry = serviceRegistry;
     this.configValues = configValues;
+    this.dataDirectory = dataDirectory;
   }
 
   @Override
@@ -60,5 +71,10 @@ public final class SimpleModuleContext implements ModuleContext {
   @Override
   public Optional<String> config(String key) {
     return Optional.ofNullable(configValues.get(key));
+  }
+
+  @Override
+  public Optional<Path> dataDirectory() {
+    return dataDirectory;
   }
 }

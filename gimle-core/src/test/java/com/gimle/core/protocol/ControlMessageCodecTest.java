@@ -46,6 +46,7 @@ class ControlMessageCodecTest {
         new ControlMessage.Pong("corr-2"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
         new ControlMessage.ResolveModule("corr-4", ID),
+        new ControlMessage.ResolveModule("corr-4b", ID, "/var/gimle/volumes/orders-statefulset/0"),
         new ControlMessage.StartModule("corr-5", ID),
         new ControlMessage.StopModule("corr-6", ID),
         new ControlMessage.UninstallModule("corr-7", ID),

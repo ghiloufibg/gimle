@@ -49,6 +49,7 @@ health:
 | `lifecycle.jobHooks` | no | Fully-qualified class name implementing `JobHooks` (a single `run(ModuleContext): CompletionStatus` method) — sibling field to `lifecycle.hooks`, declared instead of it for a module deployed as a [`kind: Job`](#job-manifest), never alongside it. The worker runs it to completion on its own virtual thread once the module reaches `ACTIVE`, then reports `SUCCEEDED`/`FAILED` back to the control plane. A `kind: Job` module has no liveness/readiness semantics worth enforcing (it's never "ready to serve"), so `health:` is simply omitted alongside this field. |
 | `health.liveness` / `health.readiness` | no | Fully-qualified class names implementing `LivenessProbe`/`ReadinessProbe`. Omit either (or both) and the worker defaults to no health check for that probe kind — again, `hello-module`'s deliberately minimal shape. |
 | `health.initialDelaySeconds` | no | How long after the module reaches `ACTIVE` before its first probe tick fires, independent of the probe's own tick interval. Omit it and the first tick fires one interval after `ACTIVE`, same as every interval after it — useful for a module whose post-start warmup (lazy init, cache fill, JIT) would otherwise fail an eager first probe and get torn down within seconds. |
+| `volume.sizeBytes` / `.mountPath` | no | Declares this module needs a persistent local-disk volume (priority-3 design doc §5a) — a property of the artifact itself, like `resources:`/`isolation:` above, not of the workload manifest. Only meaningful for a module deployed as a [`kind: StatefulSet`](#statefulset-manifest); see that section for the full contract, including what this deliberately does *not* provide. |
 
 ## What's optional vs. required, concretely
 
@@ -62,15 +63,16 @@ building one of these up from scratch.
 ## Workload manifests: `kind:`
 
 `gimle-module.yaml` above describes a module *artifact*; a separate, second file — the workload
-manifest (`deployment.yaml`/`job.yaml`/`cronjob.yaml`/`daemonset.yaml`, submitted via `gimle apply -f
-<file>` or the console's own create form) — describes how the control plane should *run* it. Every
-workload manifest carries a required top-level `kind:` field naming which one it is: `Deployment`
-(long-running, replicated), `Job` (run-to-completion, retried up to a limit), `CronJob` (a scheduled
-generator of Jobs), or `DaemonSet` (one instance per eligible node — see below for each). There is no
-default: a manifest missing `kind:` is rejected outright by `ManifestParser`, not silently assumed to
-be a `Deployment`. `gimle apply -f` reads this field client-side to route to the right resource
-automatically — there's no separate `gimle job apply`/`gimle deployment apply`/`gimle cronjob
-apply`/`gimle daemonset apply` verb to remember.
+manifest (`deployment.yaml`/`job.yaml`/`cronjob.yaml`/`daemonset.yaml`/`statefulset.yaml`, submitted
+via `gimle apply -f <file>` or the console's own create form) — describes how the control plane
+should *run* it. Every workload manifest carries a required top-level `kind:` field naming which one
+it is: `Deployment` (long-running, replicated), `Job` (run-to-completion, retried up to a limit),
+`CronJob` (a scheduled generator of Jobs), `DaemonSet` (one instance per eligible node), or
+`StatefulSet` (stable per-index identity, optionally with persistent storage — see below for each).
+There is no default: a manifest missing `kind:` is rejected outright by `ManifestParser`, not
+silently assumed to be a `Deployment`. `gimle apply -f` reads this field client-side to route to the
+right resource automatically — there's no separate `gimle job apply`/`gimle deployment apply`/`gimle
+cronjob apply`/`gimle daemonset apply`/`gimle statefulset apply` verb to remember.
 
 ## Deployment manifest: `autoscale`
 
@@ -279,3 +281,62 @@ DaemonSets screen) is how you read it back.
 whatever `ResourceLimiter` already provides for any other workload kind (see [Tiered
 Isolation](../architecture/tiered-isolation.md)); no rolling-update pause/resume controls beyond the
 same node-keyed state machine a Deployment's own rolling update uses.
+
+## StatefulSet manifest
+
+`kind: StatefulSet` (priority-3 roadmap item 12, the last workload-diversity item) is an index space
+`0..replicas-1` exactly like a Deployment's, but with two properties neither Deployment nor DaemonSet
+has: **ordered rollout** (`OrderedReady`, Kubernetes StatefulSet's own default, not an alternative
+invented here — index `i+1` is never placed until index `i` reports ready, and scale-down removes the
+highest index first, one at a time) and **sticky placement** — once an index is first placed on a
+node, every later placement attempt for that same index (a rolling update, a reconciler restart, a
+node that went dark and came back) is forced back onto that exact node or left unplaced, never moved
+to a different one. `placement.antiAffinity` is a perfectly ordinary field here, unlike DaemonSet's
+rejection of it — spreading replicas across distinct nodes is exactly as meaningful for a StatefulSet
+as it is for a Deployment.
+
+```yaml
+kind: StatefulSet
+name: orders-statefulset
+module:
+  name: com.gimle.examples.orders
+  version: 1.0.0
+artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+replicas: 3
+placement:                     # optional, same shape as a Deployment manifest's own placement:
+  antiAffinity: true
+  requiredLabels: [ssd]
+tenantId: acme                 # optional -- omit for an untenanted statefulset
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | Must be `StatefulSet`. |
+| `name` | yes | The statefulset's identifier — also what `gimle get statefulsets <name>`/the console's StatefulSets screen key on. |
+| `module.name` / `module.version` | yes | The module to run. |
+| `artifactPath` | yes | Path to the module's jar, same convention as a deployment manifest's own field. |
+| `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
+| `placement.antiAffinity` / `placement.requiredLabels` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
+| `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |
+
+Deliberately does **not** carry its own `volume:` field — persistent storage is declared once, on
+the module's own `gimle-module.yaml` (see the [`volume.sizeBytes`/`.mountPath` field
+above](#fields)), the same place every other per-artifact property already lives. A StatefulSet
+whose module declares no `volume:` still gets the ordering/identity guarantees above — "stateful" in
+the identity sense, not the storage sense, is a legitimate, supported shape.
+
+A statefulset's `instances[]` (one entry per currently-placed index, each explicitly carrying that
+index's assigned `nodeId` — the sticky-placement contract made visible, not just implemented
+silently) is read-only, computed state — never part of the manifest you submit. `gimle get
+statefulsets <name>` (or the console's StatefulSets screen) is how you read it back.
+
+**The load-bearing tradeoff to state plainly, not bury**: this is the single-node-local-disk version
+of persistent storage. There is no replication, no backup, no CSI-style pluggable network storage — a
+StatefulSet replica's data does not survive its node's permanent loss. If the node a sticky index is
+bound to is gone for good, that index stays unplaced (never silently relocated, which would silently
+orphan the volume) until an operator intervenes. Real durability (replicated volumes, backup/restore)
+is explicitly out of scope for this iteration, not a "phase 2" of this design.
+
+**What this does not provide, plainly stated**: no multi-volume support (one `volume:` per module
+descriptor only); no CSI-style pluggable storage backends; no volume snapshotting or backup/restore;
+no automatic relocation of a sticky index's data to a different node under any circumstance.

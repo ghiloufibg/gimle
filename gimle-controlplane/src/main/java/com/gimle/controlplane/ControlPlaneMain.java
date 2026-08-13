@@ -11,6 +11,7 @@ import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.JobReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
+import com.gimle.controlplane.reconcile.StatefulSetReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
@@ -176,6 +177,12 @@ public final class ControlPlaneMain {
     DaemonSetReconciler daemonSetReconciler =
         new DaemonSetReconciler(
             storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+    // Priority-3 design doc §5: the last workload-diversity item, touching only its own
+    // StatefulSetSpec/StatefulSetAssignment store types -- same "invisible to every reconciler
+    // above by construction" independence the Job/CronJob/DaemonSet reconcilers already have.
+    StatefulSetReconciler statefulSetReconciler =
+        new StatefulSetReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
 
     ApiServer apiServer =
         new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
@@ -237,7 +244,8 @@ public final class ControlPlaneMain {
                 deploymentReconciler,
                 jobReconciler,
                 cronJobReconciler,
-                daemonSetReconciler);
+                daemonSetReconciler,
+                statefulSetReconciler);
           }
         },
         0,
@@ -330,7 +338,8 @@ public final class ControlPlaneMain {
       DeploymentReconciler deploymentReconciler,
       JobReconciler jobReconciler,
       CronJobReconciler cronJobReconciler,
-      DaemonSetReconciler daemonSetReconciler) {
+      DaemonSetReconciler daemonSetReconciler,
+      StatefulSetReconciler statefulSetReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
@@ -343,6 +352,7 @@ public final class ControlPlaneMain {
       cronJobReconciler.reconcileOnce();
       jobReconciler.reconcileOnce();
       daemonSetReconciler.reconcileOnce();
+      statefulSetReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
     }

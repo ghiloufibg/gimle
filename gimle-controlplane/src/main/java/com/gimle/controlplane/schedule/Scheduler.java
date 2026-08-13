@@ -29,6 +29,12 @@ import java.util.Set;
  * every remaining candidate; {@code eligibleNodes} never throws, since an empty result (no eligible
  * node at all, or not yet) is an entirely ordinary outcome for a DaemonSet reconcile tick, not an
  * error condition the way it is for a single replica that must land somewhere.
+ *
+ * <p>The {@code stickyNodeId}-accepting {@link #place} overload (priority-3 design doc §5b) is
+ * {@code StatefulSetReconciler}'s sticky-placement primitive: once a {@code StatefulSet} index's
+ * local-disk volume exists on a node, every later placement attempt for that index must land back
+ * on that exact node or not at all, never a different one. See that overload's own javadoc for
+ * which filters still apply and which are skipped.
  */
 public final class Scheduler {
 
@@ -96,6 +102,51 @@ public final class Scheduler {
       Optional<String> tenantId,
       Set<String> requiredNodeLabels,
       List<NodeCandidate> candidates) {
+    return place(
+        deploymentName,
+        instanceIndex,
+        tier,
+        resourceRequest,
+        antiAffinityAcrossNodes,
+        tenantId,
+        requiredNodeLabels,
+        Optional.empty(),
+        candidates);
+  }
+
+  /**
+   * {@code stickyNodeId} is a {@code StatefulSet} index's sticky node binding (priority-3 design
+   * doc §5b): when present, this collapses the entire eligibility/bin-packing chain above to "is
+   * {@code stickyNodeId} itself still eligible? Y/N" -- tier, cordon, tenant isolation, and
+   * required labels are all still checked (they're properties of the node itself), but {@code
+   * antiAffinityAcrossNodes} and bin-packing candidate selection are both skipped entirely: there
+   * is only ever one candidate under consideration, never a choice among several, so "exclude nodes
+   * already running this deployment" and "prefer the roomiest node" have nothing to apply to. Never
+   * falls back to a different node if the sticky one fails eligibility -- see {@link
+   * GimleSchedulingException#stickyNodeUnavailable} for why that's the deliberate behavior, not a
+   * gap.
+   */
+  public String place(
+      String deploymentName,
+      int instanceIndex,
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      boolean antiAffinityAcrossNodes,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels,
+      Optional<String> stickyNodeId,
+      List<NodeCandidate> candidates) {
+    if (stickyNodeId.isPresent()) {
+      return placeSticky(
+          deploymentName,
+          instanceIndex,
+          tier,
+          resourceRequest,
+          tenantId,
+          requiredNodeLabels,
+          stickyNodeId.get(),
+          candidates);
+    }
     List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
 
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
@@ -156,6 +207,35 @@ public final class Scheduler {
         filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
     List<NodeCandidate> tenantEligible = filterByTenant(affinityEligible, tier, tenantId);
     return filterByLabels(tenantEligible, requiredNodeLabels);
+  }
+
+  private String placeSticky(
+      String deploymentName,
+      int instanceIndex,
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels,
+      String stickyNodeId,
+      List<NodeCandidate> candidates) {
+    List<NodeCandidate> stickyOnly =
+        candidates.stream().filter(c -> c.nodeId().equals(stickyNodeId)).toList();
+    List<NodeCandidate> tierEligible = filterByTier(tier, stickyOnly);
+    List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
+    List<NodeCandidate> tenantEligible = filterByTenant(uncordonedEligible, tier, tenantId);
+    List<NodeCandidate> labelEligible = filterByLabels(tenantEligible, requiredNodeLabels);
+
+    long requiredMemory = resourceRequest.memoryBytes();
+    long requiredCpu = resourceRequest.cpuMillicores();
+
+    return labelEligible.stream()
+        .filter(c -> c.freeMemoryBytes() >= requiredMemory && c.freeCpuMillicores() >= requiredCpu)
+        .findFirst()
+        .map(NodeCandidate::nodeId)
+        .orElseThrow(
+            () ->
+                GimleSchedulingException.stickyNodeUnavailable(
+                    deploymentName, instanceIndex, stickyNodeId));
   }
 
   private static List<NodeCandidate> filterByTier(

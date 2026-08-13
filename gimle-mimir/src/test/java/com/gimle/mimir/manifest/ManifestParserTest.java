@@ -97,6 +97,25 @@ class ManifestParserTest {
   }
 
   @Test
+  void kind_statefulset_dispatches_to_statefulset_manifest_parser() {
+    WorkloadSpec spec =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: StatefulSet
+                name: orders-statefulset
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+                replicas: 3
+                """));
+
+    StatefulSetSpec statefulSet = assertInstanceOf(StatefulSetSpec.class, spec);
+    assertEquals("orders-statefulset", statefulSet.name());
+  }
+
+  @Test
   void missing_kind_throws() {
     assertThrows(
         GimleManifestException.class,
@@ -115,16 +134,16 @@ class ManifestParserTest {
 
   @Test
   void unrecognized_kind_throws() {
-    // StatefulSet: the one remaining priority-3 workload-diversity item, still unimplemented --
-    // a real "not a kind ManifestParser knows about yet" example, not DaemonSet (now dispatched
-    // above) and not a made-up string that could go stale silently if a real kind reused it.
+    // Every priority-3 workload-diversity kind (Deployment/Job/CronJob/DaemonSet/StatefulSet) is
+    // dispatched above -- "Frobnicate" is a deliberately never-real kind name for this case,
+    // rather than reusing a real one that would go stale silently the moment it's implemented.
     assertThrows(
         GimleManifestException.class,
         () ->
             ManifestParser.parse(
                 yaml(
                     """
-                    kind: StatefulSet
+                    kind: Frobnicate
                     name: nightly-cleanup
                     """)));
   }

@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -73,6 +74,18 @@ public interface StoreReader {
   List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName);
 
   Optional<String> getRollingDaemonSetNode(String daemonSetName);
+
+  Optional<StatefulSetSpec> getStatefulSetSpec(String name);
+
+  List<StatefulSetSpec> listStatefulSetSpecs();
+
+  List<StatefulSetAssignment> listStatefulSetAssignments();
+
+  List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName);
+
+  Optional<Integer> getRollingStatefulSetIndex(String statefulSetName);
+
+  Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex);
 
   List<NodeRegistration> listNodeRegistrations();
 

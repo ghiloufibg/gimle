@@ -55,6 +55,7 @@ import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
@@ -62,6 +63,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
 import com.gimle.pki.CertificateAuthority;
@@ -275,6 +277,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/cronjobs", instrument("cronjobs", this::handleCronJobsList));
     target.createContext("/daemonsets/", instrument("daemonsets", this::handleDaemonSet));
     target.createContext("/daemonsets", instrument("daemonsets", this::handleDaemonSetsList));
+    target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
+    target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -1138,6 +1142,169 @@ public final class ApiServer implements AutoCloseable {
                     .findFirst());
   }
 
+  // ---- /statefulsets/{name}, /statefulsets (priority-3 design doc §5c) ----
+
+  private void handleStatefulSet(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/statefulsets/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing statefulset name");
+        return;
+      }
+      // Unscoped for every verb, matching handleDeployment's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.WRITE, Optional.empty())) {
+            handlePutStatefulSet(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
+            handleGetStatefulSet(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.STATEFULSET, Verb.DELETE, Optional.empty())) {
+            handleDeleteStatefulSet(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("statefulset request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutStatefulSet(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof StatefulSetSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /statefulsets route (expected kind: StatefulSet)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    StatefulSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here, same documented gap handlePutJob's/handlePutDaemonSet's own
+    // identical comment explains -- unlike those two, a StatefulSet's replicas *would* map onto
+    // TenantUsage's existing replica-count-shaped accounting cleanly, but wiring only this one
+    // kind in would still leave Job under-counted; making TenantUsage genuinely multi-kind-aware
+    // is real, separate scope, not a StatefulSet-specific fix.
+    storeClient.propose(new StateMutation.PutStatefulSetSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static StatefulSetSpec withArtifactSha256(StatefulSetSpec spec, Optional<String> sha256) {
+    return new StatefulSetSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.replicas(),
+        spec.placement(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetStatefulSet(HttpExchange exchange, String name) throws IOException {
+    Optional<StatefulSetSpec> spec = storeClient.getStatefulSetSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such statefulset: " + name);
+      return;
+    }
+    respondJson(exchange, 200, statefulSetStatus(spec.get()));
+  }
+
+  private void handleDeleteStatefulSet(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveStatefulSetSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every statefulset, in the same shape {@link #handleGetStatefulSet} returns for one. */
+  private void handleStatefulSetsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listStatefulSetSpecs().stream().map(this::statefulSetStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("statefulsets list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code instances[].nodeId} is surfaced explicitly and unconditionally (not just folded into
+   * {@code observation}) -- the one place across every workload kind's own status JSON where doing
+   * so is more than a convenience: it's the sticky-placement contract (design doc §5b) made visible
+   * to an operator, not just implemented silently, the same reasoning the design doc itself gives
+   * for why the CLI's own {@code get statefulsets} output must show it too.
+   */
+  private Map<String, Object> statefulSetStatus(StatefulSetSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    specMap.put("replicas", spec.replicas());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    List<Map<String, Object>> instances = new ArrayList<>();
+    for (StatefulSetAssignment assignment :
+        storeClient.listStatefulSetAssignmentsFor(spec.name())) {
+      Map<String, Object> instance = new LinkedHashMap<>();
+      instance.put("instanceIndex", assignment.instanceIndex());
+      instance.put("nodeId", assignment.nodeId());
+      findObservationForStatefulSetAssignment(assignment)
+          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      instances.add(instance);
+    }
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    status.put("instances", instances);
+    status.put("unplacedCount", spec.replicas() - instances.size());
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForStatefulSetAssignment(
+      StatefulSetAssignment assignment) {
+    return storeClient
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(assignment.statefulSetName())
+                                && obs.instanceIndex() == assignment.instanceIndex())
+                    .findFirst());
+  }
+
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
     specMap.put("name", spec.name());
@@ -1422,6 +1589,32 @@ public final class ApiServer implements AutoCloseable {
               assignment.moduleId(),
               assignment.artifactPath(),
               daemonSetSpec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // StatefulSet assignments (priority-3 design doc §5) reuse the same AssignedInstance wire
+    // shape one more time -- statefulSetName/instanceIndex map directly onto deploymentName/
+    // instanceIndex, the exact same fit InstanceAssignment itself already has, since a
+    // StatefulSet index is a real, stable identity like an ordinary deployment replica's own
+    // index, not DaemonSet's always-0. No agent-side or worker-side kind-awareness needed here
+    // either: whether this instance's descriptor declares volume: (and so needs a data directory
+    // resolved) is discovered generically from the artifact itself, in AgentMain, not from which
+    // reconciler placed it.
+    for (StatefulSetAssignment assignment : storeClient.listStatefulSetAssignments()) {
+      if (!assignment.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<StatefulSetSpec> statefulSetSpec =
+          storeClient.getStatefulSetSpec(assignment.statefulSetName());
+      if (statefulSetSpec.isEmpty()) {
+        continue; // stale assignment; StatefulSetReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              assignment.statefulSetName(),
+              assignment.instanceIndex(),
+              assignment.moduleId(),
+              assignment.artifactPath(),
+              statefulSetSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);

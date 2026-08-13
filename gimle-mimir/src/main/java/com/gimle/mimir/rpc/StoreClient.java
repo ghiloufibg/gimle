@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
@@ -24,6 +25,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import java.io.UncheckedIOException;
 import java.net.SocketAddress;
@@ -232,6 +234,42 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
     StoreRpc.StringResult r =
         (StoreRpc.StringResult) sendRead(new StoreRpc.GetRollingDaemonSetNode(daemonSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
+    StoreRpc.StatefulSetSpecResult r =
+        (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<StatefulSetSpec> listStatefulSetSpecs() {
+    return ((StoreRpc.StatefulSetSpecListResult) sendRead(new StoreRpc.ListStatefulSetSpecs()))
+        .values();
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignments() {
+    return ((StoreRpc.StatefulSetAssignmentListResult)
+            sendRead(new StoreRpc.ListStatefulSetAssignments()))
+        .values();
+  }
+
+  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName) {
+    return ((StoreRpc.StatefulSetAssignmentListResult)
+            sendRead(new StoreRpc.ListStatefulSetAssignmentsFor(statefulSetName)))
+        .values();
+  }
+
+  public Optional<Integer> getRollingStatefulSetIndex(String statefulSetName) {
+    StoreRpc.IntResult r =
+        (StoreRpc.IntResult) sendRead(new StoreRpc.GetRollingStatefulSetIndex(statefulSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+    StoreRpc.StringResult r =
+        (StoreRpc.StringResult)
+            sendRead(new StoreRpc.GetStatefulSetIndexNode(statefulSetName, instanceIndex));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 

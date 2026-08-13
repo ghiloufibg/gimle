@@ -21,6 +21,10 @@ public enum ResourceKind {
   // every node in the cluster" is a meaningfully more consequential grant than an ordinary scoped
   // deployment, worth letting operators withhold independently (priority-3 design doc §4d).
   DAEMONSET,
+  // Deliberately its own kind too, same reasoning as DAEMONSET: a workload that owns persistent
+  // local-disk state with real data-loss consequences on mismanagement (priority-3 design doc
+  // §5b/§5c) deserves independently grantable RBAC, not folded into DEPLOYMENT.
+  STATEFULSET,
   NODE,
   TENANT,
   CONFIG,

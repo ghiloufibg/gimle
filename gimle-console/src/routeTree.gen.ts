@@ -20,6 +20,7 @@ import { Route as ConfigRouteImport } from './routes/config'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TenantsIndexRouteImport } from './routes/tenants.index'
+import { Route as StatefulsetsIndexRouteImport } from './routes/statefulsets.index'
 import { Route as NodesIndexRouteImport } from './routes/nodes.index'
 import { Route as JobsIndexRouteImport } from './routes/jobs.index'
 import { Route as InstancesIndexRouteImport } from './routes/instances.index'
@@ -27,6 +28,7 @@ import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index
 import { Route as DaemonsetsIndexRouteImport } from './routes/daemonsets.index'
 import { Route as CronjobsIndexRouteImport } from './routes/cronjobs.index'
 import { Route as TenantsIdRouteImport } from './routes/tenants.$id'
+import { Route as StatefulsetsNameRouteImport } from './routes/statefulsets.$name'
 import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
 import { Route as JobsNameRouteImport } from './routes/jobs.$name'
 import { Route as DeploymentsNewRouteImport } from './routes/deployments.new'
@@ -90,6 +92,11 @@ const TenantsIndexRoute = TenantsIndexRouteImport.update({
   path: '/tenants/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StatefulsetsIndexRoute = StatefulsetsIndexRouteImport.update({
+  id: '/statefulsets/',
+  path: '/statefulsets/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NodesIndexRoute = NodesIndexRouteImport.update({
   id: '/nodes/',
   path: '/nodes/',
@@ -123,6 +130,11 @@ const CronjobsIndexRoute = CronjobsIndexRouteImport.update({
 const TenantsIdRoute = TenantsIdRouteImport.update({
   id: '/tenants/$id',
   path: '/tenants/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatefulsetsNameRoute = StatefulsetsNameRouteImport.update({
+  id: '/statefulsets/$name',
+  path: '/statefulsets/$name',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NodesNodeIdRoute = NodesNodeIdRouteImport.update({
@@ -178,6 +190,7 @@ export interface FileRoutesByFullPath {
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/cronjobs/': typeof CronjobsIndexRoute
   '/daemonsets/': typeof DaemonsetsIndexRoute
@@ -185,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/instances/': typeof InstancesIndexRoute
   '/jobs/': typeof JobsIndexRoute
   '/nodes/': typeof NodesIndexRoute
+  '/statefulsets/': typeof StatefulsetsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
@@ -205,6 +219,7 @@ export interface FileRoutesByTo {
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/cronjobs': typeof CronjobsIndexRoute
   '/daemonsets': typeof DaemonsetsIndexRoute
@@ -212,6 +227,7 @@ export interface FileRoutesByTo {
   '/instances': typeof InstancesIndexRoute
   '/jobs': typeof JobsIndexRoute
   '/nodes': typeof NodesIndexRoute
+  '/statefulsets': typeof StatefulsetsIndexRoute
   '/tenants': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
@@ -233,6 +249,7 @@ export interface FileRoutesById {
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/cronjobs/': typeof CronjobsIndexRoute
   '/daemonsets/': typeof DaemonsetsIndexRoute
@@ -240,6 +257,7 @@ export interface FileRoutesById {
   '/instances/': typeof InstancesIndexRoute
   '/jobs/': typeof JobsIndexRoute
   '/nodes/': typeof NodesIndexRoute
+  '/statefulsets/': typeof StatefulsetsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
@@ -262,6 +280,7 @@ export interface FileRouteTypes {
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
+    | '/statefulsets/$name'
     | '/tenants/$id'
     | '/cronjobs/'
     | '/daemonsets/'
@@ -269,6 +288,7 @@ export interface FileRouteTypes {
     | '/instances/'
     | '/jobs/'
     | '/nodes/'
+    | '/statefulsets/'
     | '/tenants/'
     | '/instances/$name/$idx'
   fileRoutesByTo: FileRoutesByTo
@@ -289,6 +309,7 @@ export interface FileRouteTypes {
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
+    | '/statefulsets/$name'
     | '/tenants/$id'
     | '/cronjobs'
     | '/daemonsets'
@@ -296,6 +317,7 @@ export interface FileRouteTypes {
     | '/instances'
     | '/jobs'
     | '/nodes'
+    | '/statefulsets'
     | '/tenants'
     | '/instances/$name/$idx'
   id:
@@ -316,6 +338,7 @@ export interface FileRouteTypes {
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
+    | '/statefulsets/$name'
     | '/tenants/$id'
     | '/cronjobs/'
     | '/daemonsets/'
@@ -323,6 +346,7 @@ export interface FileRouteTypes {
     | '/instances/'
     | '/jobs/'
     | '/nodes/'
+    | '/statefulsets/'
     | '/tenants/'
     | '/instances/$name/$idx'
   fileRoutesById: FileRoutesById
@@ -344,6 +368,7 @@ export interface RootRouteChildren {
   DeploymentsNewRoute: typeof DeploymentsNewRoute
   JobsNameRoute: typeof JobsNameRoute
   NodesNodeIdRoute: typeof NodesNodeIdRoute
+  StatefulsetsNameRoute: typeof StatefulsetsNameRoute
   TenantsIdRoute: typeof TenantsIdRoute
   CronjobsIndexRoute: typeof CronjobsIndexRoute
   DaemonsetsIndexRoute: typeof DaemonsetsIndexRoute
@@ -351,6 +376,7 @@ export interface RootRouteChildren {
   InstancesIndexRoute: typeof InstancesIndexRoute
   JobsIndexRoute: typeof JobsIndexRoute
   NodesIndexRoute: typeof NodesIndexRoute
+  StatefulsetsIndexRoute: typeof StatefulsetsIndexRoute
   TenantsIndexRoute: typeof TenantsIndexRoute
   InstancesNameIdxRoute: typeof InstancesNameIdxRoute
 }
@@ -434,6 +460,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TenantsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/statefulsets/': {
+      id: '/statefulsets/'
+      path: '/statefulsets'
+      fullPath: '/statefulsets/'
+      preLoaderRoute: typeof StatefulsetsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/nodes/': {
       id: '/nodes/'
       path: '/nodes'
@@ -481,6 +514,13 @@ declare module '@tanstack/react-router' {
       path: '/tenants/$id'
       fullPath: '/tenants/$id'
       preLoaderRoute: typeof TenantsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/statefulsets/$name': {
+      id: '/statefulsets/$name'
+      path: '/statefulsets/$name'
+      fullPath: '/statefulsets/$name'
+      preLoaderRoute: typeof StatefulsetsNameRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/nodes/$nodeId': {
@@ -552,6 +592,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeploymentsNewRoute: DeploymentsNewRoute,
   JobsNameRoute: JobsNameRoute,
   NodesNodeIdRoute: NodesNodeIdRoute,
+  StatefulsetsNameRoute: StatefulsetsNameRoute,
   TenantsIdRoute: TenantsIdRoute,
   CronjobsIndexRoute: CronjobsIndexRoute,
   DaemonsetsIndexRoute: DaemonsetsIndexRoute,
@@ -559,6 +600,7 @@ const rootRouteChildren: RootRouteChildren = {
   InstancesIndexRoute: InstancesIndexRoute,
   JobsIndexRoute: JobsIndexRoute,
   NodesIndexRoute: NodesIndexRoute,
+  StatefulsetsIndexRoute: StatefulsetsIndexRoute,
   TenantsIndexRoute: TenantsIndexRoute,
   InstancesNameIdxRoute: InstancesNameIdxRoute,
 }

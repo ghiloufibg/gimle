@@ -110,11 +110,21 @@ Not every real workload is a stateless HTTP service.
     `DaemonSetReconciler`'s rolling update is a deliberate node-keyed duplicate of
     `DeploymentReconciler`'s own index-keyed state machine, not a shared generalization — the two
     key types (`String nodeId` vs. `int instanceIndex`) don't unify cleanly enough to be worth it.
-12. **Stateful workload support.** Deliberately last among the workload-diversity items, not because
-    it's unimportant — persistent storage with a lifecycle independent of the workload's own, plus
-    ordered rollout and stable identity, is arguably the single most educational feature in all of
-    Kubernetes. It's last here because it's the deepest rabbit hole, and Gimlé's module model today
-    is inherently stateless-friendly.
+12. ~~**Stateful workload support.**~~ **Done** — see [Manifest schema](../reference/manifest-schema.md#statefulset-manifest).
+    The last, deliberately hardest, workload-diversity item: `kind: StatefulSet` adds two properties
+    neither Deployment nor DaemonSet has, both because a persistent local-disk volume can't move
+    between nodes. `OrderedReady` (index `i+1` never placed before index `i` reports ready; scale-down
+    removes the highest index first, one per tick) is enforced by `StatefulSetReconciler` simply
+    scanning indices in order and stopping at the first one that isn't ready — no separate "am I
+    mid-rollout" bookkeeping needed. Sticky placement is `Scheduler.place`'s new `stickyNodeId`
+    parameter, which collapses the whole eligibility chain to "is this one node still eligible?" and
+    never falls back to a different node if not — backed by `StateStore`'s own sticky node-binding
+    map, written once at an index's first placement and read back on every later attempt (including
+    across a rolling update), surviving everything except the index's own permanent removal. The new
+    `VolumeManager`/`LocalDiskVolumeManager` (`gimle-os`) and `ModuleContext.dataDirectory()`
+    (`gimle-module`) are the one genuinely new worker/agent capability this entire priority-3 body of
+    work required — local-disk-only, no replication, no CSI-style pluggable backend, matching the
+    single-node-local-disk durability this design deliberately promises and nothing more.
 
 ## Priority 4: control-plane policy and fairness
 

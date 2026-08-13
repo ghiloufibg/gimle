@@ -23,6 +23,7 @@ class ModuleDescriptorTest {
                 new ResourceSpec("256Mi", "500m"),
                 HealthProbes.NONE,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()));
   }
 
@@ -40,6 +41,7 @@ class ModuleDescriptorTest {
                 new ResourceSpec("512Mi", "250m"),
                 new ResourceSpec("256Mi", "500m"),
                 HealthProbes.NONE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty()));
   }
@@ -59,6 +61,7 @@ class ModuleDescriptorTest {
                 new ResourceSpec("256Mi", "500m"),
                 HealthProbes.NONE,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()));
   }
 
@@ -77,6 +80,7 @@ class ModuleDescriptorTest {
                 new ResourceSpec("256Mi", "500m"),
                 HealthProbes.NONE,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()));
   }
 
@@ -92,6 +96,7 @@ class ModuleDescriptorTest {
             new ResourceSpec("128Mi", "250m"),
             new ResourceSpec("256Mi", "500m"),
             HealthProbes.NONE,
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
     assertDoesNotThrow(descriptor::id);
