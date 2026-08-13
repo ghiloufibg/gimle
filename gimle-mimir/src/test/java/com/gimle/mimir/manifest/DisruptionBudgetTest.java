@@ -28,8 +28,12 @@ class DisruptionBudgetTest {
   }
 
   @Test
-  void max_unavailable_must_be_at_least_1() {
+  void max_unavailable_and_max_surge_must_not_both_be_0() {
     assertThrows(IllegalArgumentException.class, () -> new DisruptionBudget(0, 0));
+  }
+
+  @Test
+  void max_unavailable_must_not_be_negative() {
     assertThrows(IllegalArgumentException.class, () -> new DisruptionBudget(-1, 0));
   }
 
@@ -47,5 +51,25 @@ class DisruptionBudgetTest {
 
     assertEquals(2, budget.maxUnavailable());
     assertEquals(1, budget.maxSurge());
+  }
+
+  @Test
+  void a_pure_surge_budget_with_max_unavailable_0_is_accepted_alongside_a_nonzero_max_surge() {
+    // Literal Kubernetes RollingUpdateDeployment semantics: maxUnavailable: 0 is only a stuck
+    // rollout if maxSurge is also 0 -- with a nonzero maxSurge, DeploymentReconciler#handleSurge
+    // alone drives the whole rollout via surge-then-promote, never removing an index before its
+    // replacement lands.
+    DisruptionBudget budget = new DisruptionBudget(0, 2);
+
+    assertEquals(0, budget.maxUnavailable());
+    assertEquals(2, budget.maxSurge());
+  }
+
+  @Test
+  void the_one_arg_daemonset_constructor_still_rejects_0_since_it_always_pairs_with_no_surge() {
+    // The single-arg constructor always delegates to (maxUnavailable, 0) -- DaemonSet has no
+    // surge concept at all (DaemonSetManifestParser rejects a nonzero maxSurge outright), so 0
+    // here is never rescued by a nonzero maxSurge the way the two-arg constructor allows.
+    assertThrows(IllegalArgumentException.class, () -> new DisruptionBudget(0));
   }
 }

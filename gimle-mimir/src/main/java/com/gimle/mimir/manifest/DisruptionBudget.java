@@ -18,6 +18,16 @@ package com.gimle.mimir.manifest;
  * DaemonSetSpec} is already exactly one instance per eligible node by definition, so there is no
  * "extra" instance a rollout could ever provision ahead of removing the old one, on any
  * implementation.
+ *
+ * <p>{@code maxUnavailable} and {@code maxSurge} may not both be {@code 0} -- that combination
+ * really would mean "never replace anything," a stuck rollout. Either one alone at {@code 0} is
+ * fine: {@code DeploymentReconciler#handleRollingUpdate} and {@code #handleSurge} run as fully
+ * independent passes, each already a no-op at budget {@code 0} on its own ({@code inFlight.size()
+ * >= 0} is immediately true), so a Deployment with {@code maxUnavailable: 0, maxSurge: N} rolls out
+ * entirely through surge-then-promote, never removing an index before its replacement lands --
+ * literal Kubernetes {@code RollingUpdateDeployment} semantics. A DaemonSet's own single-arg
+ * constructor below always pairs with {@code maxSurge == 0}, so this joint check alone still
+ * correctly rejects {@code maxUnavailable: 0} there -- no extra DaemonSet-specific check needed.
  */
 public record DisruptionBudget(int maxUnavailable, int maxSurge) {
 
@@ -25,11 +35,15 @@ public record DisruptionBudget(int maxUnavailable, int maxSurge) {
   public static final DisruptionBudget DEFAULT = new DisruptionBudget(1, 0);
 
   public DisruptionBudget {
-    if (maxUnavailable < 1) {
-      throw new IllegalArgumentException("maxUnavailable must be at least 1: " + maxUnavailable);
+    if (maxUnavailable < 0) {
+      throw new IllegalArgumentException("maxUnavailable must not be negative: " + maxUnavailable);
     }
     if (maxSurge < 0) {
       throw new IllegalArgumentException("maxSurge must not be negative: " + maxSurge);
+    }
+    if (maxUnavailable == 0 && maxSurge == 0) {
+      throw new IllegalArgumentException(
+          "maxUnavailable and maxSurge must not both be 0 -- nothing would ever be replaced");
     }
   }
 

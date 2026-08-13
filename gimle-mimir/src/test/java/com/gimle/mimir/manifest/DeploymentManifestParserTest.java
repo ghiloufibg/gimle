@@ -650,7 +650,9 @@ class DeploymentManifestParserTest {
   }
 
   @Test
-  void rejects_a_max_unavailable_below_1() {
+  void rejects_max_unavailable_0_with_no_max_surge_to_rescue_it() {
+    // maxSurge defaults to 0 when omitted, so this is the {maxUnavailable: 0, maxSurge: 0}
+    // combination DisruptionBudget's own compact constructor rejects -- "never replace anything."
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -666,5 +668,27 @@ class DeploymentManifestParserTest {
                     disruption:
                       maxUnavailable: 0
                     """)));
+  }
+
+  @Test
+  void accepts_max_unavailable_0_paired_with_a_nonzero_max_surge_for_a_pure_surge_rollout() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 5
+                disruption:
+                  maxUnavailable: 0
+                  maxSurge: 2
+                """));
+
+    DisruptionBudget budget = spec.disruption().orElseThrow();
+    assertEquals(0, budget.maxUnavailable());
+    assertEquals(2, budget.maxSurge());
   }
 }

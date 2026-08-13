@@ -140,7 +140,7 @@ disruption:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `maxUnavailable` | no | How many indices may be mid-migration (old instance already removed, replacement not yet ready) at once. Must be at least `1` if present; defaults to `1`. |
+| `maxUnavailable` | no | How many indices may be mid-migration (old instance already removed, replacement not yet ready) at once. Must be at least `0` if present; defaults to `1`. |
 | `maxSurge` | no | How many *extra* instances (beyond `replicas`) a rollout may provision ahead of removing the originals they're replacing. Must be at least `0` if present; defaults to `0`. |
 
 A freed `maxUnavailable` slot is topped up with a new migration the moment budget allows — including
@@ -149,12 +149,13 @@ keeps up to `N` migrations continuously in flight rather than draining a whole b
 starting the next. `maxSurge` is an independent budget, not summed with `maxUnavailable`: both apply
 simultaneously, each as its own pass over the same mismatched-index list, so `maxUnavailable: 1,
 maxSurge: 1` migrates one index the old way and provisions a second one ahead of removal, at once.
-`maxUnavailable` can never be `0` (a value of `0` would mean "never replace anything," a stuck
-rollout) — so a rollout that only ever surges, never removing an index before its replacement lands,
-isn't expressible; every rollout has at least a `maxUnavailable: 1` floor alongside whatever surge it
-also uses. See [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers) for the
-full mechanics of both budgets, including how a surge instance is placed at a synthetic index
-`>= replicas` and promoted once healthy.
+`maxUnavailable` and `maxSurge` may not both be `0` (that combination would mean "never replace
+anything," a stuck rollout) — but either one alone at `0` is fine: `maxUnavailable: 0, maxSurge: N`
+is a pure-surge rollout, never removing an index before its replacement lands, matching literal
+Kubernetes `RollingUpdateDeployment` semantics. See [Control plane §
+Reconcilers](../architecture/control-plane.md#reconcilers) for the full mechanics of both budgets,
+including how a surge instance is placed at a synthetic index `>= replicas` and promoted once
+healthy.
 
 Admission is surge-aware too: a tenant's quota is checked against `replicas + maxSurge` (the peak a
 rollout could transiently reach), not `replicas` alone — a deployment that fits its tenant's quota at
