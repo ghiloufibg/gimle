@@ -248,7 +248,10 @@ class DaemonSetManifestParserTest {
   }
 
   @Test
-  void rejects_a_max_unavailable_below_1() {
+  void rejects_a_max_unavailable_of_0() {
+    // Unlike a Deployment manifest, there's no maxSurge to rescue this here -- DaemonSetSpec's
+    // own maxSurge is always 0 (rejected outright if the manifest sets it nonzero), so 0 always
+    // means "never replace anything."
     assertThrows(
         GimleManifestException.class,
         () ->
