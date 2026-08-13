@@ -7,6 +7,7 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -14,6 +15,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
+import java.time.Instant;
 
 /**
  * Every mutating operation {@link StateStore} exposes, replicated through the Raft log -- one
@@ -87,6 +89,27 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putJobPhase(jobName, phase);
+    }
+  }
+
+  record PutCronJobSpec(CronJobSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putCronJobSpec(spec);
+    }
+  }
+
+  record RemoveCronJobSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeCronJobSpec(name);
+    }
+  }
+
+  record PutCronJobLastSchedule(String name, Instant lastScheduleTime) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putCronJobLastSchedule(name, lastScheduleTime);
     }
   }
 

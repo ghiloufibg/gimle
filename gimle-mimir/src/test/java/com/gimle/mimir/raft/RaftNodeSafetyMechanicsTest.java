@@ -257,6 +257,8 @@ class RaftNodeSafetyMechanicsTest {
             Map.of(),
             List.of(),
             Map.of(),
+            List.of(),
+            Map.of(),
             Map.of(),
             List.of(new Tenant(tenantId, new ResourceQuota(1, 1, 1))),
             Set.of(),

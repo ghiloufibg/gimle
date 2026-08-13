@@ -1,5 +1,13 @@
 import { useEffect, useMemo } from "react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { AXIS, ChartTooltip } from "@/components/chart-kit";
 import { Panel } from "@/components/page-shell";
@@ -161,7 +169,11 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
                       <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="var(--status-muted)" strokeOpacity={0.15} vertical={false} />
+                  <CartesianGrid
+                    stroke="var(--status-muted)"
+                    strokeOpacity={0.15}
+                    vertical={false}
+                  />
                   <XAxis dataKey="t" {...AXIS} tickLine={false} minTickGap={40} />
                   <YAxis
                     {...AXIS}

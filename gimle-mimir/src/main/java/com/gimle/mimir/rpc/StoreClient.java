@@ -10,6 +10,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.MutationSink;
@@ -185,6 +186,22 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     StoreRpc.JobPhaseResult r =
         (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(jobName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<CronJobSpec> getCronJobSpec(String name) {
+    StoreRpc.CronJobSpecResult r =
+        (StoreRpc.CronJobSpecResult) sendRead(new StoreRpc.GetCronJobSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<CronJobSpec> listCronJobSpecs() {
+    return ((StoreRpc.CronJobSpecListResult) sendRead(new StoreRpc.ListCronJobSpecs())).values();
+  }
+
+  public Optional<Instant> getCronJobLastSchedule(String name) {
+    StoreRpc.InstantResult r =
+        (StoreRpc.InstantResult) sendRead(new StoreRpc.GetCronJobLastSchedule(name));
+    return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
   }
 
   public List<NodeRegistration> listNodeRegistrations() {

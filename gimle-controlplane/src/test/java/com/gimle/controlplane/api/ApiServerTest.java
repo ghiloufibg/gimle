@@ -416,6 +416,207 @@ class ApiServerTest {
     assertEquals(405, response.statusCode());
   }
 
+  private static String cronJobYaml(String name) {
+    return """
+        kind: CronJob
+        name: %s
+        schedule: "0 2 * * *"
+        jobTemplate:
+          module:
+            name: com.gimle.example.cleanup
+            version: 1.0.0
+          artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+          backoffLimit: 3
+        """
+        .formatted(name);
+  }
+
+  @Test
+  void put_then_get_a_cronjob_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("nightly-cleanup", spec.get("name"));
+    assertEquals("0 2 * * *", spec.get("schedule"));
+    assertEquals("ALLOW", spec.get("concurrencyPolicy"));
+    assertFalse(status.containsKey("lastScheduleTime"), "never fired yet");
+  }
+
+  @Test
+  void put_a_cronjob_with_a_deployment_kind_manifest_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("nightly-cleanup", 1)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_cronjob_with_a_manifest_name_mismatch_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/other-name"))
+                .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_cronjob_with_malformed_yaml_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString("not: [valid"))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void get_of_an_unknown_cronjob_is_404() throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nope")).GET().build());
+
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void delete_removes_a_cronjob() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+            .build());
+
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .DELETE()
+                .build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .GET()
+                .build());
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void cronjobs_list_endpoint_returns_every_cronjob() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/weekly-report"))
+            .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("weekly-report")))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(2, body.size());
+  }
+
+  @Test
+  void cronjobs_list_endpoint_is_empty_with_none_submitted() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void cronjobs_endpoint_method_not_allowed_for_post() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .POST(HttpRequest.BodyPublishers.ofString("irrelevant"))
+                .build());
+
+    assertEquals(405, response.statusCode());
+  }
+
+  @Test
+  void trigger_fires_immediately_and_the_generated_job_appears_on_the_jobs_list() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+            .build());
+
+    HttpResponse<String> trigger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup/trigger"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+
+    assertEquals(200, trigger.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(trigger.body()));
+    String jobName = (String) body.get("jobName");
+    assertTrue(jobName.startsWith("nightly-cleanup-"));
+
+    HttpResponse<String> job =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + jobName)).GET().build());
+    assertEquals(200, job.statusCode());
+  }
+
+  @Test
+  void trigger_on_an_unknown_cronjob_is_404() throws Exception {
+    HttpResponse<String> trigger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nope/trigger"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+
+    assertEquals(404, trigger.statusCode());
+  }
+
+  @Test
+  void trigger_is_rejected_by_get() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(cronJobYaml("nightly-cleanup")))
+            .build());
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup/trigger"))
+                .GET()
+                .build());
+
+    assertEquals(405, response.statusCode());
+  }
+
+  @Test
+  void an_unknown_cronjob_subresource_is_404() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup/bogus"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+
+    assertEquals(404, response.statusCode());
+  }
+
   @Test
   void nodes_list_endpoint_returns_registered_nodes_with_their_last_heartbeat() throws Exception {
     send(

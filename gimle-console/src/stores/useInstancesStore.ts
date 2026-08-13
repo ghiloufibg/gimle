@@ -39,8 +39,17 @@ export const useInstancesStore = create<State>((set, get) => ({
     if (get().loading) return;
     set({ loading: true, error: null });
     try {
-      const p = await instancesRepo.fetchPage({ cursor: null, pageSize: PAGE, filter: get().filter });
-      set({ items: p.items, nextCursor: p.nextCursor, hasMore: p.nextCursor !== null, loading: false });
+      const p = await instancesRepo.fetchPage({
+        cursor: null,
+        pageSize: PAGE,
+        filter: get().filter,
+      });
+      set({
+        items: p.items,
+        nextCursor: p.nextCursor,
+        hasMore: p.nextCursor !== null,
+        loading: false,
+      });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
     }

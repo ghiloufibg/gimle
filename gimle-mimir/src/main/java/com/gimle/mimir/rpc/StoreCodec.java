@@ -10,6 +10,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.RaftCodec;
@@ -76,6 +77,9 @@ public final class StoreCodec {
   private static final byte TAG_LIST_JOB_RUNS_FOR = 56;
   private static final byte TAG_LIST_JOB_RUNS = 57;
   private static final byte TAG_GET_JOB_PHASE = 58;
+  private static final byte TAG_GET_CRONJOB_SPEC = 63;
+  private static final byte TAG_LIST_CRONJOB_SPECS = 64;
+  private static final byte TAG_GET_CRONJOB_LAST_SCHEDULE = 65;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -106,6 +110,9 @@ public final class StoreCodec {
   private static final byte TAG_JOB_SPEC_LIST_RESULT = 60;
   private static final byte TAG_JOB_RUN_LIST_RESULT = 61;
   private static final byte TAG_JOB_PHASE_RESULT = 62;
+  private static final byte TAG_CRONJOB_SPEC_RESULT = 66;
+  private static final byte TAG_CRONJOB_SPEC_LIST_RESULT = 67;
+  private static final byte TAG_INSTANT_RESULT = 68;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -197,6 +204,15 @@ public final class StoreCodec {
         case StoreRpc.GetJobPhase v -> {
           out.writeByte(TAG_GET_JOB_PHASE);
           out.writeUTF(v.jobName());
+        }
+        case StoreRpc.GetCronJobSpec v -> {
+          out.writeByte(TAG_GET_CRONJOB_SPEC);
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListCronJobSpecs v -> out.writeByte(TAG_LIST_CRONJOB_SPECS);
+        case StoreRpc.GetCronJobLastSchedule v -> {
+          out.writeByte(TAG_GET_CRONJOB_LAST_SCHEDULE);
+          out.writeUTF(v.name());
         }
         case StoreRpc.ListNodeRegistrations v -> out.writeByte(TAG_LIST_NODE_REGISTRATIONS);
         case StoreRpc.ListTenants v -> out.writeByte(TAG_LIST_TENANTS);
@@ -318,6 +334,25 @@ public final class StoreCodec {
           if (v.present()) {
             out.writeUTF(v.value().name());
           }
+        }
+        case StoreRpc.CronJobSpecResult v -> {
+          out.writeByte(TAG_CRONJOB_SPEC_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeCronJobSpec(out, v.value());
+          }
+        }
+        case StoreRpc.CronJobSpecListResult v -> {
+          out.writeByte(TAG_CRONJOB_SPEC_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (CronJobSpec s : v.values()) {
+            DomainCodec.writeCronJobSpec(out, s);
+          }
+        }
+        case StoreRpc.InstantResult v -> {
+          out.writeByte(TAG_INSTANT_RESULT);
+          out.writeBoolean(v.present());
+          out.writeLong(v.epochMilli());
         }
         case StoreRpc.TenantResult v -> {
           out.writeByte(TAG_TENANT_RESULT);
@@ -476,6 +511,9 @@ public final class StoreCodec {
         case TAG_LIST_JOB_RUNS_FOR -> new StoreRpc.ListJobRunsFor(in.readUTF());
         case TAG_LIST_JOB_RUNS -> new StoreRpc.ListJobRuns();
         case TAG_GET_JOB_PHASE -> new StoreRpc.GetJobPhase(in.readUTF());
+        case TAG_GET_CRONJOB_SPEC -> new StoreRpc.GetCronJobSpec(in.readUTF());
+        case TAG_LIST_CRONJOB_SPECS -> new StoreRpc.ListCronJobSpecs();
+        case TAG_GET_CRONJOB_LAST_SCHEDULE -> new StoreRpc.GetCronJobLastSchedule(in.readUTF());
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();
         case TAG_LIST_CONFIG_ENTRIES_FOR -> new StoreRpc.ListConfigEntriesFor(in.readUTF());
@@ -538,6 +576,20 @@ public final class StoreCodec {
           yield new StoreRpc.JobPhaseResult(
               present, present ? JobPhase.valueOf(in.readUTF()) : null);
         }
+        case TAG_CRONJOB_SPEC_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.CronJobSpecResult(
+              present, present ? DomainCodec.readCronJobSpec(in) : null);
+        }
+        case TAG_CRONJOB_SPEC_LIST_RESULT -> {
+          int count = in.readInt();
+          List<CronJobSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readCronJobSpec(in));
+          }
+          yield new StoreRpc.CronJobSpecListResult(values);
+        }
+        case TAG_INSTANT_RESULT -> new StoreRpc.InstantResult(in.readBoolean(), in.readLong());
         case TAG_TENANT_RESULT -> {
           boolean present = in.readBoolean();
           yield new StoreRpc.TenantResult(present, present ? DomainCodec.readTenant(in) : null);

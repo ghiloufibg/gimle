@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-
 import { fmtBytes, fmtMillicores, fmtRelativeTime, isStale } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Deployment, Node } from "@/types";
@@ -146,7 +145,10 @@ function Bar({ label, used, total }: { label: string; used: number; total: numbe
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className={cn("h-full", pct >= 90 ? "bg-status-bad" : pct >= 70 ? "bg-status-warn" : "bg-primary")}
+          className={cn(
+            "h-full",
+            pct >= 90 ? "bg-status-bad" : pct >= 70 ? "bg-status-warn" : "bg-primary",
+          )}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -159,7 +161,10 @@ function TimelineRow({ e }: { e: TimelineEvent }) {
   return (
     <li className="relative pb-3 last:pb-0">
       <span
-        className={cn("absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-[1px] border", toneBorder(e.tone))}
+        className={cn(
+          "absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-[1px] border",
+          toneBorder(e.tone),
+        )}
       />
       <button
         type="button"
@@ -211,7 +216,9 @@ function TimelinePanel({ seed, kind }: { seed: string; kind: "node" | "deploymen
               aria-pressed={track === t}
               className={cn(
                 "px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest transition-colors",
-                track === t ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground",
+                track === t
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               {t}
@@ -238,7 +245,6 @@ function TimelinePanel({ seed, kind }: { seed: string; kind: "node" | "deploymen
   );
 }
 
-
 export function TopologyDrawer({
   selection,
   deployments,
@@ -258,8 +264,8 @@ export function TopologyDrawer({
 
   const seed = selection ? `${selection.kind}:${selection.id}` : "";
 
-
-  const node = selection?.kind === "node" ? nodes.find((n) => n.nodeId === selection.id) : undefined;
+  const node =
+    selection?.kind === "node" ? nodes.find((n) => n.nodeId === selection.id) : undefined;
   const deployment =
     selection?.kind === "deployment"
       ? deployments.find((d) => d.spec.name === selection.id)
@@ -327,7 +333,9 @@ export function TopologyDrawer({
                       {fmtBytes(node.capacity.totalMemoryBytes)}
                     </span>
                     <span
-                      className={cn(isStale(node.lastHeartbeatAt) ? "text-status-bad" : "text-status-ok")}
+                      className={cn(
+                        isStale(node.lastHeartbeatAt) ? "text-status-bad" : "text-status-ok",
+                      )}
                     >
                       hb {fmtRelativeTime(node.lastHeartbeatAt)}
                     </span>
@@ -335,16 +343,22 @@ export function TopologyDrawer({
                   </div>
                 </>
               ) : (
-                <p className="font-mono text-[11px] text-muted-foreground">node metadata unavailable</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  node metadata unavailable
+                </p>
               )}
             </Section>
 
-            <Section title={`Replica placement · ${nodeDeployments.reduce(
-              (a, d) => a + d.instances.filter((i) => i.nodeId === selection.id).length,
-              0,
-            )} instances`}>
+            <Section
+              title={`Replica placement · ${nodeDeployments.reduce(
+                (a, d) => a + d.instances.filter((i) => i.nodeId === selection.id).length,
+                0,
+              )} instances`}
+            >
               {nodeDeployments.length === 0 ? (
-                <p className="font-mono text-[11px] text-muted-foreground">no instances placed here</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  no instances placed here
+                </p>
               ) : (
                 <ul className="space-y-1.5">
                   {nodeDeployments.map((d) => {
@@ -386,23 +400,22 @@ export function TopologyDrawer({
                 )}
               </p>
               <div className="mt-2 flex flex-wrap gap-1">
-                {Array.from(new Set(nodeDeployments.map((d) => d.spec.tenantId ?? "unassigned"))).map(
-                  (t) => (
-                    <span
-                      key={t}
-                      className="rounded-sm border border-primary/20 bg-primary/5 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                    >
-                      {t}
-                    </span>
-                  ),
-                )}
+                {Array.from(
+                  new Set(nodeDeployments.map((d) => d.spec.tenantId ?? "unassigned")),
+                ).map((t) => (
+                  <span
+                    key={t}
+                    className="rounded-sm border border-primary/20 bg-primary/5 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                  >
+                    {t}
+                  </span>
+                ))}
               </div>
             </Section>
 
             <Section title="Status timeline (mock)">
               <TimelinePanel seed={seed} kind="node" />
             </Section>
-
 
             <div className="mt-auto border-t border-primary/15 p-4">
               <Link
@@ -442,7 +455,9 @@ export function TopologyDrawer({
                         key={i.instanceIndex}
                         className="flex items-center justify-between gap-2 border-l-2 border-status-ok/60 bg-primary/[0.05] px-2 py-1"
                       >
-                        <span className="font-mono text-[11px] text-signal">#{i.instanceIndex}</span>
+                        <span className="font-mono text-[11px] text-signal">
+                          #{i.instanceIndex}
+                        </span>
                         <button
                           type="button"
                           onClick={() => onSelectNode(i.nodeId)}
@@ -473,7 +488,9 @@ export function TopologyDrawer({
                   </ul>
                 </>
               ) : (
-                <p className="font-mono text-[11px] text-muted-foreground">deployment unavailable</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  deployment unavailable
+                </p>
               )}
             </Section>
 
@@ -484,7 +501,10 @@ export function TopologyDrawer({
                     cpu used{" "}
                     <span className="text-signal tabular-nums">
                       {fmtMillicores(
-                        deployment.instances.reduce((a, i) => a + i.observation.cpuMillicoresUsed, 0),
+                        deployment.instances.reduce(
+                          (a, i) => a + i.observation.cpuMillicoresUsed,
+                          0,
+                        ),
                       )}
                     </span>
                   </span>
@@ -513,7 +533,6 @@ export function TopologyDrawer({
             <Section title="Status timeline (mock)">
               <TimelinePanel seed={seed} kind="deployment" />
             </Section>
-
 
             <div className="mt-auto border-t border-primary/15 p-4">
               <Link

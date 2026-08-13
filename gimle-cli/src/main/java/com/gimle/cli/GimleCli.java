@@ -21,9 +21,12 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * <pre>
  *   gimle get deployments [name]
  *   gimle get jobs [name]
- *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment or kind: Job, read from the file itself)
+ *   gimle get cronjobs [name]
+ *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, or CronJob, read from the file itself)
  *   gimle delete deployment &lt;name&gt;
  *   gimle delete job &lt;name&gt;
+ *   gimle delete cronjob &lt;name&gt;
+ *   gimle cronjob trigger &lt;name&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
@@ -128,6 +131,7 @@ public final class GimleCli {
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
       case "events" -> handleEvents(rest, client, output, out);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
+      case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       default -> throw new CliException(usage());
     }
@@ -149,7 +153,27 @@ public final class GimleCli {
     switch (extractKind(file)) {
       case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args);
       case "Job" -> new JobsCommand(client, output, out).apply(args);
+      case "CronJob" -> new CronJobsCommand(client, output, out).apply(args);
       case String other -> throw new CliException("unknown manifest kind: " + other);
+    }
+  }
+
+  /**
+   * {@code cronjob}/{@code cronjobs} as a distinct top-level verb -- not just noun dispatch under
+   * {@code get}/{@code delete} -- for the same reason {@code secret} is: it needs an action ({@code
+   * trigger}) that three-verb dispatch has no shape for (priority-3 design doc §3e).
+   */
+  private static void handleCronJobVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException("usage: gimle cronjob trigger <name>");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    switch (action) {
+      case "trigger" ->
+          new CronJobsCommand(client, output, out).trigger(requireOne(rest, "cronjob trigger"));
+      default -> throw new CliException("unknown cronjob action: " + action);
     }
   }
 
@@ -202,6 +226,7 @@ public final class GimleCli {
     switch (noun) {
       case "deployment", "deployments" -> new DeploymentsCommand(client, output, out).get(rest);
       case "job", "jobs" -> new JobsCommand(client, output, out).get(rest);
+      case "cronjob", "cronjobs" -> new CronJobsCommand(client, output, out).get(rest);
       case "node", "nodes" -> new NodesCommand(client, output, out).list();
       case "node-assignments" ->
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
@@ -242,6 +267,8 @@ public final class GimleCli {
       case "deployment", "deployments" ->
           new DeploymentsCommand(client, output, out).delete(requireOne(rest, "deployment"));
       case "job", "jobs" -> new JobsCommand(client, output, out).delete(requireOne(rest, "job"));
+      case "cronjob", "cronjobs" ->
+          new CronJobsCommand(client, output, out).delete(requireOne(rest, "cronjob"));
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
@@ -285,9 +312,12 @@ public final class GimleCli {
         verbs:
           get deployments [name]
           get jobs [name]
-          apply -f <file.yaml>   (kind: Deployment or kind: Job, read from the file itself)
+          get cronjobs [name]
+          apply -f <file.yaml>   (kind: Deployment, Job, or CronJob, read from the file itself)
           delete deployment <name>
           delete job <name>
+          delete cronjob <name>
+          cronjob trigger <name>
           get nodes
           get node-assignments <nodeId>
           cordon <nodeId>

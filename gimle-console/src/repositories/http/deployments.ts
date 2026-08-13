@@ -1,4 +1,10 @@
-import type { AutoscalePolicy, Deployment, DeploymentInstance, DeploymentSpecInput, Page } from "@/types";
+import type {
+  AutoscalePolicy,
+  Deployment,
+  DeploymentInstance,
+  DeploymentSpecInput,
+  Page,
+} from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
 import { requestJson, requestOk, requestOkYaml } from "./apiClient";
 

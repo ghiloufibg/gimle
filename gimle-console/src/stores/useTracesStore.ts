@@ -68,7 +68,11 @@ export function useTracesStore(target: ProcessTarget): UseBoundStore<StoreApi<Tr
             cursor: get().olderCursor,
             limit: LIMIT,
           });
-          set({ lines: merge(get().lines, env.lines), olderCursor: env.olderCursor, loading: false });
+          set({
+            lines: merge(get().lines, env.lines),
+            olderCursor: env.olderCursor,
+            loading: false,
+          });
         } catch (e) {
           set({ loading: false, error: (e as Error).message });
         }

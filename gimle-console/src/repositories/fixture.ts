@@ -1,12 +1,14 @@
 import type {
+  ConcurrencyPolicy,
+  ConfigEntry,
+  CronJob,
   Deployment,
   DeploymentInstance,
   Job,
   LifecycleState,
   Node,
-  Tenant,
-  ConfigEntry,
   SecretMetadata,
+  Tenant,
 } from "@/types";
 
 // Seeded PRNG so mock data is stable across renders/SSR hydration.
@@ -210,6 +212,36 @@ export const jobs: Job[] = Array.from({ length: 12 }, (_, i) => {
   };
 });
 
+// ---------- CronJobs ----------
+const SCHEDULES = ["0 2 * * *", "*/15 * * * *", "0 0 1 * *", "0 6,18 * * *"];
+const CONCURRENCY_POLICIES: ConcurrencyPolicy[] = ["ALLOW", "FORBID", "REPLACE"];
+
+export const cronJobs: CronJob[] = Array.from({ length: 6 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-cron-${i}`;
+  const tenantId = rand() < 0.3 ? pick(tenants).id : null;
+  const firedBefore = rand() < 0.7;
+  return {
+    spec: {
+      name,
+      schedule: pick(SCHEDULES),
+      jobTemplate: {
+        moduleId: { name: mod, version },
+        artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+        backoffLimit: intBetween(1, 6),
+        activeDeadlineSeconds: rand() < 0.4 ? intBetween(60, 3600) : undefined,
+      },
+      startingDeadlineSeconds: rand() < 0.3 ? intBetween(60, 600) : undefined,
+      concurrencyPolicy: pick(CONCURRENCY_POLICIES),
+      tenantId,
+    },
+    lastScheduleTime: firedBefore
+      ? new Date(Date.UTC(2026, 0, 1, intBetween(0, 23), intBetween(0, 59))).toISOString()
+      : null,
+  };
+});
+
 // ---------- Config ----------
 const CONFIG_KEYS = [
   "db.url",
@@ -274,6 +306,15 @@ export function addJob(j: Job) {
 export function removeJob(name: string) {
   const idx = jobs.findIndex((j) => j.spec.name === name);
   if (idx >= 0) jobs.splice(idx, 1);
+}
+
+export function addCronJob(c: CronJob) {
+  cronJobs.unshift(c);
+}
+
+export function removeCronJob(name: string) {
+  const idx = cronJobs.findIndex((c) => c.spec.name === name);
+  if (idx >= 0) cronJobs.splice(idx, 1);
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

@@ -34,7 +34,9 @@ export function PageHeader({
 export function PageContainer({ children }: { children: React.ReactNode }) {
   const density = useDisplayStore((s) => s.density);
   return (
-    <div className={cn("max-w-[1600px] mx-auto", density === "roomy" ? "p-6 md:p-10" : "p-4 md:p-6")}>
+    <div
+      className={cn("max-w-[1600px] mx-auto", density === "roomy" ? "p-6 md:p-10" : "p-4 md:p-6")}
+    >
       {children}
     </div>
   );
@@ -62,19 +64,16 @@ export function StatTile({
         tone === "alarm" && "bg-status-bad-bg/40 border-status-bad",
       )}
     >
-      <p
-        className={cn(
-          "hud-label mb-1",
-          tone === "alarm" && "text-status-bad",
-        )}
-      >
-        {label}
-      </p>
+      <p className={cn("hud-label mb-1", tone === "alarm" && "text-status-bad")}>{label}</p>
       <div className="flex items-baseline gap-2 flex-wrap">
         <span
           className={cn(
             "text-3xl font-bold font-mono tabular-nums",
-            tone === "alarm" ? "text-status-bad" : tone === "muted" ? "text-muted-foreground" : "text-signal",
+            tone === "alarm"
+              ? "text-status-bad"
+              : tone === "muted"
+                ? "text-muted-foreground"
+                : "text-signal",
           )}
         >
           {value}

@@ -69,9 +69,7 @@ function JobsList() {
                 <td className="px-2 py-1.5 font-mono">{j.spec.tenantId ?? "—"}</td>
                 <td className="px-2 py-1.5">
                   <StatusBadge
-                    variant={
-                      j.phase === "SUCCEEDED" ? "ok" : j.phase === "FAILED" ? "bad" : "info"
-                    }
+                    variant={j.phase === "SUCCEEDED" ? "ok" : j.phase === "FAILED" ? "bad" : "info"}
                   >
                     {j.phase}
                   </StatusBadge>

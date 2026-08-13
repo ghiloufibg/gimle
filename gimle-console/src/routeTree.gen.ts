@@ -24,11 +24,13 @@ import { Route as NodesIndexRouteImport } from './routes/nodes.index'
 import { Route as JobsIndexRouteImport } from './routes/jobs.index'
 import { Route as InstancesIndexRouteImport } from './routes/instances.index'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
+import { Route as CronjobsIndexRouteImport } from './routes/cronjobs.index'
 import { Route as TenantsIdRouteImport } from './routes/tenants.$id'
 import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
 import { Route as JobsNameRouteImport } from './routes/jobs.$name'
 import { Route as DeploymentsNewRouteImport } from './routes/deployments.new'
 import { Route as DeploymentsNameRouteImport } from './routes/deployments.$name'
+import { Route as CronjobsNameRouteImport } from './routes/cronjobs.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
 
 const TracesRoute = TracesRouteImport.update({
@@ -106,6 +108,11 @@ const DeploymentsIndexRoute = DeploymentsIndexRouteImport.update({
   path: '/deployments/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CronjobsIndexRoute = CronjobsIndexRouteImport.update({
+  id: '/cronjobs/',
+  path: '/cronjobs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TenantsIdRoute = TenantsIdRouteImport.update({
   id: '/tenants/$id',
   path: '/tenants/$id',
@@ -131,6 +138,11 @@ const DeploymentsNameRoute = DeploymentsNameRouteImport.update({
   path: '/deployments/$name',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CronjobsNameRoute = CronjobsNameRouteImport.update({
+  id: '/cronjobs/$name',
+  path: '/cronjobs/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstancesNameIdxRoute = InstancesNameIdxRouteImport.update({
   id: '/instances/$name/$idx',
   path: '/instances/$name/$idx',
@@ -148,11 +160,13 @@ export interface FileRoutesByFullPath {
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/cronjobs/$name': typeof CronjobsNameRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/cronjobs/': typeof CronjobsIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/instances/': typeof InstancesIndexRoute
   '/jobs/': typeof JobsIndexRoute
@@ -171,11 +185,13 @@ export interface FileRoutesByTo {
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/cronjobs/$name': typeof CronjobsNameRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/cronjobs': typeof CronjobsIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
   '/instances': typeof InstancesIndexRoute
   '/jobs': typeof JobsIndexRoute
@@ -195,11 +211,13 @@ export interface FileRoutesById {
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/cronjobs/$name': typeof CronjobsNameRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
   '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/cronjobs/': typeof CronjobsIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/instances/': typeof InstancesIndexRoute
   '/jobs/': typeof JobsIndexRoute
@@ -220,11 +238,13 @@ export interface FileRouteTypes {
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/cronjobs/$name'
     | '/deployments/$name'
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
+    | '/cronjobs/'
     | '/deployments/'
     | '/instances/'
     | '/jobs/'
@@ -243,11 +263,13 @@ export interface FileRouteTypes {
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/cronjobs/$name'
     | '/deployments/$name'
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
+    | '/cronjobs'
     | '/deployments'
     | '/instances'
     | '/jobs'
@@ -266,11 +288,13 @@ export interface FileRouteTypes {
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/cronjobs/$name'
     | '/deployments/$name'
     | '/deployments/new'
     | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
+    | '/cronjobs/'
     | '/deployments/'
     | '/instances/'
     | '/jobs/'
@@ -290,11 +314,13 @@ export interface RootRouteChildren {
   SecretsRoute: typeof SecretsRoute
   TopologyRoute: typeof TopologyRoute
   TracesRoute: typeof TracesRoute
+  CronjobsNameRoute: typeof CronjobsNameRoute
   DeploymentsNameRoute: typeof DeploymentsNameRoute
   DeploymentsNewRoute: typeof DeploymentsNewRoute
   JobsNameRoute: typeof JobsNameRoute
   NodesNodeIdRoute: typeof NodesNodeIdRoute
   TenantsIdRoute: typeof TenantsIdRoute
+  CronjobsIndexRoute: typeof CronjobsIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   InstancesIndexRoute: typeof InstancesIndexRoute
   JobsIndexRoute: typeof JobsIndexRoute
@@ -410,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeploymentsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cronjobs/': {
+      id: '/cronjobs/'
+      path: '/cronjobs'
+      fullPath: '/cronjobs/'
+      preLoaderRoute: typeof CronjobsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tenants/$id': {
       id: '/tenants/$id'
       path: '/tenants/$id'
@@ -445,6 +478,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeploymentsNameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cronjobs/$name': {
+      id: '/cronjobs/$name'
+      path: '/cronjobs/$name'
+      fullPath: '/cronjobs/$name'
+      preLoaderRoute: typeof CronjobsNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/instances/$name/$idx': {
       id: '/instances/$name/$idx'
       path: '/instances/$name/$idx'
@@ -466,11 +506,13 @@ const rootRouteChildren: RootRouteChildren = {
   SecretsRoute: SecretsRoute,
   TopologyRoute: TopologyRoute,
   TracesRoute: TracesRoute,
+  CronjobsNameRoute: CronjobsNameRoute,
   DeploymentsNameRoute: DeploymentsNameRoute,
   DeploymentsNewRoute: DeploymentsNewRoute,
   JobsNameRoute: JobsNameRoute,
   NodesNodeIdRoute: NodesNodeIdRoute,
   TenantsIdRoute: TenantsIdRoute,
+  CronjobsIndexRoute: CronjobsIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   InstancesIndexRoute: InstancesIndexRoute,
   JobsIndexRoute: JobsIndexRoute,

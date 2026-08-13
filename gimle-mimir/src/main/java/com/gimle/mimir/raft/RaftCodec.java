@@ -10,6 +10,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -85,6 +87,9 @@ public final class RaftCodec {
   private static final byte MUT_PUT_JOB_RUN = 26;
   private static final byte MUT_REMOVE_JOB_RUN = 27;
   private static final byte MUT_PUT_JOB_PHASE = 28;
+  private static final byte MUT_PUT_CRONJOB_SPEC = 29;
+  private static final byte MUT_REMOVE_CRONJOB_SPEC = 30;
+  private static final byte MUT_PUT_CRONJOB_LAST_SCHEDULE = 31;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -452,6 +457,19 @@ public final class RaftCodec {
         out.writeUTF(m.jobName());
         out.writeUTF(m.phase().name());
       }
+      case StateMutation.PutCronJobSpec m -> {
+        out.writeByte(MUT_PUT_CRONJOB_SPEC);
+        DomainCodec.writeCronJobSpec(out, m.spec());
+      }
+      case StateMutation.RemoveCronJobSpec m -> {
+        out.writeByte(MUT_REMOVE_CRONJOB_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutCronJobLastSchedule m -> {
+        out.writeByte(MUT_PUT_CRONJOB_LAST_SCHEDULE);
+        out.writeUTF(m.name());
+        out.writeLong(m.lastScheduleTime().toEpochMilli());
+      }
     }
   }
 
@@ -500,6 +518,12 @@ public final class RaftCodec {
       case MUT_REMOVE_JOB_RUN -> new StateMutation.RemoveJobRun(in.readUTF(), in.readInt());
       case MUT_PUT_JOB_PHASE ->
           new StateMutation.PutJobPhase(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      case MUT_PUT_CRONJOB_SPEC ->
+          new StateMutation.PutCronJobSpec(DomainCodec.readCronJobSpec(in));
+      case MUT_REMOVE_CRONJOB_SPEC -> new StateMutation.RemoveCronJobSpec(in.readUTF());
+      case MUT_PUT_CRONJOB_LAST_SCHEDULE ->
+          new StateMutation.PutCronJobLastSchedule(
+              in.readUTF(), Instant.ofEpochMilli(in.readLong()));
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -530,6 +554,15 @@ public final class RaftCodec {
       for (Map.Entry<String, JobPhase> e : snapshot.jobPhases().entrySet()) {
         out.writeUTF(e.getKey());
         out.writeUTF(e.getValue().name());
+      }
+      out.writeInt(snapshot.cronJobSpecs().size());
+      for (CronJobSpec spec : snapshot.cronJobSpecs()) {
+        DomainCodec.writeCronJobSpec(out, spec);
+      }
+      out.writeInt(snapshot.cronJobLastSchedule().size());
+      for (Map.Entry<String, Instant> e : snapshot.cronJobLastSchedule().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue().toEpochMilli());
       }
       out.writeInt(snapshot.nodeRegistrations().size());
       for (NodeRegistration registration : snapshot.nodeRegistrations()) {
@@ -619,6 +652,16 @@ public final class RaftCodec {
       for (int i = 0; i < jobPhaseCount; i++) {
         jobPhases.put(in.readUTF(), JobPhase.valueOf(in.readUTF()));
       }
+      List<CronJobSpec> cronJobSpecs = new ArrayList<>();
+      int cronJobSpecCount = in.readInt();
+      for (int i = 0; i < cronJobSpecCount; i++) {
+        cronJobSpecs.add(DomainCodec.readCronJobSpec(in));
+      }
+      Map<String, Instant> cronJobLastSchedule = new LinkedHashMap<>();
+      int cronJobLastScheduleCount = in.readInt();
+      for (int i = 0; i < cronJobLastScheduleCount; i++) {
+        cronJobLastSchedule.put(in.readUTF(), Instant.ofEpochMilli(in.readLong()));
+      }
       List<NodeRegistration> registrations = new ArrayList<>();
       int registrationCount = in.readInt();
       for (int i = 0; i < registrationCount; i++) {
@@ -690,6 +733,8 @@ public final class RaftCodec {
           jobSpecs,
           jobRuns,
           jobPhases,
+          cronJobSpecs,
+          cronJobLastSchedule,
           registrations,
           rollingIndices,
           effectiveReplicas,

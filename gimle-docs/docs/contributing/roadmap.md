@@ -92,9 +92,13 @@ Instrumentation nobody consumes is decoration, not observability.
 
 Not every real workload is a stateless HTTP service.
 
-10. **Batch/scheduled workloads.** No Job/CronJob equivalent — Gimlé only models long-running
-    replicated deployments. **Why it's worth building**: run-to-completion is a fundamentally
-    different lifecycle than run-forever, with different restart and scheduling semantics entirely.
+10. ~~**Batch/scheduled workloads.**~~ **Done** — see [Manifest schema](../reference/manifest-schema.md#job-manifest)
+    and its [CronJob manifest](../reference/manifest-schema.md#cronjob-manifest) section. `kind: Job`
+    is a real run-to-completion lifecycle (`ModuleState.COMPLETED`, `JobHooks`, `JobReconciler`
+    reusing `Scheduler.place` unchanged); `kind: CronJob` is a thin scheduled generator over it
+    (`CronJobReconciler`, a hand-rolled 5-field cron evaluator, `concurrencyPolicy`, missed-schedule
+    handling) — never a second execution engine. `gimle cronjob trigger <name>` covers the one
+    manual action that doesn't fit CRUD.
 11. **Per-node placement.** No DaemonSet equivalent — "exactly one instance per node" isn't an
     explicit scheduler mode, only resource-based bin-packing (see
     [Control plane](../architecture/control-plane.md)). **Why it's worth building**: a

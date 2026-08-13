@@ -8,8 +8,10 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +55,13 @@ public interface StoreReader {
 
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
   Optional<JobPhase> getJobPhase(String jobName);
+
+  Optional<CronJobSpec> getCronJobSpec(String name);
+
+  List<CronJobSpec> listCronJobSpecs();
+
+  /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
+  Optional<Instant> getCronJobLastSchedule(String name);
 
   List<NodeRegistration> listNodeRegistrations();
 

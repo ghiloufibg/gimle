@@ -20,6 +20,8 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobManifestParser;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobManifestParser;
@@ -71,6 +73,11 @@ public final class StateStore implements StoreReader {
   // posture effectiveReplicas/rollingIndices already use rather than writing an explicit RUNNING
   // marker for every job that hasn't finished yet.
   private final Map<String, JobPhase> jobPhases = new ConcurrentHashMap<>();
+  private final Map<String, CronJobSpec> cronJobSpecs = new ConcurrentHashMap<>();
+  // Absent means "never fired yet" -- CronJobReconciler treats that as "start looking forward from
+  // now," never retroactively firing every missed minute since epoch. See CronJobReconciler's own
+  // javadoc.
+  private final Map<String, Instant> cronJobLastSchedule = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
@@ -141,6 +148,8 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(jobsDir());
       Files.createDirectories(jobRunsDir());
       Files.createDirectories(jobPhasesDir());
+      Files.createDirectories(cronJobsDir());
+      Files.createDirectories(cronJobLastScheduleDir());
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
       Files.createDirectories(autoscaleDir());
@@ -267,6 +276,47 @@ public final class StateStore implements StoreReader {
   /** Empty means "not yet terminal" -- see {@link #jobPhases}'s own field javadoc. */
   public Optional<JobPhase> getJobPhase(String jobName) {
     return Optional.ofNullable(jobPhases.get(jobName));
+  }
+
+  // ---- cronjobs ----
+
+  public void putCronJobSpec(CronJobSpec spec) {
+    writeAtomically(cronJobFile(spec.name()), cronJobSpecToYaml(spec));
+    cronJobSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<CronJobSpec> getCronJobSpec(String name) {
+    return Optional.ofNullable(cronJobSpecs.get(name));
+  }
+
+  public List<CronJobSpec> listCronJobSpecs() {
+    return List.copyOf(cronJobSpecs.values());
+  }
+
+  /**
+   * Also clears any recorded {@link #cronJobLastSchedule} for {@code name} -- a removed CronJob has
+   * no schedule state left to advance. Does not touch any {@link JobSpec} it previously generated;
+   * those are ordinary Jobs now, left to run to completion (or be cleaned up by an operator)
+   * independently, the same way undeploying a Deployment never retroactively touches instances a
+   * since-removed autoscale policy once sized.
+   */
+  public void removeCronJobSpec(String name) {
+    deleteQuietly(cronJobFile(name));
+    cronJobSpecs.remove(name);
+    deleteQuietly(cronJobLastScheduleFile(name));
+    cronJobLastSchedule.remove(name);
+  }
+
+  // ---- cronjob last-schedule bookkeeping ----
+
+  public void putCronJobLastSchedule(String name, Instant lastScheduleTime) {
+    writeAtomically(cronJobLastScheduleFile(name), cronJobLastScheduleToYaml(lastScheduleTime));
+    cronJobLastSchedule.put(name, lastScheduleTime);
+  }
+
+  /** Empty means "never fired yet" -- see {@link #cronJobLastSchedule}'s own field javadoc. */
+  public Optional<Instant> getCronJobLastSchedule(String name) {
+    return Optional.ofNullable(cronJobLastSchedule.get(name));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -679,6 +729,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(jobSpecs.values()),
         List.copyOf(jobRuns.values()),
         Map.copyOf(jobPhases),
+        List.copyOf(cronJobSpecs.values()),
+        Map.copyOf(cronJobLastSchedule),
         List.copyOf(nodeRegistrations.values()),
         Map.copyOf(rollingIndices),
         Map.copyOf(effectiveReplicas),
@@ -718,6 +770,7 @@ public final class StateStore implements StoreReader {
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
     List.copyOf(jobSpecs.keySet()).forEach(this::removeJobSpec);
+    List.copyOf(cronJobSpecs.keySet()).forEach(this::removeCronJobSpec);
     List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
@@ -736,6 +789,8 @@ public final class StateStore implements StoreReader {
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);
     snapshot.jobPhases().forEach(this::putJobPhase);
+    snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
+    snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot.rollingIndices().forEach(this::putRollingIndex);
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
@@ -840,6 +895,22 @@ public final class StateStore implements StoreReader {
 
   private Path jobPhaseFile(String jobName) {
     return jobPhasesDir().resolve(jobName + ".yaml");
+  }
+
+  private Path cronJobsDir() {
+    return root.resolve("cronjobs");
+  }
+
+  private Path cronJobFile(String name) {
+    return cronJobsDir().resolve(name + ".yaml");
+  }
+
+  private Path cronJobLastScheduleDir() {
+    return root.resolve("cronjobschedule");
+  }
+
+  private Path cronJobLastScheduleFile(String name) {
+    return cronJobLastScheduleDir().resolve(name + ".yaml");
   }
 
   private Path registrationFile(String nodeId) {
@@ -1003,6 +1074,20 @@ public final class StateStore implements StoreReader {
         file -> {
           String jobName = fileNameWithoutYamlSuffix(file);
           jobPhases.put(jobName, jobPhaseFromMap(loadMap(file)));
+        });
+    loadEach(
+        cronJobsDir(),
+        "*.yaml",
+        file -> {
+          CronJobSpec spec = CronJobManifestParser.parse(new ByteArrayInputStream(read(file)));
+          cronJobSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        cronJobLastScheduleDir(),
+        "*.yaml",
+        file -> {
+          String name = fileNameWithoutYamlSuffix(file);
+          cronJobLastSchedule.put(name, cronJobLastScheduleFromMap(loadMap(file)));
         });
     loadEach(
         nodesDir(),
@@ -1293,6 +1378,45 @@ public final class StateStore implements StoreReader {
 
   private static JobPhase jobPhaseFromMap(Map<?, ?> map) {
     return JobPhase.valueOf((String) map.get("phase"));
+  }
+
+  private static String cronJobSpecToYaml(CronJobSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "CronJob");
+    root.put("name", spec.name());
+    root.put("schedule", spec.schedule());
+    Map<String, Object> template = new LinkedHashMap<>();
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.jobTemplate().moduleId().name());
+    module.put("version", spec.jobTemplate().moduleId().version().toString());
+    template.put("module", module);
+    template.put("artifactPath", spec.jobTemplate().artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    placement.put("antiAffinity", spec.jobTemplate().placement().antiAffinityAcrossNodes());
+    spec.jobTemplate()
+        .placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    template.put("placement", placement);
+    spec.jobTemplate()
+        .activeDeadline()
+        .ifPresent(d -> template.put("activeDeadlineSeconds", d.toSeconds()));
+    template.put("backoffLimit", spec.jobTemplate().backoffLimit());
+    root.put("jobTemplate", template);
+    spec.startingDeadline().ifPresent(d -> root.put("startingDeadlineSeconds", d.toSeconds()));
+    root.put("concurrencyPolicy", spec.concurrencyPolicy().name());
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    return new Yaml().dump(root);
+  }
+
+  private static String cronJobLastScheduleToYaml(Instant lastScheduleTime) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("lastScheduleTime", lastScheduleTime.toString());
+    return new Yaml().dump(root);
+  }
+
+  private static Instant cronJobLastScheduleFromMap(Map<?, ?> map) {
+    return Instant.parse((String) map.get("lastScheduleTime"));
   }
 
   private static String rollingToYaml(int instanceIndex) {

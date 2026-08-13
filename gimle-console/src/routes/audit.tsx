@@ -170,11 +170,13 @@ function Audit() {
           <table className="w-full border-collapse text-left">
             <thead className="sticky top-0 bg-background/95 backdrop-blur">
               <tr className="border-b border-primary/10">
-                {["when", "principal", "verb", "resource", "target", "tenant", "decision"].map((h) => (
-                  <th key={h} className="px-3 py-2">
-                    <span className="hud-label text-muted-foreground">{h}</span>
-                  </th>
-                ))}
+                {["when", "principal", "verb", "resource", "target", "tenant", "decision"].map(
+                  (h) => (
+                    <th key={h} className="px-3 py-2">
+                      <span className="hud-label text-muted-foreground">{h}</span>
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
@@ -203,7 +205,9 @@ function Audit() {
                   >
                     {e.verb.toLowerCase()}
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-[11px] text-foreground">{e.resourceKind}</td>
+                  <td className="px-3 py-1.5 font-mono text-[11px] text-foreground">
+                    {e.resourceKind}
+                  </td>
                   <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
                     {e.targetId ?? "—"}
                   </td>

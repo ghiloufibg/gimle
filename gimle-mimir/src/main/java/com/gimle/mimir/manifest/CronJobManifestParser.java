@@ -1,0 +1,223 @@
+package com.gimle.mimir.manifest;
+
+import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+/**
+ * Parses and validates a CronJob manifest -- the same hand-rolled {@code Map<?,?>}-walking shape
+ * {@link JobManifestParser} uses, deliberately duplicated rather than shared (see that class's own
+ * javadoc for why). Reached only through {@link ManifestParser}, which peels off the manifest's
+ * top-level {@code kind: CronJob} field before delegating here -- this class itself never reads
+ * {@code kind}.
+ */
+public final class CronJobManifestParser {
+
+  /** Matches {@link JobManifestParser}'s own default exactly. */
+  private static final int DEFAULT_BACKOFF_LIMIT = 6;
+
+  private static final ConcurrencyPolicy DEFAULT_CONCURRENCY_POLICY = ConcurrencyPolicy.ALLOW;
+
+  private CronJobManifestParser() {}
+
+  /**
+   * A standalone entry point independent of {@link ManifestParser}'s {@code kind:} dispatch --
+   * mirrors {@link JobManifestParser#parse}, including its reason for existing: {@code
+   * StateStore}'s own reload-on-restart path reuses this rather than duplicating YAML-loading and
+   * root-shape validation a second time.
+   */
+  public static CronJobSpec parse(InputStream yamlContent) {
+    Object raw;
+    try {
+      Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+      raw = yaml.load(yamlContent);
+    } catch (RuntimeException e) {
+      throw new GimleManifestException("malformed YAML in cronjob manifest", e);
+    }
+    if (!(raw instanceof Map<?, ?> root)) {
+      throw new GimleManifestException("cronjob manifest must contain a YAML mapping at the root");
+    }
+    return parseRoot(root);
+  }
+
+  // Package-visible, not private: ManifestParser calls this directly after peeling off kind:,
+  // mirroring JobManifestParser.parseRoot's own visibility exactly.
+  static CronJobSpec parseRoot(Map<?, ?> root) {
+    String name = requireString(root, "name");
+    String schedule = requireString(root, "schedule");
+    JobTemplate jobTemplate = parseJobTemplate(requireMap(root, "jobTemplate"));
+    Optional<Duration> startingDeadline = parseStartingDeadline(root);
+    ConcurrencyPolicy concurrencyPolicy = parseConcurrencyPolicy(root);
+    Optional<String> tenantId = parseTenantId(root);
+
+    try {
+      return new CronJobSpec(
+          name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException(
+          "invalid cronjob manifest for " + name + ": " + e.getMessage(), e);
+    }
+  }
+
+  private static JobTemplate parseJobTemplate(Map<?, ?> template) {
+    ModuleId moduleId = parseModuleId(requireMap(template, "module"));
+    String artifactPath = requireString(template, "artifactPath");
+    PlacementConstraints placement = parsePlacement(template);
+    Optional<Duration> activeDeadline = parseActiveDeadline(template);
+    int backoffLimit = parseBackoffLimit(template);
+    try {
+      return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit);
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid jobTemplate: " + e.getMessage(), e);
+    }
+  }
+
+  private static Optional<Duration> parseStartingDeadline(Map<?, ?> root) {
+    Object value = root.get("startingDeadlineSeconds");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Number number) || number.longValue() <= 0) {
+      throw new GimleManifestException(
+          "'startingDeadlineSeconds' must be a positive number if present");
+    }
+    return Optional.of(Duration.ofSeconds(number.longValue()));
+  }
+
+  private static ConcurrencyPolicy parseConcurrencyPolicy(Map<?, ?> root) {
+    Object value = root.get("concurrencyPolicy");
+    if (value == null) {
+      return DEFAULT_CONCURRENCY_POLICY;
+    }
+    if (!(value instanceof String s)) {
+      throw new GimleManifestException("'concurrencyPolicy' must be a string if present");
+    }
+    try {
+      return ConcurrencyPolicy.valueOf(s.toUpperCase(java.util.Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException(
+          "'concurrencyPolicy' must be one of ALLOW, FORBID, REPLACE (case-insensitive); got: "
+              + s);
+    }
+  }
+
+  private static Optional<Duration> parseActiveDeadline(Map<?, ?> template) {
+    Object value = template.get("activeDeadlineSeconds");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Number number) || number.longValue() <= 0) {
+      throw new GimleManifestException(
+          "'jobTemplate.activeDeadlineSeconds' must be a positive number if present");
+    }
+    return Optional.of(Duration.ofSeconds(number.longValue()));
+  }
+
+  /** Absent means {@link #DEFAULT_BACKOFF_LIMIT}, matching {@link JobManifestParser}'s own. */
+  private static int parseBackoffLimit(Map<?, ?> template) {
+    Object value = template.get("backoffLimit");
+    if (value == null) {
+      return DEFAULT_BACKOFF_LIMIT;
+    }
+    if (!(value instanceof Number number) || number.intValue() < 0) {
+      throw new GimleManifestException(
+          "'jobTemplate.backoffLimit' must be a non-negative number if present");
+    }
+    return number.intValue();
+  }
+
+  /** {@code tenantId} is optional: absent means untenanted. */
+  private static Optional<String> parseTenantId(Map<?, ?> root) {
+    Object value = root.get("tenantId");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException("'tenantId' must be a non-blank string if present");
+    }
+    return Optional.of(s);
+  }
+
+  private static ModuleId parseModuleId(Map<?, ?> module) {
+    String moduleName = requireString(module, "name");
+    String versionText = requireString(module, "version");
+    try {
+      return new ModuleId(moduleName, Version.parse(versionText));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid module reference: " + e.getMessage(), e);
+    }
+  }
+
+  private static PlacementConstraints parsePlacement(Map<?, ?> template) {
+    Object placementObj = template.get("placement");
+    if (placementObj == null) {
+      return PlacementConstraints.NONE;
+    }
+    if (!(placementObj instanceof Map<?, ?> placement)) {
+      throw new GimleManifestException("'jobTemplate.placement' must be a mapping");
+    }
+    boolean antiAffinity = booleanField(placement, "antiAffinity", false);
+    Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
+    try {
+      return new PlacementConstraints(requiredLabels, antiAffinity);
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid placement: " + e.getMessage(), e);
+    }
+  }
+
+  private static Optional<Set<String>> parseRequiredLabels(Map<?, ?> placement) {
+    Object value = placement.get("requiredLabels");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof List<?> list)) {
+      throw new GimleManifestException("'jobTemplate.placement.requiredLabels' must be a list");
+    }
+    List<String> labels = new ArrayList<>();
+    for (Object entry : list) {
+      if (!(entry instanceof String s) || s.isBlank()) {
+        throw new GimleManifestException(
+            "each 'jobTemplate.placement.requiredLabels' entry must be a non-blank string");
+      }
+      labels.add(s);
+    }
+    return Optional.of(Set.copyOf(labels));
+  }
+
+  private static boolean booleanField(Map<?, ?> map, String key, boolean defaultValue) {
+    Object value = map.get(key);
+    if (value == null) {
+      return defaultValue;
+    }
+    if (!(value instanceof Boolean b)) {
+      throw new GimleManifestException("field must be a boolean if present: " + key);
+    }
+    return b;
+  }
+
+  private static String requireString(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException("missing or blank required field: " + key);
+    }
+    return s;
+  }
+
+  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    if (!(value instanceof Map<?, ?> m)) {
+      throw new GimleManifestException("missing or malformed required section: " + key);
+    }
+    return m;
+  }
+}

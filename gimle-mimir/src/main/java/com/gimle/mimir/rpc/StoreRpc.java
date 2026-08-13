@@ -8,6 +8,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.StateMutation;
@@ -64,6 +65,9 @@ public sealed interface StoreRpc {
           ListJobRunsFor,
           ListJobRuns,
           GetJobPhase,
+          GetCronJobSpec,
+          ListCronJobSpecs,
+          GetCronJobLastSchedule,
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
@@ -92,6 +96,9 @@ public sealed interface StoreRpc {
           JobSpecListResult,
           JobRunListResult,
           JobPhaseResult,
+          CronJobSpecResult,
+          CronJobSpecListResult,
+          InstantResult,
           TenantResult,
           RoleResult,
           RoleBindingResult,
@@ -172,6 +179,13 @@ public sealed interface StoreRpc {
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
   record GetJobPhase(String jobName) implements Request {}
 
+  record GetCronJobSpec(String name) implements Request {}
+
+  record ListCronJobSpecs() implements Request {}
+
+  /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
+  record GetCronJobLastSchedule(String name) implements Request {}
+
   record ListNodeRegistrations() implements Request {}
 
   record ListTenants() implements Request {}
@@ -250,6 +264,17 @@ public sealed interface StoreRpc {
    * {@code false}, the same "meaningless placeholder" convention {@link IntResult} already uses.
    */
   record JobPhaseResult(boolean present, JobPhase value) implements Response {}
+
+  record CronJobSpecResult(boolean present, CronJobSpec value) implements Response {}
+
+  record CronJobSpecListResult(List<CronJobSpec> values) implements Response {}
+
+  /**
+   * {@code present == false} means "never fired yet," matching {@code Optional<Instant>}'s own
+   * absence -- {@code value} is meaningless (0) when {@code present} is {@code false}, the same
+   * "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record InstantResult(boolean present, long epochMilli) implements Response {}
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 

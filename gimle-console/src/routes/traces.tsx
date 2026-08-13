@@ -13,7 +13,8 @@ export const Route = createFileRoute("/traces")({
       { title: "Traces — Gimlé Console" },
       {
         name: "description",
-        content: "Span history per control-plane process: trace id, span name, kind, status and time.",
+        content:
+          "Span history per control-plane process: trace id, span name, kind, status and time.",
       },
       { property: "og:title", content: "Traces — Gimlé Console" },
       {
@@ -51,7 +52,10 @@ function TraceTable({ target }: { target: ProcessTarget }) {
   const startLive = store((s) => s.startLive);
   const stopLive = store((s) => s.stopLive);
 
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "timestamp", desc: true });
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
+    key: "timestamp",
+    desc: true,
+  });
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
@@ -74,7 +78,9 @@ function TraceTable({ target }: { target: ProcessTarget }) {
       );
     });
     const dir = sort.desc ? -1 : 1;
-    return [...filtered].sort((a, b) => dir * String(a[sort.key]).localeCompare(String(b[sort.key])));
+    return [...filtered].sort(
+      (a, b) => dir * String(a[sort.key]).localeCompare(String(b[sort.key])),
+    );
   }, [lines, query, statusFilter, sort]);
 
   const errors = lines.filter((l) => l.status === "ERROR").length;
@@ -99,7 +105,11 @@ function TraceTable({ target }: { target: ProcessTarget }) {
         <StatTile label="Spans in window" value={lines.length} tone="primary" />
         <StatTile label="Distinct traces" value={traceCount} />
         <StatTile label="Error spans" value={errors} tone={errors > 0 ? "alarm" : "default"} />
-        <StatTile label="Stream" value={live ? "live" : "paused"} tone={live ? "primary" : "muted"} />
+        <StatTile
+          label="Stream"
+          value={live ? "live" : "paused"}
+          tone={live ? "primary" : "muted"}
+        />
       </div>
 
       <Panel

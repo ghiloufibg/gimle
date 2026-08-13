@@ -101,7 +101,8 @@ export function ProcessPicker({
           className="flex items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
-            if (idInput.trim()) onChange({ processKind: value.processKind, processId: idInput.trim() });
+            if (idInput.trim())
+              onChange({ processKind: value.processKind, processId: idInput.trim() });
           }}
         >
           <input

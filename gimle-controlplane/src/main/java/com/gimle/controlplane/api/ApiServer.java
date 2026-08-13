@@ -6,6 +6,7 @@ import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
+import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
@@ -49,6 +50,7 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
@@ -125,6 +127,11 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
   private final StoreClient storeClient;
+  // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
+  // than taking a constructor parameter -- CronJobReconciler is genuinely stateless beyond that,
+  // so a fresh materialization decision per /cronjobs/{name}/trigger call needs no shared instance
+  // with ControlPlaneMain's own scheduled-tick reconciler, only the same store.
+  private final CronJobReconciler cronJobReconciler;
   // gimle-fafnir owns the master key ring and every encrypt/decrypt/rotate operation now -- this
   // client is a thin, pure-HTTP caller against it (design doc Phase A), replacing the in-process
   // SecretCipher/KeyFileManager/KeyRing calls this field's predecessor made directly.
@@ -246,6 +253,7 @@ public final class ApiServer implements AutoCloseable {
       SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
+    this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.sessionSigningKey = sessionSigningKey;
@@ -261,6 +269,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/deployments", instrument("deployments", this::handleDeploymentsList));
     target.createContext("/jobs/", instrument("jobs", this::handleJob));
     target.createContext("/jobs", instrument("jobs", this::handleJobsList));
+    target.createContext("/cronjobs/", instrument("cronjobs", this::handleCronJob));
+    target.createContext("/cronjobs", instrument("cronjobs", this::handleCronJobsList));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -814,6 +824,161 @@ public final class ApiServer implements AutoCloseable {
                             obs.deploymentName().equals(run.jobName())
                                 && obs.instanceIndex() == run.attempt())
                     .findFirst());
+  }
+
+  // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger (priority-3 design doc §3e) ----
+
+  private void handleCronJob(HttpExchange exchange) {
+    try {
+      String path = exchange.getRequestURI().getPath();
+      String tail = path.substring("/cronjobs/".length());
+      int slash = tail.indexOf('/');
+      String name = slash < 0 ? tail : tail.substring(0, slash);
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing cronjob name");
+        return;
+      }
+      if (slash >= 0) {
+        String action = tail.substring(slash + 1);
+        if (!"trigger".equals(action)) {
+          respond(exchange, 404, "unknown cronjob endpoint: " + action);
+          return;
+        }
+        if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+          handleCronJobTrigger(exchange, name);
+        }
+        return;
+      }
+      // Unscoped for every verb, matching handleJob's own identical documented gap.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+            handlePutCronJob(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+            handleGetCronJob(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
+            handleDeleteCronJob(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("cronjob request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutCronJob(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof CronJobSpec spec)) {
+      respond(
+          exchange, 400, "manifest kind does not match /cronjobs route (expected kind: CronJob)");
+      return;
+    }
+    if (!spec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    storeClient.propose(new StateMutation.PutCronJobSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetCronJob(HttpExchange exchange, String name) throws IOException {
+    Optional<CronJobSpec> spec = storeClient.getCronJobSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such cronjob: " + name);
+      return;
+    }
+    respondJson(exchange, 200, cronJobStatus(spec.get()));
+  }
+
+  private void handleDeleteCronJob(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveCronJobSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * The {@code gimle cronjob trigger <name>} verb's server-side implementation -- fires
+   * immediately, bypassing the schedule entirely (still subject to {@code concurrencyPolicy}), via
+   * the same {@link CronJobReconciler#triggerNow} the scheduled tick path shares. 404 if the
+   * CronJob doesn't exist; 409 if {@code concurrencyPolicy: FORBID} blocked it against a
+   * still-running previous firing -- distinguishable from "doesn't exist" so a caller isn't left
+   * guessing which happened.
+   */
+  private void handleCronJobTrigger(HttpExchange exchange, String name) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    if (storeClient.getCronJobSpec(name).isEmpty()) {
+      respond(exchange, 404, "no such cronjob: " + name);
+      return;
+    }
+    Optional<String> generatedJobName = cronJobReconciler.triggerNow(name);
+    if (generatedJobName.isEmpty()) {
+      respond(exchange, 409, "cronjob " + name + " not triggered: concurrencyPolicy forbids it");
+      return;
+    }
+    respondJson(exchange, 200, Map.of("jobName", generatedJobName.get()));
+  }
+
+  /** Every cronjob, in the same shape {@link #handleGetCronJob} returns for one. */
+  private void handleCronJobsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange, 200, storeClient.listCronJobSpecs().stream().map(this::cronJobStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("cronjobs list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> cronJobStatus(CronJobSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("schedule", spec.schedule());
+    Map<String, Object> template = new LinkedHashMap<>();
+    template.put("moduleId", moduleIdToJson(spec.jobTemplate().moduleId()));
+    template.put("artifactPath", spec.jobTemplate().artifactPath());
+    template.put("backoffLimit", spec.jobTemplate().backoffLimit());
+    spec.jobTemplate()
+        .activeDeadline()
+        .ifPresent(d -> template.put("activeDeadlineSeconds", d.toSeconds()));
+    specMap.put("jobTemplate", template);
+    spec.startingDeadline().ifPresent(d -> specMap.put("startingDeadlineSeconds", d.toSeconds()));
+    specMap.put("concurrencyPolicy", spec.concurrencyPolicy().name());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    storeClient
+        .getCronJobLastSchedule(spec.name())
+        .ifPresent(t -> status.put("lastScheduleTime", t.toString()));
+    return status;
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {

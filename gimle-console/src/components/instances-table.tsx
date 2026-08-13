@@ -65,13 +65,17 @@ export function InstancesTable({
           <Input
             placeholder="Filter deployment…"
             value={filters.deployment ?? ""}
-            onChange={(e) => onFiltersChange({ ...filters, deployment: e.target.value || undefined })}
+            onChange={(e) =>
+              onFiltersChange({ ...filters, deployment: e.target.value || undefined })
+            }
             className="h-8 w-56 font-mono text-xs"
           />
           {!lockedNode && (
             <Select
               value={filters.nodeId ?? "ALL"}
-              onValueChange={(v) => onFiltersChange({ ...filters, nodeId: v === "ALL" ? undefined : v })}
+              onValueChange={(v) =>
+                onFiltersChange({ ...filters, nodeId: v === "ALL" ? undefined : v })
+              }
             >
               <SelectTrigger className="h-8 w-56 text-xs">
                 <SelectValue placeholder="Node" />
@@ -88,7 +92,9 @@ export function InstancesTable({
           )}
           <Select
             value={filters.tenantId ?? "ALL"}
-            onValueChange={(v) => onFiltersChange({ ...filters, tenantId: v === "ALL" ? undefined : v })}
+            onValueChange={(v) =>
+              onFiltersChange({ ...filters, tenantId: v === "ALL" ? undefined : v })
+            }
           >
             <SelectTrigger className="h-8 w-44 text-xs">
               <SelectValue placeholder="Tenant" />
@@ -120,9 +126,7 @@ export function InstancesTable({
               ))}
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground ml-auto">
-            {rows.length} loaded
-          </span>
+          <span className="text-xs text-muted-foreground ml-auto">{rows.length} loaded</span>
         </div>
       )}
       <div className="overflow-x-auto rounded border border-border bg-card">
@@ -144,7 +148,10 @@ export function InstancesTable({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={`${r.deploymentName}#${r.instanceIndex}`} className="border-t border-border hover:bg-muted/30">
+              <tr
+                key={`${r.deploymentName}#${r.instanceIndex}`}
+                className="border-t border-border hover:bg-muted/30"
+              >
                 <td className="px-2 py-1.5 font-mono">
                   <Link
                     to="/deployments/$name"
@@ -176,9 +183,13 @@ export function InstancesTable({
                     <StatusDot variant={r.ready ? "ok" : r.alive ? "warn" : "bad"} />
                   </div>
                 </td>
-                <td className="px-2 py-1.5 font-mono text-right">{r.requestRatePerSecond.toFixed(1)}</td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {r.requestRatePerSecond.toFixed(1)}
+                </td>
                 <td className="px-2 py-1.5 font-mono text-right">{r.queueDepth}</td>
-                <td className="px-2 py-1.5 font-mono text-right">{fmtMillicores(r.cpuMillicoresUsed)}</td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {fmtMillicores(r.cpuMillicoresUsed)}
+                </td>
                 <td className="px-2 py-1.5 font-mono text-right">{fmtBytes(r.memoryBytesUsed)}</td>
                 <td className="px-2 py-1.5">
                   <Link

@@ -86,7 +86,10 @@ function Bullet({
       </div>
       <div className="relative mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className={cn("h-full", over ? "bg-status-bad" : pct >= 80 ? "bg-status-warn" : "bg-primary")}
+          className={cn(
+            "h-full",
+            over ? "bg-status-bad" : pct >= 80 ? "bg-status-warn" : "bg-primary",
+          )}
           style={{ width: `${Math.min(100, pct)}%` }}
         />
         <span className="absolute inset-y-0 left-[80%] w-px bg-foreground/25" />
@@ -142,8 +145,12 @@ function Metrics() {
   const nodePoints = useMemo(
     () =>
       s.allNodes.map((n) => {
-        const cpu = Math.round((n.capacity.assignedCpuMillicores / Math.max(1, n.capacity.totalCpuMillicores)) * 100);
-        const mem = Math.round((n.capacity.assignedMemoryBytes / Math.max(1, n.capacity.totalMemoryBytes)) * 100);
+        const cpu = Math.round(
+          (n.capacity.assignedCpuMillicores / Math.max(1, n.capacity.totalCpuMillicores)) * 100,
+        );
+        const mem = Math.round(
+          (n.capacity.assignedMemoryBytes / Math.max(1, n.capacity.totalMemoryBytes)) * 100,
+        );
         const count = instances.filter(({ i }) => i.nodeId === n.nodeId).length;
         const stale = isStale(n.lastHeartbeatAt);
         return {
@@ -224,7 +231,12 @@ function Metrics() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-px bg-primary/10 lg:grid-cols-4">
-        <StatTile label="Instances observed" value={instances.length} note={`${readyCount} ready`} tone="primary" />
+        <StatTile
+          label="Instances observed"
+          value={instances.length}
+          note={`${readyCount} ready`}
+          tone="primary"
+        />
         <StatTile
           label="Placement coverage"
           value={`${placement.pct}%`}
@@ -274,7 +286,10 @@ function Metrics() {
             </div>
             <ul className="self-center space-y-1 pr-2">
               {lifecycle.map((e) => (
-                <li key={e.name} className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest">
+                <li
+                  key={e.name}
+                  className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest"
+                >
                   <span
                     className="h-2.5 w-2.5 rounded-[1px]"
                     style={{ background: LIFECYCLE_COLOR[e.name as LifecycleState] }}
@@ -384,7 +399,13 @@ function Metrics() {
                   tick={AXIS}
                   tickLine={false}
                   axisLine={{ stroke: "var(--status-muted)" }}
-                  label={{ value: "cpu %", position: "insideBottom", offset: -8, fill: "var(--status-muted)", fontSize: 10 }}
+                  label={{
+                    value: "cpu %",
+                    position: "insideBottom",
+                    offset: -8,
+                    fill: "var(--status-muted)",
+                    fontSize: 10,
+                  }}
                 />
                 <YAxis
                   type="number"
@@ -397,12 +418,21 @@ function Metrics() {
                   width={34}
                 />
                 <ZAxis type="number" dataKey="count" range={[40, 340]} />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: "var(--primary)", strokeOpacity: 0.3 }} />
+                <Tooltip
+                  content={<ChartTooltip />}
+                  cursor={{ stroke: "var(--primary)", strokeOpacity: 0.3 }}
+                />
                 <Scatter data={nodePoints}>
                   {nodePoints.map((p) => (
                     <Cell
                       key={p.nodeId}
-                      fill={p.stale ? "var(--status-bad)" : p.cpu >= 80 || p.mem >= 80 ? "var(--status-warn)" : "var(--primary)"}
+                      fill={
+                        p.stale
+                          ? "var(--status-bad)"
+                          : p.cpu >= 80 || p.mem >= 80
+                            ? "var(--status-warn)"
+                            : "var(--primary)"
+                      }
                       fillOpacity={0.55}
                       stroke={p.stale ? "var(--status-bad)" : "var(--primary)"}
                     />
@@ -415,7 +445,9 @@ function Metrics() {
 
         <Panel
           title="Backpressure — request rate vs queue depth"
-          aside={<span className="hud-label text-muted-foreground">{loadPoints.length} instances</span>}
+          aside={
+            <span className="hud-label text-muted-foreground">{loadPoints.length} instances</span>
+          }
         >
           <div className="h-64 p-3">
             <ResponsiveContainer width="100%" height="100%">
@@ -427,7 +459,13 @@ function Metrics() {
                   tick={AXIS}
                   tickLine={false}
                   axisLine={{ stroke: "var(--status-muted)" }}
-                  label={{ value: "req/s", position: "insideBottom", offset: -8, fill: "var(--status-muted)", fontSize: 10 }}
+                  label={{
+                    value: "req/s",
+                    position: "insideBottom",
+                    offset: -8,
+                    fill: "var(--status-muted)",
+                    fontSize: 10,
+                  }}
                 />
                 <YAxis
                   type="number"
@@ -438,7 +476,10 @@ function Metrics() {
                   axisLine={{ stroke: "var(--status-muted)" }}
                   width={34}
                 />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: "var(--primary)", strokeOpacity: 0.3 }} />
+                <Tooltip
+                  content={<ChartTooltip />}
+                  cursor={{ stroke: "var(--primary)", strokeOpacity: 0.3 }}
+                />
                 <Scatter data={loadPoints}>
                   {loadPoints.map((p, i) => (
                     <Cell
@@ -512,7 +553,9 @@ function Metrics() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 pb-3">
           <div>
             <div className="hud-label mb-1">Gimlé // Metrics history</div>
-            <h2 className="text-lg font-light tracking-tight text-foreground">Process time series</h2>
+            <h2 className="text-lg font-light tracking-tight text-foreground">
+              Process time series
+            </h2>
           </div>
           <ProcessPicker value={historyTarget} onChange={setHistoryTarget} />
         </div>

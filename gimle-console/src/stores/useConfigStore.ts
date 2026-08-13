@@ -35,7 +35,12 @@ export const useConfigStore = create<State>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const p = await configRepo.fetchPage({ tenantId, cursor: null, pageSize: PAGE });
-      set({ items: p.items, nextCursor: p.nextCursor, hasMore: p.nextCursor !== null, loading: false });
+      set({
+        items: p.items,
+        nextCursor: p.nextCursor,
+        hasMore: p.nextCursor !== null,
+        loading: false,
+      });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
     }

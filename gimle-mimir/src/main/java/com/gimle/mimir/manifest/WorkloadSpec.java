@@ -11,11 +11,11 @@ import java.util.Optional;
  * tenant scoping, store keying); everything else genuinely differs per kind and belongs on that
  * kind's own record, not forced into a shared shape here.
  *
- * <p>Only {@link DeploymentSpec} and {@link JobSpec} exist yet -- {@code CronJobSpec}/{@code
+ * <p>Only {@link DeploymentSpec}, {@link JobSpec}, and {@link CronJobSpec} exist yet -- {@code
  * DaemonSetSpec}/{@code StatefulSetSpec} are later priority-3 steps, each adding themselves to the
  * {@code permits} clause when they land, not speculatively reserved here ahead of time.
  */
-public sealed interface WorkloadSpec permits DeploymentSpec, JobSpec {
+public sealed interface WorkloadSpec permits DeploymentSpec, JobSpec, CronJobSpec {
 
   String name();
 

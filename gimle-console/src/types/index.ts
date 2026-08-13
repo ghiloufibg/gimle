@@ -97,6 +97,49 @@ export interface Job {
   currentRun: JobRun | null;
 }
 
+/* ---------------------------------------------------------------------------
+ * CronJobs (priority-3 design doc §3d) -- a thin schedule generator over Job: no `phase`/
+ * `currentRun` of its own (a CronJob is never itself running or terminal), just `lastScheduleTime`
+ * plus whatever Job it most recently generated -- the Jobs screen is where that generated Job's
+ * own phase/attempt live.
+ * ------------------------------------------------------------------------ */
+
+export type ConcurrencyPolicy = "ALLOW" | "FORBID" | "REPLACE";
+
+export interface JobTemplate {
+  moduleId: ModuleId;
+  artifactPath: string;
+  /** Wall-clock ceiling across every generated Job's attempts combined, seconds. */
+  activeDeadlineSeconds?: number;
+  backoffLimit: number;
+}
+
+export interface CronJobSpec {
+  name: string;
+  /** Standard 5-field cron expression, evaluated in UTC. */
+  schedule: string;
+  jobTemplate: JobTemplate;
+  /** How late a firing may still be honored before it's logged as missed instead, seconds. */
+  startingDeadlineSeconds?: number;
+  concurrencyPolicy: ConcurrencyPolicy;
+  tenantId: string | null;
+}
+
+export interface CronJobSpecInput {
+  name: string;
+  schedule: string;
+  jobTemplate: JobTemplate;
+  startingDeadlineSeconds?: number;
+  concurrencyPolicy: ConcurrencyPolicy;
+  tenantId: string | null;
+}
+
+export interface CronJob {
+  spec: CronJobSpec;
+  /** Absent means this CronJob has never fired yet. */
+  lastScheduleTime: string | null;
+}
+
 export interface Node {
   nodeId: string;
   capabilities: { supportedTiers: Tier[] };

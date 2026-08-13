@@ -30,12 +30,24 @@ function MetricCard({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-        <span className={cn("opacity-60 transition-opacity group-hover:opacity-100", alarm && "text-status-bad")}>
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        <span
+          className={cn(
+            "opacity-60 transition-opacity group-hover:opacity-100",
+            alarm && "text-status-bad",
+          )}
+        >
           {icon}
         </span>
       </div>
-      <div className={cn("mt-4 text-4xl font-semibold tabular-nums", alarm ? "text-status-bad" : "text-foreground")}>
+      <div
+        className={cn(
+          "mt-4 text-4xl font-semibold tabular-nums",
+          alarm ? "text-status-bad" : "text-foreground",
+        )}
+      >
         {value}
       </div>
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
@@ -65,7 +77,9 @@ export function OverviewSignal() {
         <div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Cluster overview</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {s.loading ? "Syncing control plane…" : "Control plane operational — all signals nominal."}
+            {s.loading
+              ? "Syncing control plane…"
+              : "Control plane operational — all signals nominal."}
           </p>
         </div>
         <button
@@ -142,7 +156,9 @@ export function OverviewSignal() {
                     <span
                       className={cn(
                         "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                        full ? "bg-status-ok-bg text-status-ok" : "bg-status-warn-bg text-status-warn",
+                        full
+                          ? "bg-status-ok-bg text-status-ok"
+                          : "bg-status-warn-bg text-status-warn",
                       )}
                     >
                       {ready}/{desired} {full ? "ready" : "rolling"}
@@ -150,7 +166,10 @@ export function OverviewSignal() {
                   </div>
                   <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className={cn("h-full rounded-full transition-all", full ? "bg-status-ok" : "bg-status-warn")}
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        full ? "bg-status-ok" : "bg-status-warn",
+                      )}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
@@ -182,7 +201,10 @@ export function OverviewSignal() {
                 ),
               );
               return (
-                <li key={n.nodeId} className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/40">
+                <li
+                  key={n.nodeId}
+                  className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/40"
+                >
                   <span
                     className={cn(
                       "h-2 w-2 shrink-0 rounded-full",
@@ -208,7 +230,10 @@ export function OverviewSignal() {
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
-                        className={cn("h-full rounded-full", stale ? "bg-status-bad/50" : "bg-primary")}
+                        className={cn(
+                          "h-full rounded-full",
+                          stale ? "bg-status-bad/50" : "bg-primary",
+                        )}
                         style={{ width: `${stale ? 100 : load}%` }}
                       />
                     </div>

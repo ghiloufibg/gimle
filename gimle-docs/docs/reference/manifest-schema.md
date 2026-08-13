@@ -62,13 +62,14 @@ building one of these up from scratch.
 ## Workload manifests: `kind:`
 
 `gimle-module.yaml` above describes a module *artifact*; a separate, second file — the workload
-manifest (`deployment.yaml`/`job.yaml`, submitted via `gimle apply -f <file>` or the console's own
-create form) — describes how the control plane should *run* it. Every workload manifest carries a
-required top-level `kind:` field naming which one it is: `Deployment` (long-running, replicated) or
-`Job` (run-to-completion, retried up to a limit — see below). There is no default: a manifest
-missing `kind:` is rejected outright by `ManifestParser`, not silently assumed to be a `Deployment`.
-`gimle apply -f` reads this field client-side to route to the right resource automatically — there's
-no separate `gimle job apply`/`gimle deployment apply` verb to remember.
+manifest (`deployment.yaml`/`job.yaml`/`cronjob.yaml`, submitted via `gimle apply -f <file>` or the
+console's own create form) — describes how the control plane should *run* it. Every workload
+manifest carries a required top-level `kind:` field naming which one it is: `Deployment`
+(long-running, replicated), `Job` (run-to-completion, retried up to a limit), or `CronJob` (a
+scheduled generator of Jobs — see below for both). There is no default: a manifest missing `kind:`
+is rejected outright by `ManifestParser`, not silently assumed to be a `Deployment`. `gimle apply -f`
+reads this field client-side to route to the right resource automatically — there's no separate
+`gimle job apply`/`gimle deployment apply`/`gimle cronjob apply` verb to remember.
 
 ## Deployment manifest: `autoscale`
 
@@ -163,6 +164,65 @@ read-only, computed state — never part of the manifest you submit, the same wa
 `instances[]` never is. `gimle get jobs <name>` (or the console's Jobs screen) is how you read them
 back.
 
-**What this does not provide, plainly stated**: no `parallelism`/`completions` multi-pod fan-out, no
-CronJob-style scheduling yet (a Job runs once, submitted once) — both real, larger pieces of scope
-this item deliberately deferred, not oversights.
+**What this does not provide, plainly stated**: no `parallelism`/`completions` multi-pod fan-out
+(Kubernetes Job's own multi-pod fan-out) — a real, larger piece of scope this item deliberately
+deferred, not an oversight. Scheduled, repeating firing of a Job is `kind: CronJob`, covered next.
+
+## CronJob manifest
+
+`kind: CronJob` (priority-3 roadmap item 10) is a thin, scheduled generator over `kind: Job` — never
+a second execution engine. Each due firing materializes an ordinary `Job` named
+`{cronJobName}-{epochSeconds}`; placement, retries, and completion from there on are entirely the
+same `JobSpec`/`JobReconciler` mechanics described above, unchanged. `schedule` is a standard
+5-field cron expression (`minute hour day-of-month month day-of-week`), evaluated in UTC — there is
+no per-tenant or per-cluster timezone configuration anywhere in Gimlé. Supports `*`, a single
+number, comma lists, ranges (`a-b`), and steps (`*/n`, `a-b/n`); named months/days (`JAN`, `MON`)
+are not supported. Day-of-month and day-of-week combine with cron's own well-understood (if
+surprising) historical quirk: if *both* fields are restricted (neither is a bare `*`), a moment
+matches if it satisfies *either* field, not both.
+
+```yaml
+kind: CronJob
+name: nightly-cleanup
+schedule: "0 2 * * *"          # every day at 02:00 UTC
+jobTemplate:
+  module:
+    name: com.gimle.examples.cleanup
+    version: 1.0.0
+  artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+  backoffLimit: 3               # optional -- defaults to 6, same as a Job manifest's own field
+  activeDeadlineSeconds: 600     # optional -- applies to each generated Job independently
+  placement:                     # optional, same shape as a Job manifest's own placement:
+    antiAffinity: false
+    requiredLabels: [gpu]
+startingDeadlineSeconds: 300    # optional -- omit for no missed-schedule cutoff
+concurrencyPolicy: Forbid       # optional -- Allow (default), Forbid, or Replace
+tenantId: acme                   # optional -- applied to every Job this CronJob generates
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | Must be `CronJob`. |
+| `name` | yes | The cronjob's identifier — also the prefix every generated Job's name carries (`{name}-{epochSeconds}`). |
+| `schedule` | yes | A standard 5-field cron expression, validated eagerly at submission — a malformed expression is rejected outright, not discovered on the first reconcile tick. |
+| `jobTemplate.module.name` / `.version` | yes | The module each generated Job runs. |
+| `jobTemplate.artifactPath` | yes | Path to the module's jar, same convention as a Job manifest's own field. |
+| `jobTemplate.backoffLimit` | no | Per-generated-Job retry ceiling. Defaults to `6` when omitted, matching a directly-submitted Job. |
+| `jobTemplate.activeDeadlineSeconds` | no | Per-generated-Job wall-clock ceiling across that Job's own attempts. Omit for no deadline. |
+| `jobTemplate.placement.antiAffinity` / `.requiredLabels` | no | Same `PlacementConstraints` shape a Job/Deployment manifest's own `placement:` block uses. |
+| `startingDeadlineSeconds` | no | How late a firing may still be honored (after its own due instant) before it's logged as missed instead — matches Kubernetes CronJob's own missed-schedule handling. Omit for no cutoff. |
+| `concurrencyPolicy` | no | `Allow` (default), `Forbid` (skip this firing while the previous generated Job is still non-terminal), or `Replace` (remove the still-running Job first). Case-insensitive. |
+| `tenantId` | no | Applied to every Job this CronJob generates — omit for untenanted firings. |
+
+A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
+`gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
+every Job it has generated (visible on the Jobs screen, by the shared name prefix).
+
+**Manual firing, independent of the schedule**: `gimle cronjob trigger <name>` fires immediately,
+still subject to `concurrencyPolicy`, without touching `lastScheduleTime` or otherwise affecting the
+next scheduled firing — the same relationship `kubectl create job --from=cronjob/x` has to its own
+CronJob controller.
+
+**What this does not provide, plainly stated**: no per-cluster/per-tenant timezone configuration
+(UTC only), no `parallelism`/`completions` on the generated Job (inherited from `kind: Job`'s own
+scope).

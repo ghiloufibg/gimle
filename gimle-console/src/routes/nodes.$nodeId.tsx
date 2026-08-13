@@ -47,7 +47,9 @@ function CapacityBar({
       <div className="h-2 rounded bg-muted overflow-hidden">
         <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-1 text-[10px] text-muted-foreground font-mono text-right">{pct.toFixed(0)}%</div>
+      <div className="mt-1 text-[10px] text-muted-foreground font-mono text-right">
+        {pct.toFixed(0)}%
+      </div>
     </div>
   );
 }

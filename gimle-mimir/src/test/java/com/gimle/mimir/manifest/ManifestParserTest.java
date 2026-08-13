@@ -59,6 +59,26 @@ class ManifestParserTest {
   }
 
   @Test
+  void kind_cronjob_dispatches_to_cronjob_manifest_parser() {
+    WorkloadSpec spec =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: CronJob
+                name: nightly-cleanup
+                schedule: "0 2 * * *"
+                jobTemplate:
+                  module:
+                    name: com.gimle.example.cleanup
+                    version: 1.0.0
+                  artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                """));
+
+    CronJobSpec cronJob = assertInstanceOf(CronJobSpec.class, spec);
+    assertEquals("nightly-cleanup", cronJob.name());
+  }
+
+  @Test
   void missing_kind_throws() {
     assertThrows(
         GimleManifestException.class,
@@ -83,7 +103,7 @@ class ManifestParserTest {
             ManifestParser.parse(
                 yaml(
                     """
-                    kind: CronJob
+                    kind: DaemonSet
                     name: nightly-cleanup
                     """)));
   }

@@ -8,8 +8,10 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +28,8 @@ public record StateSnapshot(
     List<JobSpec> jobSpecs,
     List<JobRun> jobRuns,
     Map<String, JobPhase> jobPhases,
+    List<CronJobSpec> cronJobSpecs,
+    Map<String, Instant> cronJobLastSchedule,
     List<NodeRegistration> nodeRegistrations,
     Map<String, Integer> rollingIndices,
     Map<String, Integer> effectiveReplicas,
@@ -46,6 +50,8 @@ public record StateSnapshot(
     jobSpecs = List.copyOf(jobSpecs);
     jobRuns = List.copyOf(jobRuns);
     jobPhases = Map.copyOf(jobPhases);
+    cronJobSpecs = List.copyOf(cronJobSpecs);
+    cronJobLastSchedule = Map.copyOf(cronJobLastSchedule);
     nodeRegistrations = List.copyOf(nodeRegistrations);
     rollingIndices = Map.copyOf(rollingIndices);
     effectiveReplicas = Map.copyOf(effectiveReplicas);

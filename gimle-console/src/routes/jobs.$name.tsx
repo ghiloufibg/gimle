@@ -128,9 +128,7 @@ function JobDetail() {
         <Field
           label="Active deadline"
           value={
-            j.spec.activeDeadlineSeconds !== undefined
-              ? `${j.spec.activeDeadlineSeconds}s`
-              : "none"
+            j.spec.activeDeadlineSeconds !== undefined ? `${j.spec.activeDeadlineSeconds}s` : "none"
           }
         />
         <Field label="Tenant" value={j.spec.tenantId ?? "—"} mono />

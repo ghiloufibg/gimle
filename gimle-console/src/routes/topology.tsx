@@ -51,7 +51,8 @@ function ReplicaGrid({ d, activeNode }: { d: Deployment; activeNode: string | nu
   return (
     <div className="flex flex-wrap gap-[3px]">
       {Array.from({ length: total }).map((_, i) => {
-        const onActiveNode = i < placed && activeNode !== null && d.instances[i].nodeId === activeNode;
+        const onActiveNode =
+          i < placed && activeNode !== null && d.instances[i].nodeId === activeNode;
         return (
           <span
             key={i}
@@ -92,7 +93,11 @@ function DeploymentCell({
     <div
       className={cn(
         "border-l-2 bg-primary/[0.04] p-3 transition-all hover:bg-primary/10",
-        tone === "bad" ? "border-status-bad" : tone === "warn" ? "border-status-warn" : "border-status-ok",
+        tone === "bad"
+          ? "border-status-bad"
+          : tone === "warn"
+            ? "border-status-warn"
+            : "border-status-ok",
         related && "bg-primary/15 ring-1 ring-inset ring-primary/50",
         dimmed && "opacity-35",
       )}
@@ -108,10 +113,18 @@ function DeploymentCell({
         <span
           className={cn(
             "shrink-0 font-mono text-[10px] uppercase tracking-widest",
-            tone === "bad" ? "text-status-bad" : tone === "warn" ? "text-status-warn" : "text-status-ok",
+            tone === "bad"
+              ? "text-status-bad"
+              : tone === "warn"
+                ? "text-status-warn"
+                : "text-status-ok",
           )}
         >
-          {d.quotaViolating ? "quota" : d.unplacedCount > 0 ? `${d.unplacedCount} unplaced` : "placed"}
+          {d.quotaViolating
+            ? "quota"
+            : d.unplacedCount > 0
+              ? `${d.unplacedCount} unplaced`
+              : "placed"}
         </span>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
@@ -134,9 +147,7 @@ function DeploymentCell({
               key={nodeId}
               className={cn(
                 "flex items-center rounded-sm border transition-colors",
-                active
-                  ? "border-primary bg-primary/20"
-                  : "border-primary/20 bg-primary/5",
+                active ? "border-primary bg-primary/20" : "border-primary/20 bg-primary/5",
               )}
             >
               <button
@@ -182,8 +193,9 @@ function NodeRail({ node, count }: { node?: Node; count: number }) {
   const load = Math.min(
     100,
     Math.round(
-      (node.capacity ? node.capacity.assignedCpuMillicores / Math.max(1, node.capacity.totalCpuMillicores) : 0) *
-        100,
+      (node.capacity
+        ? node.capacity.assignedCpuMillicores / Math.max(1, node.capacity.totalCpuMillicores)
+        : 0) * 100,
     ),
   );
   return (
@@ -231,10 +243,7 @@ function Topology() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const nodeById = useMemo(
-    () => new Map(s.allNodes.map((n) => [n.nodeId, n])),
-    [s.allNodes],
-  );
+  const nodeById = useMemo(() => new Map(s.allNodes.map((n) => [n.nodeId, n])), [s.allNodes]);
 
   const byTenant = useMemo(() => {
     const map = new Map<string, Deployment[]>();
@@ -282,7 +291,9 @@ function Topology() {
                   aria-pressed={grouping === g}
                   className={cn(
                     "px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors",
-                    grouping === g ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground",
+                    grouping === g
+                      ? "bg-primary/20 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   by {g}
@@ -305,16 +316,19 @@ function Topology() {
       {/* Legend */}
       <div className="mb-4 flex flex-wrap items-center gap-4 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-ok bg-status-ok/70" /> placed
+          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-ok bg-status-ok/70" />{" "}
+          placed
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-warn bg-status-warn/70" /> rolling
+          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-warn bg-status-warn/70" />{" "}
+          rolling
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-[1px] border border-status-bad/50" /> unplaced
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-bad bg-status-bad/70" /> quota violation
+          <span className="h-2.5 w-2.5 rounded-[1px] border border-status-bad bg-status-bad/70" />{" "}
+          quota violation
         </span>
         {selectedNode && (
           <button
@@ -325,7 +339,8 @@ function Topology() {
           </button>
         )}
         <span className="ml-auto">
-          {s.unplacedInstances} unplaced · {s.quotaViolating} quota alarms · {s.nodesStale} stale nodes
+          {s.unplacedInstances} unplaced · {s.quotaViolating} quota alarms · {s.nodesStale} stale
+          nodes
         </span>
       </div>
 
@@ -341,8 +356,10 @@ function Topology() {
                 aside={
                   <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                     {deployments.length} dep ·{" "}
-                    <span className={unplaced > 0 ? "text-status-bad" : ""}>{unplaced} unplaced</span> ·{" "}
-                    <span className={quota > 0 ? "text-status-bad" : ""}>{quota} quota</span>
+                    <span className={unplaced > 0 ? "text-status-bad" : ""}>
+                      {unplaced} unplaced
+                    </span>{" "}
+                    · <span className={quota > 0 ? "text-status-bad" : ""}>{quota} quota</span>
                   </span>
                 }
               >
@@ -389,7 +406,6 @@ function Topology() {
                       return d ? (
                         <DeploymentCell key={name} d={d} focus={focus} onOpen={openDeployment} />
                       ) : null;
-
                     })}
                     {entry.deployments.size === 0 && (
                       <div className="p-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

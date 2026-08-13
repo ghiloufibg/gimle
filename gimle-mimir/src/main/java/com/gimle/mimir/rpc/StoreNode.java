@@ -65,6 +65,11 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.JobRunListResult(store.listJobRunsFor(r.jobName()));
       case StoreRpc.ListJobRuns r -> new StoreRpc.JobRunListResult(store.listJobRuns());
       case StoreRpc.GetJobPhase r -> jobPhaseResult(store.getJobPhase(r.jobName()));
+      case StoreRpc.GetCronJobSpec r -> cronJobSpecResult(store.getCronJobSpec(r.name()));
+      case StoreRpc.ListCronJobSpecs r ->
+          new StoreRpc.CronJobSpecListResult(store.listCronJobSpecs());
+      case StoreRpc.GetCronJobLastSchedule r ->
+          instantResult(store.getCronJobLastSchedule(r.name()));
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
@@ -203,6 +208,19 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.JobPhaseResult(true, v))
         .orElseGet(() -> new StoreRpc.JobPhaseResult(false, null));
+  }
+
+  private static StoreRpc.CronJobSpecResult cronJobSpecResult(
+      Optional<com.gimle.mimir.manifest.CronJobSpec> value) {
+    return value
+        .map(v -> new StoreRpc.CronJobSpecResult(true, v))
+        .orElseGet(() -> new StoreRpc.CronJobSpecResult(false, null));
+  }
+
+  private static StoreRpc.InstantResult instantResult(Optional<java.time.Instant> value) {
+    return value
+        .map(v -> new StoreRpc.InstantResult(true, v.toEpochMilli()))
+        .orElseGet(() -> new StoreRpc.InstantResult(false, 0L));
   }
 
   private static StoreRpc.RoleResult roleResult(Optional<com.gimle.core.authz.Role> value) {

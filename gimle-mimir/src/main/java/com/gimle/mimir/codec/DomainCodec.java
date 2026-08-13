@@ -21,8 +21,11 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.AutoscalePolicy;
+import com.gimle.mimir.manifest.ConcurrencyPolicy;
+import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
@@ -144,6 +147,44 @@ public final class DomainCodec {
     String artifactPath = in.readUTF();
     Instant startedAt = Instant.parse(in.readUTF());
     return new JobRun(jobName, attempt, nodeId, moduleId, artifactPath, startedAt);
+  }
+
+  public static void writeJobTemplate(DataOutputStream out, JobTemplate template)
+      throws IOException {
+    writeModuleId(out, template.moduleId());
+    out.writeUTF(template.artifactPath());
+    writePlacementConstraints(out, template.placement());
+    writeOptionalDuration(out, template.activeDeadline());
+    out.writeInt(template.backoffLimit());
+  }
+
+  public static JobTemplate readJobTemplate(DataInputStream in) throws IOException {
+    ModuleId moduleId = readModuleId(in);
+    String artifactPath = in.readUTF();
+    PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<Duration> activeDeadline = readOptionalDuration(in);
+    int backoffLimit = in.readInt();
+    return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit);
+  }
+
+  public static void writeCronJobSpec(DataOutputStream out, CronJobSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    out.writeUTF(spec.schedule());
+    writeJobTemplate(out, spec.jobTemplate());
+    writeOptionalDuration(out, spec.startingDeadline());
+    out.writeUTF(spec.concurrencyPolicy().name());
+    writeOptionalString(out, spec.tenantId());
+  }
+
+  public static CronJobSpec readCronJobSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    String schedule = in.readUTF();
+    JobTemplate jobTemplate = readJobTemplate(in);
+    Optional<Duration> startingDeadline = readOptionalDuration(in);
+    ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.valueOf(in.readUTF());
+    Optional<String> tenantId = readOptionalString(in);
+    return new CronJobSpec(
+        name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)

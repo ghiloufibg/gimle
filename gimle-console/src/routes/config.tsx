@@ -102,7 +102,9 @@ function ConfigPage() {
             className="mb-4 flex flex-wrap items-end gap-2 rounded border border-border bg-card p-3"
           >
             <div className="grid gap-1">
-              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Key</Label>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Key
+              </Label>
               <Input
                 className="h-8 w-48 font-mono text-xs"
                 value={newEntry.key}
@@ -111,7 +113,9 @@ function ConfigPage() {
               />
             </div>
             <div className="grid gap-1 flex-1 min-w-[200px]">
-              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Value
+              </Label>
               <Input
                 className="h-8 font-mono text-xs"
                 value={newEntry.value}

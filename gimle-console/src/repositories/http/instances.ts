@@ -2,7 +2,9 @@ import type { ModuleInstance, Page } from "@/types";
 import type { InstancesFilter, InstancesRepository } from "@/repositories/instances";
 import type { HttpDeploymentsRepository } from "./deployments";
 
-function flatten(deployments: Awaited<ReturnType<HttpDeploymentsRepository["all"]>>): ModuleInstance[] {
+function flatten(
+  deployments: Awaited<ReturnType<HttpDeploymentsRepository["all"]>>,
+): ModuleInstance[] {
   const rows: ModuleInstance[] = [];
   for (const d of deployments) {
     for (const inst of d.instances) {

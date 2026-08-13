@@ -4,6 +4,7 @@ import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
+import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.JobReconciler;
@@ -164,6 +165,10 @@ public final class ControlPlaneMain {
     JobReconciler jobReconciler =
         new JobReconciler(
             storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+    // Priority-3 design doc §3d: a thin generator writing ordinary JobSpecs, never touching
+    // JobRun/Scheduler directly -- see the class's own javadoc.
+    CronJobReconciler cronJobReconciler =
+        new CronJobReconciler(storeClient, storeClient, Clock.systemUTC());
 
     ApiServer apiServer =
         new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
@@ -223,7 +228,8 @@ public final class ControlPlaneMain {
                 autoscaleReconciler,
                 quotaReconciler,
                 deploymentReconciler,
-                jobReconciler);
+                jobReconciler,
+                cronJobReconciler);
           }
         },
         0,
@@ -314,13 +320,18 @@ public final class ControlPlaneMain {
       AutoscaleReconciler autoscaleReconciler,
       QuotaReconciler quotaReconciler,
       DeploymentReconciler deploymentReconciler,
-      JobReconciler jobReconciler) {
+      JobReconciler jobReconciler,
+      CronJobReconciler cronJobReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
       autoscaleReconciler.reconcileOnce();
       quotaReconciler.reconcileOnce();
       deploymentReconciler.reconcileOnce();
+      // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
+      // consumer" ordering above -- a firing materialized here is then immediately placeable by
+      // jobReconciler in this same tick, not left waiting for the next one.
+      cronJobReconciler.reconcileOnce();
       jobReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
