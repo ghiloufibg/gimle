@@ -41,7 +41,11 @@ public final class DeploymentManifestParser {
     return parseRoot(root);
   }
 
-  private static DeploymentSpec parseRoot(Map<?, ?> root) {
+  // Package-visible, not private: ManifestParser calls this directly after peeling off the
+  // manifest's top-level kind: field, so both entry points share this exact parsing logic instead
+  // of duplicating it. Deliberately still ignorant of kind: itself -- this method's only job is
+  // "given a root map, build a DeploymentSpec," the same contract it had before kind: existed.
+  static DeploymentSpec parseRoot(Map<?, ?> root) {
     String name = requireString(root, "name");
     ModuleId moduleId = parseModuleId(requireMap(root, "module"));
     String artifactPath = requireString(root, "artifactPath");

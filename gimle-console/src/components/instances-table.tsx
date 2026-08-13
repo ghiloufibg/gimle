@@ -39,6 +39,7 @@ const LIFECYCLES: LifecycleState[] = [
   "ACTIVE",
   "STOPPING",
   "UNINSTALLED",
+  "FAILED",
 ];
 
 export function InstancesTable({

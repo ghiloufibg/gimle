@@ -64,10 +64,11 @@ public final class ModuleDescriptorParser {
     ResourceSpec limit = parseResourceSpec(requireMap(resources, "limit"), "resources.limit");
     HealthProbes probes = parseHealth(root);
     Optional<String> hooks = parseLifecycleHooks(root);
+    Optional<String> jobHooks = parseJobHooks(root);
 
     try {
       return new ModuleDescriptor(
-          name, version, requires, exports, tier, request, limit, probes, hooks);
+          name, version, requires, exports, tier, request, limit, probes, hooks, jobHooks);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid gimle-module.yaml for " + name + ": " + e.getMessage(), e);
@@ -192,14 +193,29 @@ public final class ModuleDescriptorParser {
   }
 
   private static Optional<String> parseLifecycleHooks(Map<?, ?> root) {
+    return className(requireLifecycleMap(root), "hooks");
+  }
+
+  /**
+   * Sibling field to {@code lifecycle.hooks} (priority-3 design doc §3a): a Job-kind module
+   * declares {@code lifecycle.jobHooks} instead, naming a class implementing {@code JobHooks}
+   * rather than {@code ModuleLifecycleHooks}. Both read from the same {@code lifecycle:} mapping,
+   * so this shares {@link #requireLifecycleMap} with {@link #parseLifecycleHooks} rather than
+   * re-validating the block twice.
+   */
+  private static Optional<String> parseJobHooks(Map<?, ?> root) {
+    return className(requireLifecycleMap(root), "jobHooks");
+  }
+
+  private static Map<?, ?> requireLifecycleMap(Map<?, ?> root) {
     Object lifecycleObj = root.get("lifecycle");
     if (lifecycleObj == null) {
-      return Optional.empty();
+      return Map.of();
     }
     if (!(lifecycleObj instanceof Map<?, ?> lifecycle)) {
       throw new GimleManifestException("'lifecycle' must be a mapping");
     }
-    return className(lifecycle, "hooks");
+    return lifecycle;
   }
 
   private static String requireString(Map<?, ?> map, String key) {

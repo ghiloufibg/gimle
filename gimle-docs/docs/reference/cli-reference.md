@@ -19,8 +19,10 @@ Any order, anywhere on the command line:
 
 ```text
 gimle get deployments [name]
-gimle apply -f <manifest.yaml>
+gimle get jobs [name]
+gimle apply -f <manifest.yaml>   (kind: Deployment or kind: Job, read from the file itself)
 gimle delete deployment <name>
+gimle delete job <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>

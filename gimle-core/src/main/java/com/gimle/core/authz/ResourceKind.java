@@ -13,6 +13,10 @@ package com.gimle.core.authz;
  */
 public enum ResourceKind {
   DEPLOYMENT,
+  // Covers both Job and (once it exists) CronJob routes under one kind -- a CronJob is "the
+  // authority to eventually create Jobs," so splitting RBAC finer than that buys nothing yet
+  // (priority-3 design doc §3e). Tenant-scopable, same as DEPLOYMENT.
+  JOB,
   NODE,
   TENANT,
   CONFIG,

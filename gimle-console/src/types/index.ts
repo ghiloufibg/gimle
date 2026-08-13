@@ -4,7 +4,11 @@ export type LifecycleState =
   | "STARTING"
   | "ACTIVE"
   | "STOPPING"
-  | "UNINSTALLED";
+  | "UNINSTALLED"
+  | "FAILED"
+  // Run-to-completion success terminal (priority-3 design doc §3b) -- only a Job-kind instance's
+  // own observation ever reports this; a Deployment replica's lifecycleState never does.
+  | "COMPLETED";
 
 export type Tier = "TIER_1" | "TIER_2" | "TIER_3";
 
@@ -52,6 +56,45 @@ export interface Deployment {
   instances: DeploymentInstance[];
   unplacedCount: number;
   quotaViolating: boolean;
+}
+
+/* ---------------------------------------------------------------------------
+ * Jobs (priority-3 design doc §3) -- run-to-completion, not run-forever: no `replicas`/
+ * `autoscale`, and a `phase`/`currentRun` in place of Deployment's `instances[]` array, since a
+ * Job never has more than one non-terminal attempt at a time.
+ * ------------------------------------------------------------------------ */
+
+export type JobPhase = "RUNNING" | "SUCCEEDED" | "FAILED";
+
+export interface JobRun {
+  attempt: number;
+  nodeId: string;
+  observation: InstanceObservation | null;
+}
+
+export interface JobSpec {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  /** Wall-clock ceiling across every attempt combined, seconds; absent means no deadline. */
+  activeDeadlineSeconds?: number;
+  backoffLimit: number;
+  tenantId: string | null;
+}
+
+export interface JobSpecInput {
+  name: string;
+  moduleId: ModuleId;
+  artifactPath: string;
+  activeDeadlineSeconds?: number;
+  backoffLimit: number;
+  tenantId: string | null;
+}
+
+export interface Job {
+  spec: JobSpec;
+  phase: JobPhase;
+  currentRun: JobRun | null;
 }
 
 export interface Node {

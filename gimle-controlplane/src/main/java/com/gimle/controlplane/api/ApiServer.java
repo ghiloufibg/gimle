@@ -49,11 +49,14 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
-import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ManifestParser;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
@@ -85,6 +88,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -255,6 +259,8 @@ public final class ApiServer implements AutoCloseable {
   private void registerContexts(HttpServer target) throws IOException {
     target.createContext("/deployments/", instrument("deployments", this::handleDeployment));
     target.createContext("/deployments", instrument("deployments", this::handleDeploymentsList));
+    target.createContext("/jobs/", instrument("jobs", this::handleJob));
+    target.createContext("/jobs", instrument("jobs", this::handleJobsList));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -521,7 +527,18 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
-    DeploymentSpec parsedSpec = DeploymentManifestParser.parse(exchange.getRequestBody());
+    // Every manifest now requires kind: (priority-3 design doc §2) -- ManifestParser is what
+    // enforces that at this, the real operator-facing admission surface; DeploymentManifestParser
+    // itself stays kind-agnostic (see its own updated javadoc), still used directly only by
+    // StateStore's own reload-on-restart path and this class's parser-shape unit tests.
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof DeploymentSpec parsedSpec)) {
+      respond(
+          exchange,
+          400,
+          "manifest kind does not match /deployments route (expected kind:" + " Deployment)");
+      return;
+    }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
@@ -643,6 +660,160 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  // ---- /jobs/{name}, /jobs (priority-3 design doc §3e) ----
+
+  private void handleJob(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/jobs/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing job name");
+        return;
+      }
+      // Unscoped for every verb, matching handleDeployment's own identical documented gap above.
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+            handlePutJob(exchange, name);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+            handleGetJob(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
+            handleDeleteJob(exchange, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("job request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutJob(HttpExchange exchange, String name) throws IOException {
+    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+    if (!(parsed instanceof JobSpec parsedSpec)) {
+      respond(exchange, 400, "manifest kind does not match /jobs route (expected kind: Job)");
+      return;
+    }
+    if (!parsedSpec.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    // P2-18-equivalent, same reasoning as handlePutDeployment's own identical step: never trusted
+    // from the submitted manifest, always recomputed server-side at admission.
+    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
+    JobSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    // No tenant-quota check here (unlike handlePutDeployment's checkTenantQuota): TenantUsage's
+    // accounting model is deployment-replica-shaped (resourceRequest * replicas) and has no Job
+    // equivalent yet -- a tenanted Job is accepted regardless of that tenant's quota today, a
+    // real, undocumented-elsewhere gap worth flagging here rather than silently matching
+    // handlePutDeployment's shape without actually doing the check.
+    storeClient.propose(new StateMutation.PutJobSpec(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private static JobSpec withArtifactSha256(JobSpec spec, Optional<String> sha256) {
+    return new JobSpec(
+        spec.name(),
+        spec.moduleId(),
+        spec.artifactPath(),
+        spec.placement(),
+        spec.activeDeadline(),
+        spec.backoffLimit(),
+        spec.tenantId(),
+        sha256);
+  }
+
+  private void handleGetJob(HttpExchange exchange, String name) throws IOException {
+    Optional<JobSpec> spec = storeClient.getJobSpec(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such job: " + name);
+      return;
+    }
+    respondJson(exchange, 200, jobStatus(spec.get()));
+  }
+
+  private void handleDeleteJob(HttpExchange exchange, String name) throws IOException {
+    storeClient.propose(new StateMutation.RemoveJobSpec(name));
+    respond(exchange, 200, "ok");
+  }
+
+  /** Every job, in the same shape {@link #handleGetJob} returns for one. */
+  private void handleJobsList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, storeClient.listJobSpecs().stream().map(this::jobStatus).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("jobs list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private Map<String, Object> jobStatus(JobSpec spec) {
+    Map<String, Object> specMap = new LinkedHashMap<>();
+    specMap.put("name", spec.name());
+    specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
+    specMap.put("artifactPath", spec.artifactPath());
+    spec.activeDeadline().ifPresent(d -> specMap.put("activeDeadlineSeconds", d.toSeconds()));
+    specMap.put("backoffLimit", spec.backoffLimit());
+    spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+
+    Map<String, Object> status = new LinkedHashMap<>();
+    status.put("spec", specMap);
+    // "RUNNING" mirrors JobPhase's own default (StateStore#getJobPhase's javadoc: absent means
+    // not yet terminal) -- a job with no explicit phase recorded yet is running, not stateless.
+    status.put("phase", storeClient.getJobPhase(spec.name()).map(Enum::name).orElse("RUNNING"));
+
+    storeClient.listJobRunsFor(spec.name()).stream()
+        .max(Comparator.comparingInt(JobRun::attempt))
+        .ifPresent(
+            run -> {
+              Map<String, Object> runMap = new LinkedHashMap<>();
+              runMap.put("attempt", run.attempt());
+              runMap.put("nodeId", run.nodeId());
+              findObservationForJobRun(run)
+                  .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+              status.put("currentRun", runMap);
+            });
+    return status;
+  }
+
+  private Optional<InstanceObservation> findObservationForJobRun(JobRun run) {
+    return storeClient
+        .getNodeHeartbeat(run.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .flatMap(
+            heartbeat ->
+                heartbeat.instances().stream()
+                    .filter(
+                        obs ->
+                            obs.deploymentName().equals(run.jobName())
+                                && obs.instanceIndex() == run.attempt())
+                    .findFirst());
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -884,6 +1055,29 @@ public final class ApiServer implements AutoCloseable {
               moduleId,
               artifactPath,
               spec.get().tenantId());
+      assigned.add(assignedInstanceToJson(instance));
+    }
+    // Job runs (priority-3 design doc §3c) reuse this exact same AssignedInstance wire shape --
+    // from the agent's point of view a JobRun is indistinguishable from an ordinary deployment
+    // replica assignment, jobName/attempt playing deploymentName/instanceIndex's own role. No
+    // agent-side or worker-side code needs to know or care which kind actually placed it; the
+    // only kind-specific behavior (running JobHooks to completion) lives entirely in the worker's
+    // own ModuleDescriptor.jobHooksClass() check, orthogonal to how the assignment arrived here.
+    for (JobRun run : storeClient.listJobRuns()) {
+      if (!run.nodeId().equals(nodeId)) {
+        continue;
+      }
+      Optional<JobSpec> jobSpec = storeClient.getJobSpec(run.jobName());
+      if (jobSpec.isEmpty()) {
+        continue; // stale run; JobReconciler will remove it shortly
+      }
+      AssignedInstance instance =
+          new AssignedInstance(
+              run.jobName(),
+              run.attempt(),
+              run.moduleId(),
+              run.artifactPath(),
+              jobSpec.get().tenantId());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);

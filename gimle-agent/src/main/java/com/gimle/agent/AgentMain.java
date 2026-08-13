@@ -584,6 +584,12 @@ public final class AgentMain {
 
   static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
+    // alive is an EXCLUSION check ("not known-crashed"), not an inclusion check ("is one of the
+    // states I expect") -- deliberately, so a COMPLETED job (priority-3 design doc §3b) already
+    // reports alive=true without this line needing to change: a successfully finished Job is not a
+    // crash HealthReconciler should reschedule. Rewriting this as an inclusion list (e.g.
+    // "ACTIVE".equals(state) || "COMPLETED".equals(state)) would silently break for the next
+    // terminal state this file doesn't yet know about -- keep it an exclusion check.
     boolean alive = !"FAILED".equals(state);
     boolean ready = "ACTIVE".equals(state);
 

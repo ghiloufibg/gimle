@@ -1,10 +1,18 @@
 package com.gimle.cli;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * The CLI's entry point and global-flag/verb dispatch: a {@code kubectl}-shaped client for familiar
@@ -12,8 +20,10 @@ import java.util.List;
  *
  * <pre>
  *   gimle get deployments [name]
- *   gimle apply -f &lt;manifest.yaml&gt;
+ *   gimle get jobs [name]
+ *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment or kind: Job, read from the file itself)
  *   gimle delete deployment &lt;name&gt;
+ *   gimle delete job &lt;name&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
@@ -108,7 +118,7 @@ public final class GimleCli {
     CertCommand.warnIfRenewalDue(out);
     ControlPlaneClient client = new ControlPlaneClient(server);
     switch (verb) {
-      case "apply" -> new DeploymentsCommand(client, output, out).apply(rest);
+      case "apply" -> handleApply(rest, client, output, out);
       case "get" -> handleGet(rest, client, output, out);
       case "set" -> handleSet(rest, client, output, out);
       case "delete" -> handleDelete(rest, client, output, out);
@@ -121,6 +131,57 @@ public final class GimleCli {
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       default -> throw new CliException(usage());
     }
+  }
+
+  /**
+   * {@code apply -f} is kind-dispatched, not noun-dispatched (unlike {@code get}/{@code set}/
+   * {@code delete} above) -- the same {@code kubectl apply -f x.yaml} convention this CLI already
+   * follows elsewhere: the manifest file's own {@code kind:} field says what it is, so there's no
+   * separate {@code job apply -f}/{@code deployment apply -f} verb pair to remember (priority-3
+   * design doc §3e). This peeks at {@code kind:} only to route to the right command; {@link
+   * DeploymentsCommand#apply}/{@link JobsCommand#apply} each independently re-read the file for
+   * their own {@code name:} extraction and PUT, the same small-duplication shape those two classes
+   * already share for everything else.
+   */
+  private static void handleApply(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    Path file = requireFileFlag(args);
+    switch (extractKind(file)) {
+      case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args);
+      case "Job" -> new JobsCommand(client, output, out).apply(args);
+      case String other -> throw new CliException("unknown manifest kind: " + other);
+    }
+  }
+
+  private static Path requireFileFlag(List<String> args) {
+    for (int i = 0; i < args.size(); i++) {
+      if (("-f".equals(args.get(i)) || "--file".equals(args.get(i))) && i + 1 < args.size()) {
+        return Path.of(args.get(i + 1));
+      }
+    }
+    throw new CliException("apply requires -f <manifest.yaml>");
+  }
+
+  private static String extractKind(Path file) {
+    byte[] manifestBytes;
+    try {
+      manifestBytes = Files.readAllBytes(file);
+    } catch (IOException e) {
+      throw new CliException("could not read manifest file " + file + ": " + e.getMessage(), e);
+    }
+    Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+    Object parsed;
+    try {
+      parsed = yaml.load(new ByteArrayInputStream(manifestBytes));
+    } catch (RuntimeException e) {
+      throw new CliException("malformed manifest " + file + ": " + e.getMessage(), e);
+    }
+    if (!(parsed instanceof Map<?, ?> map)
+        || !(map.get("kind") instanceof String kind)
+        || kind.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level 'kind' field");
+    }
+    return kind;
   }
 
   private static void handleEvents(
@@ -140,6 +201,7 @@ public final class GimleCli {
     List<String> rest = args.subList(1, args.size());
     switch (noun) {
       case "deployment", "deployments" -> new DeploymentsCommand(client, output, out).get(rest);
+      case "job", "jobs" -> new JobsCommand(client, output, out).get(rest);
       case "node", "nodes" -> new NodesCommand(client, output, out).list();
       case "node-assignments" ->
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
@@ -179,6 +241,7 @@ public final class GimleCli {
     switch (noun) {
       case "deployment", "deployments" ->
           new DeploymentsCommand(client, output, out).delete(requireOne(rest, "deployment"));
+      case "job", "jobs" -> new JobsCommand(client, output, out).delete(requireOne(rest, "job"));
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
@@ -221,8 +284,10 @@ public final class GimleCli {
 
         verbs:
           get deployments [name]
-          apply -f <file.yaml>
+          get jobs [name]
+          apply -f <file.yaml>   (kind: Deployment or kind: Job, read from the file itself)
           delete deployment <name>
+          delete job <name>
           get nodes
           get node-assignments <nodeId>
           cordon <nodeId>

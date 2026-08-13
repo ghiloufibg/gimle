@@ -14,4 +14,9 @@ public class GimleManifestException extends RuntimeException {
   public GimleManifestException(String message, Throwable cause) {
     super(message, cause);
   }
+
+  /** {@code kind:} named something {@code ManifestParser} doesn't recognize, or is missing. */
+  public static GimleManifestException unknownKind(String kind) {
+    return new GimleManifestException("unknown manifest kind: " + kind);
+  }
 }

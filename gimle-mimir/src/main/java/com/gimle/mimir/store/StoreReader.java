@@ -9,6 +9,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +42,17 @@ public interface StoreReader {
   boolean isNodeCordoned(String nodeId);
 
   List<InstanceAssignment> listAssignments();
+
+  Optional<JobSpec> getJobSpec(String name);
+
+  List<JobSpec> listJobSpecs();
+
+  List<JobRun> listJobRunsFor(String jobName);
+
+  List<JobRun> listJobRuns();
+
+  /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
+  Optional<JobPhase> getJobPhase(String jobName);
 
   List<NodeRegistration> listNodeRegistrations();
 

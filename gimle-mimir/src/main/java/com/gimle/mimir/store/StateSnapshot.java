@@ -9,6 +9,7 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +23,9 @@ import java.util.Set;
 public record StateSnapshot(
     List<DeploymentSpec> deployments,
     List<InstanceAssignment> assignments,
+    List<JobSpec> jobSpecs,
+    List<JobRun> jobRuns,
+    Map<String, JobPhase> jobPhases,
     List<NodeRegistration> nodeRegistrations,
     Map<String, Integer> rollingIndices,
     Map<String, Integer> effectiveReplicas,
@@ -39,6 +43,9 @@ public record StateSnapshot(
   public StateSnapshot {
     deployments = List.copyOf(deployments);
     assignments = List.copyOf(assignments);
+    jobSpecs = List.copyOf(jobSpecs);
+    jobRuns = List.copyOf(jobRuns);
+    jobPhases = Map.copyOf(jobPhases);
     nodeRegistrations = List.copyOf(nodeRegistrations);
     rollingIndices = Map.copyOf(rollingIndices);
     effectiveReplicas = Map.copyOf(effectiveReplicas);

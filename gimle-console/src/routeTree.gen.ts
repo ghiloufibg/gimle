@@ -21,10 +21,12 @@ import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TenantsIndexRouteImport } from './routes/tenants.index'
 import { Route as NodesIndexRouteImport } from './routes/nodes.index'
+import { Route as JobsIndexRouteImport } from './routes/jobs.index'
 import { Route as InstancesIndexRouteImport } from './routes/instances.index'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
 import { Route as TenantsIdRouteImport } from './routes/tenants.$id'
 import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
+import { Route as JobsNameRouteImport } from './routes/jobs.$name'
 import { Route as DeploymentsNewRouteImport } from './routes/deployments.new'
 import { Route as DeploymentsNameRouteImport } from './routes/deployments.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
@@ -89,6 +91,11 @@ const NodesIndexRoute = NodesIndexRouteImport.update({
   path: '/nodes/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JobsIndexRoute = JobsIndexRouteImport.update({
+  id: '/jobs/',
+  path: '/jobs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstancesIndexRoute = InstancesIndexRouteImport.update({
   id: '/instances/',
   path: '/instances/',
@@ -107,6 +114,11 @@ const TenantsIdRoute = TenantsIdRouteImport.update({
 const NodesNodeIdRoute = NodesNodeIdRouteImport.update({
   id: '/nodes/$nodeId',
   path: '/nodes/$nodeId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsNameRoute = JobsNameRouteImport.update({
+  id: '/jobs/$name',
+  path: '/jobs/$name',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeploymentsNewRoute = DeploymentsNewRouteImport.update({
@@ -138,10 +150,12 @@ export interface FileRoutesByFullPath {
   '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
+  '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/instances/': typeof InstancesIndexRoute
+  '/jobs/': typeof JobsIndexRoute
   '/nodes/': typeof NodesIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
@@ -159,10 +173,12 @@ export interface FileRoutesByTo {
   '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
+  '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/deployments': typeof DeploymentsIndexRoute
   '/instances': typeof InstancesIndexRoute
+  '/jobs': typeof JobsIndexRoute
   '/nodes': typeof NodesIndexRoute
   '/tenants': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
@@ -181,10 +197,12 @@ export interface FileRoutesById {
   '/traces': typeof TracesRoute
   '/deployments/$name': typeof DeploymentsNameRoute
   '/deployments/new': typeof DeploymentsNewRoute
+  '/jobs/$name': typeof JobsNameRoute
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/tenants/$id': typeof TenantsIdRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/instances/': typeof InstancesIndexRoute
+  '/jobs/': typeof JobsIndexRoute
   '/nodes/': typeof NodesIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
@@ -204,10 +222,12 @@ export interface FileRouteTypes {
     | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
+    | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
     | '/deployments/'
     | '/instances/'
+    | '/jobs/'
     | '/nodes/'
     | '/tenants/'
     | '/instances/$name/$idx'
@@ -225,10 +245,12 @@ export interface FileRouteTypes {
     | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
+    | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
     | '/deployments'
     | '/instances'
+    | '/jobs'
     | '/nodes'
     | '/tenants'
     | '/instances/$name/$idx'
@@ -246,10 +268,12 @@ export interface FileRouteTypes {
     | '/traces'
     | '/deployments/$name'
     | '/deployments/new'
+    | '/jobs/$name'
     | '/nodes/$nodeId'
     | '/tenants/$id'
     | '/deployments/'
     | '/instances/'
+    | '/jobs/'
     | '/nodes/'
     | '/tenants/'
     | '/instances/$name/$idx'
@@ -268,10 +292,12 @@ export interface RootRouteChildren {
   TracesRoute: typeof TracesRoute
   DeploymentsNameRoute: typeof DeploymentsNameRoute
   DeploymentsNewRoute: typeof DeploymentsNewRoute
+  JobsNameRoute: typeof JobsNameRoute
   NodesNodeIdRoute: typeof NodesNodeIdRoute
   TenantsIdRoute: typeof TenantsIdRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   InstancesIndexRoute: typeof InstancesIndexRoute
+  JobsIndexRoute: typeof JobsIndexRoute
   NodesIndexRoute: typeof NodesIndexRoute
   TenantsIndexRoute: typeof TenantsIndexRoute
   InstancesNameIdxRoute: typeof InstancesNameIdxRoute
@@ -363,6 +389,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NodesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/jobs/': {
+      id: '/jobs/'
+      path: '/jobs'
+      fullPath: '/jobs/'
+      preLoaderRoute: typeof JobsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/instances/': {
       id: '/instances/'
       path: '/instances'
@@ -389,6 +422,13 @@ declare module '@tanstack/react-router' {
       path: '/nodes/$nodeId'
       fullPath: '/nodes/$nodeId'
       preLoaderRoute: typeof NodesNodeIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs/$name': {
+      id: '/jobs/$name'
+      path: '/jobs/$name'
+      fullPath: '/jobs/$name'
+      preLoaderRoute: typeof JobsNameRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/deployments/new': {
@@ -428,10 +468,12 @@ const rootRouteChildren: RootRouteChildren = {
   TracesRoute: TracesRoute,
   DeploymentsNameRoute: DeploymentsNameRoute,
   DeploymentsNewRoute: DeploymentsNewRoute,
+  JobsNameRoute: JobsNameRoute,
   NodesNodeIdRoute: NodesNodeIdRoute,
   TenantsIdRoute: TenantsIdRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   InstancesIndexRoute: InstancesIndexRoute,
+  JobsIndexRoute: JobsIndexRoute,
   NodesIndexRoute: NodesIndexRoute,
   TenantsIndexRoute: TenantsIndexRoute,
   InstancesNameIdxRoute: InstancesNameIdxRoute,

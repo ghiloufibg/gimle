@@ -137,6 +137,7 @@ class GimleCliTest {
     java.nio.file.Files.writeString(
         file,
         """
+        kind: Deployment
         name: %s
         module:
           name: com.gimle.example.orders

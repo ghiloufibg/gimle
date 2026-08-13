@@ -8,7 +8,10 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 
@@ -49,6 +52,41 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.removeAssignment(deploymentName, instanceIndex);
+    }
+  }
+
+  record PutJobSpec(JobSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobSpec(spec);
+    }
+  }
+
+  record RemoveJobSpec(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeJobSpec(name);
+    }
+  }
+
+  record PutJobRun(JobRun run) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobRun(run);
+    }
+  }
+
+  record RemoveJobRun(String jobName, int attempt) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeJobRun(jobName, attempt);
+    }
+  }
+
+  record PutJobPhase(String jobName, JobPhase phase) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobPhase(jobName, phase);
     }
   }
 

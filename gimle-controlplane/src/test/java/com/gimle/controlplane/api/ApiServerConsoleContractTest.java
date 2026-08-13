@@ -73,6 +73,7 @@ class ApiServerConsoleContractTest {
   void deployment_status_has_every_field_the_console_needs() throws Exception {
     String yaml =
         """
+        kind: Deployment
         name: orders-service
         module:
           name: com.gimle.example.orders

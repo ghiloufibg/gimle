@@ -9,8 +9,11 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import java.util.List;
@@ -56,6 +59,11 @@ public sealed interface StoreRpc {
           IsQuotaViolating,
           IsNodeCordoned,
           ListAssignments,
+          GetJobSpec,
+          ListJobSpecs,
+          ListJobRunsFor,
+          ListJobRuns,
+          GetJobPhase,
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
@@ -80,6 +88,10 @@ public sealed interface StoreRpc {
           BoolResult,
           IntResult,
           DeploymentResult,
+          JobSpecResult,
+          JobSpecListResult,
+          JobRunListResult,
+          JobPhaseResult,
           TenantResult,
           RoleResult,
           RoleBindingResult,
@@ -149,6 +161,17 @@ public sealed interface StoreRpc {
 
   record ListAssignments() implements Request {}
 
+  record GetJobSpec(String name) implements Request {}
+
+  record ListJobSpecs() implements Request {}
+
+  record ListJobRunsFor(String jobName) implements Request {}
+
+  record ListJobRuns() implements Request {}
+
+  /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
+  record GetJobPhase(String jobName) implements Request {}
+
   record ListNodeRegistrations() implements Request {}
 
   record ListTenants() implements Request {}
@@ -214,6 +237,19 @@ public sealed interface StoreRpc {
   record IntResult(boolean present, int value) implements Response {}
 
   record DeploymentResult(boolean present, DeploymentSpec value) implements Response {}
+
+  record JobSpecResult(boolean present, JobSpec value) implements Response {}
+
+  record JobSpecListResult(List<JobSpec> values) implements Response {}
+
+  record JobRunListResult(List<JobRun> values) implements Response {}
+
+  /**
+   * {@code present == false} means "not yet terminal," matching {@code Optional<JobPhase>}'s own
+   * absence -- {@code value} is meaningless ({@code JobPhase.RUNNING}) when {@code present} is
+   * {@code false}, the same "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record JobPhaseResult(boolean present, JobPhase value) implements Response {}
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 

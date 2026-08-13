@@ -11,7 +11,10 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import java.io.ByteArrayInputStream;
@@ -77,6 +80,11 @@ public final class RaftCodec {
   private static final byte MUT_PUT_NODE_CORDON = 21;
   private static final byte MUT_APPEND_INSTANCE_EVENT = 22;
   private static final byte MUT_APPEND_AUDIT_EVENT = 23;
+  private static final byte MUT_PUT_JOB_SPEC = 24;
+  private static final byte MUT_REMOVE_JOB_SPEC = 25;
+  private static final byte MUT_PUT_JOB_RUN = 26;
+  private static final byte MUT_REMOVE_JOB_RUN = 27;
+  private static final byte MUT_PUT_JOB_PHASE = 28;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -422,6 +430,28 @@ public final class RaftCodec {
         out.writeByte(MUT_APPEND_AUDIT_EVENT);
         DomainCodec.writeAuditEvent(out, m.event());
       }
+      case StateMutation.PutJobSpec m -> {
+        out.writeByte(MUT_PUT_JOB_SPEC);
+        DomainCodec.writeJobSpec(out, m.spec());
+      }
+      case StateMutation.RemoveJobSpec m -> {
+        out.writeByte(MUT_REMOVE_JOB_SPEC);
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutJobRun m -> {
+        out.writeByte(MUT_PUT_JOB_RUN);
+        DomainCodec.writeJobRun(out, m.run());
+      }
+      case StateMutation.RemoveJobRun m -> {
+        out.writeByte(MUT_REMOVE_JOB_RUN);
+        out.writeUTF(m.jobName());
+        out.writeInt(m.attempt());
+      }
+      case StateMutation.PutJobPhase m -> {
+        out.writeByte(MUT_PUT_JOB_PHASE);
+        out.writeUTF(m.jobName());
+        out.writeUTF(m.phase().name());
+      }
     }
   }
 
@@ -464,6 +494,12 @@ public final class RaftCodec {
           new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
       case MUT_APPEND_AUDIT_EVENT ->
           new StateMutation.AppendAuditEvent(DomainCodec.readAuditEvent(in));
+      case MUT_PUT_JOB_SPEC -> new StateMutation.PutJobSpec(DomainCodec.readJobSpec(in));
+      case MUT_REMOVE_JOB_SPEC -> new StateMutation.RemoveJobSpec(in.readUTF());
+      case MUT_PUT_JOB_RUN -> new StateMutation.PutJobRun(DomainCodec.readJobRun(in));
+      case MUT_REMOVE_JOB_RUN -> new StateMutation.RemoveJobRun(in.readUTF(), in.readInt());
+      case MUT_PUT_JOB_PHASE ->
+          new StateMutation.PutJobPhase(in.readUTF(), JobPhase.valueOf(in.readUTF()));
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -481,6 +517,19 @@ public final class RaftCodec {
       out.writeInt(snapshot.assignments().size());
       for (InstanceAssignment assignment : snapshot.assignments()) {
         DomainCodec.writeInstanceAssignment(out, assignment);
+      }
+      out.writeInt(snapshot.jobSpecs().size());
+      for (JobSpec spec : snapshot.jobSpecs()) {
+        DomainCodec.writeJobSpec(out, spec);
+      }
+      out.writeInt(snapshot.jobRuns().size());
+      for (JobRun run : snapshot.jobRuns()) {
+        DomainCodec.writeJobRun(out, run);
+      }
+      out.writeInt(snapshot.jobPhases().size());
+      for (Map.Entry<String, JobPhase> e : snapshot.jobPhases().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeUTF(e.getValue().name());
       }
       out.writeInt(snapshot.nodeRegistrations().size());
       for (NodeRegistration registration : snapshot.nodeRegistrations()) {
@@ -555,6 +604,21 @@ public final class RaftCodec {
       for (int i = 0; i < assignmentCount; i++) {
         assignments.add(DomainCodec.readInstanceAssignment(in));
       }
+      List<JobSpec> jobSpecs = new ArrayList<>();
+      int jobSpecCount = in.readInt();
+      for (int i = 0; i < jobSpecCount; i++) {
+        jobSpecs.add(DomainCodec.readJobSpec(in));
+      }
+      List<JobRun> jobRuns = new ArrayList<>();
+      int jobRunCount = in.readInt();
+      for (int i = 0; i < jobRunCount; i++) {
+        jobRuns.add(DomainCodec.readJobRun(in));
+      }
+      Map<String, JobPhase> jobPhases = new LinkedHashMap<>();
+      int jobPhaseCount = in.readInt();
+      for (int i = 0; i < jobPhaseCount; i++) {
+        jobPhases.put(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      }
       List<NodeRegistration> registrations = new ArrayList<>();
       int registrationCount = in.readInt();
       for (int i = 0; i < registrationCount; i++) {
@@ -623,6 +687,9 @@ public final class RaftCodec {
       return new StateSnapshot(
           deployments,
           assignments,
+          jobSpecs,
+          jobRuns,
+          jobPhases,
           registrations,
           rollingIndices,
           effectiveReplicas,

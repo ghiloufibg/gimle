@@ -22,6 +22,8 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobManifestParser;
+import com.gimle.mimir.manifest.JobSpec;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -62,6 +64,13 @@ public final class StateStore implements StoreReader {
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
+  private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
+  private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
+  // Only ever holds an entry once a job reaches a terminal phase -- absent means "still running"
+  // (no attempt placed yet, or one currently in flight), the same "only persist the override"
+  // posture effectiveReplicas/rollingIndices already use rather than writing an explicit RUNNING
+  // marker for every job that hasn't finished yet.
+  private final Map<String, JobPhase> jobPhases = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
@@ -129,6 +138,9 @@ public final class StateStore implements StoreReader {
     try {
       Files.createDirectories(deploymentsDir());
       Files.createDirectories(assignmentsDir());
+      Files.createDirectories(jobsDir());
+      Files.createDirectories(jobRunsDir());
+      Files.createDirectories(jobPhasesDir());
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
       Files.createDirectories(autoscaleDir());
@@ -194,6 +206,67 @@ public final class StateStore implements StoreReader {
     return assignments.values().stream()
         .filter(a -> a.deploymentName().equals(deploymentName))
         .toList();
+  }
+
+  // ---- jobs ----
+
+  public void putJobSpec(JobSpec spec) {
+    writeAtomically(jobFile(spec.name()), jobSpecToYaml(spec));
+    jobSpecs.put(spec.name(), spec);
+  }
+
+  public Optional<JobSpec> getJobSpec(String name) {
+    return Optional.ofNullable(jobSpecs.get(name));
+  }
+
+  public List<JobSpec> listJobSpecs() {
+    return List.copyOf(jobSpecs.values());
+  }
+
+  /**
+   * Also clears any terminal {@link JobPhase} recorded for {@code name} -- a removed job has no
+   * phase to report back, terminal or otherwise. Does not remove any {@link JobRun}s still on disk
+   * for it; {@code JobReconciler} is responsible for tearing those down first, the same "assignment
+   * gone -&gt; agent stops it" ordering {@code DeploymentReconciler} already relies on for {@code
+   * InstanceAssignment}.
+   */
+  public void removeJobSpec(String name) {
+    deleteQuietly(jobFile(name));
+    jobSpecs.remove(name);
+    deleteQuietly(jobPhaseFile(name));
+    jobPhases.remove(name);
+  }
+
+  // ---- job runs ----
+
+  public void putJobRun(JobRun run) {
+    writeAtomically(jobRunFile(run.jobName(), run.attempt()), jobRunToYaml(run));
+    jobRuns.put(jobRunKey(run.jobName(), run.attempt()), run);
+  }
+
+  public void removeJobRun(String jobName, int attempt) {
+    deleteQuietly(jobRunFile(jobName, attempt));
+    jobRuns.remove(jobRunKey(jobName, attempt));
+  }
+
+  public List<JobRun> listJobRuns() {
+    return List.copyOf(jobRuns.values());
+  }
+
+  public List<JobRun> listJobRunsFor(String jobName) {
+    return jobRuns.values().stream().filter(r -> r.jobName().equals(jobName)).toList();
+  }
+
+  // ---- job phase ----
+
+  public void putJobPhase(String jobName, JobPhase phase) {
+    writeAtomically(jobPhaseFile(jobName), jobPhaseToYaml(phase));
+    jobPhases.put(jobName, phase);
+  }
+
+  /** Empty means "not yet terminal" -- see {@link #jobPhases}'s own field javadoc. */
+  public Optional<JobPhase> getJobPhase(String jobName) {
+    return Optional.ofNullable(jobPhases.get(jobName));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -603,6 +676,9 @@ public final class StateStore implements StoreReader {
     return new StateSnapshot(
         List.copyOf(deployments.values()),
         List.copyOf(assignments.values()),
+        List.copyOf(jobSpecs.values()),
+        List.copyOf(jobRuns.values()),
+        Map.copyOf(jobPhases),
         List.copyOf(nodeRegistrations.values()),
         Map.copyOf(rollingIndices),
         Map.copyOf(effectiveReplicas),
@@ -640,6 +716,8 @@ public final class StateStore implements StoreReader {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
+    List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
+    List.copyOf(jobSpecs.keySet()).forEach(this::removeJobSpec);
     List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
@@ -655,6 +733,9 @@ public final class StateStore implements StoreReader {
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
+    snapshot.jobSpecs().forEach(this::putJobSpec);
+    snapshot.jobRuns().forEach(this::putJobRun);
+    snapshot.jobPhases().forEach(this::putJobPhase);
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot.rollingIndices().forEach(this::putRollingIndex);
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
@@ -731,6 +812,34 @@ public final class StateStore implements StoreReader {
 
   private Path assignmentFile(String deploymentName, int instanceIndex) {
     return assignmentsDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
+  }
+
+  private Path jobsDir() {
+    return root.resolve("jobs");
+  }
+
+  private Path jobFile(String name) {
+    return jobsDir().resolve(name + ".yaml");
+  }
+
+  private Path jobRunsDir() {
+    return root.resolve("jobruns");
+  }
+
+  private Path jobRunFile(String jobName, int attempt) {
+    return jobRunsDir().resolve(jobName).resolve(attempt + ".yaml");
+  }
+
+  private static String jobRunKey(String jobName, int attempt) {
+    return jobName + "#" + attempt;
+  }
+
+  private Path jobPhasesDir() {
+    return root.resolve("jobphases");
+  }
+
+  private Path jobPhaseFile(String jobName) {
+    return jobPhasesDir().resolve(jobName + ".yaml");
   }
 
   private Path registrationFile(String nodeId) {
@@ -873,6 +982,27 @@ public final class StateStore implements StoreReader {
           InstanceAssignment assignment = assignmentFromMap(loadMap(file));
           assignments.put(
               assignmentKey(assignment.deploymentName(), assignment.instanceIndex()), assignment);
+        });
+    loadEach(
+        jobsDir(),
+        "*.yaml",
+        file -> {
+          JobSpec spec = JobManifestParser.parse(new ByteArrayInputStream(read(file)));
+          jobSpecs.put(spec.name(), spec);
+        });
+    loadEach(
+        jobRunsDir(),
+        "*/*.yaml",
+        file -> {
+          JobRun run = jobRunFromMap(loadMap(file));
+          jobRuns.put(jobRunKey(run.jobName(), run.attempt()), run);
+        });
+    loadEach(
+        jobPhasesDir(),
+        "*.yaml",
+        file -> {
+          String jobName = fileNameWithoutYamlSuffix(file);
+          jobPhases.put(jobName, jobPhaseFromMap(loadMap(file)));
         });
     loadEach(
         nodesDir(),
@@ -1074,6 +1204,10 @@ public final class StateStore implements StoreReader {
 
   private static String deploymentToYaml(DeploymentSpec spec) {
     Map<String, Object> root = new LinkedHashMap<>();
+    // Every manifest carries kind: now (priority-3 design doc §2) -- this is our own round-trip
+    // write, not operator input, but DeploymentManifestParser.parseRoot ignores unknown/extra keys
+    // regardless, so including it costs nothing and keeps this file self-describing on disk.
+    root.put("kind", "Deployment");
     root.put("name", spec.name());
     Map<String, Object> module = new LinkedHashMap<>();
     module.put("name", spec.moduleId().name());
@@ -1099,6 +1233,66 @@ public final class StateStore implements StoreReader {
     spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
     spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
     return new Yaml().dump(root);
+  }
+
+  private static String jobSpecToYaml(JobSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("kind", "Job");
+    root.put("name", spec.name());
+    Map<String, Object> module = new LinkedHashMap<>();
+    module.put("name", spec.moduleId().name());
+    module.put("version", spec.moduleId().version().toString());
+    root.put("module", module);
+    root.put("artifactPath", spec.artifactPath());
+    Map<String, Object> placement = new LinkedHashMap<>();
+    placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
+    spec.placement()
+        .requiredNodeLabels()
+        .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
+    root.put("placement", placement);
+    spec.activeDeadline().ifPresent(d -> root.put("activeDeadlineSeconds", d.toSeconds()));
+    root.put("backoffLimit", spec.backoffLimit());
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    spec.artifactSha256().ifPresent(sha256 -> root.put("artifactSha256", sha256));
+    return new Yaml().dump(root);
+  }
+
+  private static String jobRunToYaml(JobRun run) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("jobName", run.jobName());
+    root.put("attempt", run.attempt());
+    root.put("nodeId", run.nodeId());
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", run.moduleId().name());
+    moduleId.put("version", run.moduleId().version().toString());
+    root.put("moduleId", moduleId);
+    root.put("artifactPath", run.artifactPath());
+    root.put("startedAt", run.startedAt().toString());
+    return new Yaml().dump(root);
+  }
+
+  private static JobRun jobRunFromMap(Map<?, ?> map) {
+    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    return new JobRun(
+        (String) map.get("jobName"),
+        ((Number) map.get("attempt")).intValue(),
+        (String) map.get("nodeId"),
+        moduleId,
+        (String) map.get("artifactPath"),
+        Instant.parse((String) map.get("startedAt")));
+  }
+
+  private static String jobPhaseToYaml(JobPhase phase) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("phase", phase.name());
+    return new Yaml().dump(root);
+  }
+
+  private static JobPhase jobPhaseFromMap(Map<?, ?> map) {
+    return JobPhase.valueOf((String) map.get("phase"));
   }
 
   private static String rollingToYaml(int instanceIndex) {

@@ -158,6 +158,11 @@ public final class WorkerMain {
             activeModules.add(active.id());
           } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
             activeModules.remove(uninstalled.id());
+          } else if (event instanceof LifecycleEvent.Completed completed) {
+            // A COMPLETED Job stops accumulating metricsReportLoop's per-tick CPU/memory report --
+            // it's done, not still running work worth reporting, the same reasoning Uninstalled
+            // already gets above.
+            activeModules.remove(completed.id());
           }
           sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
           identityRegistry
@@ -463,6 +468,7 @@ public final class WorkerMain {
       case LifecycleEvent.Stopping ignored -> "STOPPING";
       case LifecycleEvent.Uninstalled ignored -> "UNINSTALLED";
       case LifecycleEvent.TransitionFailed ignored -> "FAILED";
+      case LifecycleEvent.Completed ignored -> "COMPLETED";
     };
   }
 
@@ -533,6 +539,14 @@ public final class WorkerMain {
               InstanceEventKind.TRANSITION_FAILED,
               "transition " + failed.from() + " -> " + failed.to() + " failed",
               Optional.of(failed.cause().getClass().getName() + ": " + failed.cause().getMessage()),
+              occurredAtEpochMilli);
+      case LifecycleEvent.Completed ignored ->
+          new InstanceEvent(
+              id,
+              identity.deploymentName(),
+              identity.instanceIndex(),
+              InstanceEventKind.COMPLETED,
+              "job run completed successfully",
               occurredAtEpochMilli);
     };
   }

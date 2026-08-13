@@ -348,6 +348,35 @@ public final class ModuleController {
         id, ModuleState.ACTIVE, ModuleState.FAILED, new IllegalStateException(reason));
   }
 
+  /**
+   * The run-to-completion counterpart to {@link #stop}: a Job-kind module's {@link JobHooks#run}
+   * finished, reporting {@code status} (priority-3 design doc §3b). {@code SUCCEEDED} moves the
+   * module straight to {@link ModuleState#COMPLETED} -- no drain wait, unlike {@link #stop}'s
+   * ACTIVE-&gt;STOPPING-&gt;UNINSTALLED sequence, since a Job never serves external requests and
+   * its {@code inFlightCount()} is always zero. {@code FAILED} reuses the existing {@link
+   * #markFailedAndEmit} path rather than introducing a second failure terminal -- a Job run that
+   * reported failure is handled identically to any other hook failure from here on (worker
+   * heartbeat reports {@code alive=false}, {@code HealthReconciler} escalates). Neither branch
+   * tears down this module's hook/context entries or its worker JVM -- that's driven externally, by
+   * the agent reacting to this instance's assignment disappearing once the control plane observes
+   * the terminal state, the same "assignment gone -&gt; agent stops it" mechanism ordinary
+   * scale-down already relies on.
+   */
+  public void complete(ModuleId id, CompletionStatus status) {
+    if (status == CompletionStatus.SUCCEEDED) {
+      requireState(id, ModuleState.ACTIVE, ModuleState.COMPLETED);
+      registry.markCompleted(id);
+      emit(new LifecycleEvent.Completed(id, Instant.now()));
+    } else {
+      requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
+      markFailedAndEmit(
+          id,
+          ModuleState.ACTIVE,
+          ModuleState.FAILED,
+          new IllegalStateException("job run reported FAILED"));
+    }
+  }
+
   private void requireState(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
     ModuleState current = registry.state(id);
     if (current != expected) {

@@ -13,7 +13,13 @@ public record ModuleDescriptor(
     ResourceSpec resourceRequest,
     ResourceSpec resourceLimit,
     HealthProbes healthProbes,
-    Optional<String> lifecycleHooksClass) {
+    Optional<String> lifecycleHooksClass,
+    // Job-kind run-to-completion hooks (priority-3 design doc §3a): sibling field to
+    // lifecycleHooksClass, declared as lifecycle.jobHooks in gimle-module.yaml. A module never
+    // declares both -- lifecycleHooksClass is for a service's own install/start/stop/uninstall
+    // bracket, jobHooksClass is for a Job's one run-to-completion unit of work -- but nothing here
+    // enforces mutual exclusion; that's ModuleDescriptorParser's job if it ever matters.
+    Optional<String> jobHooksClass) {
 
   public ModuleDescriptor {
     if (name == null || name.isBlank()) {
@@ -46,6 +52,9 @@ public record ModuleDescriptor(
     }
     if (lifecycleHooksClass == null) {
       throw new IllegalArgumentException("lifecycleHooksClass must be Optional.empty(), not null");
+    }
+    if (jobHooksClass == null) {
+      throw new IllegalArgumentException("jobHooksClass must be Optional.empty(), not null");
     }
   }
 

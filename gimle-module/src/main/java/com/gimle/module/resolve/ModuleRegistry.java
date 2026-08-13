@@ -87,6 +87,10 @@ public final class ModuleRegistry {
     replaceState(id, ModuleState.FAILED);
   }
 
+  public synchronized void markCompleted(ModuleId id) {
+    replaceState(id, ModuleState.COMPLETED);
+  }
+
   /**
    * Terminal: the module ceases to exist in the registry, per the UNINSTALLED -&gt; [*] transition.
    */

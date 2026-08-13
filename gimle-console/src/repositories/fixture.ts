@@ -1,6 +1,7 @@
 import type {
   Deployment,
   DeploymentInstance,
+  Job,
   LifecycleState,
   Node,
   Tenant,
@@ -155,6 +156,60 @@ export const deployments: Deployment[] = Array.from({ length: 42 }, (_, i) => {
   };
 });
 
+// ---------- Jobs (priority-3 design doc §3) ----------
+const JOB_PHASE_WEIGHTS: [Job["phase"], number][] = [
+  ["RUNNING", 50],
+  ["SUCCEEDED", 35],
+  ["FAILED", 15],
+];
+
+function weightedJobPhase(): Job["phase"] {
+  const total = JOB_PHASE_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+  let r = rand() * total;
+  for (const [phase, w] of JOB_PHASE_WEIGHTS) {
+    r -= w;
+    if (r <= 0) return phase;
+  }
+  return "RUNNING";
+}
+
+export const jobs: Job[] = Array.from({ length: 12 }, (_, i) => {
+  const mod = pick(MODULE_NAMES);
+  const version = `${intBetween(0, 3)}.${intBetween(0, 12)}.${intBetween(0, 20)}`;
+  const name = `${mod}-job-${i}`;
+  const phase = weightedJobPhase();
+  const attempt = intBetween(0, 2);
+  const tenantId = rand() < 0.3 ? pick(tenants).id : null;
+  const currentRun =
+    phase === "RUNNING"
+      ? {
+          attempt,
+          nodeId: pick(nodes).nodeId,
+          observation: {
+            lifecycleState: rand() < 0.7 ? ("ACTIVE" as const) : ("STARTING" as const),
+            alive: true,
+            ready: false,
+            requestRatePerSecond: 0,
+            queueDepth: 0,
+            cpuMillicoresUsed: intBetween(50, 800),
+            memoryBytesUsed: intBetween(64, 512) * 1024 * 1024,
+          },
+        }
+      : null;
+  return {
+    spec: {
+      name,
+      moduleId: { name: mod, version },
+      artifactPath: `s3://gimle-artifacts/${mod}/${version}/${mod}-${version}.jar`,
+      backoffLimit: intBetween(1, 6),
+      activeDeadlineSeconds: rand() < 0.4 ? intBetween(60, 3600) : undefined,
+      tenantId,
+    },
+    phase,
+    currentRun,
+  };
+});
+
 // ---------- Config ----------
 const CONFIG_KEYS = [
   "db.url",
@@ -210,6 +265,15 @@ export function addDeployment(d: Deployment) {
 export function removeDeployment(name: string) {
   const idx = deployments.findIndex((d) => d.spec.name === name);
   if (idx >= 0) deployments.splice(idx, 1);
+}
+
+export function addJob(j: Job) {
+  jobs.unshift(j);
+}
+
+export function removeJob(name: string) {
+  const idx = jobs.findIndex((j) => j.spec.name === name);
+  if (idx >= 0) jobs.splice(idx, 1);
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

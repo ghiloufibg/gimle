@@ -11,10 +11,13 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
@@ -159,6 +162,29 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public List<InstanceAssignment> listAssignments() {
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
+  }
+
+  public Optional<JobSpec> getJobSpec(String name) {
+    StoreRpc.JobSpecResult r = (StoreRpc.JobSpecResult) sendRead(new StoreRpc.GetJobSpec(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<JobSpec> listJobSpecs() {
+    return ((StoreRpc.JobSpecListResult) sendRead(new StoreRpc.ListJobSpecs())).values();
+  }
+
+  public List<JobRun> listJobRunsFor(String jobName) {
+    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRunsFor(jobName))).values();
+  }
+
+  public List<JobRun> listJobRuns() {
+    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRuns())).values();
+  }
+
+  public Optional<JobPhase> getJobPhase(String jobName) {
+    StoreRpc.JobPhaseResult r =
+        (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(jobName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   public List<NodeRegistration> listNodeRegistrations() {

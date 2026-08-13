@@ -6,6 +6,7 @@ import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
+import com.gimle.controlplane.reconcile.JobReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
@@ -157,6 +158,12 @@ public final class ControlPlaneMain {
             storeClient);
     AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
     QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
+    // Priority-3 design doc §3c: touches only its own JobSpec/JobRun store types, invisible to
+    // the four reconcilers above by construction (they only ever read Deployment-scoped store
+    // methods) -- no interaction with, or dependency on, tick order relative to them.
+    JobReconciler jobReconciler =
+        new JobReconciler(
+            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
 
     ApiServer apiServer =
         new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
@@ -215,7 +222,8 @@ public final class ControlPlaneMain {
                 healthReconciler,
                 autoscaleReconciler,
                 quotaReconciler,
-                deploymentReconciler);
+                deploymentReconciler,
+                jobReconciler);
           }
         },
         0,
@@ -305,13 +313,15 @@ public final class ControlPlaneMain {
       HealthReconciler healthReconciler,
       AutoscaleReconciler autoscaleReconciler,
       QuotaReconciler quotaReconciler,
-      DeploymentReconciler deploymentReconciler) {
+      DeploymentReconciler deploymentReconciler,
+      JobReconciler jobReconciler) {
     try {
       replicaCountReconciler.reconcileOnce();
       healthReconciler.reconcileOnce();
       autoscaleReconciler.reconcileOnce();
       quotaReconciler.reconcileOnce();
       deploymentReconciler.reconcileOnce();
+      jobReconciler.reconcileOnce();
     } catch (RuntimeException e) {
       log.error("reconcile tick failed: {}", e.getMessage(), e);
     }

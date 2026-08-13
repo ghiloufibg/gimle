@@ -11,8 +11,11 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.RaftCodec;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -68,6 +71,11 @@ public final class StoreCodec {
   private static final byte TAG_ADD_SERVER = 50;
   private static final byte TAG_REMOVE_SERVER = 51;
   private static final byte TAG_LIST_AUDIT_EVENTS = 52;
+  private static final byte TAG_GET_JOB_SPEC = 54;
+  private static final byte TAG_LIST_JOB_SPECS = 55;
+  private static final byte TAG_LIST_JOB_RUNS_FOR = 56;
+  private static final byte TAG_LIST_JOB_RUNS = 57;
+  private static final byte TAG_GET_JOB_PHASE = 58;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -94,6 +102,10 @@ public final class StoreCodec {
   private static final byte TAG_RECONCILER_INSTANCE_STATE_LIST_RESULT = 46;
   private static final byte TAG_INSTANCE_EVENT_LIST_RESULT = 49;
   private static final byte TAG_AUDIT_EVENT_LIST_RESULT = 53;
+  private static final byte TAG_JOB_SPEC_RESULT = 59;
+  private static final byte TAG_JOB_SPEC_LIST_RESULT = 60;
+  private static final byte TAG_JOB_RUN_LIST_RESULT = 61;
+  private static final byte TAG_JOB_PHASE_RESULT = 62;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -172,6 +184,20 @@ public final class StoreCodec {
           out.writeUTF(v.nodeId());
         }
         case StoreRpc.ListAssignments v -> out.writeByte(TAG_LIST_ASSIGNMENTS);
+        case StoreRpc.GetJobSpec v -> {
+          out.writeByte(TAG_GET_JOB_SPEC);
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListJobSpecs v -> out.writeByte(TAG_LIST_JOB_SPECS);
+        case StoreRpc.ListJobRunsFor v -> {
+          out.writeByte(TAG_LIST_JOB_RUNS_FOR);
+          out.writeUTF(v.jobName());
+        }
+        case StoreRpc.ListJobRuns v -> out.writeByte(TAG_LIST_JOB_RUNS);
+        case StoreRpc.GetJobPhase v -> {
+          out.writeByte(TAG_GET_JOB_PHASE);
+          out.writeUTF(v.jobName());
+        }
         case StoreRpc.ListNodeRegistrations v -> out.writeByte(TAG_LIST_NODE_REGISTRATIONS);
         case StoreRpc.ListTenants v -> out.writeByte(TAG_LIST_TENANTS);
         case StoreRpc.ListConfigEntriesFor v -> {
@@ -263,6 +289,34 @@ public final class StoreCodec {
           out.writeBoolean(v.present());
           if (v.present()) {
             DomainCodec.writeDeploymentSpec(out, v.value());
+          }
+        }
+        case StoreRpc.JobSpecResult v -> {
+          out.writeByte(TAG_JOB_SPEC_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeJobSpec(out, v.value());
+          }
+        }
+        case StoreRpc.JobSpecListResult v -> {
+          out.writeByte(TAG_JOB_SPEC_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (JobSpec s : v.values()) {
+            DomainCodec.writeJobSpec(out, s);
+          }
+        }
+        case StoreRpc.JobRunListResult v -> {
+          out.writeByte(TAG_JOB_RUN_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (JobRun r : v.values()) {
+            DomainCodec.writeJobRun(out, r);
+          }
+        }
+        case StoreRpc.JobPhaseResult v -> {
+          out.writeByte(TAG_JOB_PHASE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            out.writeUTF(v.value().name());
           }
         }
         case StoreRpc.TenantResult v -> {
@@ -417,6 +471,11 @@ public final class StoreCodec {
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
+        case TAG_GET_JOB_SPEC -> new StoreRpc.GetJobSpec(in.readUTF());
+        case TAG_LIST_JOB_SPECS -> new StoreRpc.ListJobSpecs();
+        case TAG_LIST_JOB_RUNS_FOR -> new StoreRpc.ListJobRunsFor(in.readUTF());
+        case TAG_LIST_JOB_RUNS -> new StoreRpc.ListJobRuns();
+        case TAG_GET_JOB_PHASE -> new StoreRpc.GetJobPhase(in.readUTF());
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();
         case TAG_LIST_CONFIG_ENTRIES_FOR -> new StoreRpc.ListConfigEntriesFor(in.readUTF());
@@ -453,6 +512,31 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.DeploymentResult(
               present, present ? DomainCodec.readDeploymentSpec(in) : null);
+        }
+        case TAG_JOB_SPEC_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.JobSpecResult(present, present ? DomainCodec.readJobSpec(in) : null);
+        }
+        case TAG_JOB_SPEC_LIST_RESULT -> {
+          int count = in.readInt();
+          List<JobSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readJobSpec(in));
+          }
+          yield new StoreRpc.JobSpecListResult(values);
+        }
+        case TAG_JOB_RUN_LIST_RESULT -> {
+          int count = in.readInt();
+          List<JobRun> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readJobRun(in));
+          }
+          yield new StoreRpc.JobRunListResult(values);
+        }
+        case TAG_JOB_PHASE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.JobPhaseResult(
+              present, present ? JobPhase.valueOf(in.readUTF()) : null);
         }
         case TAG_TENANT_RESULT -> {
           boolean present = in.readBoolean();

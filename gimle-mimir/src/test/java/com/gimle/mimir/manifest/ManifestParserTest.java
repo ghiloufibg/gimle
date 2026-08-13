@@ -1,0 +1,107 @@
+package com.gimle.mimir.manifest;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.gimle.core.exception.GimleManifestException;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Covers only the {@code kind:} dispatch itself -- field-level parsing for each kind's own shape is
+ * covered by {@link DeploymentManifestParserTest} and {@link JobManifestParserTest} against their
+ * own {@code parseRoot}, which this class delegates to without re-testing.
+ */
+class ManifestParserTest {
+
+  private static InputStream yaml(String content) {
+    return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void kind_deployment_dispatches_to_deployment_manifest_parser() {
+    WorkloadSpec spec =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: Deployment
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                """));
+
+    DeploymentSpec deployment = assertInstanceOf(DeploymentSpec.class, spec);
+    assertEquals("orders-service", deployment.name());
+  }
+
+  @Test
+  void kind_job_dispatches_to_job_manifest_parser() {
+    WorkloadSpec spec =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: Job
+                name: nightly-cleanup
+                module:
+                  name: com.gimle.example.cleanup
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                """));
+
+    JobSpec job = assertInstanceOf(JobSpec.class, spec);
+    assertEquals("nightly-cleanup", job.name());
+  }
+
+  @Test
+  void missing_kind_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 3
+                    """)));
+  }
+
+  @Test
+  void unrecognized_kind_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ManifestParser.parse(
+                yaml(
+                    """
+                    kind: CronJob
+                    name: nightly-cleanup
+                    """)));
+  }
+
+  @Test
+  void blank_kind_throws() {
+    assertThrows(GimleManifestException.class, () -> ManifestParser.parse(yaml("kind: \"  \"\n")));
+  }
+
+  @Test
+  void malformed_yaml_throws() {
+    assertThrows(
+        GimleManifestException.class, () -> ManifestParser.parse(yaml("kind: [unterminated")));
+  }
+
+  @Test
+  void non_mapping_root_throws() {
+    assertThrows(
+        GimleManifestException.class, () -> ManifestParser.parse(yaml("- just\n- a\n- list\n")));
+  }
+}

@@ -23,6 +23,13 @@ public sealed interface LifecycleEvent {
 
   record Uninstalled(ModuleId id, Instant at) implements LifecycleEvent {}
 
+  /**
+   * The run-to-completion success path (priority-3 design doc §3b): a Job-kind module's {@code
+   * JobHooks.run(...)} returned {@code CompletionStatus.SUCCEEDED}. The FAILED-status counterpart
+   * reuses {@link TransitionFailed} rather than introducing a second terminal event type.
+   */
+  record Completed(ModuleId id, Instant at) implements LifecycleEvent {}
+
   record TransitionFailed(
       ModuleId id, ModuleState from, ModuleState to, Throwable cause, Instant at)
       implements LifecycleEvent {}

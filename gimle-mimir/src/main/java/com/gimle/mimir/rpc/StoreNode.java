@@ -59,6 +59,12 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.BoolResult(store.isQuotaViolating(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
+      case StoreRpc.GetJobSpec r -> jobSpecResult(store.getJobSpec(r.name()));
+      case StoreRpc.ListJobSpecs r -> new StoreRpc.JobSpecListResult(store.listJobSpecs());
+      case StoreRpc.ListJobRunsFor r ->
+          new StoreRpc.JobRunListResult(store.listJobRunsFor(r.jobName()));
+      case StoreRpc.ListJobRuns r -> new StoreRpc.JobRunListResult(store.listJobRuns());
+      case StoreRpc.GetJobPhase r -> jobPhaseResult(store.getJobPhase(r.jobName()));
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
@@ -183,6 +189,20 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.DeploymentResult(true, v))
         .orElseGet(() -> new StoreRpc.DeploymentResult(false, null));
+  }
+
+  private static StoreRpc.JobSpecResult jobSpecResult(
+      Optional<com.gimle.mimir.manifest.JobSpec> value) {
+    return value
+        .map(v -> new StoreRpc.JobSpecResult(true, v))
+        .orElseGet(() -> new StoreRpc.JobSpecResult(false, null));
+  }
+
+  private static StoreRpc.JobPhaseResult jobPhaseResult(
+      Optional<com.gimle.mimir.store.JobPhase> value) {
+    return value
+        .map(v -> new StoreRpc.JobPhaseResult(true, v))
+        .orElseGet(() -> new StoreRpc.JobPhaseResult(false, null));
   }
 
   private static StoreRpc.RoleResult roleResult(Optional<com.gimle.core.authz.Role> value) {

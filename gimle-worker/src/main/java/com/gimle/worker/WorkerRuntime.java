@@ -5,7 +5,10 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.layer.ModuleLayerHandle;
+import com.gimle.module.lifecycle.CompletionStatus;
+import com.gimle.module.lifecycle.JobHooks;
 import com.gimle.module.lifecycle.LifecycleEvent;
+import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.probe.LivenessProbe;
@@ -231,6 +234,47 @@ public final class WorkerRuntime {
                   probeTimeout,
                   initialDelay,
                   ready -> onReadinessResult(id, ready));
+            });
+
+    descriptor.jobHooksClass().ifPresent(className -> runJobHooks(id, className, handle));
+  }
+
+  /**
+   * Priority-3 design doc §3a/§3b: a Job-kind module declares {@code lifecycle.jobHooks} instead of
+   * {@code health.liveness}/{@code .readiness} -- there's nothing to probe, only a unit of work to
+   * run to completion, exactly once, on its own virtual thread so a long-running (or blocking)
+   * {@link JobHooks#run} never ties up a probe-loop or control-channel thread. The result -- or a
+   * thrown exception, treated the same as an explicit {@link CompletionStatus#FAILED} -- feeds
+   * {@link ModuleController#complete}, which drives the {@code ACTIVE -&gt; COMPLETED}/{@code
+   * ACTIVE -&gt; FAILED} transition and its {@link LifecycleEvent} the same {@link
+   * #onLifecycleEvent} sink every other transition already flows through.
+   */
+  private void runJobHooks(ModuleId id, String className, ModuleLayerHandle handle) {
+    JobHooks hooks = instantiate(id, className, handle, JobHooks.class);
+    ModuleContext ctx =
+        controller
+            .context(id)
+            .orElseThrow(
+                () -> new IllegalStateException("module " + id + " is ACTIVE but has no context"));
+    Thread.ofVirtual()
+        .name("gimle-job-" + id.name() + "-" + id.version())
+        .start(
+            () -> {
+              CompletionStatus status;
+              try {
+                status = hooks.run(ctx);
+              } catch (RuntimeException e) {
+                log.warn("job {} run threw: {}", id, e.getMessage());
+                status = CompletionStatus.FAILED;
+              }
+              try {
+                controller.complete(id, status);
+              } catch (RuntimeException e) {
+                // The module already left ACTIVE some other way (e.g. an operator uninstalled it
+                // mid-run) between hooks.run() returning and this call -- best-effort, matching
+                // restartModule's own "lost race against a concurrent transition" posture.
+                log.warn("could not complete job {}: {}", id, e.getMessage());
+              }
             });
   }
 

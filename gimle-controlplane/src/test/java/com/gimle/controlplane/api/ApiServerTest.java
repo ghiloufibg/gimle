@@ -88,6 +88,7 @@ class ApiServerTest {
 
   private static String deploymentYaml(String name, int replicas) {
     return """
+        kind: Deployment
         name: %s
         module:
           name: com.gimle.example.orders
@@ -122,6 +123,7 @@ class ApiServerTest {
 
   private static String deploymentYamlWithAutoscale(String name) {
     return """
+        kind: Deployment
         name: %s
         module:
           name: com.gimle.example.orders
@@ -279,6 +281,139 @@ class ApiServerTest {
 
     assertEquals(200, list.statusCode());
     assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  private static String jobYaml(String name) {
+    return """
+        kind: Job
+        name: %s
+        module:
+          name: com.gimle.example.cleanup
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+        backoffLimit: 3
+        """
+        .formatted(name);
+  }
+
+  @Test
+  void put_then_get_a_job_round_trips() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("nightly-cleanup", spec.get("name"));
+    assertEquals(3L, spec.get("backoffLimit"));
+    // Absent until a run has actually been placed by JobReconciler -- nothing reconciles in this
+    // handler-only test, so "RUNNING" (the documented default phase) with no currentRun is exactly
+    // what a job looks like the instant after admission.
+    assertEquals("RUNNING", status.get("phase"));
+    assertFalse(status.containsKey("currentRun"));
+  }
+
+  @Test
+  void put_a_job_with_a_deployment_kind_manifest_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("nightly-cleanup", 1)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_job_with_a_manifest_name_mismatch_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/other-name"))
+                .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void put_a_job_with_malformed_yaml_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString("not: [valid"))
+                .build());
+
+    assertEquals(400, put.statusCode());
+  }
+
+  @Test
+  void get_of_an_unknown_job_is_404() throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nope")).GET().build());
+
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void delete_removes_a_job() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+            .build());
+
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  @Test
+  void jobs_list_endpoint_returns_every_job() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+            .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/weekly-report"))
+            .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("weekly-report")))
+            .build());
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(2, body.size());
+  }
+
+  @Test
+  void jobs_list_endpoint_is_empty_with_none_submitted() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
+  }
+
+  @Test
+  void jobs_endpoint_method_not_allowed_for_post() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .POST(HttpRequest.BodyPublishers.ofString("irrelevant"))
+                .build());
+
+    assertEquals(405, response.statusCode());
   }
 
   @Test
@@ -660,6 +795,7 @@ class ApiServerTest {
   private static String tenantedDeploymentYaml(
       String name, int replicas, String artifactPath, String moduleName, String tenantId) {
     return """
+        kind: Deployment
         name: %s
         module:
           name: %s
