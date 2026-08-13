@@ -88,6 +88,24 @@ public sealed interface ControlMessage {
 
   record Pong(String correlationId) implements ControlMessage {}
 
+  /**
+   * A worker JVM's own periodically-built (or final, pre-teardown) NDJSON metrics snapshot, relayed
+   * verbatim by the agent to Muninn's {@code /ingest/metrics/WORKER/{nodeId}:{workerId}} route --
+   * one meter per line, the same wire shape {@code MuninnShipper}'s direct-shipping path already
+   * produces via {@code MeterSnapshotCodec}. Deliberately not a structured payload: the worker
+   * already owns serialization (it holds the {@code MeterRegistry}), so the agent only needs to
+   * relay bytes it never has to parse or understand, exactly the way it already relays a supervised
+   * instance's raw log lines.
+   */
+  record MetricsSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
+
+  /**
+   * The trace-batch counterpart to {@link MetricsSnapshot} -- one span per NDJSON line, produced by
+   * {@code SpanLineCodec} from whatever batch the worker's own {@code SpanExporter} was just
+   * handed, relayed to Muninn's {@code /ingest/traces/WORKER/{nodeId}:{workerId}} route.
+   */
+  record TracesSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
+
   // Agent -> Worker
   /**
    * {@code deploymentName}/{@code instanceIndex} are this instance's placement identity, already

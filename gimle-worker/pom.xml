@@ -53,6 +53,13 @@
       <artifactId>opentelemetry-context</artifactId>
     </dependency>
     <dependency>
+      <!-- Needed by RelayingSpanExporter (SpanExporter/SpanData/CompletableResultCode); already a
+           transitive compile dependency via gimle-observability, declared explicitly because JPMS
+           module resolution needs it on this module's own module path, not just the classpath. -->
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>

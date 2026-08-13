@@ -69,6 +69,48 @@ class GimleTracingInstallTest {
     assertTrue(captured.stream().anyMatch(span -> "swapped-in".equals(span.getName())));
   }
 
+  @Test
+  void flush_with_nothing_installed_is_a_no_op() {
+    // resetTracingBefore() already cleared installedProvider -- must not throw.
+    GimleTracing.flush();
+  }
+
+  @Test
+  @Timeout(10)
+  void flush_forces_a_pending_batched_span_out_immediately() {
+    // A deliberately long batch delay: without a real forceFlush() call, this span would sit
+    // unexported for far longer than this test's own timeout -- proving flush() actually forces
+    // the SDK's own BatchSpanProcessor, not just that a span eventually arrives on its own
+    // schedule.
+    List<SpanData> captured = new CopyOnWriteArrayList<>();
+    SpanExporter capturingExporter =
+        new SpanExporter() {
+          @Override
+          public CompletableResultCode export(Collection<SpanData> spans) {
+            captured.addAll(spans);
+            return CompletableResultCode.ofSuccess();
+          }
+
+          @Override
+          public CompletableResultCode flush() {
+            return CompletableResultCode.ofSuccess();
+          }
+
+          @Override
+          public CompletableResultCode shutdown() {
+            return CompletableResultCode.ofSuccess();
+          }
+        };
+
+    GimleTracing.install(capturingExporter);
+    Tracer tracer = GlobalOpenTelemetry.get().getTracer("test");
+    tracer.spanBuilder("about-to-be-flushed").startSpan().end();
+
+    assertTrue(captured.isEmpty(), "the span shouldn't have exported on its own yet");
+    GimleTracing.flush();
+    assertTrue(captured.stream().anyMatch(span -> "about-to-be-flushed".equals(span.getName())));
+  }
+
   private static void awaitUntil(
       java.util.function.BooleanSupplier condition, java.time.Duration timeout)
       throws InterruptedException {

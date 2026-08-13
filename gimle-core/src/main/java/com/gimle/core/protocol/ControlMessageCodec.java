@@ -63,6 +63,10 @@ public final class ControlMessageCodec {
       case ControlMessage.ServiceUnregistered m ->
           line("SERVICE_UNREGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
       case ControlMessage.Pong m -> line("PONG", m.correlationId());
+      case ControlMessage.MetricsSnapshot m ->
+          line("METRICS_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
+      case ControlMessage.TracesSnapshot m ->
+          line("TRACES_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
       case ControlMessage.InstallModule m ->
           line(
               "INSTALL",
@@ -148,6 +152,11 @@ public final class ControlMessageCodec {
           new ControlMessage.ServiceUnregistered(
               decodeId(field(fields, 1)), decodeExport(field(fields, 2)));
       case "PONG" -> new ControlMessage.Pong(field(fields, 1));
+      case "METRICS_SNAPSHOT" ->
+          new ControlMessage.MetricsSnapshot(
+              unescape(field(fields, 1)), unescape(field(fields, 2)));
+      case "TRACES_SNAPSHOT" ->
+          new ControlMessage.TracesSnapshot(unescape(field(fields, 1)), unescape(field(fields, 2)));
       case "INSTALL" ->
           new ControlMessage.InstallModule(
               field(fields, 1),

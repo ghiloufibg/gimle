@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
@@ -144,6 +145,73 @@ class AgentMuninnShippingTest {
     int countAtStop = requestCount.get();
     Thread.sleep(200);
     assertEquals(countAtStop, requestCount.get());
+  }
+
+  @Test
+  void a_null_muninn_endpoint_starts_no_worker_shippers() {
+    Map<String, AgentMain.WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
+
+    AgentMain.startShippingWorkerMetricsAndTraces(null, workerShippers, "node-a", "worker-1");
+
+    assertTrue(workerShippers.isEmpty());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_configured_endpoint_relays_a_metrics_snapshot_to_the_workers_own_scoped_path()
+      throws Exception {
+    AtomicInteger requestCount = new AtomicInteger();
+    List<String> receivedPaths = new CopyOnWriteArrayList<>();
+    stub = startStub(requestCount, receivedPaths);
+    String muninnEndpoint = "127.0.0.1:" + stub.getAddress().getPort();
+
+    Map<String, AgentMain.WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
+    try {
+      AgentMain.startShippingWorkerMetricsAndTraces(
+          muninnEndpoint, workerShippers, "node-a", "worker-4242");
+      AgentMain.WorkerShipperPair pair = workerShippers.get("worker-4242");
+      assertTrue(pair.metrics().shipPreparedBatch("{\"name\":\"gimle.test\"}"));
+      assertTrue(pair.traces().shipPreparedBatch("{\"traceId\":\"abc\"}"));
+
+      awaitUntil(
+          () -> receivedPaths.contains("/ingest/metrics/WORKER/node-a:worker-4242"),
+          Duration.ofSeconds(5));
+      awaitUntil(
+          () -> receivedPaths.contains("/ingest/traces/WORKER/node-a:worker-4242"),
+          Duration.ofSeconds(5));
+    } finally {
+      AgentMain.stopShippingWorkerMetricsAndTraces(workerShippers, "worker-4242");
+    }
+  }
+
+  @Test
+  void starting_shipping_twice_for_the_same_worker_id_is_idempotent() {
+    Map<String, AgentMain.WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
+
+    AgentMain.startShippingWorkerMetricsAndTraces(
+        "127.0.0.1:1", workerShippers, "node-a", "worker-1");
+    AgentMain.WorkerShipperPair first = workerShippers.get("worker-1");
+    AgentMain.startShippingWorkerMetricsAndTraces(
+        "127.0.0.1:1", workerShippers, "node-a", "worker-1");
+
+    assertEquals(1, workerShippers.size());
+    assertSame(first, workerShippers.get("worker-1"), "a duplicate Hello must not leak a shipper");
+    AgentMain.stopShippingWorkerMetricsAndTraces(workerShippers, "worker-1");
+  }
+
+  @Test
+  void stopping_shipping_removes_the_worker_id_and_a_null_worker_id_is_a_no_op() {
+    Map<String, AgentMain.WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
+    AgentMain.startShippingWorkerMetricsAndTraces(
+        "127.0.0.1:1", workerShippers, "node-a", "worker-1");
+    assertTrue(workerShippers.containsKey("worker-1"));
+
+    AgentMain.stopShippingWorkerMetricsAndTraces(workerShippers, "worker-1");
+    assertTrue(workerShippers.isEmpty());
+
+    // A worker that crashed before ever sending its Hello has no fabricWorkerId yet -- must not
+    // throw.
+    AgentMain.stopShippingWorkerMetricsAndTraces(workerShippers, null);
   }
 
   private static void awaitUntil(java.util.function.BooleanSupplier condition, Duration timeout)

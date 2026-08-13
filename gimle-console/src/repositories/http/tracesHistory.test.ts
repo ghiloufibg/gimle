@@ -64,6 +64,21 @@ describe("HttpTracesHistoryRepository.fetchSince", () => {
   });
 });
 
+describe("HttpTracesHistoryRepository.fetchPage for a WORKER target", () => {
+  it("encodes the nodeId:workerId processId as a single path segment", async () => {
+    const workerTarget: ProcessTarget = { processKind: "WORKER", processId: "node-1:worker-4242" };
+    const fetchMock = stubFetchSequence([
+      () => jsonResponse({ lines: [], olderCursor: null, newerCursor: null }),
+    ]);
+    const repo = new HttpTracesHistoryRepository();
+
+    await repo.fetchPage({ target: workerTarget, cursor: null, limit: 60 });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/traces-history/WORKER/node-1%3Aworker-4242?limit=60");
+  });
+});
+
 describe("HttpTracesHistoryRepository.openPoll", () => {
   it("polls fetchSince on an interval and forwards newly-seen spans", async () => {
     const fetchMock = stubFetchSequence([

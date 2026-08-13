@@ -24,6 +24,7 @@ import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.observability.GimleTracing;
+import com.gimle.observability.MeterSnapshotCodec;
 import com.gimle.observability.WorkerMetrics;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -103,8 +104,6 @@ public final class WorkerMain {
     InstanceLogCloser instanceLogCloser =
         GimleLogging.attachInstanceSiftingAppender(logRoot.resolve("instances"));
 
-    GimleTracing.installDefault();
-
     UnixDomainSocketAddress address = UnixDomainSocketAddress.of(Path.of(args[2]));
     ControlChannelClient channel =
         ControlChannelClient.connectWithRetry(
@@ -113,6 +112,12 @@ public final class WorkerMain {
 
     long pid = ProcessHandle.current().pid();
     String workerId = "worker-" + pid;
+
+    // Design doc §6c: a worker has no outbound network identity of its own, so it can't install
+    // GimleTracing.installDefault()'s previous LoggingSpanExporter-or-nothing posture the way
+    // every other Muninn-shipping process does -- it relays every span batch to its agent over the
+    // control channel instead, hence tracing install moves here, after the channel exists.
+    GimleTracing.install(new RelayingSpanExporter(channel, workerId));
 
     ModuleRegistry registry = new ModuleRegistry();
     ModuleResolver resolver = new ModuleResolver(registry);
@@ -223,6 +228,9 @@ public final class WorkerMain {
     Thread.ofVirtual()
         .name("gimle-metrics-reporter")
         .start(() -> metricsReportLoop(channel, activeModules, workerMetrics, runtime));
+    Thread.ofVirtual()
+        .name("gimle-metrics-shipper")
+        .start(() -> metricsShippingLoop(channel, workerId, workerMetrics));
 
     channel.send(
         new ControlMessage.Hello(
@@ -234,12 +242,56 @@ public final class WorkerMain {
 
     Optional<ControlMessage> received;
     while ((received = channel.receive()).isPresent()) {
-      handle(received.get(), registry, controller, channel, catalog, identityRegistry, tenantId);
+      handle(
+          received.get(),
+          registry,
+          controller,
+          channel,
+          catalog,
+          identityRegistry,
+          tenantId,
+          workerId,
+          workerMetrics);
     }
     log.info("control channel closed by agent; shutting down");
   }
 
   private static final Duration METRICS_REPORT_INTERVAL = Duration.ofSeconds(5);
+
+  // Deliberately a separate constant from METRICS_REPORT_INTERVAL above (autoscaling's per-module
+  // MetricsReport cadence) and from AgentMain's own MUNINN_SHIP_INTERVAL -- three independent 5s
+  // periodic loops today, matching the design doc §6b's framing of this as "a different
+  // concern, not a counter delta."
+  private static final Duration WORKER_METRICS_SHIP_INTERVAL = Duration.ofSeconds(5);
+
+  /**
+   * Design doc §6b/§6c: one metrics shipper per worker JVM, not per instance -- {@code
+   * workerMetrics} is already a single {@code MeterRegistry} for the whole worker, every meter
+   * tagged by {@code ModuleId} internally, so there's nothing module-specific to loop over here.
+   * Relays a full snapshot to the agent every tick regardless of whether the agent actually has a
+   * Muninn endpoint configured -- the agent decides whether to ship it on, the same "source doesn't
+   * need to know the sink's config" posture instance log shipping already has.
+   */
+  private static void metricsShippingLoop(
+      ControlChannelClient channel, String workerId, WorkerMetrics workerMetrics) {
+    while (!Thread.currentThread().isInterrupted()) {
+      try {
+        Thread.sleep(WORKER_METRICS_SHIP_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      shipMetricsSnapshot(channel, workerId, workerMetrics);
+    }
+  }
+
+  private static void shipMetricsSnapshot(
+      ControlChannelClient channel, String workerId, WorkerMetrics workerMetrics) {
+    String ndjson = MeterSnapshotCodec.toNdjson(workerMetrics.registry());
+    if (!ndjson.isEmpty()) {
+      sendQuietly(channel, new ControlMessage.MetricsSnapshot(workerId, ndjson));
+    }
+  }
 
   /**
    * Self-reports this worker JVM's own process CPU and heap usage via portable {@code
@@ -350,7 +402,9 @@ public final class WorkerMain {
       ControlChannelClient channel,
       ServiceCatalog catalog,
       InstanceIdentityRegistry identityRegistry,
-      Optional<String> tenantId)
+      Optional<String> tenantId,
+      String workerId,
+      WorkerMetrics workerMetrics)
       throws IOException {
     switch (message) {
       case ControlMessage.InstallModule m -> {
@@ -379,12 +433,18 @@ public final class WorkerMain {
               channel,
               mdcTagsFor(m.id(), identityRegistry),
               () -> controller.start(m.id()));
-      case ControlMessage.StopModule m ->
-          runCommand(
-              m.correlationId(),
-              channel,
-              mdcTagsFor(m.id(), identityRegistry),
-              () -> controller.stop(m.id()));
+      case ControlMessage.StopModule m -> {
+        runCommand(
+            m.correlationId(),
+            channel,
+            mdcTagsFor(m.id(), identityRegistry),
+            () -> controller.stop(m.id()));
+        // Design doc §6d: a Job instance (torn down shortly after completing, see the priority-3
+        // design doc's §3) should still get its final metrics/trace snapshot shipped, rather than
+        // relying on the next periodic tick that may never come once this worker exits.
+        shipMetricsSnapshot(channel, workerId, workerMetrics);
+        GimleTracing.flush();
+      }
       case ControlMessage.UninstallModule m ->
           runCommand(
               m.correlationId(),

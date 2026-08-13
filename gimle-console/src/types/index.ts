@@ -175,9 +175,11 @@ export interface Principal {
  * Process-scoped history (metrics + traces) -- GET /metrics-history/*, GET /traces-history/*
  * ------------------------------------------------------------------------ */
 
-// The four processKind values Muninn actually receives -- no discovery API exists for this list,
-// see components/process-picker.tsx's own note on why it's hardcoded rather than fetched.
-export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT";
+// The five processKind values Muninn actually receives -- no discovery API exists for this list,
+// see components/process-picker.tsx's own note on why it's hardcoded rather than fetched. WORKER's
+// own processId is always "{nodeId}:{workerId}" (a worker JVM has no host:port of its own -- see
+// the priority-3 design doc's §6b), unlike every other kind's genuine host:port address.
+export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT" | "WORKER";
 
 export interface ProcessTarget {
   processKind: ProcessKind;

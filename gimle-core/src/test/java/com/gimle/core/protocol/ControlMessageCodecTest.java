@@ -44,6 +44,10 @@ class ControlMessageCodecTest {
             "127.0.0.1",
             9000),
         new ControlMessage.Pong("corr-2"),
+        new ControlMessage.MetricsSnapshot(
+            "worker-1",
+            "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),
+        new ControlMessage.TracesSnapshot("worker-1", "{\"traceId\":\"abc123\",\"name\":\"call\"}"),
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
         new ControlMessage.ResolveModule("corr-4", ID),
         new ControlMessage.StartModule("corr-5", ID),
@@ -146,6 +150,17 @@ class ControlMessageCodecTest {
     // Guards against silently forgetting to add a new ControlMessage subtype to the round-trip
     // coverage above when the sealed hierarchy grows.
     List<Class<?>> permitted = List.of(ControlMessage.class.getPermittedSubclasses());
-    assertTrue(permitted.size() >= 16, "expected at least the 16 currently-known variants");
+    assertTrue(permitted.size() >= 18, "expected at least the 18 currently-known variants");
+  }
+
+  @ParameterizedTest
+  @MethodSource("freeTextEdgeCases")
+  void metricsSnapshotNdjsonPayloadWithNewlinesRoundTrips(String payloadSuffix) {
+    ControlMessage.MetricsSnapshot original =
+        new ControlMessage.MetricsSnapshot(
+            "worker-1", "{\"name\":\"gimle.test\"}\n" + payloadSuffix);
+    String encoded = ControlMessageCodec.encode(original);
+    assertFalse(encoded.contains("\n"), "a multi-line NDJSON payload must not leak into framing");
+    assertEquals(original, ControlMessageCodec.decode(encoded));
   }
 }

@@ -25,9 +25,9 @@ graph TD
     CP -->|proxies /secrets/*, encrypt/decrypt/rotate-key, mTLS| Fafnir
     Fafnir <-->|StoreRpc, TCP| Store
     Muninn <-->|StoreRpc, TCP, read-only| Store
-    Worker1 -.->|health/metrics over a local control channel| Agent
-    Worker2 -.->|health/metrics over a local control channel| Agent
-    Agent -.->|ships own + supervised workers' logs| Muninn
+    Worker1 -.->|health/metrics/traces over a local control channel| Agent
+    Worker2 -.->|health/metrics/traces over a local control channel| Agent
+    Agent -.->|ships own + supervised workers' logs, metrics, traces| Muninn
     CP -.->|ships own request metrics/traces| Muninn
     Fafnir -.->|ships own request metrics/traces| Muninn
     Store -.->|ships own RPC metrics/traces| Muninn
@@ -57,6 +57,16 @@ its assigned modules' resource requests. Runs `BoundedModuleScheduler` (the boun
 scheduler each instance runs under) and `ProbeLoop` (calls each module's `LivenessProbe`/
 `ReadinessProbe` directly — no HTTP, no sidecar). Disposable by design: the agent can
 `destroyForcibly` and respawn one without touching anything else on the machine.
+
+A worker JVM has no outbound network identity of its own (no `-D` Muninn endpoint, no `HttpClient`
+of its own) — its own metrics and traces reach Muninn by relay rather than direct shipping, over the
+same control channel it already reports health/lifecycle state on: `WorkerMain` builds an NDJSON
+snapshot of its own per-module `WorkerMetrics` registry every few seconds and hands its own span
+batches to an in-process `RelayingSpanExporter`, both forwarded to the agent as
+`ControlMessage.MetricsSnapshot`/`TracesSnapshot`, which the agent relays unmodified on to Muninn's
+`/ingest/{metrics,traces}/WORKER/{nodeId}:{workerId}` — one shipper pair per worker JVM (not per
+instance), matching `WorkerMetrics` itself being one registry for the whole worker under Tier 1
+density. See [Observability](./observability.md) for the full mechanism.
 
 ## Control Plane
 
@@ -92,12 +102,14 @@ attributable to its own certificate Subject in the audit log.
 
 One or more stateless JVMs (`gimle-muninn`) — a unified sink for logs, metrics, and traces shipped
 from every other process, replacing what would otherwise be a separate exporter path per process
-kind. `gimle-agent` ships its own platform log plus every supervised worker's logs (workers have no
-outbound network identity of their own); `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir`
-each ship their own request metrics and traces directly, since none of the three has a supervising
-agent. Shipping is entirely optional and best-effort — a process with no Muninn endpoint configured
-behaves exactly as it did before Muninn existed (local log tailing, no metrics/traces export),
-never blocked or degraded by Muninn being unreachable.
+kind. `gimle-agent` ships its own platform log plus every supervised worker's logs, metrics, and
+traces (workers have no outbound network identity of their own, so the agent relays what each
+supervised worker hands it over their existing control channel rather than the worker shipping
+anything itself); `gimle-controlplane`, `gimle-fafnir`, and `gimle-mimir` each ship their own request
+metrics and traces directly, since none of the three has a supervising agent. Shipping is entirely
+optional and best-effort — a process with no Muninn endpoint configured behaves exactly as it did
+before Muninn existed (local log tailing, no metrics/traces export), never blocked or degraded by
+Muninn being unreachable.
 
 Storage is day-bucketed JSON-lines files under Muninn's own data root, keyed by node/instance for
 logs and by process kind + process ID for metrics and traces — deliberately not a new storage

@@ -34,9 +34,10 @@ Instrumentation nobody consumes is decoration, not observability.
    topology](../architecture/node-topology.md#muninn). `gimle-controlplane`, `gimle-fafnir`, and
    `gimle-mimir` each ship their own request/RPC metrics and traces to Muninn, a dedicated sink
    process, via a periodic `MuninnShipper`/`MuninnSpanExporter` when a Muninn endpoint is
-   configured — readable back through `GET /metrics-history/*` and `GET /traces-history/*`. Still
-   open: `WorkerMetrics` itself stays local-registry-only (see Observability's own note on why
-   worker-tier shipping is a real, separate gap, not covered by this item).
+   configured — readable back through `GET /metrics-history/*` and `GET /traces-history/*`.
+   Worker-tier shipping (`WorkerMetrics` itself, and every worker's own spans) closed separately,
+   by relay through the supervising node agent rather than direct shipping — see Observability's own
+   note on the mechanism.
 4. ~~**Centralized log aggregation.**~~ **Done** — see [Node
    topology](../architecture/node-topology.md#muninn). `gimle-agent` ships its own platform log and
    every supervised worker's logs to Muninn; `ApiServer`'s `/logs/*` proxy falls back to Muninn's
@@ -55,9 +56,8 @@ Instrumentation nobody consumes is decoration, not observability.
    `StoreMetrics`' request-latency `Timer`s now publish p50/p95/p99, and `MuninnShipper` ships each
    as a `"percentiles"` map alongside its existing `"measurements"`, readable back through the same
    `GET /metrics-history/*` route unchanged. `WorkerMetrics`' own `Timer` gained the same percentile
-   config for local parity, but stays unshipped — worker-tier metrics/trace shipping remains the
-   separate, still-open gap it always was (see [Observability](../architecture/observability.md)'s
-   own note on why worker-tier shipping needs a new `ControlMessage` shape, not a counter delta).
+   config for local parity, and — now that worker-tier shipping (item 3) closed — that percentile
+   data reaches Muninn too, via the same relay every other worker meter uses.
 7. ~~**Audit trail coverage for read-only (`GET`) requests.**~~ **Done** — see [Authentication and
    authorization](../architecture/authn-authz.md#audit-logging).
    `-Dgimle.controlplane.audit.readResourceKinds` opts specific resource kinds into READ-decision
@@ -72,12 +72,11 @@ Instrumentation nobody consumes is decoration, not observability.
    process-scoped metrics-history time series on the Metrics screen, a new Traces screen, a new
    Audit screen, and `autoscale:` policy display/editing on the deployment create/detail screens,
    all backed by the real APIs this item's own dependencies already shipped — the console's
-   `DeploymentSpec`/`DeploymentSpecInput` TypeScript types now model `autoscale` too. Two honest
-   caveats, not gaps in this item's own scope: the Traces screen has no real data to show for any
-   process kind yet, since worker-tier trace shipping to Muninn remains
-   [Observability](../architecture/observability.md)'s own separate, still-open gap; the Audit
-   screen is only ever populated in TLS mode, since `requireAuthorized` only records an event once
-   it has resolved a real principal.
+   `DeploymentSpec`/`DeploymentSpecInput` TypeScript types now model `autoscale` too. One honest
+   caveat, not a gap in this item's own scope: the Audit screen is only ever populated in TLS mode,
+   since `requireAuthorized` only records an event once it has resolved a real principal. (The
+   Traces screen's own "no data for any process kind" caveat closed separately once worker-tier
+   trace shipping landed — see [Observability](../architecture/observability.md).)
 9. ~~**Weighted/tunable multi-metric autoscaling.**~~ **Done** — see [Control
    plane](../architecture/control-plane.md#reconcilers). `AutoscalePolicy.CombinationMode.WEIGHTED`
    is an opt-in alternative to the original "worst signal wins" default

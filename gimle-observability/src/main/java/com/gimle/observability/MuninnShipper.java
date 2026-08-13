@@ -5,13 +5,8 @@ import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
-import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Tag;
-import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.distribution.HistogramSnapshot;
-import io.micrometer.core.instrument.distribution.ValueAtPercentile;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,9 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -144,6 +137,21 @@ public final class MuninnShipper implements AutoCloseable {
     postNdjson(spanLines);
   }
 
+  /**
+   * One-shot, best-effort: hands a pre-built NDJSON body -- built by the caller, not derived from a
+   * local registry or span list this instance has access to -- straight to Muninn. This is what an
+   * agent relaying a worker JVM's own {@code MetricsSnapshot}/{@code TracesSnapshot} control
+   * message uses (design doc §6d): the worker already serialized its own {@code MeterRegistry}/span
+   * batch via {@link MeterSnapshotCodec}/{@code SpanLineCodec} before handing it across the control
+   * channel, so the agent has nothing left to build here, only bytes to forward.
+   */
+  public boolean shipPreparedBatch(String ndjsonBody) {
+    if (ndjsonBody.isEmpty()) {
+      return true;
+    }
+    return postNdjson(ndjsonBody);
+  }
+
   private void startTicker(Runnable tick) {
     ScheduledExecutorService scheduler =
         injectedTicker != null
@@ -172,7 +180,7 @@ public final class MuninnShipper implements AutoCloseable {
     try {
       List<Map<String, Object>> lines = new ArrayList<>();
       for (Meter meter : registry.getMeters()) {
-        lines.add(meterToJsonLine(meter));
+        lines.add(MeterSnapshotCodec.toLine(meter));
       }
       if (!lines.isEmpty()) {
         postNdjson(lines);
@@ -180,46 +188,6 @@ public final class MuninnShipper implements AutoCloseable {
     } catch (RuntimeException e) {
       log.debug("metrics shipping tick to {} failed: {}", ingestPath, e.getMessage());
     }
-  }
-
-  private static Map<String, Object> meterToJsonLine(Meter meter) {
-    Map<String, Object> line = new LinkedHashMap<>();
-    line.put("timestamp", Instant.now().toString());
-    line.put("name", meter.getId().getName());
-    line.put("type", meter.getId().getType().name());
-    Map<String, Object> tags = new LinkedHashMap<>();
-    for (Tag tag : meter.getId().getTags()) {
-      tags.put(tag.getKey(), tag.getValue());
-    }
-    line.put("tags", tags);
-    Map<String, Object> measurements = new LinkedHashMap<>();
-    for (Measurement measurement : meter.measure()) {
-      measurements.put(measurement.getStatistic().name(), measurement.getValue());
-    }
-    line.put("measurements", measurements);
-    // Meter#measure()'s generic Statistic iteration above never yields percentiles -- those live on
-    // Timer's own HistogramSnapshot, reachable only via takeSnapshot(). Scoped to Timer
-    // specifically
-    // (not the broader HistogramSupport interface DistributionSummary also implements): no
-    // DistributionSummary meter exists in this codebase today, and ValueAtPercentile's
-    // nanosecond-based value conversion is only meaningful for a time-based meter, matching the
-    // seconds unit TOTAL_TIME/MAX already use above. Empty (the case for any Timer built without
-    // publishPercentiles(...)) intentionally omits the key rather than shipping an empty map, so
-    // every currently-shipped line is unchanged unless percentiles were explicitly configured.
-    if (meter instanceof Timer timer) {
-      HistogramSnapshot snapshot = timer.takeSnapshot();
-      ValueAtPercentile[] percentileValues = snapshot.percentileValues();
-      if (percentileValues.length > 0) {
-        Map<String, Object> percentiles = new LinkedHashMap<>();
-        for (ValueAtPercentile percentileValue : percentileValues) {
-          percentiles.put(
-              String.valueOf(percentileValue.percentile()),
-              percentileValue.value(TimeUnit.SECONDS));
-        }
-        line.put("percentiles", percentiles);
-      }
-    }
-    return line;
   }
 
   /**
@@ -230,14 +198,21 @@ public final class MuninnShipper implements AutoCloseable {
     for (Map<String, Object> line : lines) {
       body.append(Json.write(line)).append('\n');
     }
+    return postNdjson(body.toString());
+  }
+
+  /**
+   * As above, but for a caller that already built its own NDJSON body -- see {@link
+   * #shipPreparedBatch(String)}.
+   */
+  private boolean postNdjson(String body) {
     try {
       HttpResponse<String> response =
           httpClient.send(
               HttpRequest.newBuilder(baseUri.resolve(ingestPath))
                   .timeout(REQUEST_TIMEOUT)
                   .header("Content-Type", "application/x-ndjson")
-                  .POST(
-                      HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                  .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       boolean accepted = response.statusCode() >= 200 && response.statusCode() < 300;

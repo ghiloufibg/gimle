@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useNodesStore } from "@/stores/useNodesStore";
 import type { ProcessKind, ProcessTarget } from "@/types";
 
-export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT"];
+export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"];
 
 /**
  * There is no discovery API for which processIds exist (design doc Part B/O-10) -- every
@@ -107,7 +107,10 @@ export function ProcessPicker({
           <input
             value={idInput}
             onChange={(e) => setIdInput(e.target.value)}
-            placeholder="host:port"
+            // WORKER has no host:port of its own -- its processId is always "{nodeId}:{workerId}"
+            // (see the ProcessKind type's own note), so it gets its own placeholder rather than
+            // implying an address the operator would need to guess at.
+            placeholder={value.processKind === "WORKER" ? "nodeId:workerId" : "host:port"}
             aria-label={`${value.processKind} address`}
             className="h-6 w-36 rounded-sm border border-primary/20 bg-background px-2 font-mono text-[10px] text-foreground"
           />
@@ -121,8 +124,20 @@ export function ProcessPicker({
       )}
 
       <span className="font-mono text-[10px] text-muted-foreground">
-        {value.processKind.toLowerCase()}/{value.processId || "…"}
+        {value.processKind.toLowerCase()}/{formatProcessId(value)}
       </span>
     </div>
   );
+}
+
+/** WORKER's raw processId ("{nodeId}:{workerId}") is the first genuinely human-facing exposure of
+ * a worker's own identity in the console (elsewhere workers are only visible indirectly, through
+ * the instances they host) -- rendered as "{nodeId} / {workerId}" here rather than the raw
+ * colon-joined wire form. Every other kind's processId already reads fine as-is. */
+function formatProcessId(value: ProcessTarget): string {
+  if (!value.processId) return "…";
+  if (value.processKind !== "WORKER") return value.processId;
+  const separator = value.processId.indexOf(":");
+  if (separator < 0) return value.processId;
+  return `${value.processId.slice(0, separator)} / ${value.processId.slice(separator + 1)}`;
 }

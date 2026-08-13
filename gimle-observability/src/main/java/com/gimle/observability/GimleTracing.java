@@ -8,6 +8,7 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Installs the process-wide {@link OpenTelemetry} instance that {@code gimle-fabric}'s {@code
@@ -26,6 +27,7 @@ public final class GimleTracing {
   // same intrinsic lock and stall this class's own initialization.
   private static final Object LOCK = new Object();
   private static volatile boolean installed;
+  private static volatile SdkTracerProvider installedProvider;
 
   private GimleTracing() {}
 
@@ -47,6 +49,7 @@ public final class GimleTracing {
               .build();
       OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
       GlobalOpenTelemetry.set(sdk);
+      installedProvider = tracerProvider;
       installed = true;
     }
   }
@@ -69,6 +72,7 @@ public final class GimleTracing {
               .build();
       OpenTelemetrySdk sdk = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).build();
       GlobalOpenTelemetry.set(sdk);
+      installedProvider = tracerProvider;
       installed = true;
     }
   }
@@ -81,6 +85,22 @@ public final class GimleTracing {
    */
   public static void installWithMuninnShipping(MuninnShipper shipper) {
     install(new MuninnSpanExporter(shipper));
+  }
+
+  /**
+   * Best-effort, bounded-wait {@link SdkTracerProvider#forceFlush()} on whichever provider is
+   * currently installed -- a no-op if none is (nothing installed {@link #install}/{@link
+   * #installDefault()} yet). Design doc §6d: a worker JVM about to tear down one instance (a
+   * completed Job, in particular) wants its pending span batch relayed now rather than waiting on
+   * the exporter's own periodic {@link BatchSpanProcessor} schedule, which may never fire again if
+   * the whole worker process exits shortly after. The two-second bound matches this being a
+   * best-effort courtesy, not a correctness requirement -- nothing downstream blocks on it.
+   */
+  public static void flush() {
+    SdkTracerProvider provider = installedProvider;
+    if (provider != null) {
+      provider.forceFlush().join(2, TimeUnit.SECONDS);
+    }
   }
 
   /**
@@ -97,6 +117,7 @@ public final class GimleTracing {
   static void resetForTesting() {
     synchronized (LOCK) {
       installed = false;
+      installedProvider = null;
       GlobalOpenTelemetry.resetForTest();
     }
   }

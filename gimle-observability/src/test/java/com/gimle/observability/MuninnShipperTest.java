@@ -280,6 +280,52 @@ class MuninnShipperTest {
     assertEquals(1, receivedBodies.size());
   }
 
+  @Test
+  @Timeout(10)
+  void ship_prepared_batch_posts_the_caller_built_body_verbatim_with_no_periodic_ticking(
+      TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    CountDownLatch received = new CountDownLatch(1);
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              received.countDown();
+              return 200;
+            });
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    String prebuiltNdjson =
+        Json.write(Map.of("name", "gimle.test.metric")) + "\n" + Json.write(Map.of("name", "b"));
+    boolean accepted = shipper.shipPreparedBatch(prebuiltNdjson);
+
+    assertTrue(accepted);
+    assertTrue(received.await(5, TimeUnit.SECONDS));
+    assertEquals(1, receivedBodies.size());
+    assertEquals(prebuiltNdjson, receivedBodies.get(0));
+    assertEquals(0, scheduler.pendingTaskCount());
+  }
+
+  @Test
+  @Timeout(10)
+  void ship_prepared_batch_is_a_no_op_for_an_empty_body(TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+
+    assertTrue(shipper.shipPreparedBatch(""), "an empty body is trivially accepted, not shipped");
+    Thread.sleep(100);
+    assertTrue(receivedBodies.isEmpty());
+  }
+
   /**
    * {@code LogFileReader.parseLine} only treats a line as structured (preserving it verbatim) if it
    * has both {@code timestamp} and {@code level} fields -- otherwise it's wrapped as a raw {@code

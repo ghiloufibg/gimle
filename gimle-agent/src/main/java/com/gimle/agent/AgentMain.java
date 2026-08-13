@@ -190,6 +190,14 @@ public final class AgentMain {
     // the same tick the instance is added to supervised and closed the same tick it's removed.
     // Empty (never populated) when muninnEndpoint is unset.
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
+    // Design doc §6b/§6d: one metrics/traces shipper pair per worker JVM, not per instance --
+    // keyed by the worker's own self-reported workerId (from its Hello handshake, "worker-" +
+    // pid), constructed the first time that worker's Hello arrives and torn down when the worker
+    // process itself goes away (stopInstance's own supervisor-close point for a deliberate
+    // teardown, onWorkerCrash for an unexpected one) -- not per-instance the way instanceShippers
+    // above is, since several instances under Tier 1 density share one worker JVM and so must
+    // share one shipper pair. Empty (never populated) when muninnEndpoint is unset.
+    Map<String, WorkerShipperPair> workerShippers = new ConcurrentHashMap<>();
 
     MemberId self = new MemberId(nodeId, gossipBindAddress);
     GossipMember gossipMember = new GossipMember(self, GossipConfig.defaults());
@@ -215,6 +223,7 @@ public final class AgentMain {
             nodeId,
             supervised,
             instanceShippers,
+            workerShippers,
             javaExecutable,
             commandTail,
             resourceLimiter,
@@ -710,6 +719,7 @@ public final class AgentMain {
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers,
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
@@ -741,7 +751,7 @@ public final class AgentMain {
             key,
             current.assigned.moduleId(),
             assigned.moduleId());
-        stopInstance(key, supervised, capacityTracker, instanceShippers);
+        stopInstance(key, supervised, capacityTracker, instanceShippers, workerShippers);
       }
       if (!supervised.containsKey(key)) {
         try {
@@ -785,6 +795,7 @@ public final class AgentMain {
                 fafnirBaseUrl,
                 muninnEndpoint,
                 instanceShippers,
+                workerShippers,
                 logRoot);
           }
         } catch (IOException | RuntimeException e) {
@@ -794,7 +805,7 @@ public final class AgentMain {
     }
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
-        stopInstance(key, supervised, capacityTracker, instanceShippers);
+        stopInstance(key, supervised, capacityTracker, instanceShippers, workerShippers);
       }
     }
   }
@@ -897,6 +908,7 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers,
       Path logRoot)
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
@@ -928,7 +940,8 @@ public final class AgentMain {
             Optional.of(systemLogFile),
             WorkerProcessSupervisor.DEFAULT_STABLE_UPTIME_THRESHOLD,
             Optional.of(workerLogRoot),
-            crash -> onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId));
+            crash ->
+                onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId, workerShippers));
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
@@ -948,8 +961,10 @@ public final class AgentMain {
                     httpClient,
                     baseUrl,
                     fafnirBaseUrl,
+                    muninnEndpoint,
                     nodeId,
-                    supervised));
+                    supervised,
+                    workerShippers));
   }
 
   /**
@@ -966,7 +981,8 @@ public final class AgentMain {
       Map<String, SupervisedInstance> supervised,
       HttpClient httpClient,
       URI baseUrl,
-      String nodeId) {
+      String nodeId,
+      Map<String, WorkerShipperPair> workerShippers) {
     String causeSummary =
         switch (crash.cause()) {
           case OOM -> "worker OOM (exit code " + crash.exitCode() + ")";
@@ -981,6 +997,12 @@ public final class AgentMain {
       if (!instance.supervisor.workerId().equals(spawnedWorkerId)) {
         continue;
       }
+      // Design doc §6d: the crashed worker JVM is gone -- its own metrics/traces shipper pair
+      // (design doc §6b: one per worker JVM, keyed by its self-reported fabricWorkerId, not this
+      // supervisor's own workerId, see SupervisedInstance's javadoc for why those two differ) is
+      // stale from here on. Every instance this crashed worker hosted shares the same
+      // fabricWorkerId, so this is safe (and cheap) to call once per matching instance.
+      stopShippingWorkerMetricsAndTraces(workerShippers, instance.fabricWorkerId);
       InstanceEvent event =
           new InstanceEvent(
               UUID.randomUUID().toString(),
@@ -1075,8 +1097,10 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
+      String muninnEndpoint,
       String nodeId,
-      Map<String, SupervisedInstance> supervised) {
+      Map<String, SupervisedInstance> supervised,
+      Map<String, WorkerShipperPair> workerShippers) {
     try {
       WorkerConnection connection = instance.server.accept();
       instance.connection = connection;
@@ -1091,8 +1115,10 @@ public final class AgentMain {
                       catalog,
                       httpClient,
                       baseUrl,
+                      muninnEndpoint,
                       nodeId,
-                      supervised));
+                      supervised,
+                      workerShippers));
       sendInstallStartSequence(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
     } catch (IOException e) {
       log.error("failed to bring up instance {}: {}", key, e.getMessage());
@@ -1199,8 +1225,10 @@ public final class AgentMain {
       ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
+      String muninnEndpoint,
       String nodeId,
-      Map<String, SupervisedInstance> supervised) {
+      Map<String, SupervisedInstance> supervised,
+      Map<String, WorkerShipperPair> workerShippers) {
     WorkerConnection connection = instance.connection;
     try {
       Optional<ControlMessage> received;
@@ -1218,11 +1246,23 @@ public final class AgentMain {
           instance.fabricUdsPath = hello.fabricUdsPath();
           instance.fabricTcpAddress =
               new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+          startShippingWorkerMetricsAndTraces(
+              muninnEndpoint, workerShippers, nodeId, hello.workerId());
           // Sync this worker's fresh FabricServiceRegistry cache with everything this agent
           // already knows: the gossip-driven onDelta relay only fires for a delta applied *after*
           // its listener was registered, so anything learned before this worker connected would
           // otherwise never reach it.
           syncCatalogToWorker(instance, catalog);
+        } else if (message instanceof ControlMessage.MetricsSnapshot snapshot) {
+          WorkerShipperPair pair = workerShippers.get(snapshot.workerId());
+          if (pair != null) {
+            pair.metrics().shipPreparedBatch(snapshot.ndjsonPayload());
+          }
+        } else if (message instanceof ControlMessage.TracesSnapshot snapshot) {
+          WorkerShipperPair pair = workerShippers.get(snapshot.workerId());
+          if (pair != null) {
+            pair.traces().shipPreparedBatch(snapshot.ndjsonPayload());
+          }
         } else if (message instanceof ControlMessage.ServiceRegistered registered) {
           findByModuleId(supervised, connection, registered.moduleId())
               .ifPresent(
@@ -1333,7 +1373,8 @@ public final class AgentMain {
       String key,
       Map<String, SupervisedInstance> supervised,
       CapacityTracker capacityTracker,
-      Map<String, List<MuninnShipper>> instanceShippers) {
+      Map<String, List<MuninnShipper>> instanceShippers,
+      Map<String, WorkerShipperPair> workerShippers) {
     SupervisedInstance instance = supervised.remove(key);
     stopShippingInstanceLogs(instanceShippers, key);
     if (instance == null) {
@@ -1359,6 +1400,11 @@ public final class AgentMain {
             && supervised.values().stream().anyMatch(other -> other.connection == connection);
     if (!sharedWithAnotherInstance) {
       instance.supervisor.close();
+      // Design doc §6d: this is the worker JVM's own last instance going away -- the deliberate-
+      // teardown counterpart to onWorkerCrash's unexpected-exit path, both tearing down the same
+      // per-worker shipper pair (keyed by fabricWorkerId, null if the worker never got as far as
+      // its own Hello handshake before being stopped).
+      stopShippingWorkerMetricsAndTraces(workerShippers, instance.fabricWorkerId);
       try {
         instance.server.close();
       } catch (IOException e) {
@@ -1415,6 +1461,54 @@ public final class AgentMain {
     List<MuninnShipper> shippers = instanceShippers.remove(key);
     if (shippers != null) {
       shippers.forEach(MuninnShipper::close);
+    }
+  }
+
+  /**
+   * One worker JVM's metrics shipper and traces shipper (design doc §6b/§6d). Package-private, not
+   * {@code private}: {@code AgentMuninnShippingTest} needs to name this type directly to exercise
+   * {@link #startShippingWorkerMetricsAndTraces}/{@link #stopShippingWorkerMetricsAndTraces}, the
+   * same "package-private static seam" style already used for {@code SupervisedInstance} and {@code
+   * instanceShippers}'s own helpers.
+   */
+  record WorkerShipperPair(MuninnShipper metrics, MuninnShipper traces) {}
+
+  /**
+   * Design doc §6b/§6d: unlike {@link #startShippingInstanceLogs}, this ships nothing on a periodic
+   * tick of its own -- both {@link MuninnShipper}s constructed here only ever receive {@link
+   * MuninnShipper#shipPreparedBatch}, driven by this worker's own {@code MetricsSnapshot}/{@code
+   * TracesSnapshot} control messages arriving over the channel, not by a ticker reading a local
+   * registry this agent doesn't have. Idempotent against a redundant {@code Hello} (a worker can,
+   * in principle, resend one): {@code workerShippers.containsKey} guards against silently leaking
+   * the previous pair's HTTP client on every duplicate handshake.
+   */
+  static void startShippingWorkerMetricsAndTraces(
+      String muninnEndpoint,
+      Map<String, WorkerShipperPair> workerShippers,
+      String nodeId,
+      String workerId) {
+    if (muninnEndpoint == null || workerShippers.containsKey(workerId)) {
+      return;
+    }
+    String processId = nodeId + ":" + workerId;
+    MuninnShipper metricsShipper =
+        new MuninnShipper(
+            muninnEndpoint, "/ingest/metrics/WORKER/" + processId, MUNINN_SHIP_INTERVAL);
+    MuninnShipper tracesShipper =
+        new MuninnShipper(
+            muninnEndpoint, "/ingest/traces/WORKER/" + processId, MUNINN_SHIP_INTERVAL);
+    workerShippers.put(workerId, new WorkerShipperPair(metricsShipper, tracesShipper));
+  }
+
+  static void stopShippingWorkerMetricsAndTraces(
+      Map<String, WorkerShipperPair> workerShippers, String workerId) {
+    if (workerId == null) {
+      return;
+    }
+    WorkerShipperPair pair = workerShippers.remove(workerId);
+    if (pair != null) {
+      pair.metrics().close();
+      pair.traces().close();
     }
   }
 
