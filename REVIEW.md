@@ -1,7 +1,7 @@
 # Gimlé Code Quality Review — Maintainability, Clarity, Readability
 
-**Date:** 2026-08-13 (initial review) · incrementally updated 2026-08-13 after rebasing onto `master` · addendum 2026-08-13: codebase-wide fully-qualified-name sweep · **incremental update #2 2026-08-13**: rebased again after the admission-chain/maxSurge feature landed
-**Method:** One independent review agent per Maven module (20 modules), each scoped strictly to that module's own source, for the initial pass and every rebase re-review. The FQN addendum used a different method — see that section.
+**Date:** 2026-08-13 (initial review) · incrementally updated 2026-08-13 after rebasing onto `master` · addendum 2026-08-13: codebase-wide fully-qualified-name sweep · incremental update #2 2026-08-13: rebased again after the admission-chain/maxSurge feature landed · **rebased again 2026-08-13** onto `d0c83fd` ("fix: allow maxUnavailable: 0 paired with a nonzero maxSurge") — reviewed inline, no findings, no report changes needed
+**Method:** One independent review agent per Maven module (20 modules), each scoped strictly to that module's own source, for the initial pass and every rebase re-review. The FQN addendum used a different method — see that section. `d0c83fd` was small and self-contained enough to verify by direct reading rather than spawning another agent round; it's well-commented, well-tested (adds `max_unavailable_and_max_surge_must_not_both_be_0`/`a_pure_surge_budget_with_max_unavailable_0_is_accepted_alongside_a_nonzero_max_surge`/etc. to `DisruptionBudgetTest`), and introduces no new duplication, magic values, stale comments, or FQN-vs-import issues.
 
 ## Incremental update
 
