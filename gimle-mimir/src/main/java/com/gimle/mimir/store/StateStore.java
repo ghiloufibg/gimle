@@ -84,9 +84,10 @@ public final class StateStore implements StoreReader {
   private final Map<String, Instant> cronJobLastSchedule = new ConcurrentHashMap<>();
   private final Map<String, DaemonSetSpec> daemonSetSpecs = new ConcurrentHashMap<>();
   private final Map<String, DaemonSetAssignment> daemonSetAssignments = new ConcurrentHashMap<>();
-  // The nodeId currently mid-rollout for a DaemonSet, if any -- the node-keyed counterpart to
-  // rollingIndices above, same "only persist while in flight" shape.
-  private final Map<String, String> rollingDaemonSetNodes = new ConcurrentHashMap<>();
+  // The nodeIds currently mid-rollout for a DaemonSet, if any -- the node-keyed counterpart to
+  // rollingIndices above, same "only persist while in flight" shape. Sized by the deployment's own
+  // effective maxUnavailable (small, bounded), not by cluster size.
+  private final Map<String, Set<String>> rollingDaemonSetNodes = new ConcurrentHashMap<>();
   private final Map<String, StatefulSetSpec> statefulSetSpecs = new ConcurrentHashMap<>();
   // Keyed by statefulSetAssignmentKey (statefulSetName#instanceIndex) -- a real per-index key,
   // unlike DaemonSetAssignment's node-keyed one, since a StatefulSet index is a stable identity
@@ -108,7 +109,10 @@ public final class StateStore implements StoreReader {
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
-  private final Map<String, Integer> rollingIndices = new ConcurrentHashMap<>();
+  // The instanceIndices currently mid-rollout for a Deployment, if any -- one entry per index
+  // actively being replaced, sized by the deployment's own effective maxUnavailable (small,
+  // bounded: see DisruptionBudget), not by replica count.
+  private final Map<String, Set<Integer>> rollingIndices = new ConcurrentHashMap<>();
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
@@ -221,7 +225,7 @@ public final class StateStore implements StoreReader {
   public void removeDeployment(String name) {
     deleteQuietly(deploymentFile(name));
     deployments.remove(name);
-    clearRollingIndex(name);
+    clearAllRollingIndices(name);
     deleteQuietly(effectiveReplicasFile(name));
     effectiveReplicas.remove(name);
   }
@@ -378,7 +382,7 @@ public final class StateStore implements StoreReader {
   public void removeDaemonSetSpec(String name) {
     deleteQuietly(daemonSetFile(name));
     daemonSetSpecs.remove(name);
-    clearRollingDaemonSetNode(name);
+    clearAllRollingDaemonSetNodes(name);
   }
 
   // ---- daemonset assignments ----
@@ -409,22 +413,40 @@ public final class StateStore implements StoreReader {
   // ---- daemonset rolling-update bookkeeping ----
 
   /**
-   * The node currently being migrated by a DaemonSet rolling update, if any -- the node-keyed
-   * counterpart to {@link #putRollingIndex}, persisted for the identical reason: a reconciler
-   * restart mid-rollout resumes rather than starting a second one.
+   * Marks {@code nodeId} as one of the (possibly several, bounded by the DaemonSet's own effective
+   * {@code maxUnavailable}) nodes currently being migrated by a rolling update -- the node-keyed
+   * counterpart to {@link #addRollingIndex}, persisted the identical way and for the identical
+   * reason: a reconciler restart mid-rollout resumes rather than starting a second one. One file
+   * per {@code (daemonSetName, nodeId)} pair, mirroring {@link #daemonSetAssignmentFile}'s own
+   * per-node layout under a per-daemonset subdirectory, rather than one file holding every
+   * in-flight node -- an add/remove is then always a single small file write/delete, never a
+   * read-modify-write of a shared file.
    */
-  public void putRollingDaemonSetNode(String daemonSetName, String nodeId) {
-    writeAtomically(rollingDaemonSetFile(daemonSetName), rollingDaemonSetNodeToYaml(nodeId));
-    rollingDaemonSetNodes.put(daemonSetName, nodeId);
+  public void addRollingDaemonSetNode(String daemonSetName, String nodeId) {
+    writeAtomically(
+        rollingDaemonSetFile(daemonSetName, nodeId),
+        rollingDaemonSetNodeToYaml(daemonSetName, nodeId));
+    rollingDaemonSetNodes
+        .computeIfAbsent(daemonSetName, key -> ConcurrentHashMap.newKeySet())
+        .add(nodeId);
   }
 
-  public void clearRollingDaemonSetNode(String daemonSetName) {
-    deleteQuietly(rollingDaemonSetFile(daemonSetName));
-    rollingDaemonSetNodes.remove(daemonSetName);
+  public void removeRollingDaemonSetNode(String daemonSetName, String nodeId) {
+    deleteQuietly(rollingDaemonSetFile(daemonSetName, nodeId));
+    Set<String> nodes = rollingDaemonSetNodes.get(daemonSetName);
+    if (nodes != null) {
+      nodes.remove(nodeId);
+    }
   }
 
-  public Optional<String> getRollingDaemonSetNode(String daemonSetName) {
-    return Optional.ofNullable(rollingDaemonSetNodes.get(daemonSetName));
+  /** Every node currently in flight for this DaemonSet's rollout; empty means none. */
+  public Set<String> getRollingDaemonSetNodes(String daemonSetName) {
+    return Set.copyOf(rollingDaemonSetNodes.getOrDefault(daemonSetName, Set.of()));
+  }
+
+  private void clearAllRollingDaemonSetNodes(String daemonSetName) {
+    Set.copyOf(rollingDaemonSetNodes.getOrDefault(daemonSetName, Set.of()))
+        .forEach(nodeId -> removeRollingDaemonSetNode(daemonSetName, nodeId));
   }
 
   // ---- statefulsets ----
@@ -533,21 +555,39 @@ public final class StateStore implements StoreReader {
   // ---- rolling-update bookkeeping ----
 
   /**
-   * The logical instance index currently being replaced by a rolling update, if any -- persisted so
-   * a reconciler restart mid-rollout resumes rather than starting a second one.
+   * Marks {@code instanceIndex} as one of the (possibly several, bounded by the deployment's own
+   * effective {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable}) indices currently
+   * being replaced by a rolling update -- persisted so a reconciler restart mid-rollout resumes
+   * rather than starting a second one. One file per {@code (deploymentName, instanceIndex)} pair,
+   * mirroring {@link #assignmentFile}'s own per-index layout under a per-deployment subdirectory,
+   * rather than one file holding every in-flight index -- an add/remove is then always a single
+   * small file write/delete, never a read-modify-write of a shared file.
    */
-  public void putRollingIndex(String deploymentName, int instanceIndex) {
-    writeAtomically(rollingFile(deploymentName), rollingToYaml(instanceIndex));
-    rollingIndices.put(deploymentName, instanceIndex);
+  public void addRollingIndex(String deploymentName, int instanceIndex) {
+    writeAtomically(
+        rollingFile(deploymentName, instanceIndex),
+        rollingIndexToYaml(deploymentName, instanceIndex));
+    rollingIndices
+        .computeIfAbsent(deploymentName, key -> ConcurrentHashMap.newKeySet())
+        .add(instanceIndex);
   }
 
-  public void clearRollingIndex(String deploymentName) {
-    deleteQuietly(rollingFile(deploymentName));
-    rollingIndices.remove(deploymentName);
+  public void removeRollingIndex(String deploymentName, int instanceIndex) {
+    deleteQuietly(rollingFile(deploymentName, instanceIndex));
+    Set<Integer> indices = rollingIndices.get(deploymentName);
+    if (indices != null) {
+      indices.remove(instanceIndex);
+    }
   }
 
-  public Optional<Integer> getRollingIndex(String deploymentName) {
-    return Optional.ofNullable(rollingIndices.get(deploymentName));
+  /** Every instance index currently in flight for this deployment's rollout; empty means none. */
+  public Set<Integer> getRollingIndices(String deploymentName) {
+    return Set.copyOf(rollingIndices.getOrDefault(deploymentName, Set.of()));
+  }
+
+  private void clearAllRollingIndices(String deploymentName) {
+    Set.copyOf(rollingIndices.getOrDefault(deploymentName, Set.of()))
+        .forEach(index -> removeRollingIndex(deploymentName, index));
   }
 
   // ---- autoscaling bookkeeping ----
@@ -943,13 +983,17 @@ public final class StateStore implements StoreReader {
         Map.copyOf(cronJobLastSchedule),
         List.copyOf(daemonSetSpecs.values()),
         List.copyOf(daemonSetAssignments.values()),
-        Map.copyOf(rollingDaemonSetNodes),
+        rollingDaemonSetNodes.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue()))),
         List.copyOf(statefulSetSpecs.values()),
         List.copyOf(statefulSetAssignments.values()),
         Map.copyOf(rollingStatefulSetIndices),
         Map.copyOf(statefulSetIndexNodes),
         List.copyOf(nodeRegistrations.values()),
-        Map.copyOf(rollingIndices),
+        rollingIndices.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue()))),
         Map.copyOf(effectiveReplicas),
         List.copyOf(tenants.values()),
         quotaViolations.entrySet().stream()
@@ -1023,7 +1067,11 @@ public final class StateStore implements StoreReader {
     snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
     snapshot.daemonSetSpecs().forEach(this::putDaemonSetSpec);
     snapshot.daemonSetAssignments().forEach(this::putDaemonSetAssignment);
-    snapshot.rollingDaemonSetNodes().forEach(this::putRollingDaemonSetNode);
+    snapshot
+        .rollingDaemonSetNodes()
+        .forEach(
+            (daemonSetName, nodeIds) ->
+                nodeIds.forEach(nodeId -> addRollingDaemonSetNode(daemonSetName, nodeId)));
     snapshot.statefulSetSpecs().forEach(this::putStatefulSetSpec);
     snapshot.statefulSetAssignments().forEach(this::putStatefulSetAssignment);
     snapshot.rollingStatefulSetIndices().forEach(this::putRollingStatefulSetIndex);
@@ -1036,7 +1084,11 @@ public final class StateStore implements StoreReader {
                   key.substring(0, hash), Integer.parseInt(key.substring(hash + 1)), nodeId);
             });
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
-    snapshot.rollingIndices().forEach(this::putRollingIndex);
+    snapshot
+        .rollingIndices()
+        .forEach(
+            (deploymentName, indices) ->
+                indices.forEach(index -> addRollingIndex(deploymentName, index)));
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
@@ -1093,8 +1145,8 @@ public final class StateStore implements StoreReader {
     return root.resolve("rolling");
   }
 
-  private Path rollingFile(String deploymentName) {
-    return rollingDir().resolve(deploymentName + ".yaml");
+  private Path rollingFile(String deploymentName, int instanceIndex) {
+    return rollingDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
   }
 
   private Path autoscaleDir() {
@@ -1181,8 +1233,8 @@ public final class StateStore implements StoreReader {
     return root.resolve("rollingdaemonset");
   }
 
-  private Path rollingDaemonSetFile(String daemonSetName) {
-    return rollingDaemonSetDir().resolve(daemonSetName + ".yaml");
+  private Path rollingDaemonSetFile(String daemonSetName, String nodeId) {
+    return rollingDaemonSetDir().resolve(daemonSetName).resolve(nodeId + ".yaml");
   }
 
   private Path statefulSetsDir() {
@@ -1414,11 +1466,13 @@ public final class StateStore implements StoreReader {
         });
     loadEach(
         rollingDaemonSetDir(),
-        "*.yaml",
+        "*/*.yaml",
         file -> {
-          String daemonSetName = fileNameWithoutYamlSuffix(file);
           Map<?, ?> map = loadMap(file);
-          rollingDaemonSetNodes.put(daemonSetName, (String) map.get("nodeId"));
+          rollingDaemonSetNodes
+              .computeIfAbsent(
+                  (String) map.get("daemonSetName"), key -> ConcurrentHashMap.newKeySet())
+              .add((String) map.get("nodeId"));
         });
     loadEach(
         statefulSetsDir(),
@@ -1472,11 +1526,13 @@ public final class StateStore implements StoreReader {
         });
     loadEach(
         rollingDir(),
-        "*.yaml",
+        "*/*.yaml",
         file -> {
-          String deploymentName = fileNameWithoutYamlSuffix(file);
           Map<?, ?> map = loadMap(file);
-          rollingIndices.put(deploymentName, ((Number) map.get("instanceIndex")).intValue());
+          rollingIndices
+              .computeIfAbsent(
+                  (String) map.get("deploymentName"), key -> ConcurrentHashMap.newKeySet())
+              .add(((Number) map.get("instanceIndex")).intValue());
         });
     loadEach(
         autoscaleDir(),
@@ -1829,8 +1885,15 @@ public final class StateStore implements StoreReader {
         (String) map.get("artifactPath"));
   }
 
-  private static String rollingDaemonSetNodeToYaml(String nodeId) {
+  // daemonSetName is also embedded in the file's own path (rollingDaemonSetFile), but written into
+  // the YAML body too so loadAll's reader never needs to derive it from Path.getParent() (which
+  // SpotBugs correctly flags as nullable in general, even though it never actually is here) -- the
+  // same "don't trust path structure when the data can just say it" posture
+  // statefulSetIndexNodeToYaml
+  // already establishes.
+  private static String rollingDaemonSetNodeToYaml(String daemonSetName, String nodeId) {
     Map<String, Object> root = new LinkedHashMap<>();
+    root.put("daemonSetName", daemonSetName);
     root.put("nodeId", nodeId);
     return new Yaml().dump(root);
   }
@@ -1896,8 +1959,21 @@ public final class StateStore implements StoreReader {
     return new Yaml().dump(root);
   }
 
+  /** Shared with {@link #putRollingStatefulSetIndex} -- StatefulSet's own single-index shape. */
   private static String rollingToYaml(int instanceIndex) {
     Map<String, Object> root = new LinkedHashMap<>();
+    root.put("instanceIndex", instanceIndex);
+    return new Yaml().dump(root);
+  }
+
+  // deploymentName is also embedded in the file's own path (rollingFile), but written into the
+  // YAML body too for the identical Path.getParent()-avoidance reason rollingDaemonSetNodeToYaml's
+  // own comment documents -- a distinct method from rollingToYaml above (not an overload) because
+  // that one is still shared with putRollingStatefulSetIndex's own single-index-per-name shape,
+  // which never needed a deploymentName field in its body.
+  private static String rollingIndexToYaml(String deploymentName, int instanceIndex) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("deploymentName", deploymentName);
     root.put("instanceIndex", instanceIndex);
     return new Yaml().dump(root);
   }

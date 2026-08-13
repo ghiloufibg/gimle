@@ -141,10 +141,18 @@ work left undone.
 
 ## Priority 4: control-plane policy and fairness
 
-13. **Explicit, configurable disruption budgets.** The rolling-update bookkeeping already appears
-    to replace one instance at a time — a reasonable implicit default — but there's no exposed,
-    tunable "max unavailable" the way real clusters make this an explicit contract rather than an
-    implementation detail.
+13. ~~**Explicit, configurable disruption budgets.**~~ **`maxUnavailable` done, `maxSurge` still
+    open** — see [Manifest schema § Deployment manifest:
+    disruption](../reference/manifest-schema.md#deployment-manifest-disruption) and [Control plane
+    § Reconcilers](../architecture/control-plane.md#reconcilers). A manifest `disruption:` block
+    (Deployment and DaemonSet) now exposes `maxUnavailable` as an explicit, tunable contract instead
+    of the implicit one-at-a-time default every rollout had before — `DeploymentReconciler`'s
+    single-index in-flight scalar and `DaemonSetReconciler`'s node-keyed duplicate both became small
+    bounded sets, continuously topped up as each migration clears rather than draining a whole batch
+    first. `maxSurge` (provisioning a replacement before removing the original) is deliberately
+    still out of scope for this pass: it needs its own synthetic-index bookkeeping and interacts
+    with the same tenant-quota-at-admission gap item 14 already tracks, so it's parsed and validated
+    but rejected outright if nonzero rather than silently accepted and ignored.
 14. **Pluggable admission/policy.** Validation today is hardcoded (manifest schema checks, quota
     checks in [Multi-tenancy](../architecture/multi-tenancy.md)). No policy layer for
     organization-specific rules — the "policy as data, not code" pattern real clusters lean on

@@ -285,7 +285,7 @@ class RaftCodecTest {
                 new NodeRegistration(
                     "node-1",
                     new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2)))),
-            Map.of("greeter", 1),
+            Map.of("greeter", Set.of(1)),
             Map.of("greeter", 3),
             List.of(new Tenant("tenant-1", new ResourceQuota(2048, 1000, 20))),
             Set.of("greeter"),

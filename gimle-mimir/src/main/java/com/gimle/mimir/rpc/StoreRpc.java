@@ -75,7 +75,7 @@ public sealed interface StoreRpc {
           ListDaemonSetSpecs,
           ListDaemonSetAssignments,
           ListDaemonSetAssignmentsFor,
-          GetRollingDaemonSetNode,
+          ListRollingDaemonSetNodes,
           GetStatefulSetSpec,
           ListStatefulSetSpecs,
           ListStatefulSetAssignments,
@@ -92,7 +92,7 @@ public sealed interface StoreRpc {
           GetAccount,
           GetNodeRegistration,
           GetEffectiveReplicas,
-          GetRollingIndex,
+          ListRollingIndices,
           GetNodeHeartbeat,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
@@ -120,6 +120,8 @@ public sealed interface StoreRpc {
           StatefulSetSpecListResult,
           StatefulSetAssignmentListResult,
           StringResult,
+          IntSetResult,
+          StringSetResult,
           TenantResult,
           RoleResult,
           RoleBindingResult,
@@ -215,7 +217,7 @@ public sealed interface StoreRpc {
 
   record ListDaemonSetAssignmentsFor(String daemonSetName) implements Request {}
 
-  record GetRollingDaemonSetNode(String daemonSetName) implements Request {}
+  record ListRollingDaemonSetNodes(String daemonSetName) implements Request {}
 
   record GetStatefulSetSpec(String name) implements Request {}
 
@@ -249,7 +251,7 @@ public sealed interface StoreRpc {
 
   record GetEffectiveReplicas(String deploymentName) implements Request {}
 
-  record GetRollingIndex(String deploymentName) implements Request {}
+  record ListRollingIndices(String deploymentName) implements Request {}
 
   record GetReconcilerInstanceState(String deploymentName, int instanceIndex) implements Request {}
 
@@ -334,12 +336,21 @@ public sealed interface StoreRpc {
   /**
    * {@code present == false} means the value is absent, matching {@code Optional<String>}'s own
    * absence -- {@code value} is {@code ""} when {@code present} is {@code false}, the same
-   * "meaningless placeholder" convention {@link IntResult}/{@link InstantResult} already use. Used
-   * for {@link GetRollingDaemonSetNode} -- every other optional {@code String} field in this file
-   * so far has ridden along inside a larger record ({@code NotLeader}'s own address), so this is
-   * the first standalone one.
+   * "meaningless placeholder" convention {@link IntResult}/{@link InstantResult} already use. Every
+   * other optional {@code String} field in this file so far has ridden along inside a larger record
+   * ({@code NotLeader}'s own address), so this is the first standalone one.
    */
   record StringResult(boolean present, String value) implements Response {}
+
+  /**
+   * The small, bounded in-flight index set for {@link ListRollingIndices} -- unlike {@link
+   * IntResult}, there is no "absent" case to model: an empty {@code values} list means "no rollout
+   * in flight," matching {@code StoreReader#getRollingIndices}'s own empty-set-not-Optional shape.
+   */
+  record IntSetResult(List<Integer> values) implements Response {}
+
+  /** The node-keyed counterpart to {@link IntSetResult}, for {@link ListRollingDaemonSetNodes}. */
+  record StringSetResult(List<String> values) implements Response {}
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 

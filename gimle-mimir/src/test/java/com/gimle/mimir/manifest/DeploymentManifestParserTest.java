@@ -530,4 +530,139 @@ class DeploymentManifestParserTest {
                       targetQueueDepth: not-a-number
                     """)));
   }
+
+  @Test
+  void absent_disruption_block_defaults_to_empty() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                """));
+
+    assertTrue(spec.disruption().isEmpty());
+    assertEquals(1, spec.effectiveDisruptionBudget().maxUnavailable());
+    assertEquals(0, spec.effectiveDisruptionBudget().maxSurge());
+  }
+
+  @Test
+  void parses_a_disruption_block_with_only_max_unavailable() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 5
+                disruption:
+                  maxUnavailable: 3
+                """));
+
+    DisruptionBudget budget = spec.disruption().orElseThrow();
+    assertEquals(3, budget.maxUnavailable());
+    assertEquals(0, budget.maxSurge());
+  }
+
+  @Test
+  void disruption_max_unavailable_defaults_to_1_if_the_block_is_present_but_the_key_is_absent() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 5
+                disruption: {}
+                """));
+
+    assertEquals(1, spec.disruption().orElseThrow().maxUnavailable());
+  }
+
+  @Test
+  void rejects_a_nonzero_max_surge_as_not_yet_implemented() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 5
+                    disruption:
+                      maxUnavailable: 2
+                      maxSurge: 1
+                    """)));
+  }
+
+  @Test
+  void accepts_an_explicit_max_surge_of_0() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 5
+                disruption:
+                  maxUnavailable: 2
+                  maxSurge: 0
+                """));
+
+    assertEquals(0, spec.disruption().orElseThrow().maxSurge());
+  }
+
+  @Test
+  void rejects_a_disruption_block_that_is_not_a_mapping() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    disruption: not-a-mapping
+                    """)));
+  }
+
+  @Test
+  void rejects_a_max_unavailable_below_1() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    disruption:
+                      maxUnavailable: 0
+                    """)));
+  }
 }

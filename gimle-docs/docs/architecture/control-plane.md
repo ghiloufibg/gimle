@@ -181,6 +181,18 @@ without a `CombinationMode` or weights at all) defaults to `WORST_SIGNAL` with n
 is purely additive — tuning weights via a console UI remains a separate, still-open gap (see
 [Web console](./web-console.md) and the [roadmap](../contributing/roadmap.md)).
 
+`DeploymentReconciler`'s rolling-update logic, and `DaemonSetReconciler`'s node-keyed duplicate of
+it, migrate up to a `DisruptionBudget`'s `maxUnavailable` indices/nodes concurrently (default `1`,
+absent a manifest `disruption:` block) rather than the single-index-at-a-time behavior both had
+before this field existed — see [Manifest schema § Deployment manifest:
+disruption](../reference/manifest-schema.md#deployment-manifest-disruption). Each already-in-flight
+index/node is checked for readiness every tick; a freed slot is topped up with a new migration the
+moment budget allows, including within the same tick a prior one clears, so the effective
+`maxUnavailable` count stays continuously in flight rather than draining a whole batch before the
+next one starts. `maxSurge` (provisioning a replacement before removing the original) is parsed and
+validated but not yet implemented by either reconciler — rejected outright at submission if
+nonzero, rather than silently accepted and ignored.
+
 :::note[Level-triggered, not edge-triggered]
 
 Every reconciler here must converge from **any** starting state, including after missing every

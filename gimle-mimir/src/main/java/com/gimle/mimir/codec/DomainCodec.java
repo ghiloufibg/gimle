@@ -25,6 +25,7 @@ import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
@@ -87,6 +88,7 @@ public final class DomainCodec {
     writeOptionalAutoscalePolicy(out, spec.autoscale());
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
+    writeOptionalDisruptionBudget(out, spec.disruption());
   }
 
   public static DeploymentSpec readDeploymentSpec(DataInputStream in) throws IOException {
@@ -98,8 +100,17 @@ public final class DomainCodec {
     Optional<AutoscalePolicy> autoscale = readOptionalAutoscalePolicy(in);
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
+    Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
     return new DeploymentSpec(
-        name, moduleId, artifactPath, replicas, placement, autoscale, tenantId, artifactSha256);
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        disruption);
   }
 
   public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {
@@ -198,6 +209,7 @@ public final class DomainCodec {
     writePlacementConstraints(out, spec.placement());
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
+    writeOptionalDisruptionBudget(out, spec.disruption());
   }
 
   public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
@@ -207,7 +219,9 @@ public final class DomainCodec {
     PlacementConstraints placement = readPlacementConstraints(in);
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
-    return new DaemonSetSpec(name, moduleId, artifactPath, placement, tenantId, artifactSha256);
+    Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
+    return new DaemonSetSpec(
+        name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption);
   }
 
   public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
@@ -363,6 +377,25 @@ public final class DomainCodec {
             requestRateWeight,
             errorRateWeight,
             queueDepthWeight));
+  }
+
+  public static void writeOptionalDisruptionBudget(
+      DataOutputStream out, Optional<DisruptionBudget> budget) throws IOException {
+    out.writeBoolean(budget.isPresent());
+    if (budget.isPresent()) {
+      out.writeInt(budget.get().maxUnavailable());
+      out.writeInt(budget.get().maxSurge());
+    }
+  }
+
+  public static Optional<DisruptionBudget> readOptionalDisruptionBudget(DataInputStream in)
+      throws IOException {
+    if (!in.readBoolean()) {
+      return Optional.empty();
+    }
+    int maxUnavailable = in.readInt();
+    int maxSurge = in.readInt();
+    return Optional.of(new DisruptionBudget(maxUnavailable, maxSurge));
   }
 
   public static void writeOptionalDouble(DataOutputStream out, OptionalDouble value)

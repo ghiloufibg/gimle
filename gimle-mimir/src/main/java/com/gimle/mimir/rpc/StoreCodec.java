@@ -68,7 +68,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_ACCOUNT = 18;
   private static final byte TAG_GET_NODE_REGISTRATION = 19;
   private static final byte TAG_GET_EFFECTIVE_REPLICAS = 20;
-  private static final byte TAG_GET_ROLLING_INDEX = 21;
+  private static final byte TAG_LIST_ROLLING_INDICES = 21;
   private static final byte TAG_GET_NODE_HEARTBEAT = 22;
   private static final byte TAG_GET_RECONCILER_INSTANCE_STATE = 43;
   private static final byte TAG_LIST_RECONCILER_INSTANCE_STATES = 45;
@@ -89,7 +89,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_DAEMONSET_SPECS = 70;
   private static final byte TAG_LIST_DAEMONSET_ASSIGNMENTS = 71;
   private static final byte TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR = 72;
-  private static final byte TAG_GET_ROLLING_DAEMONSET_NODE = 73;
+  private static final byte TAG_LIST_ROLLING_DAEMONSET_NODES = 73;
   private static final byte TAG_GET_STATEFULSET_SPEC = 78;
   private static final byte TAG_LIST_STATEFULSET_SPECS = 79;
   private static final byte TAG_LIST_STATEFULSET_ASSIGNMENTS = 80;
@@ -136,6 +136,8 @@ public final class StoreCodec {
   private static final byte TAG_STATEFULSET_SPEC_RESULT = 84;
   private static final byte TAG_STATEFULSET_SPEC_LIST_RESULT = 85;
   private static final byte TAG_STATEFULSET_ASSIGNMENT_LIST_RESULT = 86;
+  private static final byte TAG_INT_SET_RESULT = 87;
+  private static final byte TAG_STRING_SET_RESULT = 88;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -247,8 +249,8 @@ public final class StoreCodec {
           out.writeByte(TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR);
           out.writeUTF(v.daemonSetName());
         }
-        case StoreRpc.GetRollingDaemonSetNode v -> {
-          out.writeByte(TAG_GET_ROLLING_DAEMONSET_NODE);
+        case StoreRpc.ListRollingDaemonSetNodes v -> {
+          out.writeByte(TAG_LIST_ROLLING_DAEMONSET_NODES);
           out.writeUTF(v.daemonSetName());
         }
         case StoreRpc.GetStatefulSetSpec v -> {
@@ -299,8 +301,8 @@ public final class StoreCodec {
           out.writeByte(TAG_GET_EFFECTIVE_REPLICAS);
           out.writeUTF(v.deploymentName());
         }
-        case StoreRpc.GetRollingIndex v -> {
-          out.writeByte(TAG_GET_ROLLING_INDEX);
+        case StoreRpc.ListRollingIndices v -> {
+          out.writeByte(TAG_LIST_ROLLING_INDICES);
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.GetNodeHeartbeat v -> {
@@ -444,6 +446,20 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (StatefulSetSpec s : v.values()) {
             DomainCodec.writeStatefulSetSpec(out, s);
+          }
+        }
+        case StoreRpc.IntSetResult v -> {
+          out.writeByte(TAG_INT_SET_RESULT);
+          out.writeInt(v.values().size());
+          for (int value : v.values()) {
+            out.writeInt(value);
+          }
+        }
+        case StoreRpc.StringSetResult v -> {
+          out.writeByte(TAG_STRING_SET_RESULT);
+          out.writeInt(v.values().size());
+          for (String value : v.values()) {
+            out.writeUTF(value);
           }
         }
         case StoreRpc.StatefulSetAssignmentListResult v -> {
@@ -623,7 +639,8 @@ public final class StoreCodec {
         case TAG_LIST_DAEMONSET_ASSIGNMENTS -> new StoreRpc.ListDaemonSetAssignments();
         case TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR ->
             new StoreRpc.ListDaemonSetAssignmentsFor(in.readUTF());
-        case TAG_GET_ROLLING_DAEMONSET_NODE -> new StoreRpc.GetRollingDaemonSetNode(in.readUTF());
+        case TAG_LIST_ROLLING_DAEMONSET_NODES ->
+            new StoreRpc.ListRollingDaemonSetNodes(in.readUTF());
         case TAG_GET_STATEFULSET_SPEC -> new StoreRpc.GetStatefulSetSpec(in.readUTF());
         case TAG_LIST_STATEFULSET_SPECS -> new StoreRpc.ListStatefulSetSpecs();
         case TAG_LIST_STATEFULSET_ASSIGNMENTS -> new StoreRpc.ListStatefulSetAssignments();
@@ -643,7 +660,7 @@ public final class StoreCodec {
         case TAG_GET_ACCOUNT -> new StoreRpc.GetAccount(in.readUTF());
         case TAG_GET_NODE_REGISTRATION -> new StoreRpc.GetNodeRegistration(in.readUTF());
         case TAG_GET_EFFECTIVE_REPLICAS -> new StoreRpc.GetEffectiveReplicas(in.readUTF());
-        case TAG_GET_ROLLING_INDEX -> new StoreRpc.GetRollingIndex(in.readUTF());
+        case TAG_LIST_ROLLING_INDICES -> new StoreRpc.ListRollingIndices(in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
             new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
@@ -818,6 +835,22 @@ public final class StoreCodec {
             values.add(DomainCodec.readTenant(in));
           }
           yield new StoreRpc.TenantListResult(values);
+        }
+        case TAG_INT_SET_RESULT -> {
+          int count = in.readInt();
+          List<Integer> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(in.readInt());
+          }
+          yield new StoreRpc.IntSetResult(values);
+        }
+        case TAG_STRING_SET_RESULT -> {
+          int count = in.readInt();
+          List<String> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(in.readUTF());
+          }
+          yield new StoreRpc.StringSetResult(values);
         }
         case TAG_CONFIG_ENTRY_LIST_RESULT -> {
           int count = in.readInt();
