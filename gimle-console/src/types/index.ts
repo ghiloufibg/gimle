@@ -6,8 +6,8 @@ export type LifecycleState =
   | "STOPPING"
   | "UNINSTALLED"
   | "FAILED"
-  // Run-to-completion success terminal (priority-3 design doc §3b) -- only a Job-kind instance's
-  // own observation ever reports this; a Deployment replica's lifecycleState never does.
+  // Run-to-completion success terminal -- only a Job-kind instance's own observation ever
+  // reports this; a Deployment replica's lifecycleState never does.
   | "COMPLETED";
 
 export type Tier = "TIER_1" | "TIER_2" | "TIER_3";
@@ -61,7 +61,7 @@ export interface Deployment {
 }
 
 /* ---------------------------------------------------------------------------
- * Jobs (priority-3 design doc §3) -- run-to-completion, not run-forever: no `replicas`/
+ * Jobs -- run-to-completion, not run-forever: no `replicas`/
  * `autoscale`, and a `phase`/`currentRun` in place of Deployment's `instances[]` array, since a
  * Job never has more than one non-terminal attempt at a time.
  * ------------------------------------------------------------------------ */
@@ -100,7 +100,7 @@ export interface Job {
 }
 
 /* ---------------------------------------------------------------------------
- * CronJobs (priority-3 design doc §3d) -- a thin schedule generator over Job: no `phase`/
+ * CronJobs -- a thin schedule generator over Job: no `phase`/
  * `currentRun` of its own (a CronJob is never itself running or terminal), just `lastScheduleTime`
  * plus whatever Job it most recently generated -- the Jobs screen is where that generated Job's
  * own phase/attempt live.
@@ -143,7 +143,7 @@ export interface CronJob {
 }
 
 /* ---------------------------------------------------------------------------
- * DaemonSets (priority-3 design doc §4d) -- one instance per eligible node, not an
+ * DaemonSets -- one instance per eligible node, not an
  * operator-settable replica count: no `replicas`/`autoscale` field, and `instances[]` entries carry
  * only `nodeId` (never `instanceIndex` -- there's always exactly one per node, so there's nothing
  * for an index to distinguish). `requiredNodeLabels` is promoted to a primary field here, unlike
@@ -182,7 +182,7 @@ export interface DaemonSet {
 }
 
 /* ---------------------------------------------------------------------------
- * StatefulSets (priority-3 design doc §5) -- the last workload-diversity kind: stable per-index
+ * StatefulSets -- the last workload-diversity kind: stable per-index
  * identity plus (optionally, declared on the module's own artifact, not modeled here) persistent
  * local-disk storage. `instances[]` carries a real `instanceIndex` like Deployment's own (never a
  * fixed 0 the way DaemonSet's does), since a StatefulSet index is a stable, individually-addressed
@@ -246,7 +246,7 @@ export interface ConfigEntry {
   encrypted: boolean;
 }
 
-// Fafnir's /secrets/* surface (design doc §6e/§7) never returns a value alongside metadata --
+// Fafnir's /secrets/* surface never returns a value alongside metadata --
 // SecretMetadata and SecretValue are deliberately two separate types, not one type with an
 // optional `value`, so a list response can't accidentally be typed as if it carried one.
 export interface SecretMetadata {
@@ -341,8 +341,8 @@ export interface Principal {
 
 // The five processKind values Muninn actually receives -- no discovery API exists for this list,
 // see components/process-picker.tsx's own note on why it's hardcoded rather than fetched. WORKER
-// (design doc §6) is shipped one level below AGENT: a worker JVM has no host:port of its own, so
-// its processId is `{nodeId}:{workerId}` rather than a self-reported address.
+// is shipped one level below AGENT: a worker JVM has no host:port of its own, so its processId is
+// `{nodeId}:{workerId}` rather than a self-reported address.
 export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT" | "WORKER";
 
 export interface ProcessTarget {

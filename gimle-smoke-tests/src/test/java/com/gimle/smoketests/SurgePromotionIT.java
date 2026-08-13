@@ -17,10 +17,8 @@ import org.junit.jupiter.api.Timeout;
  * {@code maxSurge} pinned promotion: {@code DeploymentReconciler#handleSurge} retargets an
  * already-running, already-healthy surge worker onto its final index instead of removing it and
  * starting a fresh one, and {@code AgentMain#renameInPlace} carries that retarget out without ever
- * restarting the worker's real OS process. Closes the one gap {@code
- * claudedocs/priority4-admission-policy-and-maxsurge-design.md} explicitly flagged as unverified
- * above the unit-test level: nothing previously proved this against a real, separately-spawned
- * worker JVM rather than an in-memory {@code SupervisedInstance}.
+ * restarting the worker's real OS process. Nothing previously proved this against a real,
+ * separately-spawned worker JVM rather than an in-memory {@code SupervisedInstance}.
  *
  * <p>2 replicas with {@code disruption: {maxUnavailable: 1, maxSurge: 1}}: per {@code
  * DeploymentReconcilerSurgeTest}'s own documented mechanics, {@code maxUnavailable} always claims

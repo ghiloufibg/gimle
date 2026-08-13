@@ -58,8 +58,8 @@ Instrumentation nobody consumes is decoration, not observability.
    route unchanged. `WorkerMetrics`' own `Timer` gained the same percentile config, and — closing the
    gap items 3/6/9 of this list each once flagged — now ships too: `WorkerMain` relays a periodic
    `MeterSnapshotCodec` snapshot (and every exported span batch, via `RelayingSpanExporter`) to its
-   agent over the existing control channel (`ControlMessage.MetricsSnapshot`/`TracesSnapshot`,
-   design doc §6), since a worker JVM has no outbound network identity of its own to ship with
+   agent over the existing control channel (`ControlMessage.MetricsSnapshot`/`TracesSnapshot`),
+   since a worker JVM has no outbound network identity of its own to ship with
    directly; the agent relays the payload byte-for-byte to Muninn under the new `WORKER` processKind
    (`{nodeId}:{workerId}`, no `gimle-mimir` changes needed) — see
    [Observability](../architecture/observability.md).

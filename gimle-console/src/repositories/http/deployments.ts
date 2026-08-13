@@ -107,8 +107,8 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
   // characters in names/paths without needing a real YAML serializer.
   const q = (s: string) => JSON.stringify(s);
   const lines = [
-    // Every manifest now requires kind: (priority-3 design doc §2) -- the control plane rejects
-    // a PUT /deployments/* body without it.
+    // Every manifest now requires kind: -- the control plane rejects a PUT /deployments/* body
+    // without it.
     `kind: Deployment`,
     `name: ${q(spec.name)}`,
     `module:`,
@@ -126,8 +126,8 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
 export class HttpDeploymentsRepository implements DeploymentsRepository {
   private cache: Deployment[] | null = null;
 
-  /** Shared with HttpInstancesRepository so both screens read the same snapshot (see §4a: never
-   * two independent GET /deployments calls that could race and briefly disagree). */
+  /** Shared with HttpInstancesRepository so both screens read the same snapshot -- avoids two
+   * independent GET /deployments calls that could race and briefly disagree. */
   async all(forceRefresh: boolean): Promise<Deployment[]> {
     if (forceRefresh || this.cache === null) {
       const raw = await requestJson<RawDeployment[]>("GET", "/deployments");

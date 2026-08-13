@@ -125,8 +125,8 @@ class TenantQuotaPluginTest {
     StateStore store = store();
     // Sized to exactly the fixture's own per-instance request (16Mi/10m, one instance) -- fits
     // replicas=1 exactly (not exceeded), but a maxSurge:1 rollout would transiently need two
-    // instances' worth, which this quota cannot cover. Before Phase B, checkTenantQuota summed
-    // against replicas alone and would have wrongly allowed this submission through.
+    // instances' worth, which this quota cannot cover. checkTenantQuota must sum against
+    // replicas + maxSurge, not replicas alone, or it would wrongly allow this submission through.
     store.putTenant(new Tenant("surge-tight", new ResourceQuota(16L * 1024 * 1024, 10, 1)));
     Path jar = buildFixtureJar("com.gimle.fixture.admission.surge");
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);

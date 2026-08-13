@@ -6,16 +6,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 /**
- * The literal answer to roadmap item 14's "policy as data, not code" gap: reads simple
- * organization-specific rules out of the same tenant-scoped {@code /config/*} store {@code gimle
- * set config <tenantId> <key> <value>} already writes to (see {@code Multi-tenancy}), rather than a
- * new schema or a dynamic/webhook-based plugin registry. Today's one rule, {@link
- * #MAX_REPLICAS_PER_DEPLOYMENT_KEY}: an operator-set ceiling on how many replicas any single
- * deployment for that tenant may declare -- independent of {@link TenantQuotaPlugin}'s own
- * aggregate resource-quota check, since this is a per-deployment sizing rule, not a billing one.
- * Absent the config entry (the common case: no policy configured for that tenant), every submission
- * is allowed -- policy is opt-in per tenant, per key, not a default restriction every tenant starts
- * under.
+ * A policy-as-data admission plugin: reads simple organization-specific rules out of the same
+ * tenant-scoped {@code /config/*} store {@code gimle set config <tenantId> <key> <value>} already
+ * writes to (see {@code Multi-tenancy}), rather than a new schema or a dynamic/webhook-based plugin
+ * registry. Today's one rule, {@link #MAX_REPLICAS_PER_DEPLOYMENT_KEY}: an operator-set ceiling on
+ * how many replicas any single deployment for that tenant may declare -- independent of {@link
+ * TenantQuotaPlugin}'s own aggregate resource-quota check, since this is a per-deployment sizing
+ * rule, not a billing one. Absent the config entry (the common case: no policy configured for that
+ * tenant), every submission is allowed -- policy is opt-in per tenant, per key, not a default
+ * restriction every tenant starts under.
  */
 public final class PolicyConfigPlugin implements AdmissionPlugin<DeploymentSpec> {
 

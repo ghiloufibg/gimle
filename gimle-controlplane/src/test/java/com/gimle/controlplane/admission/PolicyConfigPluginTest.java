@@ -20,8 +20,8 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit-level coverage of {@link PolicyConfigPlugin} -- the roadmap item 14 "policy as data" plugin,
- * opt-in per tenant via a plain {@code /config/*} entry.
+ * Unit-level coverage of {@link PolicyConfigPlugin}, a policy-as-data admission plugin opt-in per
+ * tenant via a plain {@code /config/*} entry.
  */
 class PolicyConfigPluginTest {
 
