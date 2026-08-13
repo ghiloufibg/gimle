@@ -17,6 +17,8 @@ CLAUDE.md's Conventions section, which stays the authoritative full rule set.
 - `@SuppressWarnings` is a last resort — flag any new use; a shared typed helper
   (e.g. `Json.asObject`) should absorb the unchecked cast instead.
 - Method naming: `camelCase`, except methods directly annotated `@Test`, which are `snake_case`.
-- No reference to a `claudedocs/*.md` path from any committed source/config file.
+- No reference to `claudedocs/*.md`, `gimle-PROJECT-v2.md`, a phase number, or any other
+  design/plan artifact in comments or Javadoc — a comment describes the code next to it (what and,
+  where non-obvious, why), never "per the design" or "see Phase N". State the why inline instead.
 - Comments only where logic is genuinely non-obvious — not a substitute for clear names and small
   methods.
