@@ -135,25 +135,31 @@ same behavior every deployment had before this field existed.
 ```yaml
 disruption:
   maxUnavailable: 2   # optional -- defaults to 1 if the block is present but this key is omitted
+  maxSurge: 1          # optional -- defaults to 0 (no surge, the original behavior)
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `maxUnavailable` | no | How many indices may be mid-migration at once. Must be at least `1` if present; defaults to `1`. |
-| `maxSurge` | rejected if nonzero | Parsed, but not yet implemented by `DeploymentReconciler` — see the field's own note below. A manifest may omit it or set it to `0`; any other value is rejected outright at submission rather than silently ignored. |
+| `maxUnavailable` | no | How many indices may be mid-migration (old instance already removed, replacement not yet ready) at once. Must be at least `1` if present; defaults to `1`. |
+| `maxSurge` | no | How many *extra* instances (beyond `replicas`) a rollout may provision ahead of removing the originals they're replacing. Must be at least `0` if present; defaults to `0`. |
 
-A freed slot is topped up with a new migration the moment budget allows — including in the very same
-reconcile tick a prior migration clears, not the next one — so `maxUnavailable: N` keeps up to `N`
-migrations continuously in flight rather than draining a whole batch of `N` before starting the next.
-See [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers) for the full
-mechanics.
+A freed `maxUnavailable` slot is topped up with a new migration the moment budget allows — including
+in the very same reconcile tick a prior migration clears, not the next one — so `maxUnavailable: N`
+keeps up to `N` migrations continuously in flight rather than draining a whole batch of `N` before
+starting the next. `maxSurge` is an independent budget, not summed with `maxUnavailable`: both apply
+simultaneously, each as its own pass over the same mismatched-index list, so `maxUnavailable: 1,
+maxSurge: 1` migrates one index the old way and provisions a second one ahead of removal, at once.
+`maxUnavailable` can never be `0` (a value of `0` would mean "never replace anything," a stuck
+rollout) — so a rollout that only ever surges, never removing an index before its replacement lands,
+isn't expressible; every rollout has at least a `maxUnavailable: 1` floor alongside whatever surge it
+also uses. See [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers) for the
+full mechanics of both budgets, including how a surge instance is placed at a synthetic index
+`>= replicas` and promoted once healthy.
 
-**`maxSurge` is not implemented yet, on purpose.** Provisioning a replacement instance before
-removing the original (rather than the reverse, which is what happens today regardless of
-`maxUnavailable`) needs its own synthetic-index bookkeeping and interacts with tenant quota
-admission — deliberately scoped out of this first pass. The field exists in the manifest schema and
-on `DisruptionBudget` itself purely so a later change can implement it without another schema
-revision; submitting a nonzero value today is rejected rather than silently accepted-and-ignored.
+Admission is surge-aware too: a tenant's quota is checked against `replicas + maxSurge` (the peak a
+rollout could transiently reach), not `replicas` alone — a deployment that fits its tenant's quota at
+steady state but would exceed it while surging is rejected at submission time, before any surge
+instance is ever placed.
 
 ## Job manifest
 
@@ -304,7 +310,7 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
 | `disruption.maxUnavailable` | no | Same meaning as the [Deployment manifest's own field](#deployment-manifest-disruption) — how many nodes may be mid-rollout at once. Defaults to `1`. |
-| `disruption.maxSurge` | rejected if nonzero | Meaningless here even once implemented for Deployment — one instance per node is already the strongest guarantee a surge could offer. `DaemonSetManifestParser` rejects a nonzero value outright, the same posture it takes for `placement.antiAffinity`. |
+| `disruption.maxSurge` | rejected if nonzero | Permanently meaningless here, even though it's now implemented for Deployment — one instance per node is already the strongest guarantee a surge could offer. `DaemonSetManifestParser` rejects a nonzero value outright, the same posture it takes for `placement.antiAffinity`. |
 
 A daemonset's `instances[]` (one entry per node currently running it, each carrying that node's own
 health observation) is read-only, computed state — never part of the manifest you submit, the same

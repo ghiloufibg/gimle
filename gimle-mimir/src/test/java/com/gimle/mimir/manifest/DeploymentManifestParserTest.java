@@ -590,23 +590,25 @@ class DeploymentManifestParserTest {
   }
 
   @Test
-  void rejects_a_nonzero_max_surge_as_not_yet_implemented() {
-    assertThrows(
-        GimleManifestException.class,
-        () ->
-            DeploymentManifestParser.parse(
-                yaml(
-                    """
-                    name: orders-service
-                    module:
-                      name: com.gimle.example.orders
-                      version: 1.2.0
-                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
-                    replicas: 5
-                    disruption:
-                      maxUnavailable: 2
-                      maxSurge: 1
-                    """)));
+  void accepts_a_nonzero_max_surge() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 5
+                disruption:
+                  maxUnavailable: 2
+                  maxSurge: 1
+                """));
+
+    DisruptionBudget budget = spec.disruption().orElseThrow();
+    assertEquals(2, budget.maxUnavailable());
+    assertEquals(1, budget.maxSurge());
   }
 
   @Test

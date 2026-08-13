@@ -108,6 +108,8 @@ public final class RaftCodec {
   private static final byte MUT_CLEAR_ROLLING_STATEFULSET_INDEX = 43;
   private static final byte MUT_PUT_STATEFULSET_INDEX_NODE = 44;
   private static final byte MUT_REMOVE_STATEFULSET_INDEX_NODE = 45;
+  private static final byte MUT_ADD_SURGE_INDEX = 46;
+  private static final byte MUT_REMOVE_SURGE_INDEX = 47;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -377,6 +379,17 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
+      case StateMutation.AddSurgeIndex m -> {
+        out.writeByte(MUT_ADD_SURGE_INDEX);
+        out.writeUTF(m.deploymentName());
+        out.writeInt(m.surgeIndex());
+        out.writeInt(m.targetIndex());
+      }
+      case StateMutation.RemoveSurgeIndex m -> {
+        out.writeByte(MUT_REMOVE_SURGE_INDEX);
+        out.writeUTF(m.deploymentName());
+        out.writeInt(m.surgeIndex());
+      }
       case StateMutation.PutEffectiveReplicas m -> {
         out.writeByte(MUT_PUT_EFFECTIVE_REPLICAS);
         out.writeUTF(m.deploymentName());
@@ -568,6 +581,9 @@ public final class RaftCodec {
       case MUT_ADD_ROLLING_INDEX -> new StateMutation.AddRollingIndex(in.readUTF(), in.readInt());
       case MUT_REMOVE_ROLLING_INDEX ->
           new StateMutation.RemoveRollingIndex(in.readUTF(), in.readInt());
+      case MUT_ADD_SURGE_INDEX ->
+          new StateMutation.AddSurgeIndex(in.readUTF(), in.readInt(), in.readInt());
+      case MUT_REMOVE_SURGE_INDEX -> new StateMutation.RemoveSurgeIndex(in.readUTF(), in.readInt());
       case MUT_PUT_EFFECTIVE_REPLICAS ->
           new StateMutation.PutEffectiveReplicas(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_REGISTRATION ->
@@ -720,6 +736,15 @@ public final class RaftCodec {
           out.writeInt(index);
         }
       }
+      out.writeInt(snapshot.surgeIndices().size());
+      for (Map.Entry<String, Map<Integer, Integer>> e : snapshot.surgeIndices().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue().size());
+        for (Map.Entry<Integer, Integer> surgeToTarget : e.getValue().entrySet()) {
+          out.writeInt(surgeToTarget.getKey());
+          out.writeInt(surgeToTarget.getValue());
+        }
+      }
       out.writeInt(snapshot.effectiveReplicas().size());
       for (Map.Entry<String, Integer> e : snapshot.effectiveReplicas().entrySet()) {
         out.writeUTF(e.getKey());
@@ -866,6 +891,19 @@ public final class RaftCodec {
         }
         rollingIndices.put(deploymentName, indices);
       }
+      Map<String, Map<Integer, Integer>> surgeIndices = new LinkedHashMap<>();
+      int surgeDeploymentCount = in.readInt();
+      for (int i = 0; i < surgeDeploymentCount; i++) {
+        String deploymentName = in.readUTF();
+        Map<Integer, Integer> indices = new LinkedHashMap<>();
+        int surgeCount = in.readInt();
+        for (int j = 0; j < surgeCount; j++) {
+          int surgeIndex = in.readInt();
+          int targetIndex = in.readInt();
+          indices.put(surgeIndex, targetIndex);
+        }
+        surgeIndices.put(deploymentName, indices);
+      }
       Map<String, Integer> effectiveReplicas = new LinkedHashMap<>();
       int effectiveCount = in.readInt();
       for (int i = 0; i < effectiveCount; i++) {
@@ -938,6 +976,7 @@ public final class RaftCodec {
           statefulSetIndexNodes,
           registrations,
           rollingIndices,
+          surgeIndices,
           effectiveReplicas,
           tenants,
           quotaViolating,

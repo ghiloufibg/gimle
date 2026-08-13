@@ -141,18 +141,22 @@ work left undone.
 
 ## Priority 4: control-plane policy and fairness
 
-13. ~~**Explicit, configurable disruption budgets.**~~ **`maxUnavailable` done, `maxSurge` still
-    open** — see [Manifest schema § Deployment manifest:
-    disruption](../reference/manifest-schema.md#deployment-manifest-disruption) and [Control plane
-    § Reconcilers](../architecture/control-plane.md#reconcilers). A manifest `disruption:` block
-    (Deployment and DaemonSet) now exposes `maxUnavailable` as an explicit, tunable contract instead
-    of the implicit one-at-a-time default every rollout had before — `DeploymentReconciler`'s
-    single-index in-flight scalar and `DaemonSetReconciler`'s node-keyed duplicate both became small
-    bounded sets, continuously topped up as each migration clears rather than draining a whole batch
-    first. `maxSurge` (provisioning a replacement before removing the original) is deliberately
-    still out of scope for this pass: it needs its own synthetic-index bookkeeping and interacts
-    with the same tenant-quota-at-admission gap item 14 already tracks, so it's parsed and validated
-    but rejected outright if nonzero rather than silently accepted and ignored.
+13. ~~**Explicit, configurable disruption budgets.**~~ **Done** — see [Manifest schema § Deployment
+    manifest: disruption](../reference/manifest-schema.md#deployment-manifest-disruption) and
+    [Control plane § Reconcilers](../architecture/control-plane.md#reconcilers). A manifest
+    `disruption:` block (Deployment and DaemonSet) exposes `maxUnavailable` as an explicit, tunable
+    contract instead of the implicit one-at-a-time default every rollout had before —
+    `DeploymentReconciler`'s single-index in-flight scalar and `DaemonSetReconciler`'s node-keyed
+    duplicate both became small bounded sets, continuously topped up as each migration clears rather
+    than draining a whole batch first. `maxSurge` (provisioning a replacement before removing the
+    original) is now implemented for Deployment too, via a synthetic index range `>= replicas` the
+    ordinary placement range never otherwise uses, promoted once the surge instance reports ready —
+    DaemonSet's own one-instance-per-node placement has no equivalent, so `DaemonSetManifestParser`
+    still rejects a nonzero value permanently, not as a scoped-out first pass. The
+    tenant-quota-at-admission interaction item 14 tracks is closed for this item's own purposes:
+    `DeploymentSpec#maxCommittedInstances()` (`replicas + maxSurge`) is what admission now checks a
+    tenant's quota against, so a rollout can't transiently burst a tenant over its ceiling by
+    surging — see [Multi-tenancy](../architecture/multi-tenancy.md).
 14. **Pluggable admission/policy.** Validation today is hardcoded (manifest schema checks, quota
     checks in [Multi-tenancy](../architecture/multi-tenancy.md)). No policy layer for
     organization-specific rules — the "policy as data, not code" pattern real clusters lean on

@@ -250,6 +250,26 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  /**
+   * The surge counterpart to {@link AddRollingIndex}: marks {@code surgeIndex} (a synthetic index
+   * {@code >= replicas}) as provisioning a replacement for {@code targetIndex} ahead of removing
+   * the original -- see {@code DeploymentReconciler#handleSurge}.
+   */
+  record AddSurgeIndex(String deploymentName, int surgeIndex, int targetIndex)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.addSurgeIndex(deploymentName, surgeIndex, targetIndex);
+    }
+  }
+
+  record RemoveSurgeIndex(String deploymentName, int surgeIndex) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeSurgeIndex(deploymentName, surgeIndex);
+    }
+  }
+
   record PutEffectiveReplicas(String deploymentName, int replicas) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {

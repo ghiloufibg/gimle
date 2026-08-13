@@ -49,6 +49,16 @@ import org.slf4j.LoggerFactory;
  * clears, rather than waiting for the whole in-flight batch to drain. This state survives a
  * reconciler restart because it's read back from the persisted rolling-index set rather than kept
  * only in memory.
+ *
+ * <p>{@link #handleSurge} is the mirror-image budget: instead of removing an index before its
+ * replacement lands, it provisions the replacement first, at a synthetic index {@code >= replicas}
+ * the ordinary {@code 0..replicas-1} range never otherwise uses, so a migration under {@code
+ * maxSurge} never drops the deployment's running count below {@code replicas} even momentarily.
+ * Like {@link #handleRollingUpdate}, it never calls {@link Scheduler#place} itself -- it only
+ * decides which synthetic index maps to which target index; the same missing-index placement loop
+ * below places both a fresh scale-up index and a newly-tracked surge index identically. The two
+ * budgets run as independent passes over the same mismatched-index list each tick, each excluding
+ * indices the other has already claimed.
  */
 public final class DeploymentReconciler {
 
@@ -119,24 +129,32 @@ public final class DeploymentReconciler {
 
     // Scale-down: an assigned index beyond the current replica count is removed immediately (a
     // desired-state edit only) -- the agent's own stop()/StopModule drain timing owns teardown,
-    // not this reconciler.
+    // not this reconciler. A live surge assignment is excluded: it's also >= replicas by
+    // construction, but tearing it down here would defeat the whole point of maxSurge (see
+    // #handleSurge). Once its own tracking entry clears (promoted or abandoned), it's no longer
+    // excluded and this same loop reclaims it on a later tick -- no separate teardown path needed.
+    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
     for (InstanceAssignment assignment : existing) {
-      if (assignment.instanceIndex() >= replicas) {
+      if (assignment.instanceIndex() >= replicas
+          && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
         mutations.propose(
             new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
       }
     }
 
     handleRollingUpdate(spec, replicas);
+    handleSurge(spec, replicas);
 
-    // Re-read: scale-down and/or the rolling-update step above may have just removed an entry.
+    // Re-read: scale-down and/or the rolling-update/surge steps above may have just removed or
+    // added an entry.
     existing = store.listAssignmentsFor(spec.name());
     Set<Integer> existingIndices = new HashSet<>();
     for (InstanceAssignment assignment : existing) {
       existingIndices.add(assignment.instanceIndex());
     }
 
-    if (missingIndices(replicas, existingIndices).isEmpty()) {
+    List<Integer> toPlace = indicesNeedingPlacement(spec, replicas, existingIndices);
+    if (toPlace.isEmpty()) {
       return;
     }
 
@@ -169,7 +187,7 @@ public final class DeploymentReconciler {
     }
     ModuleDescriptor descriptor = artifact.descriptor();
 
-    for (int index : missingIndices(replicas, existingIndices)) {
+    for (int index : toPlace) {
       try {
         List<NodeCandidate> candidates = buildCandidates(spec.name());
         String nodeId =
@@ -258,6 +276,12 @@ public final class DeploymentReconciler {
         .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
         .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
         .filter(assignment -> !inFlight.contains(assignment.instanceIndex()))
+        // Also skip an index #handleSurge has already claimed as a surge target this tick --
+        // maxUnavailable and maxSurge are independent budgets, but the same mismatched index must
+        // never be migrated by both at once.
+        .filter(
+            assignment ->
+                !store.getSurgeIndices(spec.name()).containsValue(assignment.instanceIndex()))
         .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
         .limit(maxUnavailable - inFlight.size())
         .forEach(
@@ -271,6 +295,99 @@ public final class DeploymentReconciler {
                   spec.name(),
                   mismatched.instanceIndex());
             });
+  }
+
+  /**
+   * Tops up the set of in-flight surge slots to the deployment's effective {@link
+   * com.gimle.mimir.manifest.DisruptionBudget#maxSurge} every tick, independently of {@link
+   * #handleRollingUpdate}'s own {@code maxUnavailable} budget -- the two run as separate passes
+   * over the same mismatched-index list, each excluding indices the other has already claimed.
+   * Unlike {@code maxUnavailable}, which removes a stale assignment before its replacement lands,
+   * surge provisions the replacement first, at a synthetic index {@code >= replicas} the ordinary
+   * {@code 0..replicas-1} range never uses, so migrating an index never drops the deployment's
+   * running count below {@code replicas} even momentarily. Bookkeeping only: this method never
+   * calls {@link Scheduler#place} itself, the same way {@link #handleRollingUpdate} doesn't --
+   * {@link #reconcileDeployment}'s own missing-index placement loop, via {@link
+   * #indicesNeedingPlacement}, does the actual scheduling for a newly-tracked surge index the same
+   * way it already does for an ordinary missing one.
+   */
+  private void handleSurge(DeploymentSpec spec, int replicas) {
+    int maxSurge = spec.effectiveDisruptionBudget().maxSurge();
+    Map<Integer, Integer> inFlight = new HashMap<>(store.getSurgeIndices(spec.name()));
+
+    for (Map.Entry<Integer, Integer> entry : Map.copyOf(inFlight).entrySet()) {
+      int surgeIndex = entry.getKey();
+      int targetIndex = entry.getValue();
+      if (targetIndex >= replicas) {
+        // replicas shrank below this promotion's target while it was in flight -- abandon rather
+        // than promote into an index that no longer exists. The surge assignment itself, now
+        // untracked, is reclaimed by reconcileDeployment's own scale-down sweep on a later tick
+        // once it's no longer excluded from it.
+        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        inFlight.remove(surgeIndex);
+        continue;
+      }
+      Optional<InstanceAssignment> surgeAssignment =
+          store.listAssignmentsFor(spec.name()).stream()
+              .filter(a -> a.instanceIndex() == surgeIndex)
+              .findFirst();
+      if (surgeAssignment.isPresent() && isReady(surgeAssignment.get())) {
+        // Promotion: retire the old target instance now that its replacement has proven healthy
+        // -- the missing-index loop re-places targetIndex fresh (new moduleId) in this same tick,
+        // the exact same placement path a scale-up already uses. The surge assignment itself is
+        // left as-is here -- now untracked, reclaimed by the ordinary scale-down sweep rather than
+        // torn down explicitly by this method.
+        mutations.propose(new StateMutation.RemoveAssignment(spec.name(), targetIndex));
+        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        inFlight.remove(surgeIndex);
+      }
+      // Otherwise: still waiting for the surge instance to report ready.
+    }
+
+    if (inFlight.size() >= maxSurge) {
+      return;
+    }
+
+    Set<Integer> rollingInFlight = store.getRollingIndices(spec.name());
+    Set<Integer> claimedTargets = new HashSet<>(inFlight.values());
+    Set<Integer> takenSyntheticIndices = new HashSet<>(inFlight.keySet());
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+      takenSyntheticIndices.add(assignment.instanceIndex());
+    }
+
+    store.listAssignmentsFor(spec.name()).stream()
+        .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
+        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
+        .filter(assignment -> !rollingInFlight.contains(assignment.instanceIndex()))
+        .filter(assignment -> !claimedTargets.contains(assignment.instanceIndex()))
+        .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
+        .limit(maxSurge - inFlight.size())
+        .forEach(
+            mismatched -> {
+              int surgeIndex = nextFreeSurgeIndex(replicas, takenSyntheticIndices);
+              takenSyntheticIndices.add(surgeIndex);
+              mutations.propose(
+                  new StateMutation.AddSurgeIndex(
+                      spec.name(), surgeIndex, mismatched.instanceIndex()));
+              log.info(
+                  "deployment {} instance {} is on an old module version; surging a replacement at"
+                      + " index {} ahead of removing it",
+                  spec.name(),
+                  mismatched.instanceIndex(),
+                  surgeIndex);
+            });
+  }
+
+  /**
+   * The lowest synthetic index {@code >= replicas} not already claimed by a live assignment or a
+   * surge slot started earlier in this same tick.
+   */
+  private static int nextFreeSurgeIndex(int replicas, Set<Integer> taken) {
+    int candidate = replicas;
+    while (taken.contains(candidate)) {
+      candidate++;
+    }
+    return candidate;
   }
 
   /**
@@ -304,6 +421,25 @@ public final class DeploymentReconciler {
       }
     }
     return missing;
+  }
+
+  /**
+   * Every index the missing-index placement loop must fill this tick: the ordinary {@code
+   * 0..replicas-1} gaps {@link #missingIndices} already computed, plus any synthetic surge index
+   * {@link #handleSurge} tracked but hasn't been assigned yet. A tracked surge index only ever
+   * needs placing once -- {@code existingIndices} already reflects any assignment {@link
+   * #handleSurge} itself didn't touch this tick, so this never re-places an already-live surge
+   * instance.
+   */
+  private List<Integer> indicesNeedingPlacement(
+      DeploymentSpec spec, int replicas, Set<Integer> existingIndices) {
+    List<Integer> indices = new ArrayList<>(missingIndices(replicas, existingIndices));
+    for (int surgeIndex : store.getSurgeIndices(spec.name()).keySet()) {
+      if (!existingIndices.contains(surgeIndex)) {
+        indices.add(surgeIndex);
+      }
+    }
+    return indices;
   }
 
   private List<NodeCandidate> buildCandidates(String deploymentName) {

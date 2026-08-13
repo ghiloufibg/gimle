@@ -1610,8 +1610,8 @@ abstract class GreeterSmokeClusterSupport {
   /**
    * Like {@link #submitDeployment(String, String, String, Path, Optional)}, but for a submission
    * expected to be rejected at admission -- returns the raw response instead of failing on a
-   * non-200, so the caller can assert on the rejection itself ({@code ApiServer#checkTenantQuota}'s
-   * own 409, in this suite's case).
+   * non-200, so the caller can assert on the rejection itself ({@code TenantQuotaPlugin}'s own 409,
+   * in this suite's case).
    */
   HttpResponse<String> submitDeploymentExpectingRejection(
       String baseUrl, String deploymentName, String moduleName, Path jar, String tenantId)

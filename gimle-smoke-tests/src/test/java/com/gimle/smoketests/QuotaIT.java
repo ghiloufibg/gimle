@@ -18,8 +18,8 @@ import org.junit.jupiter.api.Timeout;
 /**
  * Multi-tenancy quota enforcement, both halves: {@code QuotaReconciler}'s own documented
  * flag-but-never-evict contract when a tenant's quota is retroactively lowered below what's already
- * running, and {@code ApiServer#checkTenantQuota}'s real 409 rejection *at admission* for a new
- * deployment that would immediately push a tenant over quota (never durably created at all).
+ * running, and {@code TenantQuotaPlugin}'s real 409 rejection *at admission* for a new deployment
+ * that would immediately push a tenant over quota (never durably created at all).
  */
 @Tag("smoke")
 class QuotaIT extends GreeterSmokeClusterSupport {
@@ -101,14 +101,14 @@ class QuotaIT extends GreeterSmokeClusterSupport {
 
   /**
    * The admission-time counterpart to the flag-but-don't-evict scenario above. {@code
-   * ApiServer#checkTenantQuota} is a real, already-implemented 409 rejection at submission time --
-   * distinct from {@code QuotaReconciler}'s own after-the-fact flag for a quota lowered *below*
-   * what's already running -- but nothing previously proved it against a real cluster either. A
-   * tenant's quota is sized to fit exactly one {@code greeter-provider} replica (32Mi/20m request,
-   * see its {@code gimle-module.yaml}) and no more; a second deployment for the same tenant is
-   * submitted once the first is already {@code ACTIVE}, and this asserts the rejection is real
-   * (409, the deployment never created at all -- {@code GET /deployments/*} returns 404, not an
-   * empty/pending record) and that it never touched the first, already-running deployment.
+   * TenantQuotaPlugin} is a real, already-implemented 409 rejection at submission time -- distinct
+   * from {@code QuotaReconciler}'s own after-the-fact flag for a quota lowered *below* what's
+   * already running -- but nothing previously proved it against a real cluster either. A tenant's
+   * quota is sized to fit exactly one {@code greeter-provider} replica (32Mi/20m request, see its
+   * {@code gimle-module.yaml}) and no more; a second deployment for the same tenant is submitted
+   * once the first is already {@code ACTIVE}, and this asserts the rejection is real (409, the
+   * deployment never created at all -- {@code GET /deployments/*} returns 404, not an empty/pending
+   * record) and that it never touched the first, already-running deployment.
    */
   @Test
   @Timeout(value = 4, unit = java.util.concurrent.TimeUnit.MINUTES)

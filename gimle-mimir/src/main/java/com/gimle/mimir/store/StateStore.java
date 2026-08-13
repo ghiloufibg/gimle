@@ -113,6 +113,12 @@ public final class StateStore implements StoreReader {
   // actively being replaced, sized by the deployment's own effective maxUnavailable (small,
   // bounded: see DisruptionBudget), not by replica count.
   private final Map<String, Set<Integer>> rollingIndices = new ConcurrentHashMap<>();
+  // The surge slots currently in flight for a Deployment, if any -- surgeIndex (a synthetic index
+  // >= replicas) -> targetIndex (the real 0..replicas-1 index it will replace once ready), sized
+  // by the deployment's own effective maxSurge (small, bounded), not by replica count. A separate
+  // map from rollingIndices: maxUnavailable and maxSurge are independent budgets, and a given
+  // mismatched index is only ever tracked by one of the two at a time.
+  private final Map<String, Map<Integer, Integer>> surgeIndices = new ConcurrentHashMap<>();
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
@@ -190,6 +196,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(statefulSetIndexNodesDir());
       Files.createDirectories(nodesDir());
       Files.createDirectories(rollingDir());
+      Files.createDirectories(surgeDir());
       Files.createDirectories(autoscaleDir());
       Files.createDirectories(tenantsDir());
       Files.createDirectories(quotaDir());
@@ -226,6 +233,7 @@ public final class StateStore implements StoreReader {
     deleteQuietly(deploymentFile(name));
     deployments.remove(name);
     clearAllRollingIndices(name);
+    clearAllSurgeIndices(name);
     deleteQuietly(effectiveReplicasFile(name));
     effectiveReplicas.remove(name);
   }
@@ -588,6 +596,47 @@ public final class StateStore implements StoreReader {
   private void clearAllRollingIndices(String deploymentName) {
     Set.copyOf(rollingIndices.getOrDefault(deploymentName, Set.of()))
         .forEach(index -> removeRollingIndex(deploymentName, index));
+  }
+
+  // ---- surge bookkeeping ----
+
+  /**
+   * Marks {@code surgeIndex} (a synthetic index {@code >= replicas}) as provisioning a replacement
+   * for {@code targetIndex} ahead of removing the original -- the surge counterpart to {@link
+   * #addRollingIndex}, persisted the identical way and for the identical reason: a reconciler
+   * restart mid-surge resumes tracking the promotion rather than losing it. One file per {@code
+   * (deploymentName, surgeIndex)} pair, the same per-pair-file layout {@link #addRollingIndex}
+   * already established, under its own subdirectory so the two bookkeeping kinds never collide on a
+   * shared index number.
+   */
+  public void addSurgeIndex(String deploymentName, int surgeIndex, int targetIndex) {
+    writeAtomically(
+        surgeFile(deploymentName, surgeIndex),
+        surgeIndexToYaml(deploymentName, surgeIndex, targetIndex));
+    surgeIndices
+        .computeIfAbsent(deploymentName, key -> new ConcurrentHashMap<>())
+        .put(surgeIndex, targetIndex);
+  }
+
+  public void removeSurgeIndex(String deploymentName, int surgeIndex) {
+    deleteQuietly(surgeFile(deploymentName, surgeIndex));
+    Map<Integer, Integer> indices = surgeIndices.get(deploymentName);
+    if (indices != null) {
+      indices.remove(surgeIndex);
+    }
+  }
+
+  /**
+   * Every surge slot currently in flight for this deployment, keyed by surgeIndex; empty means
+   * none.
+   */
+  public Map<Integer, Integer> getSurgeIndices(String deploymentName) {
+    return Map.copyOf(surgeIndices.getOrDefault(deploymentName, Map.of()));
+  }
+
+  private void clearAllSurgeIndices(String deploymentName) {
+    Set.copyOf(surgeIndices.getOrDefault(deploymentName, Map.of()).keySet())
+        .forEach(surgeIndex -> removeSurgeIndex(deploymentName, surgeIndex));
   }
 
   // ---- autoscaling bookkeeping ----
@@ -994,6 +1043,9 @@ public final class StateStore implements StoreReader {
         rollingIndices.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue()))),
+        surgeIndices.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Map.copyOf(e.getValue()))),
         Map.copyOf(effectiveReplicas),
         List.copyOf(tenants.values()),
         quotaViolations.entrySet().stream()
@@ -1089,6 +1141,13 @@ public final class StateStore implements StoreReader {
         .forEach(
             (deploymentName, indices) ->
                 indices.forEach(index -> addRollingIndex(deploymentName, index)));
+    snapshot
+        .surgeIndices()
+        .forEach(
+            (deploymentName, indices) ->
+                indices.forEach(
+                    (surgeIndex, targetIndex) ->
+                        addSurgeIndex(deploymentName, surgeIndex, targetIndex)));
     snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
@@ -1147,6 +1206,14 @@ public final class StateStore implements StoreReader {
 
   private Path rollingFile(String deploymentName, int instanceIndex) {
     return rollingDir().resolve(deploymentName).resolve(instanceIndex + ".yaml");
+  }
+
+  private Path surgeDir() {
+    return root.resolve("surge");
+  }
+
+  private Path surgeFile(String deploymentName, int surgeIndex) {
+    return surgeDir().resolve(deploymentName).resolve(surgeIndex + ".yaml");
   }
 
   private Path autoscaleDir() {
@@ -1533,6 +1600,17 @@ public final class StateStore implements StoreReader {
               .computeIfAbsent(
                   (String) map.get("deploymentName"), key -> ConcurrentHashMap.newKeySet())
               .add(((Number) map.get("instanceIndex")).intValue());
+        });
+    loadEach(
+        surgeDir(),
+        "*/*.yaml",
+        file -> {
+          Map<?, ?> map = loadMap(file);
+          surgeIndices
+              .computeIfAbsent((String) map.get("deploymentName"), key -> new ConcurrentHashMap<>())
+              .put(
+                  ((Number) map.get("surgeIndex")).intValue(),
+                  ((Number) map.get("targetIndex")).intValue());
         });
     loadEach(
         autoscaleDir(),
@@ -1975,6 +2053,14 @@ public final class StateStore implements StoreReader {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("deploymentName", deploymentName);
     root.put("instanceIndex", instanceIndex);
+    return new Yaml().dump(root);
+  }
+
+  private static String surgeIndexToYaml(String deploymentName, int surgeIndex, int targetIndex) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("deploymentName", deploymentName);
+    root.put("surgeIndex", surgeIndex);
+    root.put("targetIndex", targetIndex);
     return new Yaml().dump(root);
   }
 

@@ -143,4 +143,16 @@ public record DeploymentSpec(
   public DisruptionBudget effectiveDisruptionBudget() {
     return disruption.orElse(DisruptionBudget.DEFAULT);
   }
+
+  /**
+   * The peak instance count this deployment may ever legitimately run at once: {@link #replicas}
+   * plus whatever surge headroom {@link #effectiveDisruptionBudget()} allows. Today {@code
+   * maxSurge} is always {@code 0} (rejected outright at parse time), so this equals {@link
+   * #replicas} everywhere it's used -- it exists now so admission-time quota accounting is already
+   * correct once a rollout can actually provision a surge instance ahead of removing the original,
+   * rather than needing a second change to the quota check when that lands.
+   */
+  public int maxCommittedInstances() {
+    return replicas + effectiveDisruptionBudget().maxSurge();
+  }
 }

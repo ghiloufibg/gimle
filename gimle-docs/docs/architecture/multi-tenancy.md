@@ -12,7 +12,14 @@ conventions elsewhere try to avoid.
 
 A deployment optionally carries a `tenantId`. The quota constraint: the sum of
 `resourceRequest × replicas` across every deployment sharing that `tenantId` must not exceed the
-tenant's quota.
+tenant's quota. Admission specifically checks against `resourceRequest × (replicas + maxSurge)` —
+`DeploymentSpec#maxCommittedInstances()` — rather than `replicas` alone: a rollout with a nonzero
+`disruption.maxSurge` (see [Manifest schema § Deployment manifest:
+disruption](../reference/manifest-schema.md#deployment-manifest-disruption)) can transiently run
+more than `replicas` instances, and admission has to reject a submission that couldn't stay within
+quota even briefly, not just at steady state. `QuotaReconciler`'s own continuous check (below) still
+sums plain `replicas` — a transient surge overshoot it would otherwise flag is expected to self-heal
+within one reconcile tick as the rollout completes, not something worth a standing violation for.
 
 ## Enforcement: checked at admission, and continuously
 

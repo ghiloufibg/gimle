@@ -189,9 +189,21 @@ disruption](../reference/manifest-schema.md#deployment-manifest-disruption). Eac
 index/node is checked for readiness every tick; a freed slot is topped up with a new migration the
 moment budget allows, including within the same tick a prior one clears, so the effective
 `maxUnavailable` count stays continuously in flight rather than draining a whole batch before the
-next one starts. `maxSurge` (provisioning a replacement before removing the original) is parsed and
-validated but not yet implemented by either reconciler — rejected outright at submission if
-nonzero, rather than silently accepted and ignored.
+next one starts.
+
+`maxSurge` (provisioning a replacement before removing the original) is implemented for
+`DeploymentReconciler` only — `DaemonSetReconciler` still rejects a nonzero value outright, since a
+DaemonSet's one-instance-per-node placement has no "extra" instance to provision. A surge instance is
+placed at a synthetic index `>= replicas`, a range the ordinary `0..replicas-1` placement loop never
+otherwise uses, tracked as a (surgeIndex → targetIndex) pair independently of the `maxUnavailable`
+in-flight set — the two budgets run as separate passes over the same mismatched-index list each
+tick, each excluding indices the other has already claimed, so the same index is never migrated both
+ways at once. Once the surge instance reports ready, the target index's original assignment is
+removed and re-placed fresh through the same missing-index loop a scale-up already uses; the surge
+assignment itself is left in place, now untracked, reclaimed by the ordinary scale-down sweep on a
+later tick rather than torn down explicitly as part of promotion. A replica-count drop while a
+surge's target index is still in flight abandons that promotion rather than completing it into an
+index that no longer exists.
 
 :::note[Level-triggered, not edge-triggered]
 

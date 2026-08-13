@@ -113,8 +113,8 @@ class RaftLogTest {
         new StateSnapshot(
             List.of(), List.of(), List.of(), List.of(), Map.of(), List.of(), Map.of(), List.of(),
             List.of(), Map.of(), List.of(), List.of(), Map.of(), Map.of(), List.of(), Map.of(),
-            Map.of(), List.of(), Set.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-            Set.of(), List.of(), List.of());
+            Map.of(), Map.of(), List.of(), Set.of(), List.of(), List.of(), List.of(), List.of(),
+            List.of(), Set.of(), List.of(), List.of());
     log.installSnapshot(2, 1, RaftCodec.encodeSnapshot(snapshot));
 
     assertEquals(2L, log.snapshotLastIncludedIndex());
@@ -147,6 +147,7 @@ class RaftLogTest {
             Map.of(),
             Map.of(),
             List.of(),
+            Map.of(),
             Map.of(),
             Map.of(),
             List.of(),
