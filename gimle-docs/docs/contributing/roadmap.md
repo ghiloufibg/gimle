@@ -130,6 +130,15 @@ Not every real workload is a stateless HTTP service.
     work required — local-disk-only, no replication, no CSI-style pluggable backend, matching the
     single-node-local-disk durability this design deliberately promises and nothing more.
 
+**Workload diversity is now fully closed.** Items 10-12 above cover the four new workload kinds
+(Job, CronJob, DaemonSet, StatefulSet); the one adjacent piece bundled into the same body of
+work — worker-tier metrics/trace shipping to Muninn — isn't itself a workload-diversity concern,
+so it's tracked under items 3/6/9 above instead of renumbered in here, but it's done too. Job
+`parallelism`/`completions`, multi-volume StatefulSets, volume replication/snapshotting/backup-
+restore, and CSI-style pluggable storage backends were never part of this priority's own scope —
+permanent, deliberate non-goals (single-node local-disk durability is the whole promise), not
+work left undone.
+
 ## Priority 4: control-plane policy and fairness
 
 13. **Explicit, configurable disruption budgets.** The rolling-update bookkeeping already appears
