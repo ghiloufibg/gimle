@@ -2,6 +2,7 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
+import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.fafnir.FafnirClient;
@@ -152,12 +153,13 @@ public final class ApiServer implements AutoCloseable {
   // registry); a same-package test reads it back through #metrics().
   private final ApiServerMetrics metrics = new ApiServerMetrics();
   // The ordered admission chain a PUT /deployments submission runs through before it's proposed
-  // to the store -- today just the tenant-quota check {@code checkTenantQuota} used to perform
-  // inline, now a real extension point new plugins can join without ApiServer growing another
-  // hardcoded check. Not exposed through any public constructor parameter, same reasoning as
-  // {@code metrics} above: no test/caller has ever needed to inject a custom plugin list.
+  // to the store -- today the tenant-quota check {@code checkTenantQuota} used to perform inline,
+  // plus {@code PolicyConfigPlugin}'s opt-in organization-specific rules -- a real extension point
+  // new plugins can join without ApiServer growing another hardcoded check. Not exposed through any
+  // public constructor parameter, same reasoning as {@code metrics} above: no test/caller has ever
+  // needed to inject a custom plugin list.
   private final AdmissionChain<DeploymentSpec> deploymentAdmissionChain =
-      new AdmissionChain<>(List.of(new TenantQuotaPlugin()));
+      new AdmissionChain<>(List.of(new TenantQuotaPlugin(), new PolicyConfigPlugin()));
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,

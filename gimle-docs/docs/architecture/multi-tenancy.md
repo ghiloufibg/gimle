@@ -39,6 +39,22 @@ codebase does unprompted. Instead, it marks the offending deployment's status as
 warning — a human operator resolves an over-quota tenant explicitly, the reconciler only surfaces
 the problem.
 
+## Policy rules
+
+Admission checks two independent things: `TenantQuotaPlugin`'s aggregate resource math (above), and
+`PolicyConfigPlugin`'s organization-specific rules — the roadmap's literal "policy as data, not code"
+answer. A policy rule is a plain, unencrypted tenant-scoped config entry (below), not a new schema:
+`gimle set config <tenantId> policy.maxReplicasPerDeployment <n>` caps how many replicas *any single*
+deployment for that tenant may declare — a per-deployment sizing ceiling, independent of (and checked
+alongside) `TenantQuotaPlugin`'s own tenant-wide resource-billing math. Absent the config entry (the
+common case — no policy configured), no ceiling applies; a tenant opts in per rule, per key.
+
+`policy.maxReplicasPerDeployment` is the one rule this plugin enforces today — adding another means
+adding another key/check to `PolicyConfigPlugin` itself, not a schema change, so the mechanism is
+"policy as data" for the rules that exist, while the *set* of possible rules is still code. A
+malformed value, or an entry mistakenly written `--encrypted` (a policy rule is never a secret),
+both reject the submission outright rather than silently skip enforcement.
+
 ## Tenant-scoped config
 
 Plain config entries (`gimle set config <tenantId> <key> <value>`, see

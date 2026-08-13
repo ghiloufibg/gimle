@@ -157,10 +157,17 @@ work left undone.
     `DeploymentSpec#maxCommittedInstances()` (`replicas + maxSurge`) is what admission now checks a
     tenant's quota against, so a rollout can't transiently burst a tenant over its ceiling by
     surging — see [Multi-tenancy](../architecture/multi-tenancy.md).
-14. **Pluggable admission/policy.** Validation today is hardcoded (manifest schema checks, quota
-    checks in [Multi-tenancy](../architecture/multi-tenancy.md)). No policy layer for
-    organization-specific rules — the "policy as data, not code" pattern real clusters lean on
-    heavily.
+14. ~~**Pluggable admission/policy.**~~ **Done** — see [Multi-tenancy §
+    Policy rules](../architecture/multi-tenancy.md#policy-rules). `ApiServer`'s deployment
+    admission path is now a real ordered `AdmissionChain`/`AdmissionPlugin` extension point rather
+    than a single hardcoded quota check — `TenantQuotaPlugin` (the old check, unchanged in
+    behavior) and `PolicyConfigPlugin` (new) both run every `PUT /deployments`.
+    `PolicyConfigPlugin` is the literal "policy as data, not code" answer: an opt-in, per-tenant
+    `policy.maxReplicasPerDeployment` rule read from the same plain `/config/*` store `gimle set
+    config` already writes to, no new schema. One honest scope note: only that one rule exists
+    today — adding a second means adding a second check inside the plugin, not a schema change, so
+    the *rules* are data-driven but the *set of possible rules* is still code, not a general
+    rules-engine.
 15. **Priority and preemption.** No notion of a higher-priority deployment evicting a lower-priority
     one under resource pressure — a genuinely hard fairness-versus-urgency scheduling problem.
 16. **Prometheus/OTLP-compatible read translation for Muninn.** Muninn's own first-party ingest/read

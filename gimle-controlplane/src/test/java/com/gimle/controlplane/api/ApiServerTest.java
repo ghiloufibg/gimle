@@ -1367,6 +1367,68 @@ class ApiServerTest {
     assertEquals(409, put.statusCode());
   }
 
+  // ---- policy admission ----
+
+  @Test
+  void deployment_exceeding_a_configured_policy_ceiling_is_rejected() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/policy-acme"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+            .build());
+    send(
+        HttpRequest.newBuilder(
+                URI.create(baseUrl + "/config/policy-acme/policy.maxReplicasPerDeployment"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"1\",\"encrypted\":false}"))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.policy.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/over-policy-ceiling"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        tenantedDeploymentYaml(
+                            "over-policy-ceiling",
+                            2,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.policy.over",
+                            "policy-acme")))
+                .build());
+
+    assertEquals(409, put.statusCode());
+    assertTrue(store.getDeployment("over-policy-ceiling").isEmpty());
+  }
+
+  @Test
+  void deployment_within_a_configured_policy_ceiling_succeeds() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/policy-acme-2"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+            .build());
+    send(
+        HttpRequest.newBuilder(
+                URI.create(baseUrl + "/config/policy-acme-2/policy.maxReplicasPerDeployment"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"3\",\"encrypted\":false}"))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.policy.within");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/within-policy-ceiling"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        tenantedDeploymentYaml(
+                            "within-policy-ceiling",
+                            2,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.policy.within",
+                            "policy-acme-2")))
+                .build());
+
+    assertEquals(200, put.statusCode());
+    assertTrue(store.getDeployment("within-policy-ceiling").isPresent());
+  }
+
   // ---- config/secrets distribution ----
 
   @Test
