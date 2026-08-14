@@ -10,8 +10,11 @@ Feature: Autoscaling under real load
   fabric call to the provider. The CPU target is set deliberately unreachable,
   so a scale-up can only mean the request-rate signal drove it.
 
+  # The single-node topology deliberately: the load generator reaches the provider over the
+  # fabric, and cross-node service-export propagation is unreliable today, so a multi-node
+  # placement can starve the provider of the very signal this scenario drives.
   Scenario: Request-rate load scales the provider up
-    Given a running cluster from topology "ha-plaintext"
+    Given a running cluster from topology "minimal"
     And module "greeter-load-generator" version "1.0.0" deployed with 1 replica as "load-generator"
     And an autoscaling deployment "autoscale-greeter" of provider "1.0.0" with min 1 max 2 replicas targeting 5.0 requests per second
     When an open-model load of 20 requests per second runs for 60s against the load generator

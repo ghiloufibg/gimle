@@ -52,6 +52,11 @@ public final class RecordingWorkload implements AutoCloseable {
                 });
   }
 
+  /** How many writes the cluster has acknowledged so far; grows while the writer runs. */
+  public int acknowledgedCount() {
+    return acknowledged.size();
+  }
+
   /** Stops the writer and returns every write the cluster acknowledged, oldest first. */
   public List<String> stopAndAcknowledged() {
     running = false;

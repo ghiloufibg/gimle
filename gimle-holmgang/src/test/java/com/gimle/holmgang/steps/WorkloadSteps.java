@@ -43,6 +43,25 @@ public final class WorkloadSteps {
         .await(Duration.ofSeconds(seconds));
   }
 
+  /**
+   * The explicit "the workload has really banked promises" gate: without a minimum acknowledged
+   * count before a fault (and again after recovery), a fast kill could race the writer's first
+   * successful write and the durability assertion would vacuously pass over an empty history.
+   */
+  @Then("within {int}s the writer has acknowledged at least {int} writes")
+  public void theWriterHasAcknowledgedAtLeastWrites(final int seconds, final int count) {
+    if (world.workload == null) {
+      throw new HolmgangException("no background writer was started in this scenario");
+    }
+    world
+        .cluster()
+        .when()
+        .probe(
+            "the writer has acknowledged at least " + count + " writes",
+            () -> world.workload.acknowledgedCount() >= count)
+        .await(Duration.ofSeconds(seconds));
+  }
+
   @Then("every acknowledged tenant write is readable")
   public void everyAcknowledgedTenantWriteIsReadable() {
     if (world.workload == null) {

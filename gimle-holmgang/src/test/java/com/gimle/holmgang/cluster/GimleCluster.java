@@ -14,7 +14,11 @@ import com.gimle.holmgang.topology.NodeSpec;
 import com.gimle.holmgang.topology.ProcessRole;
 import com.gimle.holmgang.topology.TenantSeed;
 import com.gimle.holmgang.topology.Transport;
+import com.gimle.mimir.raft.PeerAddress;
+import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,11 +58,16 @@ public final class GimleCluster implements AutoCloseable {
   private final List<ManagedProcess> fafnirs = new ArrayList<>();
   private final Map<String, ManagedProcess> agents = new LinkedHashMap<>();
   private final Map<Integer, ClusterApi> apis = new LinkedHashMap<>();
+  private final List<Integer> storeRaftPorts = new ArrayList<>();
+  private final List<Integer> storeClientPorts = new ArrayList<>();
   private Heimdall heimdall;
   private ManagedProcess muninn;
   private Path tlsDir;
   private HttpClient operatorClient;
   private Loki loki;
+  private String javaExecutablePath;
+  private String classpath;
+  private int muninnPort = -1;
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
     this.spec = spec;
@@ -130,6 +139,135 @@ public final class GimleCluster implements AutoCloseable {
                 .build()
             : HttpClient.newHttpClient();
     return new ClusterApi(anonymous, controlPlaneBaseUrl(controlPlaneIndex));
+  }
+
+  /**
+   * The store process currently leading the Raft cluster, identified through the store's own status
+   * surface (any answering member names the leader) -- never inferred from write redirects. Throws
+   * when no leader is currently known (a mid-election gap): a scenario that needs the leader should
+   * gate on the cluster accepting writes first.
+   */
+  public GimleProcess storeLeader() {
+    final String leaderId =
+        storeLeaderId()
+            .orElseThrow(() -> new HolmgangException("no store leader is currently known"));
+    for (int i = 0; i < stores.size(); i++) {
+      if (leaderId.equals(storeRaftId(i))) {
+        return stores.get(i);
+      }
+    }
+    throw new HolmgangException("store leader " + leaderId + " matches no known store process");
+  }
+
+  /** The leading store's Raft id, empty while no answering member currently names one. */
+  public Optional<String> storeLeaderId() {
+    try {
+      final String leaderId = withStoreClient(client -> client.status().leaderId());
+      return leaderId.isEmpty() ? Optional.empty() : Optional.of(leaderId);
+    } catch (final RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  /** The membership an answering store member reports; empty while none answers. */
+  public List<String> storeMemberIds() {
+    try {
+      return withStoreClient(client -> client.status().memberIds());
+    } catch (final RuntimeException e) {
+      return List.of();
+    }
+  }
+
+  /**
+   * Spawns one additional store process and joins it to the running cluster through the real {@code
+   * AddServer} membership change -- etcd-style, one server at a time. The new member participates
+   * in Raft immediately; the control planes keep their original endpoint lists, which stays correct
+   * because reads and leader-routed writes go through any configured member.
+   */
+  public GimleProcess addStore() {
+    final int index = stores.size();
+    final int raftPort;
+    final int clientPort;
+    final List<String> peers = new ArrayList<>();
+    for (int i = 0; i < stores.size(); i++) {
+      peers.add(host() + ":" + storeRaftPorts.get(i) + ":" + storeClientPorts.get(i));
+    }
+    try (PortLease lease = PortLease.reserve(2)) {
+      final List<Integer> leased = lease.ports();
+      raftPort = leased.get(0);
+      clientPort = leased.get(1);
+      final List<String> command = new ArrayList<>();
+      command.add(javaExecutablePath);
+      command.addAll(tlsFlags("controlplane"));
+      command.addAll(spec.jvmFlags(ProcessRole.STORE));
+      if (spec.muninnEnabled()) {
+        command.add("-Dgimle.store.muninnEndpoint=" + host() + ":" + muninnPort);
+      }
+      command.addAll(List.of("-cp", classpath, "com.gimle.mimir.StoreMain"));
+      command.add(workDir.resolve("store-state-" + index).toString());
+      command.add(String.valueOf(raftPort));
+      command.add(String.valueOf(clientPort));
+      command.addAll(List.of("--peers", String.join(",", peers)));
+      lease.release(raftPort);
+      lease.release(clientPort);
+      final ManagedProcess store =
+          new ManagedProcess(
+              ProcessRole.STORE,
+              "store-" + index,
+              command,
+              workDir.resolve("store-" + index + ".log"),
+              host() + ":" + clientPort);
+      spawnOrder.add(store);
+      stores.add(store);
+      storeRaftPorts.add(raftPort);
+      storeClientPorts.add(clientPort);
+    }
+    Polls.awaitPortOpen(host(), clientPort, STAGE_TIMEOUT);
+    withStoreClient(
+        client -> {
+          client.addServer(host() + ":" + raftPort, new PeerAddress(host(), raftPort, clientPort));
+          return null;
+        });
+    return stores.get(index);
+  }
+
+  /**
+   * The symmetric counterpart to {@link #addStore}: removes the newest member through the real
+   * {@code RemoveServer} membership change first -- so the departing node is already outside the
+   * quorum math -- then kills its process.
+   */
+  public void removeNewestStore() {
+    final int index = stores.size() - 1;
+    withStoreClient(
+        client -> {
+          client.removeServer(storeRaftId(index));
+          return null;
+        });
+    stores.get(index).killWithDescendants();
+  }
+
+  private String storeRaftId(final int index) {
+    return host() + ":" + storeRaftPorts.get(index);
+  }
+
+  /**
+   * A short-lived client over the currently-live store endpoints -- rebuilt per call rather than
+   * cached, so a killed member or freshly changed membership never leaves a stale endpoint list
+   * behind.
+   */
+  private <T> T withStoreClient(final java.util.function.Function<StoreClient, T> call) {
+    final List<SocketAddress> live = new ArrayList<>();
+    for (int i = 0; i < stores.size(); i++) {
+      if (stores.get(i).isAlive()) {
+        live.add(new InetSocketAddress(host(), storeClientPorts.get(i)));
+      }
+    }
+    if (live.isEmpty()) {
+      throw new HolmgangException("no live store endpoint to query");
+    }
+    try (StoreClient client = new StoreClient(live)) {
+      return call.apply(client);
+    }
   }
 
   /** The fault injector over this topology's interposed links; requires {@code faults.proxied}. */
@@ -248,6 +386,8 @@ public final class GimleCluster implements AutoCloseable {
     createDirectories(workDir);
     final String javaExecutable = javaExecutable();
     final String classpath = System.getProperty("java.class.path");
+    this.javaExecutablePath = javaExecutable;
+    this.classpath = classpath;
 
     if (mtls) {
       generateTlsMaterial(javaExecutable, classpath);
@@ -258,6 +398,7 @@ public final class GimleCluster implements AutoCloseable {
     }
 
     final PortPlan ports = PortPlan.allocate(spec, host());
+    this.muninnPort = ports.muninnPort();
     try (PortLease lease = ports.lease()) {
       startStores(javaExecutable, classpath, ports, lease);
       startMuninn(javaExecutable, classpath, ports, lease);
@@ -404,6 +545,8 @@ public final class GimleCluster implements AutoCloseable {
               host() + ":" + clientPort);
       spawnOrder.add(store);
       stores.add(store);
+      storeRaftPorts.add(raftPort);
+      storeClientPorts.add(clientPort);
     }
     for (final int clientPort : ports.storeClientPorts) {
       Polls.awaitPortOpen(host(), clientPort, STAGE_TIMEOUT);

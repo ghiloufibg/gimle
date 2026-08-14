@@ -30,6 +30,33 @@ public final class ClusterSteps {
     world.cluster().store(storeIndex).killWithDescendants();
   }
 
+  /** Leader-targeted, not index-and-hope: resolved through the store's own status surface. */
+  @When("the store leader is killed")
+  public void theStoreLeaderIsKilled() {
+    world.cluster().storeLeader().killWithDescendants();
+  }
+
+  @When("a new store node joins the cluster")
+  public void aNewStoreNodeJoinsTheCluster() {
+    world.cluster().addStore();
+  }
+
+  @When("the newest store leaves the cluster")
+  public void theNewestStoreLeavesTheCluster() {
+    world.cluster().removeNewestStore();
+  }
+
+  @Then("within {int}s the store reports {int} members")
+  public void theStoreReportsMembers(final int seconds, final int count) {
+    world
+        .cluster()
+        .when()
+        .probe(
+            "the store reports " + count + " members",
+            () -> world.cluster().storeMemberIds().size() == count)
+        .await(Duration.ofSeconds(seconds));
+  }
+
   @When("node {string} is cordoned")
   public void nodeIsCordoned(final String nodeId) {
     world.cluster().api().cordonNode(nodeId);

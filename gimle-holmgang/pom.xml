@@ -92,6 +92,13 @@
       <artifactId>gimle-pki</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- StoreClient/StoreRpc.Status: leader-targeted and membership-change scenarios talk to the
+         store's own status and membership surface directly. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-cli</artifactId>
