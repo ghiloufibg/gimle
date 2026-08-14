@@ -58,7 +58,9 @@ before the UI did:
 - **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=`): a filterable table,
   most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode — see
   [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only resolves a
-  real principal (and therefore only ever records an audit event) when the transport is mTLS.
+  real principal (and therefore only ever records an audit event) when the transport is TLS, via
+  either a verified mTLS client certificate or a verified console session cookie — plaintext mode
+  has neither.
 
 Deployment create/detail also gained the `autoscale:` policy (see [Manifest
 schema](../reference/manifest-schema.md#deployment-manifest-autoscale)): a read-only panel on the
