@@ -178,8 +178,8 @@ Either mode feeds into the existing `[minReplicas, maxReplicas]` clamp and one-r
 damping unchanged. Error rate is evaluated as a percentage of that instance's own request volume
 (errors/sec ÷ requests/sec), not a raw errors/sec count. Every pre-existing policy (constructed
 without a `CombinationMode` or weights at all) defaults to `WORST_SIGNAL` with no weights, so this
-is purely additive — tuning weights via a console UI remains a separate, still-open gap (see
-[Web console](./web-console.md) and the [roadmap](../contributing/roadmap.md)).
+is purely additive — the combination mode and all four weights are also tunable from the console's
+own deployment create screen, not raw YAML only (see [Web console](./web-console.md)).
 
 `DeploymentReconciler`'s rolling-update logic, and `DaemonSetReconciler`'s node-keyed duplicate of
 it, migrate up to a `DisruptionBudget`'s `maxUnavailable` indices/nodes concurrently (default `1`,
