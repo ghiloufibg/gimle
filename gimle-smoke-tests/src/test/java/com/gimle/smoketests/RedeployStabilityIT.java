@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -65,7 +66,13 @@ class RedeployStabilityIT extends GreeterSmokeClusterSupport {
       String version = "1.0." + i;
       Path jar = buildInertTier1ModuleJar(SUBJECT_MODULE, version);
       submitDeploymentWithReplicas(
-          baseUrl, "redeploy-subject-deployment", SUBJECT_MODULE, version, jar, 1);
+          baseUrl,
+          "redeploy-subject-deployment",
+          SUBJECT_MODULE,
+          version,
+          jar,
+          1,
+          Optional.empty());
       await(
           () -> allInstancesOnVersion(baseUrl, "redeploy-subject-deployment", version, 1),
           Duration.ofSeconds(60),

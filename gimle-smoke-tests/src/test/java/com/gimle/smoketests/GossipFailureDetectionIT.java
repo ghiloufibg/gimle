@@ -112,10 +112,10 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
         () -> agentLogContains(node1Log, "member " + NODE3_ID + " is now DEAD"),
         Duration.ofSeconds(60),
         "node 1's own gossip member should detect and log " + NODE3_ID + " as DEAD");
-    // Real-cluster QA finding (fixed in GossipMember#mergeOne, see QA_FINDINGS.md): a node that
-    // learns of a peer's death secondhand via gossip rather than detecting it directly used to
-    // adopt the DEAD status into its own membership table completely silently, with no log line
-    // at all -- this assertion is what surfaced that gap, not just what now proves it fixed.
+    // Real-cluster finding, fixed in GossipMember#mergeOne: a node that learns of a peer's death
+    // secondhand via gossip rather than detecting it directly used to adopt the DEAD status into
+    // its own membership table completely silently, with no log line at all -- this assertion is
+    // what surfaced that gap, not just what now proves it fixed.
     await(
         () -> agentLogContains(node2Log, "member " + NODE3_ID + " is now DEAD"),
         Duration.ofSeconds(60),

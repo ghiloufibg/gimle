@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
       String moduleName = MODULE_NAMES[i];
       Path jar = buildInertTier1ModuleJar(moduleName, "1.0.0");
       submitDeploymentWithReplicas(
-          baseUrl, moduleName + "-deployment", moduleName, "1.0.0", jar, 1);
+          baseUrl, moduleName + "-deployment", moduleName, "1.0.0", jar, 1, Optional.empty());
       await(
           () -> isActive(baseUrl, moduleName + "-deployment"),
           Duration.ofSeconds(60),
@@ -61,7 +62,7 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
     String fifthModule = MODULE_NAMES[4];
     Path fifthJar = buildInertTier1ModuleJar(fifthModule, "1.0.0");
     submitDeploymentWithReplicas(
-        baseUrl, fifthModule + "-deployment", fifthModule, "1.0.0", fifthJar, 1);
+        baseUrl, fifthModule + "-deployment", fifthModule, "1.0.0", fifthJar, 1, Optional.empty());
     await(
         () -> isActive(baseUrl, fifthModule + "-deployment"),
         Duration.ofSeconds(60),

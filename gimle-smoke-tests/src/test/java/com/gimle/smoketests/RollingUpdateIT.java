@@ -7,6 +7,8 @@ import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
@@ -26,6 +28,34 @@ import org.junit.jupiter.api.Timeout;
 class RollingUpdateIT extends GreeterSmokeClusterSupport {
 
   /**
+   * Starts a virtual-thread background sampler that polls {@code deploymentName}'s real active
+   * instance count every 300ms and folds the minimum observed value into {@code
+   * minActiveDuringRollout} until {@code stopSampling} flips true -- the shared shape both rolling-
+   * update scenarios below need to prove "at least N instances stayed ACTIVE throughout" (or, for
+   * the single-replica case, "hit zero at some point"), not just before/after snapshots.
+   */
+  private Thread startMinActiveSampler(
+      String baseUrl,
+      String deploymentName,
+      AtomicInteger minActiveDuringRollout,
+      AtomicBoolean stopSampling) {
+    return Thread.ofVirtual()
+        .start(
+            () -> {
+              while (!stopSampling.get()) {
+                int active = activeInstanceCount(baseUrl, deploymentName);
+                minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
+                try {
+                  Thread.sleep(300);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  return;
+                }
+              }
+            });
+  }
+
+  /**
    * Rolling update / version-aware traffic cutover under real load. Deploys 2 replicas of {@code
    * greeter-provider} at v1.0.0, confirms both reach {@code ACTIVE}, then submits a real v1.1.0
    * build of the same module (compiled on the fly by {@link TestModuleBuilder} -- see {@link
@@ -42,7 +72,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
    * eventual convergence to v2.
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_rolling_update_keeps_at_least_one_instance_serving_traffic_throughout() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -80,6 +110,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         "1.0.0",
         providerV1Jar,
         2,
+        Optional.empty(),
         Duration.ofSeconds(30));
     await(
         () -> allInstancesOnVersion(baseUrl, "greeter-provider-rolling-deployment", "1.0.0", 2),
@@ -89,21 +120,8 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
     AtomicInteger minActiveDuringRollout = new AtomicInteger(Integer.MAX_VALUE);
     AtomicBoolean stopSampling = new AtomicBoolean(false);
     Thread sampler =
-        Thread.ofVirtual()
-            .start(
-                () -> {
-                  while (!stopSampling.get()) {
-                    int active =
-                        activeInstanceCount(baseUrl, "greeter-provider-rolling-deployment");
-                    minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
-                    try {
-                      Thread.sleep(300);
-                    } catch (InterruptedException e) {
-                      Thread.currentThread().interrupt();
-                      return;
-                    }
-                  }
-                });
+        startMinActiveSampler(
+            baseUrl, "greeter-provider-rolling-deployment", minActiveDuringRollout, stopSampling);
 
     // Comfortably sustained across the whole rollout window -- proves the consumer-facing traffic
     // path (load generator -> real fabric call -> greeter-provider) keeps working throughout, not
@@ -125,6 +143,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         "1.1.0",
         providerV2Jar,
         2,
+        Optional.empty(),
         Duration.ofSeconds(30));
 
     try {
@@ -161,7 +180,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
    * asked for).
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_single_replica_rolling_update_has_real_observed_downtime() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -199,6 +218,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         "1.0.0",
         providerV1Jar,
         1,
+        Optional.empty(),
         Duration.ofSeconds(30));
     await(
         () ->
@@ -210,21 +230,11 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
     AtomicInteger minActiveDuringRollout = new AtomicInteger(Integer.MAX_VALUE);
     AtomicBoolean stopSampling = new AtomicBoolean(false);
     Thread sampler =
-        Thread.ofVirtual()
-            .start(
-                () -> {
-                  while (!stopSampling.get()) {
-                    int active =
-                        activeInstanceCount(baseUrl, "greeter-provider-single-rolling-deployment");
-                    minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
-                    try {
-                      Thread.sleep(300);
-                    } catch (InterruptedException e) {
-                      Thread.currentThread().interrupt();
-                      return;
-                    }
-                  }
-                });
+        startMinActiveSampler(
+            baseUrl,
+            "greeter-provider-single-rolling-deployment",
+            minActiveDuringRollout,
+            stopSampling);
 
     Process gatling =
         spawnGatling(
@@ -243,6 +253,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         "1.1.0",
         providerV2Jar,
         1,
+        Optional.empty(),
         Duration.ofSeconds(30));
 
     try {

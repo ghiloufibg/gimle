@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -23,7 +24,7 @@ import org.junit.jupiter.api.Timeout;
 class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
 
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void greeter_modules_deploy_across_a_store_cluster_and_multiple_control_plane_replicas()
       throws Exception {
     Path repoRoot = repoRoot();

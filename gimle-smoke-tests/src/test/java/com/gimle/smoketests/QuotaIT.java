@@ -1,6 +1,7 @@
 package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -11,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -34,7 +36,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
    * is never touched.
    */
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_tenant_over_quota_deployment_is_flagged_but_not_evicted() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -63,8 +65,8 @@ class QuotaIT extends GreeterSmokeClusterSupport {
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE under a compliant quota");
-    assertTrue(
-        !isQuotaViolating(baseUrl, "greeter-provider-deployment"),
+    assertFalse(
+        isQuotaViolating(baseUrl, "greeter-provider-deployment"),
         "should not be flagged while comfortably within quota");
 
     // Retroactively lower the same tenant's quota below what's already running -- QuotaReconciler's
@@ -111,7 +113,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
    * record) and that it never touched the first, already-running deployment.
    */
   @Test
-  @Timeout(value = 4, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 4, unit = TimeUnit.MINUTES)
   void a_deployment_that_would_exceed_tenant_quota_is_rejected_at_admission() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();

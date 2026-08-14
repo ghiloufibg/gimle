@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.Timeout;
 class RaftResilienceIT extends GreeterSmokeClusterSupport {
 
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void cluster_tolerates_losing_one_store_node_mid_deployment() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -101,7 +102,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
    * none silently lost.
    */
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_leader_failover_loses_no_acknowledged_write_under_concurrent_load() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -210,23 +211,24 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
    * proves the addServer/removeServer roundtrip itself without also gambling on that untested edge
    * case within the same run.
    *
-   * <p><b>Disabled</b>: this reproduction found and fixed one real bug (a self-elected phantom
+   * <p><b>Disabled</b>: this reproduction found and fixed one real bug -- a self-elected phantom
    * leader that {@link com.gimle.mimir.raft.RaftNode#onAppendEntries}/{@code onInstallSnapshot}
-   * never demoted on an equal-term message -- see QA_FINDINGS.md), but even with that fix in place
-   * the cluster's own post-membership-change leader instability window is genuinely variable in
-   * this sandbox's 12-JVM/4-core load -- 85s in some runs, still not recovered after 150s in
-   * others. No timeout this suite picks can both stay honest about a real upper bound and pass
-   * reliably here. Left in place (not deleted) as a deterministic repro for whoever picks up
-   * QA_FINDINGS.md's still-open finding next -- either a quieter/dedicated CI runner, or a real
-   * Raft-level fix (e.g. a non-voting learner catch-up phase before a new peer becomes a full
-   * voting member, the classic Raft answer to exactly this instability).
+   * never demoted on an equal-term message, so a stale leader could keep believing it was still in
+   * charge after a legitimate peer at the same term took over. But even with that fix in place, the
+   * cluster's own post-membership-change leader instability window is genuinely variable in this
+   * sandbox's 12-JVM/4-core load -- 85s in some runs, still not recovered after 150s in others. No
+   * timeout this suite picks can both stay honest about a real upper bound and pass reliably here.
+   * Left in place (not deleted) as a deterministic repro for whoever picks up this still-open
+   * timing question next -- either a quieter/dedicated CI runner, or a real Raft-level fix (e.g. a
+   * non-voting learner catch-up phase before a new peer becomes a full voting member, the classic
+   * Raft answer to exactly this instability).
    */
   @Test
   @org.junit.jupiter.api.Disabled(
-      "QA_FINDINGS.md: live membership change's post-change leader-instability window is real but"
-          + " variable (85-180s+) in this sandbox; see the class javadoc above for the fixed bug"
-          + " and the still-open timing finding")
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+      "live membership change's post-change leader-instability window is real but variable"
+          + " (85-180s+) in this sandbox; see the class javadoc above for the fixed bug and the"
+          + " still-open timing finding")
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_new_store_node_joins_via_live_membership_change_and_is_then_removed() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -279,10 +281,10 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
         () -> isActive(baseUrl, "greeter-provider-deployment-2"),
         // 150s, not the usual 90s this suite's other post-disruption awaits use: a live
         // membership change genuinely destabilizes leadership for a real, repeatable ~85-95s in
-        // this sandbox's 4-core/12-JVM load (QA_FINDINGS.md's own reproduction/measurement),
-        // longer than a single node loss (that test's own 90s budget) since the new peer must
-        // also fully catch up its log before the expanded quorum stabilizes -- generous headroom
-        // here, not a padded guess.
+        // this sandbox's 4-core/12-JVM load, measured by repeated runs of this same test, longer
+        // than a single node loss (that test's own 90s budget) since the new peer must also fully
+        // catch up its log before the expanded quorum stabilizes -- generous headroom here, not a
+        // padded guess.
         Duration.ofSeconds(150),
         "a deployment submitted after a 4th store node joined via live membership change should"
             + " still reach ACTIVE, proving the newly-expanded 4-node cluster kept serving writes");

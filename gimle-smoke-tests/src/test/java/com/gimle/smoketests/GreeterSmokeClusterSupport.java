@@ -19,9 +19,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -133,18 +136,24 @@ abstract class GreeterSmokeClusterSupport {
     process.destroyForcibly();
   }
 
+  // AgentMain#buildWorkerCommand's own worker-only flag, scoping that worker's default log root to
+  // a subdirectory named after it -- the shared marker every worker-descendant lookup below matches
+  // on, rather than the trailing com.gimle.worker.WorkerMain main-class argument:
+  // ProcessHandle.Info#commandLine() truncates a very long command line (this repo's own
+  // many-module classpath easily exceeds whatever internal buffer it uses) before reaching an
+  // argument that far into the command, a real, previously-observed gap between what
+  // ProcessBuilder was actually given and what comes back out through ProcessHandle. This flag
+  // sits early enough to survive that.
+  private static final String LOG_ROOT_FLAG = "-Dgimle.log.root=";
+
   /**
-   * The single {@code WorkerMain} child process descendant of a supervising {@code AgentMain}, if
-   * one currently exists. Matched on {@code -Dgimle.log.root=.../workers/...} ({@code
-   * AgentMain#buildWorkerCommand}'s own worker-only flag, scoping that worker's default log root to
-   * a subdirectory named after it) rather than the trailing {@code com.gimle.worker.WorkerMain}
-   * main-class argument: {@code ProcessHandle.Info#commandLine()} truncates a very long command
-   * line (this repo's own many-module classpath easily exceeds whatever internal buffer it uses)
-   * before reaching an argument that far into the command, a real, previously-observed gap between
-   * what {@code ProcessBuilder} was actually given and what comes back out through {@code
-   * ProcessHandle}. This flag sits early enough to survive that.
+   * Every descendant of {@code agentProcess} whose command line carries {@link #LOG_ROOT_FLAG} and
+   * satisfies {@code extraMatch} -- the shared filtering primitive {@link #findWorkerDescendant},
+   * {@link #findWorkerDescendants}, and {@link #findWorkerDescendantForKey} each specialize with
+   * their own extra predicate ("any worker" vs. "one specific spawn-time key").
    */
-  static Optional<ProcessHandle> findWorkerDescendant(Process agentProcess) {
+  private static Stream<ProcessHandle> workerDescendants(
+      Process agentProcess, Predicate<String> extraMatch) {
     return agentProcess
         .descendants()
         .filter(
@@ -152,9 +161,18 @@ abstract class GreeterSmokeClusterSupport {
                 handle
                     .info()
                     .commandLine()
-                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains("/workers/"))
-                    .orElse(false))
-        .findFirst();
+                    .map(line -> line.contains(LOG_ROOT_FLAG) && extraMatch.test(line))
+                    .orElse(false));
+  }
+
+  /**
+   * The single {@code WorkerMain} child process descendant of a supervising {@code AgentMain}, if
+   * one currently exists. Matched on {@code -Dgimle.log.root=.../workers/...} -- see {@link
+   * #LOG_ROOT_FLAG}'s own javadoc for why that flag is used rather than the trailing main-class
+   * argument.
+   */
+  static Optional<ProcessHandle> findWorkerDescendant(Process agentProcess) {
+    return workerDescendants(agentProcess, line -> line.contains("/workers/")).findFirst();
   }
 
   /**
@@ -164,16 +182,7 @@ abstract class GreeterSmokeClusterSupport {
    * worker should collapse to a single match here).
    */
   static List<ProcessHandle> findWorkerDescendants(Process agentProcess) {
-    return agentProcess
-        .descendants()
-        .filter(
-            handle ->
-                handle
-                    .info()
-                    .commandLine()
-                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains("/workers/"))
-                    .orElse(false))
-        .toList();
+    return workerDescendants(agentProcess, line -> line.contains("/workers/")).toList();
   }
 
   /**
@@ -190,16 +199,7 @@ abstract class GreeterSmokeClusterSupport {
    * the same {@link ProcessHandle#pid()} across the whole rename.
    */
   static Optional<ProcessHandle> findWorkerDescendantForKey(Process agentProcess, String key) {
-    return agentProcess
-        .descendants()
-        .filter(
-            handle ->
-                handle
-                    .info()
-                    .commandLine()
-                    .map(line -> line.contains("-Dgimle.log.root=") && line.contains(key))
-                    .orElse(false))
-        .findFirst();
+    return workerDescendants(agentProcess, line -> line.contains(key)).findFirst();
   }
 
   /**
@@ -270,21 +270,36 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * The shared GET-and-swallow-transport-failures primitive every polling helper in this class
+   * builds on: "the cluster isn't ready yet" (connection refused, timeout, ...) and "responded but
+   * not what we're polling for yet" both just mean "not yet" to a caller mid-{@link #await}, never
+   * a hard failure worth surfacing -- so this is the one place that builds the request and swallows
+   * the transport exception, rather than each poll helper repeating it.
+   */
+  private Optional<HttpResponse<String>> tryGet(String url) {
+    try {
+      return Optional.of(
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(url)).GET().build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)));
+    } catch (Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  /**
    * True once {@code GET /nodes} reports {@code nodeId}'s own {@code "cordoned"} field ({@code
    * ApiServer}'s own node-listing response) matching {@code expected} -- a direct read of the API's
    * own reported state, distinct from {@link #isActive}/{@link #deploymentStatus}'s
    * deployment-scoped checks, since cordoning is a node-scoped flag with no deployment of its own.
    */
   boolean nodeCordonedIs(String baseUrl, String nodeId, boolean expected) {
+    Optional<HttpResponse<String>> response = tryGet(baseUrl + "/nodes");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return false;
+    }
     try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      if (response.statusCode() != 200) {
-        return false;
-      }
-      List<Object> nodes = Json.asArray(Json.parse(response.body()));
+      List<Object> nodes = Json.asArray(Json.parse(response.get().body()));
       for (Object entry : nodes) {
         Map<String, Object> node = Json.asObject(entry);
         if (nodeId.equals(node.get("nodeId"))) {
@@ -304,15 +319,12 @@ abstract class GreeterSmokeClusterSupport {
    * just "the process is running."
    */
   boolean nodeRegistered(String baseUrl, String nodeId) {
+    Optional<HttpResponse<String>> response = tryGet(baseUrl + "/nodes");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return false;
+    }
     try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      if (response.statusCode() != 200) {
-        return false;
-      }
-      List<Object> nodes = Json.asArray(Json.parse(response.body()));
+      List<Object> nodes = Json.asArray(Json.parse(response.get().body()));
       for (Object entry : nodes) {
         Map<String, Object> node = Json.asObject(entry);
         if (nodeId.equals(node.get("nodeId"))) {
@@ -326,13 +338,24 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
-   * Compiles a real v1.1.0 {@code greeter-provider} at test run time via {@link TestModuleBuilder},
-   * same module name as the committed v1.0.0 example (so {@code DeploymentReconciler} recognizes it
-   * as a version bump of the same deployment, not a different module), different version and
-   * greeting text so a running instance's reported {@code moduleId.version} unambiguously proves
-   * which build is actually serving.
+   * The shared shape every {@code buildXProviderJar} fixture below compiles: a real {@code
+   * greeter-provider} whose module name/exports/resources/isolation tier are always identical, only
+   * ever varying in {@code variant} (used to name the generated hooks/liveness/readiness classes
+   * and the built jar file), {@code version}, the {@code greet} lambda's own block body ({@code
+   * greetBody}, statements only -- callers supply a trailing {@code return}/{@code throw}
+   * themselves so a variant needing neither, like one that always hangs, still compiles), an
+   * optional extra hooks-class member ({@code extraHooksMember}, fully-qualified in place since a
+   * lambda body alone can't declare state that survives across separate invocations -- see {@link
+   * #buildFaultyProviderJar()}'s per-call counter), and the liveness/readiness probes' own return
+   * values.
    */
-  Path buildProviderV2Jar() {
+  private Path buildGreeterProviderVariant(
+      String variant,
+      String version,
+      String extraHooksMember,
+      String greetBody,
+      boolean alive,
+      boolean ready) {
     List<Path> compileJars = findCompileModulePathJars();
     return TestModuleBuilder.module(
             """
@@ -352,43 +375,49 @@ abstract class GreeterSmokeClusterSupport {
             }
             """)
         .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderV2Hooks",
+            "com.gimle.examples.greeter.provider.GreeterProvider%1$sHooks".formatted(variant),
             """
             package com.gimle.examples.greeter.provider;
             import com.gimle.examples.greeter.Greeter;
             import com.gimle.module.lifecycle.ModuleContext;
             import com.gimle.module.lifecycle.ModuleLifecycleHooks;
-            public final class GreeterProviderV2Hooks implements ModuleLifecycleHooks {
+            public final class GreeterProvider%1$sHooks implements ModuleLifecycleHooks {
+              %2$s
               public void onInstall(ModuleContext ctx) {}
               public void onStart(ModuleContext ctx) {
-                ctx.registerService(Greeter.class, name -> "Hello, " + name + "! (from provider v2)");
+                ctx.registerService(Greeter.class, name -> {
+                  %3$s
+                });
               }
               public void onStop(ModuleContext ctx) {}
               public void onUninstall(ModuleContext ctx) {}
             }
-            """)
+            """
+                .formatted(variant, extraHooksMember, greetBody))
         .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderV2Liveness",
+            "com.gimle.examples.greeter.provider.GreeterProvider%1$sLiveness".formatted(variant),
             """
             package com.gimle.examples.greeter.provider;
             import com.gimle.module.probe.LivenessProbe;
-            public final class GreeterProviderV2Liveness implements LivenessProbe {
-              public boolean isAlive() { return true; }
+            public final class GreeterProvider%1$sLiveness implements LivenessProbe {
+              public boolean isAlive() { return %2$s; }
             }
-            """)
+            """
+                .formatted(variant, alive))
         .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderV2Readiness",
+            "com.gimle.examples.greeter.provider.GreeterProvider%1$sReadiness".formatted(variant),
             """
             package com.gimle.examples.greeter.provider;
             import com.gimle.module.probe.ReadinessProbe;
-            public final class GreeterProviderV2Readiness implements ReadinessProbe {
-              public boolean isReady() { return true; }
+            public final class GreeterProvider%1$sReadiness implements ReadinessProbe {
+              public boolean isReady() { return %2$s; }
             }
-            """)
+            """
+                .formatted(variant, ready))
         .withDescriptor(
             """
             name: com.gimle.examples.greeter.provider
-            version: 1.1.0
+            version: %1$s
             isolation:
               tier: TIER_2
             resources:
@@ -402,13 +431,31 @@ abstract class GreeterSmokeClusterSupport {
               - service: com.gimle.examples.greeter.Greeter
                 version: 1.0.0
             lifecycle:
-              hooks: com.gimle.examples.greeter.provider.GreeterProviderV2Hooks
+              hooks: com.gimle.examples.greeter.provider.GreeterProvider%2$sHooks
             health:
-              liveness: com.gimle.examples.greeter.provider.GreeterProviderV2Liveness
-              readiness: com.gimle.examples.greeter.provider.GreeterProviderV2Readiness
-            """)
+              liveness: com.gimle.examples.greeter.provider.GreeterProvider%2$sLiveness
+              readiness: com.gimle.examples.greeter.provider.GreeterProvider%2$sReadiness
+            """
+                .formatted(version, variant))
         .dependsOn(compileJars.toArray(Path[]::new))
-        .build(tempDir, "greeter-provider-v2.jar");
+        .build(tempDir, "greeter-provider-" + variant.toLowerCase(Locale.ROOT) + ".jar");
+  }
+
+  /**
+   * Compiles a real v1.1.0 {@code greeter-provider} at test run time via {@link TestModuleBuilder},
+   * same module name as the committed v1.0.0 example (so {@code DeploymentReconciler} recognizes it
+   * as a version bump of the same deployment, not a different module), different version and
+   * greeting text so a running instance's reported {@code moduleId.version} unambiguously proves
+   * which build is actually serving.
+   */
+  Path buildProviderV2Jar() {
+    return buildGreeterProviderVariant(
+        "V2",
+        "1.1.0",
+        "",
+        "return \"Hello, \" + name + \"! (from provider v2)\";",
+        /* alive= */ true,
+        /* ready= */ true);
   }
 
   /**
@@ -422,89 +469,19 @@ abstract class GreeterSmokeClusterSupport {
    * same reasoning as {@link #buildProviderV2Jar()}.
    */
   Path buildFaultyProviderJar() {
-    List<Path> compileJars = findCompileModulePathJars();
-    return TestModuleBuilder.module(
-            """
-            module com.gimle.examples.greeter.provider {
-              requires static com.gimle.module;
-              requires static org.slf4j;
-              exports com.gimle.examples.greeter.provider;
-              exports com.gimle.examples.greeter;
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.Greeter",
-            """
-            package com.gimle.examples.greeter;
-            public interface Greeter {
-              String greet(String name);
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderFaultyHooks",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.examples.greeter.Greeter;
-            import com.gimle.module.lifecycle.ModuleContext;
-            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
-            import java.util.concurrent.atomic.AtomicLong;
-            public final class GreeterProviderFaultyHooks implements ModuleLifecycleHooks {
-              private static final AtomicLong CALLS = new AtomicLong();
-              public void onInstall(ModuleContext ctx) {}
-              public void onStart(ModuleContext ctx) {
-                ctx.registerService(Greeter.class, name -> {
-                  if (CALLS.incrementAndGet() % 2 == 0) {
-                    throw new IllegalStateException("synthetic QA fault");
-                  }
-                  return "Hello, " + name + "! (from faulty provider)";
-                });
-              }
-              public void onStop(ModuleContext ctx) {}
-              public void onUninstall(ModuleContext ctx) {}
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderFaultyLiveness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.LivenessProbe;
-            public final class GreeterProviderFaultyLiveness implements LivenessProbe {
-              public boolean isAlive() { return true; }
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderFaultyReadiness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.ReadinessProbe;
-            public final class GreeterProviderFaultyReadiness implements ReadinessProbe {
-              public boolean isReady() { return true; }
-            }
-            """)
-        .withDescriptor(
-            """
-            name: com.gimle.examples.greeter.provider
-            version: 1.0.0-faulty
-            isolation:
-              tier: TIER_2
-            resources:
-              request:
-                memory: 32Mi
-                cpu: 20m
-              limit:
-                memory: 64Mi
-                cpu: 100m
-            exports:
-              - service: com.gimle.examples.greeter.Greeter
-                version: 1.0.0
-            lifecycle:
-              hooks: com.gimle.examples.greeter.provider.GreeterProviderFaultyHooks
-            health:
-              liveness: com.gimle.examples.greeter.provider.GreeterProviderFaultyLiveness
-              readiness: com.gimle.examples.greeter.provider.GreeterProviderFaultyReadiness
-            """)
-        .dependsOn(compileJars.toArray(Path[]::new))
-        .build(tempDir, "greeter-provider-faulty.jar");
+    return buildGreeterProviderVariant(
+        "Faulty",
+        "1.0.0-faulty",
+        "private static final java.util.concurrent.atomic.AtomicLong CALLS ="
+            + " new java.util.concurrent.atomic.AtomicLong();",
+        """
+        if (CALLS.incrementAndGet() % 2 == 0) {
+          throw new IllegalStateException("synthetic QA fault");
+        }
+        return "Hello, " + name + "! (from faulty provider)";
+        """,
+        /* alive= */ true,
+        /* ready= */ true);
   }
 
   /**
@@ -534,91 +511,20 @@ abstract class GreeterSmokeClusterSupport {
    * the timeout gets the same genuine {@link java.io.IOException} without the pileup.
    */
   Path buildAlwaysBrokenProviderJar() {
-    List<Path> compileJars = findCompileModulePathJars();
-    return TestModuleBuilder.module(
-            """
-            module com.gimle.examples.greeter.provider {
-              requires static com.gimle.module;
-              requires static org.slf4j;
-              exports com.gimle.examples.greeter.provider;
-              exports com.gimle.examples.greeter;
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.Greeter",
-            """
-            package com.gimle.examples.greeter;
-            public interface Greeter {
-              String greet(String name);
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderBrokenHooks",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.examples.greeter.Greeter;
-            import com.gimle.module.lifecycle.ModuleContext;
-            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
-            public final class GreeterProviderBrokenHooks implements ModuleLifecycleHooks {
-              public void onInstall(ModuleContext ctx) {}
-              public void onStart(ModuleContext ctx) {
-                ctx.registerService(
-                    Greeter.class,
-                    name -> {
-                      try {
-                        Thread.sleep(8_000);
-                      } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                      }
-                      throw new IllegalStateException("unreachable: caller times out first");
-                    });
-              }
-              public void onStop(ModuleContext ctx) {}
-              public void onUninstall(ModuleContext ctx) {}
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderBrokenLiveness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.LivenessProbe;
-            public final class GreeterProviderBrokenLiveness implements LivenessProbe {
-              public boolean isAlive() { return true; }
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderBrokenReadiness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.ReadinessProbe;
-            public final class GreeterProviderBrokenReadiness implements ReadinessProbe {
-              public boolean isReady() { return true; }
-            }
-            """)
-        .withDescriptor(
-            """
-            name: com.gimle.examples.greeter.provider
-            version: 1.0.0-broken
-            isolation:
-              tier: TIER_2
-            resources:
-              request:
-                memory: 32Mi
-                cpu: 20m
-              limit:
-                memory: 64Mi
-                cpu: 100m
-            exports:
-              - service: com.gimle.examples.greeter.Greeter
-                version: 1.0.0
-            lifecycle:
-              hooks: com.gimle.examples.greeter.provider.GreeterProviderBrokenHooks
-            health:
-              liveness: com.gimle.examples.greeter.provider.GreeterProviderBrokenLiveness
-              readiness: com.gimle.examples.greeter.provider.GreeterProviderBrokenReadiness
-            """)
-        .dependsOn(compileJars.toArray(Path[]::new))
-        .build(tempDir, "greeter-provider-broken.jar");
+    return buildGreeterProviderVariant(
+        "Broken",
+        "1.0.0-broken",
+        "",
+        """
+        try {
+          Thread.sleep(8_000);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        throw new IllegalStateException("unreachable: caller times out first");
+        """,
+        /* alive= */ true,
+        /* ready= */ true);
   }
 
   /**
@@ -636,83 +542,13 @@ abstract class GreeterSmokeClusterSupport {
    * as {@link #buildProviderV2Jar()}.
    */
   Path buildAlwaysUnhealthyProviderJar() {
-    List<Path> compileJars = findCompileModulePathJars();
-    return TestModuleBuilder.module(
-            """
-            module com.gimle.examples.greeter.provider {
-              requires static com.gimle.module;
-              requires static org.slf4j;
-              exports com.gimle.examples.greeter.provider;
-              exports com.gimle.examples.greeter;
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.Greeter",
-            """
-            package com.gimle.examples.greeter;
-            public interface Greeter {
-              String greet(String name);
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderUnhealthyHooks",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.examples.greeter.Greeter;
-            import com.gimle.module.lifecycle.ModuleContext;
-            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
-            public final class GreeterProviderUnhealthyHooks implements ModuleLifecycleHooks {
-              public void onInstall(ModuleContext ctx) {}
-              public void onStart(ModuleContext ctx) {
-                ctx.registerService(
-                    Greeter.class, name -> "Hello, " + name + "! (from unhealthy provider)");
-              }
-              public void onStop(ModuleContext ctx) {}
-              public void onUninstall(ModuleContext ctx) {}
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderAlwaysDeadLiveness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.LivenessProbe;
-            public final class GreeterProviderAlwaysDeadLiveness implements LivenessProbe {
-              public boolean isAlive() { return false; }
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderUnhealthyReadiness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.ReadinessProbe;
-            public final class GreeterProviderUnhealthyReadiness implements ReadinessProbe {
-              public boolean isReady() { return true; }
-            }
-            """)
-        .withDescriptor(
-            """
-            name: com.gimle.examples.greeter.provider
-            version: 1.0.0-unhealthy
-            isolation:
-              tier: TIER_2
-            resources:
-              request:
-                memory: 32Mi
-                cpu: 20m
-              limit:
-                memory: 64Mi
-                cpu: 100m
-            exports:
-              - service: com.gimle.examples.greeter.Greeter
-                version: 1.0.0
-            lifecycle:
-              hooks: com.gimle.examples.greeter.provider.GreeterProviderUnhealthyHooks
-            health:
-              liveness: com.gimle.examples.greeter.provider.GreeterProviderAlwaysDeadLiveness
-              readiness: com.gimle.examples.greeter.provider.GreeterProviderUnhealthyReadiness
-            """)
-        .dependsOn(compileJars.toArray(Path[]::new))
-        .build(tempDir, "greeter-provider-unhealthy.jar");
+    return buildGreeterProviderVariant(
+        "Unhealthy",
+        "1.0.0-unhealthy",
+        "",
+        "return \"Hello, \" + name + \"! (from unhealthy provider)\";",
+        /* alive= */ false,
+        /* ready= */ true);
   }
 
   /**
@@ -849,89 +685,20 @@ abstract class GreeterSmokeClusterSupport {
    * same reasoning as {@link #buildProviderV2Jar()}.
    */
   Path buildSlowProviderJar() {
-    List<Path> compileJars = findCompileModulePathJars();
-    return TestModuleBuilder.module(
-            """
-            module com.gimle.examples.greeter.provider {
-              requires static com.gimle.module;
-              requires static org.slf4j;
-              exports com.gimle.examples.greeter.provider;
-              exports com.gimle.examples.greeter;
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.Greeter",
-            """
-            package com.gimle.examples.greeter;
-            public interface Greeter {
-              String greet(String name);
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderSlowHooks",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.examples.greeter.Greeter;
-            import com.gimle.module.lifecycle.ModuleContext;
-            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
-            public final class GreeterProviderSlowHooks implements ModuleLifecycleHooks {
-              public void onInstall(ModuleContext ctx) {}
-              public void onStart(ModuleContext ctx) {
-                ctx.registerService(Greeter.class, name -> {
-                  try {
-                    Thread.sleep(300);
-                  } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                  }
-                  return "Hello, " + name + "! (from slow provider)";
-                });
-              }
-              public void onStop(ModuleContext ctx) {}
-              public void onUninstall(ModuleContext ctx) {}
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderSlowLiveness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.LivenessProbe;
-            public final class GreeterProviderSlowLiveness implements LivenessProbe {
-              public boolean isAlive() { return true; }
-            }
-            """)
-        .withClass(
-            "com.gimle.examples.greeter.provider.GreeterProviderSlowReadiness",
-            """
-            package com.gimle.examples.greeter.provider;
-            import com.gimle.module.probe.ReadinessProbe;
-            public final class GreeterProviderSlowReadiness implements ReadinessProbe {
-              public boolean isReady() { return true; }
-            }
-            """)
-        .withDescriptor(
-            """
-            name: com.gimle.examples.greeter.provider
-            version: 1.0.0-slow
-            isolation:
-              tier: TIER_2
-            resources:
-              request:
-                memory: 32Mi
-                cpu: 20m
-              limit:
-                memory: 64Mi
-                cpu: 100m
-            exports:
-              - service: com.gimle.examples.greeter.Greeter
-                version: 1.0.0
-            lifecycle:
-              hooks: com.gimle.examples.greeter.provider.GreeterProviderSlowHooks
-            health:
-              liveness: com.gimle.examples.greeter.provider.GreeterProviderSlowLiveness
-              readiness: com.gimle.examples.greeter.provider.GreeterProviderSlowReadiness
-            """)
-        .dependsOn(compileJars.toArray(Path[]::new))
-        .build(tempDir, "greeter-provider-slow.jar");
+    return buildGreeterProviderVariant(
+        "Slow",
+        "1.0.0-slow",
+        "",
+        """
+        try {
+          Thread.sleep(300);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        return "Hello, " + name + "! (from slow provider)";
+        """,
+        /* alive= */ true,
+        /* ready= */ true);
   }
 
   /**
@@ -969,13 +736,58 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * A deployment's {@code disruption:} block ({@code maxUnavailable}/{@code maxSurge}) -- the
+   * default budget every submission that omits it implies ({@code maxUnavailable: 1}, {@code
+   * maxSurge: 0}) never exercises {@code DeploymentReconciler#handleSurge} at all, so a
+   * surge-specific scenario needs one explicitly.
+   */
+  record Disruption(int maxUnavailable, int maxSurge) {}
+
+  /**
+   * The function every {@code *WithRetry} submission helper in this class hands to {@link
+   * #retryUntilSuccess} -- just the fallible action itself, since {@link Runnable} can't declare a
+   * checked {@code throws Exception} the way a real HTTP call needs to.
+   */
+  @FunctionalInterface
+  private interface ThrowingRunnable {
+    void run() throws Exception;
+  }
+
+  /**
+   * The shared "retry until it stops throwing {@link AssertionError}, or give up once the deadline
+   * has passed" control flow every {@code *WithRetry} submission helper in this class uses -- the
+   * store cluster can transiently reject a write with a 503 mid-election, so a submission that
+   * isn't guaranteed to land against an already-proven-stable cluster retries rather than failing
+   * outright on the first transient rejection. Only {@link AssertionError} (what {@code fail(...)}
+   * raises on a non-200 response) is treated as transient and retried -- any other exception is a
+   * real failure and propagates immediately.
+   */
+  private static void retryUntilSuccess(Duration timeout, ThrowingRunnable action)
+      throws Exception {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (true) {
+      try {
+        action.run();
+        return;
+      } catch (AssertionError e) {
+        if (System.nanoTime() > deadline) {
+          throw e;
+        }
+        Thread.sleep(500);
+      }
+    }
+  }
+
+  /**
    * Like {@link #submitDeployment}, but with a caller-chosen replica count and module version
    * (rather than the hardcoded {@code replicas: 1}/{@code version: 1.0.0} that helper writes) --
    * {@link com.gimle.mimir.manifest.DeploymentManifestParser#parseModuleId} reads the manifest's
    * own declared {@code module.version} field verbatim as {@code spec.moduleId()}, never re-derived
    * from the artifact's real descriptor inside the jar, so a version-bump rollout must state the
    * new version here explicitly or {@code DeploymentReconciler} would never see a {@code moduleId}
-   * mismatch to trigger a rolling migration on.
+   * mismatch to trigger a rolling migration on. {@code disruption}, when present, adds an explicit
+   * {@code disruption:} block (see {@link Disruption}); empty omits it, implying {@code
+   * DeploymentReconciler}'s own default budget.
    */
   void submitDeploymentWithReplicas(
       String baseUrl,
@@ -983,8 +795,16 @@ abstract class GreeterSmokeClusterSupport {
       String moduleName,
       String version,
       Path jar,
-      int replicas)
+      int replicas,
+      Optional<Disruption> disruption)
       throws Exception {
+    String disruptionBlock =
+        disruption
+            .map(
+                d ->
+                    "disruption:\n  maxUnavailable: %d\n  maxSurge: %d\n"
+                        .formatted(d.maxUnavailable(), d.maxSurge()))
+            .orElse("");
     String manifest =
         """
         kind: Deployment
@@ -994,8 +814,14 @@ abstract class GreeterSmokeClusterSupport {
           version: %s
         artifactPath: %s
         replicas: %d
-        """
-            .formatted(deploymentName, moduleName, version, jar.toAbsolutePath(), replicas);
+        %s"""
+            .formatted(
+                deploymentName,
+                moduleName,
+                version,
+                jar.toAbsolutePath(),
+                replicas,
+                disruptionBlock);
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
@@ -1008,12 +834,9 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
-   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitDeploymentWithReplicas} -- the
-   * store cluster can transiently reject a write with a 503 mid-election (see {@code
-   * submitDeploymentWithRetry}'s own call sites for the same real, previously-observed behavior),
-   * so every submission in this suite that isn't guaranteed to land against an
-   * already-proven-stable cluster retries rather than failing outright on the first transient
-   * rejection.
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitDeploymentWithReplicas} -- see
+   * {@link #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code
+   * *WithRetry} helper in this class relies on.
    */
   void submitDeploymentWithReplicasWithRetry(
       String baseUrl,
@@ -1022,99 +845,14 @@ abstract class GreeterSmokeClusterSupport {
       String version,
       Path jar,
       int replicas,
+      Optional<Disruption> disruption,
       Duration timeout)
       throws Exception {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (true) {
-      try {
-        submitDeploymentWithReplicas(baseUrl, deploymentName, moduleName, version, jar, replicas);
-        return;
-      } catch (AssertionError e) {
-        if (System.nanoTime() > deadline) {
-          throw e;
-        }
-        Thread.sleep(500);
-      }
-    }
-  }
-
-  /**
-   * Like {@link #submitDeploymentWithReplicas}, plus an explicit {@code disruption:} block ({@code
-   * maxUnavailable}/{@code maxSurge}) -- the default budget every other submission helper in this
-   * class implies ({@code maxUnavailable: 1}, {@code maxSurge: 0}) never exercises {@code
-   * DeploymentReconciler#handleSurge} at all, so a surge-specific scenario needs this instead.
-   */
-  void submitDeploymentWithReplicasAndDisruption(
-      String baseUrl,
-      String deploymentName,
-      String moduleName,
-      String version,
-      Path jar,
-      int replicas,
-      int maxUnavailable,
-      int maxSurge)
-      throws Exception {
-    String manifest =
-        """
-        kind: Deployment
-        name: %s
-        module:
-          name: %s
-          version: %s
-        artifactPath: %s
-        replicas: %d
-        disruption:
-          maxUnavailable: %d
-          maxSurge: %d
-        """
-            .formatted(
-                deploymentName,
-                moduleName,
-                version,
-                jar.toAbsolutePath(),
-                replicas,
-                maxUnavailable,
-                maxSurge);
-    HttpResponse<String> response =
-        httpClient.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
-                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
-                .build(),
-            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() != 200) {
-      fail("deployment submission failed: " + response.statusCode() + " " + response.body());
-    }
-  }
-
-  /**
-   * Like {@link #submitDeploymentWithReplicasWithRetry}, but for {@link
-   * #submitDeploymentWithReplicasAndDisruption} -- same transient-503-during-election retry
-   * reasoning.
-   */
-  void submitDeploymentWithReplicasAndDisruptionWithRetry(
-      String baseUrl,
-      String deploymentName,
-      String moduleName,
-      String version,
-      Path jar,
-      int replicas,
-      int maxUnavailable,
-      int maxSurge,
-      Duration timeout)
-      throws Exception {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (true) {
-      try {
-        submitDeploymentWithReplicasAndDisruption(
-            baseUrl, deploymentName, moduleName, version, jar, replicas, maxUnavailable, maxSurge);
-        return;
-      } catch (AssertionError e) {
-        if (System.nanoTime() > deadline) {
-          throw e;
-        }
-        Thread.sleep(500);
-      }
-    }
+    retryUntilSuccess(
+        timeout,
+        () ->
+            submitDeploymentWithReplicas(
+                baseUrl, deploymentName, moduleName, version, jar, replicas, disruption));
   }
 
   /**
@@ -1360,20 +1098,12 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   boolean metricsHistoryShowsDeploymentsRequestCount(String baseUrl, String processId) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(baseUrl + "/metrics-history/CONTROLPLANE/" + processId))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200
-          && response.body().contains("gimle.controlplane.request.count")
-          && response.body().contains("deployments");
-    } catch (Exception e) {
-      return false;
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(baseUrl + "/metrics-history/CONTROLPLANE/" + processId);
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains("gimle.controlplane.request.count")
+        && response.get().body().contains("deployments");
   }
 
   SmokeCluster startCluster(Path repoRoot, String javaExecutable, String classpath)
@@ -1520,7 +1250,7 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   static String bunExecutable() {
-    return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
         ? "bun.exe"
         : "bun";
   }
@@ -1802,18 +1532,7 @@ abstract class GreeterSmokeClusterSupport {
   void submitDeploymentWithRetry(
       String baseUrl, String deploymentName, String moduleName, Path jar, Duration timeout)
       throws Exception {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (true) {
-      try {
-        submitDeployment(baseUrl, deploymentName, moduleName, jar);
-        return;
-      } catch (AssertionError e) {
-        if (System.nanoTime() > deadline) {
-          throw e;
-        }
-        Thread.sleep(500);
-      }
-    }
+    retryUntilSuccess(timeout, () -> submitDeployment(baseUrl, deploymentName, moduleName, jar));
   }
 
   void createLoginAccount(String baseUrl, String username, String password) throws Exception {
@@ -1872,35 +1591,20 @@ abstract class GreeterSmokeClusterSupport {
     }
   }
 
-  Map<String, Object> deploymentStatus(String baseUrl, String deploymentName) throws Exception {
-    HttpResponse<String> response =
-        httpClient.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
-                .GET()
-                .build(),
-            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() != 200) {
+  Map<String, Object> deploymentStatus(String baseUrl, String deploymentName) {
+    Optional<HttpResponse<String>> response = tryGet(baseUrl + "/deployments/" + deploymentName);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
       return Map.of("instances", List.of());
     }
-    return Json.asObject(Json.parse(response.body()));
+    return Json.asObject(Json.parse(response.get().body()));
   }
 
   boolean consumerLogShowsAGreeting(String baseUrl) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(
-                          baseUrl
-                              + "/logs/instances/greeter-consumer-deployment/0"
-                              + "?category=APPLICATION"))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200 && response.body().contains("Hello, Gimlé!");
-    } catch (Exception e) {
-      return false;
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(baseUrl + "/logs/instances/greeter-consumer-deployment/0" + "?category=APPLICATION");
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains("Hello, Gimlé!");
   }
 
   /**
@@ -1912,21 +1616,11 @@ abstract class GreeterSmokeClusterSupport {
    * observes the cross-worker fabric call.
    */
   boolean providerLogShowsTheSecret(String baseUrl) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(
-                          baseUrl
-                              + "/logs/instances/greeter-provider-deployment/0"
-                              + "?category=APPLICATION"))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200 && response.body().contains(SECRET_VALUE);
-    } catch (Exception e) {
-      return false;
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(baseUrl + "/logs/instances/greeter-provider-deployment/0" + "?category=APPLICATION");
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains(SECRET_VALUE);
   }
 
   /**
@@ -1936,25 +1630,18 @@ abstract class GreeterSmokeClusterSupport {
    */
   boolean instanceLogContains(
       String baseUrl, String deploymentName, int instanceIndex, String category, String text) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(
-                          baseUrl
-                              + "/logs/instances/"
-                              + deploymentName
-                              + "/"
-                              + instanceIndex
-                              + "?category="
-                              + category))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200 && response.body().contains(text);
-    } catch (Exception e) {
-      return false;
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(
+            baseUrl
+                + "/logs/instances/"
+                + deploymentName
+                + "/"
+                + instanceIndex
+                + "?category="
+                + category);
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains(text);
   }
 
   /**
@@ -1980,25 +1667,16 @@ abstract class GreeterSmokeClusterSupport {
    */
   String fetchInstanceLog(
       String baseUrl, String deploymentName, int instanceIndex, String category) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(
-                          baseUrl
-                              + "/logs/instances/"
-                              + deploymentName
-                              + "/"
-                              + instanceIndex
-                              + "?category="
-                              + category))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200 ? response.body() : "";
-    } catch (Exception e) {
-      return "";
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(
+            baseUrl
+                + "/logs/instances/"
+                + deploymentName
+                + "/"
+                + instanceIndex
+                + "?category="
+                + category);
+    return response.isPresent() && response.get().statusCode() == 200 ? response.get().body() : "";
   }
 
   /**
@@ -2009,18 +1687,11 @@ abstract class GreeterSmokeClusterSupport {
    * ever land in {@code agent-platform.log}, never in any instance's own log.
    */
   boolean agentPlatformLogContains(String baseUrl, String nodeId, String text) {
-    try {
-      HttpResponse<String> response =
-          httpClient.send(
-              HttpRequest.newBuilder(
-                      URI.create(baseUrl + "/logs/nodes/" + nodeId + "?category=PLATFORM"))
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return response.statusCode() == 200 && response.body().contains(text);
-    } catch (Exception e) {
-      return false;
-    }
+    Optional<HttpResponse<String>> response =
+        tryGet(baseUrl + "/logs/nodes/" + nodeId + "?category=PLATFORM");
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains(text);
   }
 
   static boolean httpRespondsQuietly(String url) {
@@ -2072,7 +1743,7 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   static String javaExecutable() {
-    java.util.Optional<String> command = ProcessHandle.current().info().command();
+    Optional<String> command = ProcessHandle.current().info().command();
     if (command.isPresent()) {
       return command.get();
     }

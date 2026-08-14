@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -32,7 +33,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
    * genuinely transparent, not a client-visible failover with different output.
    */
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_deployed_instances_log_survives_its_owning_agent_dying() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -84,7 +85,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
    * specific meter this test's own traffic drives shows up by name.
    */
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_control_planes_own_request_metrics_round_trip_through_muninn() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();

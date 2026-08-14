@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -58,7 +59,13 @@ class ClassloaderLeakIT extends GreeterSmokeClusterSupport {
 
     Path leakyV1 = buildLeakyProviderJar("1.0.0-leaky");
     submitDeploymentWithReplicas(
-        baseUrl, "leaky-deployment", "com.gimle.fixture.leaky", "1.0.0-leaky", leakyV1, 1);
+        baseUrl,
+        "leaky-deployment",
+        "com.gimle.fixture.leaky",
+        "1.0.0-leaky",
+        leakyV1,
+        1,
+        Optional.empty());
     await(
         () -> isActive(baseUrl, "leaky-deployment"),
         Duration.ofSeconds(60),
@@ -70,7 +77,13 @@ class ClassloaderLeakIT extends GreeterSmokeClusterSupport {
     // and therefore un-collectable, for as long as the thread itself keeps running: deliberately.
     Path leakyV2 = buildLeakyProviderJar("1.0.1-leaky");
     submitDeploymentWithReplicas(
-        baseUrl, "leaky-deployment", "com.gimle.fixture.leaky", "1.0.1-leaky", leakyV2, 1);
+        baseUrl,
+        "leaky-deployment",
+        "com.gimle.fixture.leaky",
+        "1.0.1-leaky",
+        leakyV2,
+        1,
+        Optional.empty());
     await(
         () -> allInstancesOnVersion(baseUrl, "leaky-deployment", "1.0.1-leaky", 1),
         Duration.ofSeconds(60),

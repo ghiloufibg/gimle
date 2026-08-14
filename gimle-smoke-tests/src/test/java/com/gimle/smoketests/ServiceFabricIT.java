@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -81,6 +82,7 @@ class ServiceFabricIT extends GreeterSmokeClusterSupport {
         "1.0.0-broken",
         brokenProviderJar,
         1,
+        Optional.empty(),
         Duration.ofSeconds(30));
     submitDeployment(
         baseUrl, "greeter-consumer-deployment", "com.gimle.examples.greeter.consumer", consumerJar);

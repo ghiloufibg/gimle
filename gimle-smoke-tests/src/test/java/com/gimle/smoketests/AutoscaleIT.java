@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -39,7 +40,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
    * already exercises implicitly).
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_deployment_scales_up_under_real_gatling_generated_request_rate_load() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -123,7 +124,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
    * error-rate signal can explain a scale-up.
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_deployment_scales_up_under_real_error_rate_load() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -203,7 +204,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
    * targets are all unreachable/absent so only the queue-depth signal can explain a scale-up.
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_deployment_scales_up_under_real_queue_depth_load() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -284,7 +285,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
    * AutoscaleReconcilerTest}'s in-process bypass.
    */
   @Test
-  @Timeout(value = 8, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_weighted_policy_blends_request_rate_and_queue_depth_signals_under_real_load()
       throws Exception {
     Path repoRoot = repoRoot();

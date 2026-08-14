@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -32,7 +33,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
    * believes it should.
    */
   @Test
-  @Timeout(value = 6, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_crashed_workers_instance_is_respawned_and_returns_to_active() throws Exception {
     Path repoRoot = repoRoot();
     String javaExecutable = javaExecutable();
@@ -93,7 +94,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
    * proves in-process via a package-private accessor.
    */
   @Test
-  @Timeout(value = 5, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 5, unit = TimeUnit.MINUTES)
   void a_module_that_never_passes_its_own_liveness_check_exhausts_its_restart_budget_and_fails()
       throws Exception {
     Path repoRoot = repoRoot();
@@ -115,7 +116,8 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
         "com.gimle.examples.greeter.provider",
         "1.0.0-unhealthy",
         unhealthyJar,
-        1);
+        1,
+        Optional.empty());
 
     await(
         () -> hasFailedInstance(baseUrl, "greeter-unhealthy-deployment"),
