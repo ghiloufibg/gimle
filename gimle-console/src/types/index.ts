@@ -455,7 +455,8 @@ export type ResourceKind =
   | "ROLE"
   | "ROLE_BINDING"
   | "ACCOUNT"
-  | "AUDIT";
+  | "AUDIT"
+  | "ARTIFACT";
 
 export type Verb = "READ" | "WRITE" | "DELETE" | "APPROVE";
 
@@ -497,6 +498,25 @@ export const RESOURCE_KINDS: ResourceKind[] = [
   "ROLE_BINDING",
   "ACCOUNT",
   "AUDIT",
+  "ARTIFACT",
 ];
 
 export const VERBS: Verb[] = ["READ", "WRITE", "DELETE", "APPROVE"];
+
+/* ---------------------------------------------------------------------------
+ * Artifact registry (Andvari)
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One immutable stored jar at a {@code moduleId}/{version} coordinate. The registry is
+ * content-addressed, so `sha256` identifies the bytes themselves -- a coordinate's contents can
+ * never change under it, which is why nothing here carries a "last modified" field.
+ */
+export interface ArtifactVersion {
+  moduleId: string;
+  version: string;
+  sha256: string;
+  sizeBytes: number;
+  pushedAtEpochMilli: number;
+  pushedBy: string;
+}

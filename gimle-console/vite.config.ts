@@ -59,6 +59,7 @@ export default defineConfig(({ command }) => ({
       "/metrics-history": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/traces-history": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/audit": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/artifacts": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
     },
   },
 }));

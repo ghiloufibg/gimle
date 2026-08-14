@@ -18,6 +18,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigRouteImport } from './routes/config'
 import { Route as AuditRouteImport } from './routes/audit'
+import { Route as ArtifactsRouteImport } from './routes/artifacts'
 import { Route as AccessControlRouteImport } from './routes/access-control'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TenantsIndexRouteImport } from './routes/tenants.index'
@@ -81,6 +82,11 @@ const ConfigRoute = ConfigRouteImport.update({
 const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArtifactsRoute = ArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AccessControlRoute = AccessControlRouteImport.update({
@@ -182,6 +188,7 @@ const InstancesNameIdxRoute = InstancesNameIdxRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/access-control': typeof AccessControlRoute
+  '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/access-control': typeof AccessControlRoute
+  '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
@@ -243,6 +251,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/access-control': typeof AccessControlRoute
+  '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
   '/controlplane': typeof ControlplaneRoute
@@ -275,6 +284,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/access-control'
+    | '/artifacts'
     | '/audit'
     | '/config'
     | '/controlplane'
@@ -305,6 +315,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/access-control'
+    | '/artifacts'
     | '/audit'
     | '/config'
     | '/controlplane'
@@ -335,6 +346,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/access-control'
+    | '/artifacts'
     | '/audit'
     | '/config'
     | '/controlplane'
@@ -366,6 +378,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccessControlRoute: typeof AccessControlRoute
+  ArtifactsRoute: typeof ArtifactsRoute
   AuditRoute: typeof AuditRoute
   ConfigRoute: typeof ConfigRoute
   ControlplaneRoute: typeof ControlplaneRoute
@@ -457,6 +470,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/artifacts': {
+      id: '/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof ArtifactsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/access-control': {
@@ -598,6 +618,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccessControlRoute: AccessControlRoute,
+  ArtifactsRoute: ArtifactsRoute,
   AuditRoute: AuditRoute,
   ConfigRoute: ConfigRoute,
   ControlplaneRoute: ControlplaneRoute,

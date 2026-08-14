@@ -17,6 +17,7 @@ import { HttpAuditRepository } from "./http/audit";
 import { HttpRolesRepository } from "./http/roles";
 import { HttpRoleBindingsRepository } from "./http/roleBindings";
 import { HttpAccountsRepository } from "./http/accounts";
+import { HttpArtifactsRepository } from "./http/artifacts";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -36,3 +37,4 @@ export const auditRepo = new HttpAuditRepository();
 export const rolesRepo = new HttpRolesRepository();
 export const roleBindingsRepo = new HttpRoleBindingsRepository();
 export const accountsRepo = new HttpAccountsRepository();
+export const artifactsRepo = new HttpArtifactsRepository();
