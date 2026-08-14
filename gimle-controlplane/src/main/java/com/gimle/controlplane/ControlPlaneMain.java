@@ -1,5 +1,7 @@
 package com.gimle.controlplane;
 
+import com.gimle.controlplane.andvari.AndvariClient;
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
@@ -20,6 +22,7 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MuninnShipper;
 import java.io.IOException;
@@ -89,7 +92,8 @@ public final class ControlPlaneMain {
       System.err.println(
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
               + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
-              + " [--host <hostname>] [--muninn-endpoint host:port]");
+              + " [--host <hostname>] [--muninn-endpoint host:port]"
+              + " [--andvari-endpoint host:port]");
       System.exit(2);
       return;
     }
@@ -99,6 +103,7 @@ public final class ControlPlaneMain {
     List<SocketAddress> storeEndpoints = List.of();
     String fafnirEndpoint = null;
     String muninnEndpoint = null;
+    String andvariEndpoint = null;
     for (int i = 2; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
@@ -108,6 +113,8 @@ public final class ControlPlaneMain {
         fafnirEndpoint = args[++i];
       } else if ("--muninn-endpoint".equals(args[i]) && i + 1 < args.length) {
         muninnEndpoint = args[++i];
+      } else if ("--andvari-endpoint".equals(args[i]) && i + 1 < args.length) {
+        andvariEndpoint = args[++i];
       }
     }
     if (storeEndpoints.isEmpty()) {
@@ -142,11 +149,28 @@ public final class ControlPlaneMain {
     // Optional, unlike fafnirClient above -- a cluster with no Muninn endpoint configured simply
     // never gets the /logs/* fallback for a gone node/instance (see MuninnClient's own javadoc).
     MuninnClient muninnClient = muninnEndpoint == null ? null : new MuninnClient(muninnEndpoint);
+    // Optional, same posture as muninnClient: a cluster with no Andvari endpoint keeps working
+    // on local artifactPath manifests unchanged, and only registry-coordinate manifests need it.
+    AndvariClient andvariClient =
+        andvariEndpoint == null ? null : new AndvariClient(andvariEndpoint);
+    ArtifactResolver artifactResolver =
+        andvariClient == null
+            ? ArtifactResolver.localOnly()
+            : ArtifactResolver.withRegistry(
+                andvariClient,
+                new ArtifactPullCache(
+                    Path.of(System.getProperty("gimle.data.root", "gimle-data"))
+                        .resolve("artifact-cache")));
 
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler =
         new DeploymentReconciler(
-            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+            storeClient,
+            scheduler,
+            storeClient,
+            NODE_DARK_TIMEOUT,
+            Clock.systemUTC(),
+            artifactResolver);
     ReplicaCountReconciler replicaCountReconciler =
         new ReplicaCountReconciler(storeClient, NODE_DARK_TIMEOUT, NODE_DARK_TIMEOUT, storeClient);
     HealthReconciler healthReconciler =
@@ -165,26 +189,42 @@ public final class ControlPlaneMain {
     // methods) -- no interaction with, or dependency on, tick order relative to them.
     JobReconciler jobReconciler =
         new JobReconciler(
-            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+            storeClient,
+            scheduler,
+            storeClient,
+            NODE_DARK_TIMEOUT,
+            Clock.systemUTC(),
+            artifactResolver);
     // A thin generator writing ordinary JobSpecs, never touching
     // JobRun/Scheduler directly -- see the class's own javadoc.
     CronJobReconciler cronJobReconciler =
-        new CronJobReconciler(storeClient, storeClient, Clock.systemUTC());
+        new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), artifactResolver);
     // Touches only its own DaemonSetSpec/DaemonSetAssignment store
     // types, invisible to every reconciler above by construction -- no interaction with, or
     // dependency on, tick order relative to them.
     DaemonSetReconciler daemonSetReconciler =
         new DaemonSetReconciler(
-            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+            storeClient,
+            scheduler,
+            storeClient,
+            NODE_DARK_TIMEOUT,
+            Clock.systemUTC(),
+            artifactResolver);
     // Touches only its own
     // StatefulSetSpec/StatefulSetAssignment store types -- same "invisible to every reconciler
     // above by construction" independence the Job/CronJob/DaemonSet reconcilers already have.
     StatefulSetReconciler statefulSetReconciler =
         new StatefulSetReconciler(
-            storeClient, scheduler, storeClient, NODE_DARK_TIMEOUT, Clock.systemUTC());
+            storeClient,
+            scheduler,
+            storeClient,
+            NODE_DARK_TIMEOUT,
+            Clock.systemUTC(),
+            artifactResolver);
 
     ApiServer apiServer =
-        new ApiServer(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient);
+        new ApiServer(
+            storeClient, port, secretKeyFilePath, fafnirClient, muninnClient, artifactResolver);
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
 
@@ -301,6 +341,9 @@ public final class ControlPlaneMain {
                       fafnirClient.close();
                       if (muninnClient != null) {
                         muninnClient.close();
+                      }
+                      if (andvariClient != null) {
+                        andvariClient.close();
                       }
                       if (metricsShipper != null) {
                         metricsShipper.close();

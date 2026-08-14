@@ -1,5 +1,6 @@
 package com.gimle.core.protocol;
 
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -37,9 +38,7 @@ public record AssignedInstance(
     if (moduleId == null) {
       throw new IllegalArgumentException("moduleId must not be null");
     }
-    if (artifactPath == null || artifactPath.isBlank()) {
-      throw new IllegalArgumentException("artifactPath must not be blank");
-    }
+    ArtifactReference.requireValid(artifactPath);
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
     }

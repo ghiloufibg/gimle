@@ -79,7 +79,10 @@ cronjob apply`/`gimle daemonset apply`/`gimle statefulset apply` verb to remembe
 The deployment manifest (`deployment.yaml`, e.g. `gimle apply -f deployment.yaml`, `kind:
 Deployment`) is a different file from `gimle-module.yaml` above — see `gimle-examples/*/deployment.yaml`
 for real, minimal examples (`name`, `module: {name, version}`, `artifactPath`, `replicas`, plus the
-required `kind: Deployment`). Its one field with enough shape to be worth a reference table here is
+required `kind: Deployment`). `artifactPath` is optional in every workload kind: present, it names
+a local jar read directly by whichever process needs it; omitted entirely, `module: {name,
+version}` alone identifies the artifact and node agents pull it from the Andvari artifact registry
+on a cache miss (an explicitly blank value is rejected rather than treated as the registry form). Its one field with enough shape to be worth a reference table here is
 `autoscale`, grounded directly in `DeploymentManifestParser.parseAutoscale`; omit the whole
 `autoscale:` block for a deployment with a fixed `replicas` count (the common case) and none of this
 applies.
@@ -193,7 +196,7 @@ placement:                     # optional, same shape as a deployment manifest's
 | `kind` | yes | Must be `Job`. |
 | `name` | yes | The job's identifier — also what `gimle get jobs <name>`/the console's Jobs screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | yes | Path to the module's jar, same convention as a deployment manifest's own field. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
 | `backoffLimit` | no | Maximum number of attempts before the job is marked permanently `FAILED`. Defaults to `6` (Kubernetes Job's own default) when omitted. |
 | `activeDeadlineSeconds` | no | Wall-clock ceiling across *every* attempt combined, not per-attempt — once exceeded the job is marked `FAILED` regardless of remaining `backoffLimit` headroom. Omit for no deadline. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted job. |
@@ -246,7 +249,7 @@ tenantId: acme                   # optional -- applied to every Job this CronJob
 | `name` | yes | The cronjob's identifier — also the prefix every generated Job's name carries (`{name}-{epochSeconds}`). |
 | `schedule` | yes | A standard 5-field cron expression, validated eagerly at submission — a malformed expression is rejected outright, not discovered on the first reconcile tick. |
 | `jobTemplate.module.name` / `.version` | yes | The module each generated Job runs. |
-| `jobTemplate.artifactPath` | yes | Path to the module's jar, same convention as a Job manifest's own field. |
+| `jobTemplate.artifactPath` | no | Path to the module's jar, same convention as a Job manifest's own field -- omit it entirely to resolve the module coordinate from the Andvari artifact registry instead. |
 | `jobTemplate.backoffLimit` | no | Per-generated-Job retry ceiling. Defaults to `6` when omitted, matching a directly-submitted Job. |
 | `jobTemplate.activeDeadlineSeconds` | no | Per-generated-Job wall-clock ceiling across that Job's own attempts. Omit for no deadline. |
 | `jobTemplate.placement.antiAffinity` / `.requiredLabels` | no | Same `PlacementConstraints` shape a Job/Deployment manifest's own `placement:` block uses. |
@@ -306,7 +309,7 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | `kind` | yes | Must be `DaemonSet`. |
 | `name` | yes | The daemonset's identifier — also what `gimle get daemonsets <name>`/the console's DaemonSets screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | yes | Path to the module's jar, same convention as a deployment manifest's own field. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
@@ -354,7 +357,7 @@ tenantId: acme                 # optional -- omit for an untenanted statefulset
 | `kind` | yes | Must be `StatefulSet`. |
 | `name` | yes | The statefulset's identifier — also what `gimle get statefulsets <name>`/the console's StatefulSets screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | yes | Path to the module's jar, same convention as a deployment manifest's own field. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
 | `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
 | `placement.antiAffinity` / `placement.requiredLabels` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |

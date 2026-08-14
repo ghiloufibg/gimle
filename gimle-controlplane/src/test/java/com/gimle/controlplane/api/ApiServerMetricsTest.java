@@ -11,6 +11,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,7 +69,10 @@ class ApiServerMetricsTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     assertEquals(200, response.statusCode());
-    assertEquals(1.0, server.metrics().requestCount("deployments", "GET"));
+    // Awaited, not asserted immediately: the client's send() completes the moment the response
+    // body arrives, while the instrument wrapper records into the registry in a finally that runs
+    // just *after* the handler wrote that body -- a genuine, timing-dependent gap.
+    awaitMetric(() -> server.metrics().requestCount("deployments", "GET"), 1.0);
     assertEquals(0.0, server.metrics().errorCount("deployments", "GET"));
   }
 
@@ -78,6 +83,19 @@ class ApiServerMetricsTest {
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/does-not-exist")).GET().build(),
         HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-    assertEquals(1.0, server.metrics().errorCount("deployments", "GET"));
+    // Same post-response recording gap as the request-count await above.
+    awaitMetric(() -> server.metrics().errorCount("deployments", "GET"), 1.0);
+  }
+
+  private static void awaitMetric(DoubleSupplier metric, double expected)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+    while (System.nanoTime() < deadline) {
+      if (metric.getAsDouble() == expected) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    assertEquals(expected, metric.getAsDouble());
   }
 }

@@ -75,12 +75,14 @@ abstract class GreeterSmokeClusterSupport {
 
   static final int MUNINN_PORT = 19070;
 
+  static final int ANDVARI_PORT = 19050;
+
   static final String GOSSIP_ADDRESS = "127.0.0.1:19090";
 
   // Two additional gossip addresses, used only by GossipFailureDetectionIT's extra two agents --
   // verified clear of every other port range in this file: STORE_RAFT_PORT_BASE (19080-19082),
   // STORE_CLIENT_PORT_BASE (19091-19093), CONTROLPLANE_PORT_BASE (18080+), FAFNIR_PORT_BASE
-  // (19060-19061), MUNINN_PORT (19070), and GOSSIP_ADDRESS itself (19090).
+  // (19060-19061), MUNINN_PORT (19070), ANDVARI_PORT (19050), and GOSSIP_ADDRESS itself (19090).
   static final String GOSSIP_ADDRESS_NODE2 = "127.0.0.1:19100";
 
   static final String GOSSIP_ADDRESS_NODE3 = "127.0.0.1:19101";
@@ -1330,6 +1332,18 @@ abstract class GreeterSmokeClusterSupport {
             tempDir.resolve("muninn.log")));
     awaitPortOpen("127.0.0.1", MUNINN_PORT, Duration.ofSeconds(30));
 
+    // Same early-bring-up reasoning as Muninn just above: Andvari only needs the store (its own
+    // RBAC re-check), and every process after it -- control plane admission HEADs, agent pulls --
+    // wants it already reachable.
+    processes.add(
+        spawnAndvari(
+            javaExecutable,
+            classpath,
+            ANDVARI_PORT,
+            storeEndpointsSpec,
+            tempDir.resolve("andvari.log")));
+    awaitPortOpen("127.0.0.1", ANDVARI_PORT, Duration.ofSeconds(30));
+
     // A single key file shared across every Fafnir replica -- every replica must be able to
     // decrypt secrets written through any other replica -- unlike spawnControlPlane's own
     // controlplane-secret-<port>.key below, which is deliberately still per-replica-distinct
@@ -1491,6 +1505,25 @@ abstract class GreeterSmokeClusterSupport {
     return pb.start();
   }
 
+  Process spawnAndvari(
+      String javaExecutable, String classpath, int port, String storeEndpointsSpec, Path logFile)
+      throws IOException {
+    ProcessBuilder pb =
+        new ProcessBuilder(
+            javaExecutable,
+            "-cp",
+            classpath,
+            "com.gimle.andvari.AndvariMain",
+            String.valueOf(port),
+            "--store-endpoints",
+            storeEndpointsSpec,
+            "--data-root",
+            tempDir.resolve("andvari-data").toString());
+    pb.redirectErrorStream(true);
+    pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
+    return pb.start();
+  }
+
   Process spawnFafnir(
       String javaExecutable,
       String classpath,
@@ -1528,6 +1561,10 @@ abstract class GreeterSmokeClusterSupport {
     ProcessBuilder pb =
         new ProcessBuilder(
             javaExecutable,
+            // Scopes the control plane's own registry pull-through cache (a coordinate-only
+            // spec's descriptor read) inside this test's @TempDir, same reasoning as
+            // spawnAgent's own -Dgimle.data.root below.
+            "-Dgimle.data.root=" + tempDir.resolve("gimle-data-controlplane-" + port),
             "-cp",
             classpath,
             "com.gimle.controlplane.ControlPlaneMain",
@@ -1538,7 +1575,9 @@ abstract class GreeterSmokeClusterSupport {
             "--fafnir-endpoint",
             fafnirEndpoint,
             "--muninn-endpoint",
-            muninnEndpoint);
+            muninnEndpoint,
+            "--andvari-endpoint",
+            "127.0.0.1:" + ANDVARI_PORT);
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
@@ -1560,6 +1599,7 @@ abstract class GreeterSmokeClusterSupport {
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
+            "-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT,
             // Same tempDir/nodeId-scoping reasoning as -Dgimle.log.root= just below: absent this,
             // AgentMain's LocalDiskVolumeManager defaults to "gimle-data" relative to the forked
             // test JVM's own CWD, so a StatefulSet instance's volume would accumulate on disk
@@ -1908,6 +1948,38 @@ abstract class GreeterSmokeClusterSupport {
                 moduleName,
                 jar.toAbsolutePath(),
                 tenantId.map(id -> "tenantId: " + id).orElse(""));
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
+                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("deployment submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * Like {@link #submitDeployment(String, String, String, Path, Optional)}, but with no {@code
+   * artifactPath} at all -- the registry-coordinate form: {@code module: {name, version}} alone
+   * identifies the artifact, admission HEAD-checks it against Andvari, and the agent pulls it
+   * through its own cache at install time.
+   */
+  void submitDeploymentByCoordinate(
+      String baseUrl, String deploymentName, String moduleName, Optional<String> tenantId)
+      throws Exception {
+    String manifest =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        replicas: 1
+        %s
+        """
+            .formatted(
+                deploymentName, moduleName, tenantId.map(id -> "tenantId: " + id).orElse(""));
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))

@@ -1,6 +1,7 @@
 package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import java.util.ArrayList;
@@ -28,6 +29,26 @@ final class ManifestFields {
     Object value = map.get(key);
     if (!(value instanceof String s) || s.isBlank()) {
       throw new GimleManifestException("missing or blank required field: " + key);
+    }
+    return s;
+  }
+
+  /**
+   * The one shared reading of {@code artifactPath} across every workload kind: absent means
+   * "resolve the module coordinate from the artifact registry" ({@link
+   * ArtifactReference#REGISTRY_COORDINATE}), present must be a non-blank local path -- an
+   * explicitly blank value is rejected rather than silently treated as the registry state, so a
+   * typo like {@code artifactPath: ""} fails loudly instead of changing resolution semantics.
+   */
+  static String optionalArtifactPath(Map<?, ?> map) {
+    Object value = map.get("artifactPath");
+    if (value == null) {
+      return ArtifactReference.REGISTRY_COORDINATE;
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException(
+          "'artifactPath' must be a non-blank string when present -- omit it entirely to resolve"
+              + " the module name/version from the artifact registry");
     }
     return s;
   }

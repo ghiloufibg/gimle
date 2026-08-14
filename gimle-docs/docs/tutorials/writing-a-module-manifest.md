@@ -93,5 +93,7 @@ The resolver checks this before the module's `ModuleLayer` is even constructed â
 
 Package your module (`mvn package` inside its own module directory) with the manifest under
 `src/main/resources/META-INF/gimle/gimle-module.yaml`, write a `deployment.yaml` pointing
-`artifactPath` at the built jar (see either example module's own `deployment.yaml`), and deploy it
+`artifactPath` at the built jar (see either example module's own `deployment.yaml`) -- or push
+the jar with `gimle artifact push` and omit `artifactPath` entirely, letting nodes pull it from
+the Andvari artifact registry by `module: {name, version}` -- and deploy it
 per [Deploy your first module](./deploy-your-first-module.md).

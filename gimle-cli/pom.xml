@@ -40,6 +40,12 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
+    <!-- ArtifactCommand derives a push's registry coordinate from the jar's own bundled
+         gimle-module.yaml via ModuleArtifactReader, never from flags. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>

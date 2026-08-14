@@ -47,6 +47,10 @@ gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
+gimle artifact push <jar>
+gimle artifact list [moduleId]
+gimle artifact get <moduleId> <version> [--to <path>]
+gimle artifact delete <moduleId> <version>
 gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
@@ -82,6 +86,14 @@ claims a new, immutable version rather than overwriting the last one; `get` defa
 version, `--version N` reads a specific one; `delete` soft-deletes by default (every version stays
 recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
 key and re-encrypts every existing secret under it, cluster-wide.
+
+`artifact` is a distinct top-level verb for the same reason `secret` is: `push` has no shape in
+three-verb dispatch. Every call is proxied by the control plane to Andvari, the artifact registry
+(see [Node topology](../architecture/node-topology.md#andvari)). `push` derives the registry
+coordinate from the jar's own bundled `gimle-module.yaml` rather than taking name/version flags,
+so the coordinate a jar is stored under and the identity it declares can never drift apart; a
+re-push of different bytes under an existing coordinate is refused (a stored version is
+immutable -- push the changed jar as a new version).
 
 `audit list` reads the cross-resource audit trail (see
 [Authentication and authorization](../architecture/authn-authz.md#audit-logging)) — every

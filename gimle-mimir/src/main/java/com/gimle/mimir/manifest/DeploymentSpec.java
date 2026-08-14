@@ -1,5 +1,6 @@
 package com.gimle.mimir.manifest;
 
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import java.util.Optional;
 
@@ -11,7 +12,9 @@ import java.util.Optional;
  * up front: it must read the descriptor's isolation tier and resource request *before* any node has
  * resolved anything, so the manifest carries a path the control plane can read directly -- the same
  * "artifact path travels as a plain string, resolved locally by whoever needs it" precedent {@code
- * ControlMessage.InstallModule} already established.
+ * ControlMessage.InstallModule} already established. A blank {@code artifactPath} is the
+ * resolve-from-registry state (see {@link ArtifactReference}): the module's {@code (name, version)}
+ * coordinate alone identifies the artifact, pulled from Andvari by whoever needs the bytes.
  *
  * <p>{@code autoscale} is optional: when present, {@code AutoscaleReconciler} computes an effective
  * replica count {@code DeploymentReconciler} reads in place of {@code replicas} -- {@code replicas}
@@ -55,9 +58,7 @@ public record DeploymentSpec(
     if (moduleId == null) {
       throw new IllegalArgumentException("moduleId must not be null");
     }
-    if (artifactPath == null || artifactPath.isBlank()) {
-      throw new IllegalArgumentException("artifactPath must not be blank");
-    }
+    ArtifactReference.requireValid(artifactPath);
     if (replicas < 0) {
       throw new IllegalArgumentException("replicas must not be negative: " + replicas);
     }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import java.io.ByteArrayInputStream;
@@ -126,7 +127,22 @@ class DaemonSetManifestParserTest {
   }
 
   @Test
-  void missing_artifact_path_throws() {
+  void missing_artifact_path_parses_as_a_registry_coordinate() {
+    var spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                    name: node-exporter
+                    module:
+                      name: com.gimle.example.node-exporter
+                      version: 1.0.0
+                    """));
+
+    assertTrue(ArtifactReference.isRegistryCoordinate(spec.artifactPath()));
+  }
+
+  @Test
+  void explicitly_blank_artifact_path_throws() {
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -137,6 +153,7 @@ class DaemonSetManifestParserTest {
                     module:
                       name: com.gimle.example.node-exporter
                       version: 1.0.0
+                    artifactPath: ""
                     """)));
   }
 

@@ -5,8 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.gimle.andvari.testsupport.InProcessStore;
 import com.gimle.andvari.testsupport.TlsTestFixtures;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import java.net.URI;
@@ -92,13 +96,30 @@ class AndvariServerTlsTest {
 
   @Test
   @Timeout(10)
-  void a_nodes_group_certificate_may_pull_but_never_push_or_delete() throws Exception {
+  void a_nodes_group_certificate_may_pull_only_coordinates_assigned_to_its_node() throws Exception {
     HttpClient operator =
         tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "admin-operator");
     assertEquals(200, send(operator, push("com.example.app", "1.0.0")).statusCode());
 
     HttpClient node = tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_NODES, "node-1");
+    // No assignment for this node yet: even a coordinate that exists in the store is refused --
+    // a node identity may only pull what the control plane has actually placed on it.
+    assertEquals(403, send(node, pull("com.example.app", "1.0.0")).statusCode());
+
+    store
+        .client()
+        .propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    "greeter",
+                    0,
+                    "node-1",
+                    new ModuleId("com.example.app", Version.parse("1.0.0")),
+                    "")));
+
     assertEquals(200, send(node, pull("com.example.app", "1.0.0")).statusCode());
+    // Assignment scoping is per-coordinate, not per-node-blanket: a different version stays 403.
+    assertEquals(403, send(node, pull("com.example.app", "9.9.9")).statusCode());
     assertEquals(403, send(node, push("com.example.app", "2.0.0")).statusCode());
     assertEquals(
         403,

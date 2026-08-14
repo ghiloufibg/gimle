@@ -4,9 +4,11 @@ import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.exception.GimleIsolationException;
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -31,6 +33,7 @@ import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
+import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.AgentMetrics;
 import com.gimle.observability.MuninnShipper;
@@ -158,6 +161,11 @@ public final class AgentMain {
     // Same optional-system-property posture as gimle.agent.fafnirEndpoint above: null means "ship
     // nowhere," and local-only tailing via AgentLogServer keeps working entirely unchanged.
     String muninnEndpoint = System.getProperty("gimle.agent.muninnEndpoint");
+    // Same optional posture again: null is a legitimate state -- an agent whose assignments all
+    // carry an explicit artifactPath never needs the artifact registry at all.
+    String andvariEndpoint = System.getProperty("gimle.agent.andvariEndpoint");
+    URI andvariBaseUrl =
+        andvariEndpoint == null ? null : URI.create(baseUrl.getScheme() + "://" + andvariEndpoint);
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
@@ -200,6 +208,11 @@ public final class AgentMain {
     // "own top-level directory, own property" convention gimle.log.root itself established.
     VolumeManager volumeManager =
         new LocalDiskVolumeManager(Path.of(System.getProperty("gimle.data.root", "gimle-data")));
+    // Registry-pulled jars land beside the volume roots under the same gimle.data.root -- one
+    // node-local data directory, not a second property.
+    ArtifactPullCache artifactCache =
+        new ArtifactPullCache(
+            Path.of(System.getProperty("gimle.data.root", "gimle-data")).resolve("artifact-cache"));
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
@@ -236,6 +249,8 @@ public final class AgentMain {
             httpClient,
             baseUrl,
             fafnirBaseUrl,
+            andvariBaseUrl,
+            artifactCache,
             muninnEndpoint,
             nodeId,
             supervised,
@@ -753,6 +768,8 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
+      URI andvariBaseUrl,
+      ArtifactPullCache artifactCache,
       String muninnEndpoint,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
@@ -769,9 +786,35 @@ public final class AgentMain {
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
-    for (AssignedInstance assigned : assignments) {
-      String key = instanceKey(assigned);
+    for (AssignedInstance fetched : assignments) {
+      String key = instanceKey(fetched);
       currentKeys.add(key);
+      // Resolved before the requiresReplacement check below, not inside the start path: the
+      // supervised instance's own assigned record carries the resolved concrete path, so comparing
+      // a still-blank registry-coordinate record against it would misread every coordinate
+      // assignment as a replacement and restart the instance every tick.
+      AssignedInstance assigned;
+      try {
+        assigned = resolveArtifactReference(httpClient, andvariBaseUrl, artifactCache, fetched);
+      } catch (RuntimeException e) {
+        log.error("failed to resolve artifact for instance {}: {}", key, e.getMessage());
+        // Surfaced as a durable TRANSITION_FAILED timeline event, not only this replica-local log
+        // line -- an unresolvable coordinate would otherwise reproduce exactly the invisible
+        // "stuck, and nothing anywhere says why" failure shape registry resolution must not have.
+        postInstanceEvent(
+            httpClient,
+            baseUrl,
+            nodeId,
+            new InstanceEvent(
+                UUID.randomUUID().toString(),
+                fetched.deploymentName(),
+                fetched.instanceIndex(),
+                InstanceEventKind.TRANSITION_FAILED,
+                "artifact resolution failed",
+                Optional.of(String.valueOf(e.getMessage())),
+                System.currentTimeMillis()));
+        continue;
+      }
       // instanceKey() is deploymentName#index alone -- a rolling update (DeploymentReconciler
       // removing then immediately re-placing the very same index with a new moduleId, see its own
       // javadoc) reuses that identical key, so without this check supervised.containsKey(key)
@@ -1457,6 +1500,15 @@ public final class AgentMain {
               .ifPresent(target -> target.lifecycleState = changed.state());
         } else if (message instanceof ControlMessage.Nack nack) {
           log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
+          // An install-phase nack (the module never left its initial INSTALLED state -- e.g. the
+          // worker couldn't read the jar) used to leave lifecycleState at "INSTALLED" forever:
+          // the instance looked merely still-starting, indefinitely, in the console and
+          // `gimle deployment status`. FAILED makes the failure visible and, via observationJson's
+          // own alive derivation, hands it to the health reconciler to heal. A nack after a
+          // successful start keeps the last real lifecycle state rather than clobbering it.
+          if ("INSTALLED".equals(instance.lifecycleState)) {
+            instance.lifecycleState = "FAILED";
+          }
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
           postInstanceEvent(httpClient, baseUrl, nodeId, occurred.event());
         } else if (message instanceof ControlMessage.Hello hello) {
@@ -1754,6 +1806,43 @@ public final class AgentMain {
 
   private static String instanceKey(String deploymentName, int instanceIndex) {
     return deploymentName + "#" + instanceIndex;
+  }
+
+  /**
+   * Turns one fetched assignment into the concrete-local-path form everything downstream (the
+   * descriptor read, {@code requiresReplacement}, the worker's own {@code InstallModule}) consumes:
+   * an explicit {@code artifactPath} passes through untouched -- the unchanged local-file escape
+   * hatch -- while a blank one resolves the module coordinate from Andvari through this node's
+   * pull-through cache, a no-network cache hit on every tick after the first. The worker never sees
+   * the difference; it always receives a concrete local path.
+   */
+  private static AssignedInstance resolveArtifactReference(
+      HttpClient httpClient,
+      URI andvariBaseUrl,
+      ArtifactPullCache artifactCache,
+      AssignedInstance fetched) {
+    if (ArtifactReference.isLocalPath(fetched.artifactPath())) {
+      return fetched;
+    }
+    if (andvariBaseUrl == null) {
+      throw new GimleManifestException(
+          "assignment "
+              + fetched.deploymentName()
+              + "#"
+              + fetched.instanceIndex()
+              + " resolves module "
+              + fetched.moduleId()
+              + " from the artifact registry, but this agent has no"
+              + " -Dgimle.agent.andvariEndpoint configured");
+    }
+    Path jar = artifactCache.resolve(httpClient, andvariBaseUrl, fetched.moduleId());
+    return new AssignedInstance(
+        fetched.deploymentName(),
+        fetched.instanceIndex(),
+        fetched.moduleId(),
+        jar.toString(),
+        fetched.tenantId(),
+        fetched.renamedFromInstanceIndex());
   }
 
   /**

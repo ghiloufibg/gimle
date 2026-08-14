@@ -7,14 +7,20 @@ import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.DaemonSetAssignment;
+import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -64,7 +70,8 @@ import org.slf4j.LoggerFactory;
  * is open like every other Gimlé surface; under mTLS a forwarded principal (set only by {@code
  * ApiServer}'s proxy) wins over the peer certificate, and this process re-runs its own independent
  * {@link Authorizer#authorize} regardless -- never trusting "arrived already-forwarded" as proof by
- * itself. A {@code gimle:nodes} principal may only ever pull, never push or delete.
+ * itself. A {@code gimle:nodes} principal may only ever pull -- never push or delete -- and only a
+ * coordinate its node currently holds an assignment for (see {@link #nodeHasAssignmentFor}).
  */
 public final class AndvariServer implements AutoCloseable {
 
@@ -217,7 +224,7 @@ public final class AndvariServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    if (!authorizeArtifacts(exchange, Verb.READ, "catalog")) {
+    if (!authorizeArtifacts(exchange, Verb.READ, "catalog", null, null)) {
       return;
     }
     respondJson(exchange, 200, artifactStore.moduleIds());
@@ -230,7 +237,7 @@ public final class AndvariServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId)) {
+    if (!authorizeArtifacts(exchange, Verb.READ, moduleId, null, null)) {
       return;
     }
     List<StoredArtifact> versions = artifactStore.versions(moduleId);
@@ -267,7 +274,7 @@ public final class AndvariServer implements AutoCloseable {
    */
   private void handleHead(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version)) {
+    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version, moduleId, version)) {
       return;
     }
     Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
@@ -282,7 +289,7 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleDownload(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version)) {
+    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version, moduleId, version)) {
       return;
     }
     Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
@@ -303,7 +310,7 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleUpload(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.WRITE, moduleId + ":" + version)) {
+    if (!authorizeArtifacts(exchange, Verb.WRITE, moduleId + ":" + version, moduleId, version)) {
       return;
     }
     String pushedBy = resolvePrincipal(exchange).map(Principal::name).orElse("anonymous");
@@ -331,7 +338,7 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleDelete(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.DELETE, moduleId + ":" + version)) {
+    if (!authorizeArtifacts(exchange, Verb.DELETE, moduleId + ":" + version, moduleId, version)) {
       return;
     }
     if (!artifactStore.delete(moduleId, version)) {
@@ -344,14 +351,16 @@ public final class AndvariServer implements AutoCloseable {
   /**
    * The single authorization point every {@code /artifacts/*} route passes through. Plaintext mode
    * is open, matching every other Gimlé surface's plaintext posture. Under mTLS: a {@code
-   * gimle:nodes} principal (a node agent's certificate identity) may only {@link Verb#READ} --
-   * never push or delete -- and everything else goes through this process's own independent {@link
-   * Authorizer} check against RBAC state it reads itself. Push/delete decisions are audited both
-   * ways ({@code FafnirServer}'s dual-audit shape); reads are deliberately not durably audited --
-   * pulls are the high-volume path, and a pull discloses only what a deployment manifest already
-   * references.
+   * gimle:nodes} principal (a node agent's certificate identity, CN = its nodeId) may only {@link
+   * Verb#READ}, and only a full coordinate its node currently holds an assignment for -- never a
+   * push or delete, and never the catalog/version listings, which the pull path has no use for --
+   * while everything else goes through this process's own independent {@link Authorizer} check
+   * against RBAC state it reads itself. Push/delete decisions are audited both ways ({@code
+   * FafnirServer}'s dual-audit shape); reads are deliberately not durably audited -- pulls are the
+   * high-volume path, and a pull discloses only what a deployment manifest already references.
    */
-  private boolean authorizeArtifacts(HttpExchange exchange, Verb verb, String target)
+  private boolean authorizeArtifacts(
+      HttpExchange exchange, Verb verb, String target, String moduleId, String version)
       throws IOException {
     if (!(exchange instanceof HttpsExchange)) {
       return true;
@@ -365,6 +374,9 @@ public final class AndvariServer implements AutoCloseable {
     boolean allowed =
         principal.groups().contains(BuiltinRoles.GROUP_NODES)
             ? verb == Verb.READ
+                && moduleId != null
+                && version != null
+                && nodeHasAssignmentFor(principal.name(), moduleId, version)
             : authorizer.authorize(
                 principal, ResourceKind.ARTIFACT, verb, Optional.empty(), Optional.empty());
     if (verb != Verb.READ) {
@@ -375,6 +387,57 @@ public final class AndvariServer implements AutoCloseable {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Whether {@code nodeId} currently holds any assignment -- deployment instance, job run,
+   * daemonset, or statefulset -- for the requested coordinate: the artifact-registry analogue of
+   * {@code FafnirServer}'s node-tenant scoping check, and the same shape of honest coarseness (an
+   * O(all-assignments) walk per decision, since the store keys no assignment kind by node). The
+   * walk only runs on a node's genuine cache misses -- a cache-hit install never reaches this
+   * process at all -- so pull volume, not assignment volume, is what keeps it cheap in practice.
+   */
+  private boolean nodeHasAssignmentFor(String nodeId, String moduleId, String version) {
+    for (InstanceAssignment assignment : storeClient.listAssignments()) {
+      if (!assignment.nodeId().equals(nodeId)) {
+        continue;
+      }
+      ModuleId assigned = assignment.moduleId();
+      if (InstanceAssignment.UNSPECIFIED_MODULE.equals(assigned)) {
+        assigned =
+            storeClient
+                .getDeployment(assignment.deploymentName())
+                .map(DeploymentSpec::moduleId)
+                .orElse(assigned);
+      }
+      if (coordinateMatches(assigned, moduleId, version)) {
+        return true;
+      }
+    }
+    for (JobRun run : storeClient.listJobRuns()) {
+      if (run.nodeId().equals(nodeId) && coordinateMatches(run.moduleId(), moduleId, version)) {
+        return true;
+      }
+    }
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignments()) {
+      if (assignment.nodeId().equals(nodeId)
+          && coordinateMatches(assignment.moduleId(), moduleId, version)) {
+        return true;
+      }
+    }
+    for (StatefulSetAssignment assignment : storeClient.listStatefulSetAssignments()) {
+      if (assignment.nodeId().equals(nodeId)
+          && coordinateMatches(assignment.moduleId(), moduleId, version)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean coordinateMatches(ModuleId assigned, String moduleId, String version) {
+    return assigned != null
+        && assigned.name().equals(moduleId)
+        && assigned.version().toString().equals(version);
   }
 
   /** Dual audit for a push/delete decision: the tailable SLF4J line plus the durable event. */

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import java.io.ByteArrayInputStream;
@@ -180,7 +181,22 @@ class JobManifestParserTest {
   }
 
   @Test
-  void missing_artifact_path_throws() {
+  void missing_artifact_path_parses_as_a_registry_coordinate() {
+    var spec =
+        JobManifestParser.parse(
+            yaml(
+                """
+                    name: nightly-cleanup
+                    module:
+                      name: com.gimle.example.cleanup
+                      version: 1.0.0
+                    """));
+
+    assertTrue(ArtifactReference.isRegistryCoordinate(spec.artifactPath()));
+  }
+
+  @Test
+  void explicitly_blank_artifact_path_throws() {
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -191,6 +207,7 @@ class JobManifestParserTest {
                     module:
                       name: com.gimle.example.cleanup
                       version: 1.0.0
+                    artifactPath: ""
                     """)));
   }
 

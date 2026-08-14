@@ -4,6 +4,8 @@ import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
+import com.gimle.controlplane.andvari.AndvariClient;
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
@@ -24,6 +26,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
@@ -152,6 +155,10 @@ public final class ApiServer implements AutoCloseable {
   // a gone node/instance, the same "opt in, degrade gracefully" posture gimle-agent's own
   // muninnEndpoint already has.
   private final MuninnClient muninnClient;
+  // Never null (a null constructor argument collapses to ArtifactResolver.localOnly()): local
+  // artifactPath references behave identically with or without a registry, and only
+  // registry-coordinate manifests need the Andvari client this may or may not carry.
+  private final ArtifactResolver artifactResolver;
   // Per-endpoint request/error/latency metrics, the same shape
   // FafnirServer's own metrics field already established -- see #instrument. Not exposed through
   // any public constructor parameter (no test/caller has ever needed to inject a custom
@@ -256,11 +263,29 @@ public final class ApiServer implements AutoCloseable {
       FafnirClient fafnirClient,
       MuninnClient muninnClient)
       throws IOException {
+    this(storeClient, port, secretKeyFilePath, fafnirClient, muninnClient, null);
+  }
+
+  /**
+   * Same as the five-argument constructor, plus the {@code artifactResolver} a control plane with a
+   * configured {@code --andvari-endpoint} passes -- {@code null} (or {@link
+   * ArtifactResolver#localOnly()}) means registry-coordinate manifests are rejected at admission,
+   * while plain {@code artifactPath} manifests behave identically either way.
+   */
+  public ApiServer(
+      StoreClient storeClient,
+      int port,
+      Path secretKeyFilePath,
+      FafnirClient fafnirClient,
+      MuninnClient muninnClient,
+      ArtifactResolver artifactResolver)
+      throws IOException {
     this(
         storeClient,
         port,
         fafnirClient,
         muninnClient,
+        artifactResolver,
         SessionKeyFileManager.loadOrCreate(secretKeyFilePath.resolveSibling("session.key")));
   }
 
@@ -269,12 +294,15 @@ public final class ApiServer implements AutoCloseable {
       int port,
       FafnirClient fafnirClient,
       MuninnClient muninnClient,
+      ArtifactResolver artifactResolver,
       SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
     this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
+    this.artifactResolver =
+        artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     this.server = createHttpServer(port);
@@ -316,6 +344,11 @@ public final class ApiServer implements AutoCloseable {
     target.createContext(
         "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
     target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
+    // One bare-prefix context with an in-handler path check rather than "/artifacts/" +
+    // "/artifacts" pair: the catalog listing lives at the bare path, and the JDK server's
+    // prefix matching would otherwise let "/artifactsX" through -- same defense AndvariServer's
+    // own routing documents.
+    target.createContext("/artifacts", instrument("artifacts", this::handleArtifactsProxy));
     target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
@@ -634,11 +667,16 @@ public final class ApiServer implements AutoCloseable {
     // Optional.empty() if the artifact is unreadable at admission time, the same tolerant posture
     // untenanted deployments already had before this field existed -- DeploymentReconciler still
     // catches an unreadable artifact every tick regardless.
-    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
-    DeploymentSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    AdmissionArtifact admitted =
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 400, admitted.rejection().get());
+      return;
+    }
+    DeploymentSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     AdmissionDecision<DeploymentSpec> decision =
         deploymentAdmissionChain.admit(
-            ResourceKind.DEPLOYMENT, Verb.WRITE, spec, storeClient, artifact);
+            ResourceKind.DEPLOYMENT, Verb.WRITE, spec, storeClient, admitted.artifact());
     switch (decision) {
       case AdmissionDecision.Reject<DeploymentSpec> reject ->
           respond(exchange, 409, reject.reason());
@@ -654,6 +692,69 @@ public final class ApiServer implements AutoCloseable {
       return Optional.of(ModuleArtifactReader.read(Path.of(artifactPath)));
     } catch (RuntimeException e) {
       return Optional.empty();
+    }
+  }
+
+  /**
+   * Admission-time artifact processing shared by every workload kind. A local {@code artifactPath}
+   * keeps the historical tolerant posture exactly: unreadable means "admit with no recorded
+   * digest," and the reconcilers keep catching it every tick. A registry-coordinate reference is
+   * checked against Andvari instead, with three deliberately distinct outcomes: definitively absent
+   * rejects the manifest (a typo'd version should fail loudly at submit time, not sit unplaceable
+   * forever), an unreachable registry admits with no recorded digest (level-triggered -- the
+   * reconcilers converge once it's back), and present records the registry's own digest while
+   * best-effort pulling the jar through the local cache so the tenant-quota plugin still gets a
+   * descriptor to charge against.
+   */
+  private AdmissionArtifact admissionArtifact(String artifactPath, ModuleId moduleId) {
+    if (ArtifactReference.isLocalPath(artifactPath)) {
+      Optional<ModuleArtifact> artifact = readArtifactIfPossible(artifactPath);
+      return new AdmissionArtifact(
+          Optional.empty(), artifact, artifact.map(ModuleArtifact::sha256));
+    }
+    Optional<AndvariClient> registry = artifactResolver.registryClient();
+    if (registry.isEmpty()) {
+      return AdmissionArtifact.rejection(
+          "manifest omits artifactPath, which resolves module "
+              + moduleId.name()
+              + ":"
+              + moduleId.version()
+              + " from the artifact registry -- but this control plane has no --andvari-endpoint"
+              + " configured");
+    }
+    return switch (registry.get().head(moduleId)) {
+      case AndvariClient.HeadOutcome.NotFound ignored ->
+          AdmissionArtifact.rejection(
+              "artifact "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + " is not in the artifact registry; push it first (gimle artifact push)");
+      case AndvariClient.HeadOutcome.Unreachable unreachable -> {
+        log.warn(
+            "artifact registry unreachable at admission for {}:{} ({}); admitting with no"
+                + " recorded digest",
+            moduleId.name(),
+            moduleId.version(),
+            unreachable.reason());
+        yield new AdmissionArtifact(Optional.empty(), Optional.empty(), Optional.empty());
+      }
+      case AndvariClient.HeadOutcome.Found found ->
+          new AdmissionArtifact(
+              Optional.empty(),
+              artifactResolver.resolveIfPossible(artifactPath, moduleId),
+              Optional.of(found.sha256()));
+    };
+  }
+
+  /**
+   * One admission artifact decision: a rejection message, or the artifact/digest pair to record.
+   */
+  private record AdmissionArtifact(
+      Optional<String> rejection, Optional<ModuleArtifact> artifact, Optional<String> sha256) {
+
+    static AdmissionArtifact rejection(String reason) {
+      return new AdmissionArtifact(Optional.of(reason), Optional.empty(), Optional.empty());
     }
   }
 
@@ -735,8 +836,13 @@ public final class ApiServer implements AutoCloseable {
     }
     // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
-    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
-    JobSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    AdmissionArtifact admitted =
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 400, admitted.rejection().get());
+      return;
+    }
+    JobSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here (unlike handlePutDeployment's admission chain): TenantUsage's
     // accounting model is deployment-replica-shaped (resourceRequest * replicas) and has no Job
     // equivalent yet -- a tenanted Job is accepted regardless of that tenant's quota today, a
@@ -1000,8 +1106,13 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
-    DaemonSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    AdmissionArtifact admitted =
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 400, admitted.rejection().get());
+      return;
+    }
+    DaemonSetSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here, same documented gap handlePutJob's own identical comment
     // explains -- TenantUsage's accounting model is replica-count-shaped and has no per-node
     // equivalent yet.
@@ -1120,8 +1231,13 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return;
     }
-    Optional<ModuleArtifact> artifact = readArtifactIfPossible(parsedSpec.artifactPath());
-    StatefulSetSpec spec = withArtifactSha256(parsedSpec, artifact.map(ModuleArtifact::sha256));
+    AdmissionArtifact admitted =
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 400, admitted.rejection().get());
+      return;
+    }
+    StatefulSetSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here, same documented gap handlePutJob's/handlePutDaemonSet's own
     // identical comment explains -- unlike those two, a StatefulSet's replicas *would* map onto
     // TenantUsage's existing replica-count-shaped accounting cleanly, but wiring only this one
@@ -2409,6 +2525,84 @@ public final class ApiServer implements AutoCloseable {
     } catch (IOException | RuntimeException e) {
       log.warn("secrets proxy request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- /artifacts/** -- a streaming proxy to the Andvari artifact registry ----
+
+  /**
+   * The push/pull/list surface for the artifact registry, proxied the same way {@code /secrets/*}
+   * proxies to Fafnir: this process's own {@code requireAuthorized} gate runs first, the calling
+   * principal travels as an internal claim, and Andvari independently re-authorizes regardless.
+   * Unlike the secrets proxy, bodies here are jars, so both directions stream -- a push flows from
+   * the caller's socket through to Andvari and a pull flows back, never a whole jar buffered in
+   * this process.
+   */
+  private void handleArtifactsProxy(HttpExchange exchange) {
+    try {
+      String path = exchange.getRequestURI().getPath();
+      if (!path.equals("/artifacts") && !path.startsWith("/artifacts/")) {
+        respond(exchange, 404, "not found");
+        return;
+      }
+      Optional<AndvariClient> registry = artifactResolver.registryClient();
+      if (registry.isEmpty()) {
+        respond(
+            exchange,
+            503,
+            "no artifact registry configured -- start the control plane with --andvari-endpoint");
+        return;
+      }
+      String method = exchange.getRequestMethod();
+      Verb verb =
+          switch (method) {
+            case "GET", "HEAD" -> Verb.READ;
+            case "PUT" -> Verb.WRITE;
+            case "DELETE" -> Verb.DELETE;
+            default -> null;
+          };
+      if (verb == null) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.ARTIFACT, verb, Optional.empty())) {
+        return;
+      }
+      Map<String, String> forwardHeaders = new LinkedHashMap<>();
+      resolvePrincipal(exchange)
+          .ifPresent(
+              principal -> {
+                forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+                forwardHeaders.put(
+                    "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+              });
+      InputStream requestBody = "PUT".equals(method) ? exchange.getRequestBody() : null;
+      AndvariClient.StreamingResponse response =
+          registry.get().forward(method, path, requestBody, forwardHeaders);
+      response
+          .sha256()
+          .ifPresent(sha -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Sha256", sha));
+      response
+          .contentType()
+          .ifPresent(type -> exchange.getResponseHeaders().add("Content-Type", type));
+      if ("HEAD".equals(method)) {
+        try (InputStream ignored = response.body()) {
+          exchange.sendResponseHeaders(response.statusCode(), -1);
+        }
+        return;
+      }
+      // Chunked relay (length 0): Andvari's response length isn't re-measured here, and jars
+      // stream through without ever being whole in memory.
+      exchange.sendResponseHeaders(response.statusCode(), 0);
+      try (InputStream in = response.body();
+          OutputStream out = exchange.getResponseBody()) {
+        in.transferTo(out);
+      }
+    } catch (IOException | RuntimeException e) {
+      log.warn("artifacts proxy request failed: {}", e.getMessage());
+      respondQuietly(exchange, 502, "artifact registry unreachable");
     } finally {
       exchange.close();
     }

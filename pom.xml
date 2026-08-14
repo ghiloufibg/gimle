@@ -152,6 +152,11 @@
       </dependency>
       <dependency>
         <groupId>com.gimle</groupId>
+        <artifactId>gimle-andvari</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
         <artifactId>gimle-fafnir-console</artifactId>
         <version>${project.version}</version>
       </dependency>

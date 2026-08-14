@@ -87,6 +87,13 @@
       <artifactId>gimle-muninn</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Same reasoning again, for AndvariMain: the artifact registry replica the smoke cluster
+         spawns and AndvariRegistryIT resolves a coordinate-only deployment through. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-andvari</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!--
       Real synthetic HTTP load for the multi-signal-autoscaling-under-real-load QA scenario
       (AutoscaleIT#a_deployment_scales_up_under_real_gatling_generated_request_rate_load): Gatling

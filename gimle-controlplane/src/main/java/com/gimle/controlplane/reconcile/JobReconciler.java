@@ -1,5 +1,6 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
@@ -18,8 +19,6 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
-import com.gimle.module.artifact.ModuleArtifactReader;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -81,6 +80,7 @@ public final class JobReconciler {
   private final MutationSink mutations;
   private final Duration nodeDarkTimeout;
   private final Clock clock;
+  private final ArtifactResolver artifactResolver;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public JobReconciler(StateStore store, Scheduler scheduler) {
@@ -91,17 +91,29 @@ public final class JobReconciler {
     this(store, scheduler, mutations, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
   }
 
+  /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
   public JobReconciler(
       StoreReader store,
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
       Clock clock) {
+    this(store, scheduler, mutations, nodeDarkTimeout, clock, ArtifactResolver.localOnly());
+  }
+
+  public JobReconciler(
+      StoreReader store,
+      Scheduler scheduler,
+      MutationSink mutations,
+      Duration nodeDarkTimeout,
+      Clock clock,
+      ArtifactResolver artifactResolver) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;
     this.nodeDarkTimeout = nodeDarkTimeout;
     this.clock = clock;
+    this.artifactResolver = artifactResolver;
   }
 
   public void reconcileOnce() {
@@ -197,7 +209,7 @@ public final class JobReconciler {
   private void placeAttempt(JobSpec spec, int attempt, Instant activeSince) {
     ModuleArtifact artifact;
     try {
-      artifact = ModuleArtifactReader.read(Path.of(spec.artifactPath()));
+      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId());
     } catch (RuntimeException e) {
       log.warn(
           "job {} references an unreadable artifact {}: {}",

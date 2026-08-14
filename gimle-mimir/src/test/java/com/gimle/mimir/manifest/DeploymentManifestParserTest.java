@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import java.io.ByteArrayInputStream;
@@ -166,7 +167,23 @@ class DeploymentManifestParserTest {
   }
 
   @Test
-  void missing_artifact_path_throws() {
+  void missing_artifact_path_parses_as_a_registry_coordinate() {
+    var spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    replicas: 1
+                    """));
+
+    assertTrue(ArtifactReference.isRegistryCoordinate(spec.artifactPath()));
+  }
+
+  @Test
+  void explicitly_blank_artifact_path_throws() {
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -178,6 +195,7 @@ class DeploymentManifestParserTest {
                       name: com.gimle.example.orders
                       version: 1.2.0
                     replicas: 1
+                    artifactPath: ""
                     """)));
   }
 

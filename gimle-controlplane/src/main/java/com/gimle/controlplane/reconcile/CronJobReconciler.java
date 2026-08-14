@@ -1,6 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
-import com.gimle.core.module.ModuleArtifact;
+import com.gimle.controlplane.andvari.ArtifactResolver;
+import com.gimle.core.module.ModuleId;
 import com.gimle.mimir.cron.CronSchedule;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.JobSpec;
@@ -8,8 +9,6 @@ import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
-import com.gimle.module.artifact.ModuleArtifactReader;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,6 +51,7 @@ public final class CronJobReconciler {
   private final StoreReader store;
   private final MutationSink mutations;
   private final Clock clock;
+  private final ArtifactResolver artifactResolver;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public CronJobReconciler(StateStore store) {
@@ -62,10 +62,17 @@ public final class CronJobReconciler {
     this(store, mutations, Clock.systemUTC());
   }
 
+  /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
   public CronJobReconciler(StoreReader store, MutationSink mutations, Clock clock) {
+    this(store, mutations, clock, ArtifactResolver.localOnly());
+  }
+
+  public CronJobReconciler(
+      StoreReader store, MutationSink mutations, Clock clock, ArtifactResolver artifactResolver) {
     this.store = store;
     this.mutations = mutations;
     this.clock = clock;
+    this.artifactResolver = artifactResolver;
   }
 
   public void reconcileOnce() {
@@ -150,7 +157,8 @@ public final class CronJobReconciler {
       }
     }
 
-    Optional<String> artifactSha256 = readArtifactSha256(spec.jobTemplate().artifactPath());
+    Optional<String> artifactSha256 =
+        readArtifactSha256(spec.jobTemplate().artifactPath(), spec.jobTemplate().moduleId());
     String jobName = spec.name() + "-" + firingTime.getEpochSecond();
     JobSpec job =
         new JobSpec(
@@ -175,10 +183,9 @@ public final class CronJobReconciler {
    * JobReconciler}'s own {@code placeAttempt} will simply find the artifact unreadable and retry
    * next tick, the same outcome a missing hash-check would produce anyway.
    */
-  private static Optional<String> readArtifactSha256(String artifactPath) {
+  private Optional<String> readArtifactSha256(String artifactPath, ModuleId moduleId) {
     try {
-      ModuleArtifact artifact = ModuleArtifactReader.read(Path.of(artifactPath));
-      return Optional.of(artifact.sha256());
+      return Optional.of(artifactResolver.resolve(artifactPath, moduleId).sha256());
     } catch (RuntimeException e) {
       return Optional.empty();
     }

@@ -71,7 +71,7 @@ public final class CronJobManifestParser {
 
   private static JobTemplate parseJobTemplate(Map<?, ?> template) {
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(template, "module"));
-    String artifactPath = ManifestFields.requireString(template, "artifactPath");
+    String artifactPath = ManifestFields.optionalArtifactPath(template);
     PlacementConstraints placement = parsePlacement(template);
     Optional<Duration> activeDeadline = parseActiveDeadline(template);
     int backoffLimit = parseBackoffLimit(template);

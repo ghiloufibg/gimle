@@ -47,7 +47,7 @@ public final class DaemonSetManifestParser {
   static DaemonSetSpec parseRoot(Map<?, ?> root) {
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
-    String artifactPath = ManifestFields.requireString(root, "artifactPath");
+    String artifactPath = ManifestFields.optionalArtifactPath(root);
     PlacementConstraints placement = parsePlacement(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);

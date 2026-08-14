@@ -5,6 +5,7 @@ import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -12,7 +13,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +36,8 @@ import javax.net.ssl.SSLContext;
 public final class ControlPlaneClient {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+  // Jar-scale artifact transfers get their own budget rather than the 10s JSON-exchange one.
+  private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
 
   private final URI baseUri;
@@ -108,6 +113,51 @@ public final class ControlPlaneClient {
 
   public ApiResponse delete(String path) {
     return send(HttpRequest.newBuilder(resolve(path)).timeout(REQUEST_TIMEOUT).DELETE().build());
+  }
+
+  /**
+   * PUTs {@code file}'s raw bytes to {@code path} -- a streaming upload (never the whole file in
+   * memory) with a transfer-sized timeout, for jar-scale bodies the string-bodied {@link #put}
+   * would corrupt and time out on.
+   */
+  public ApiResponse putFile(String path, Path file) {
+    try {
+      return send(
+          HttpRequest.newBuilder(resolve(path))
+              .timeout(TRANSFER_TIMEOUT)
+              .PUT(HttpRequest.BodyPublishers.ofFile(file))
+              .build());
+    } catch (FileNotFoundException e) {
+      throw new CliException("no such file: " + file, e);
+    }
+  }
+
+  /**
+   * GETs {@code path} streaming straight into {@code target} (never the whole body in memory),
+   * returning the response's {@code X-Gimle-Artifact-Sha256} digest header when the server sent
+   * one.
+   */
+  public Optional<String> downloadFile(String path, Path target) {
+    try {
+      HttpRequest request =
+          HttpRequest.newBuilder(resolve(path)).timeout(TRANSFER_TIMEOUT).GET().build();
+      HttpResponse<InputStream> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+      if (response.statusCode() != 200) {
+        throw new CliException(
+            describeError(new ApiResponse(response.statusCode(), readAll(response.body()))));
+      }
+      try (InputStream in = response.body()) {
+        Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+      }
+      return response.headers().firstValue("X-Gimle-Artifact-Sha256");
+    } catch (IOException e) {
+      throw new CliException(
+          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new CliException("interrupted while contacting control plane at " + baseUri, e);
+    }
   }
 
   /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object list. */

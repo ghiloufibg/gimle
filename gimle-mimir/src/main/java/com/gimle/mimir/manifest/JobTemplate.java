@@ -1,5 +1,6 @@
 package com.gimle.mimir.manifest;
 
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import java.time.Duration;
 import java.util.Optional;
@@ -22,9 +23,7 @@ public record JobTemplate(
     if (moduleId == null) {
       throw new IllegalArgumentException("moduleId must not be null");
     }
-    if (artifactPath == null || artifactPath.isBlank()) {
-      throw new IllegalArgumentException("artifactPath must not be blank");
-    }
+    ArtifactReference.requireValid(artifactPath);
     if (placement == null) {
       throw new IllegalArgumentException("placement must not be null");
     }

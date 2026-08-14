@@ -1828,7 +1828,11 @@ public final class StateStore implements StoreReader {
     root.put("kind", "Deployment");
     root.put("name", spec.name());
     root.put("module", moduleIdToYamlMap(spec.moduleId()));
-    root.put("artifactPath", spec.artifactPath());
+    // Omitted when blank: absent-on-disk round-trips through the manifest parser back to the
+    // resolve-from-registry state, while an explicitly blank value would be rejected there.
+    if (!spec.artifactPath().isBlank()) {
+      root.put("artifactPath", spec.artifactPath());
+    }
     root.put("replicas", spec.replicas());
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
@@ -1855,7 +1859,11 @@ public final class StateStore implements StoreReader {
     root.put("kind", "Job");
     root.put("name", spec.name());
     root.put("module", moduleIdToYamlMap(spec.moduleId()));
-    root.put("artifactPath", spec.artifactPath());
+    // Omitted when blank: absent-on-disk round-trips through the manifest parser back to the
+    // resolve-from-registry state, while an explicitly blank value would be rejected there.
+    if (!spec.artifactPath().isBlank()) {
+      root.put("artifactPath", spec.artifactPath());
+    }
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
     spec.placement()
@@ -1908,7 +1916,10 @@ public final class StateStore implements StoreReader {
     root.put("schedule", spec.schedule());
     Map<String, Object> template = new LinkedHashMap<>();
     template.put("module", moduleIdToYamlMap(spec.jobTemplate().moduleId()));
-    template.put("artifactPath", spec.jobTemplate().artifactPath());
+    // Omitted when blank, same reason as deploymentToYaml's own artifactPath handling.
+    if (!spec.jobTemplate().artifactPath().isBlank()) {
+      template.put("artifactPath", spec.jobTemplate().artifactPath());
+    }
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.jobTemplate().placement().antiAffinityAcrossNodes());
     spec.jobTemplate()
@@ -1942,7 +1953,11 @@ public final class StateStore implements StoreReader {
     root.put("kind", "DaemonSet");
     root.put("name", spec.name());
     root.put("module", moduleIdToYamlMap(spec.moduleId()));
-    root.put("artifactPath", spec.artifactPath());
+    // Omitted when blank: absent-on-disk round-trips through the manifest parser back to the
+    // resolve-from-registry state, while an explicitly blank value would be rejected there.
+    if (!spec.artifactPath().isBlank()) {
+      root.put("artifactPath", spec.artifactPath());
+    }
     Map<String, Object> placement = new LinkedHashMap<>();
     spec.placement()
         .requiredNodeLabels()
@@ -1989,7 +2004,11 @@ public final class StateStore implements StoreReader {
     root.put("kind", "StatefulSet");
     root.put("name", spec.name());
     root.put("module", moduleIdToYamlMap(spec.moduleId()));
-    root.put("artifactPath", spec.artifactPath());
+    // Omitted when blank: absent-on-disk round-trips through the manifest parser back to the
+    // resolve-from-registry state, while an explicitly blank value would be rejected there.
+    if (!spec.artifactPath().isBlank()) {
+      root.put("artifactPath", spec.artifactPath());
+    }
     root.put("replicas", spec.replicas());
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());

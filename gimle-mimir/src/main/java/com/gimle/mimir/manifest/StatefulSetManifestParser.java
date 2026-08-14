@@ -49,7 +49,7 @@ public final class StatefulSetManifestParser {
   static StatefulSetSpec parseRoot(Map<?, ?> root) {
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
-    String artifactPath = ManifestFields.requireString(root, "artifactPath");
+    String artifactPath = ManifestFields.optionalArtifactPath(root);
     int replicas = parseReplicas(root);
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
     Optional<String> tenantId = parseTenantId(root);

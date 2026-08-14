@@ -140,11 +140,25 @@ independent `Authorizer.authorize(...)` check on every push and delete — the s
 posture Fafnir and Muninn established — and records each such decision in the durable audit log. A
 node's certificate identity (`gimle:nodes`) may only ever pull, never push or delete: placing
 executable jars in the registry is a supply-chain-level grant reserved for real RBAC-authorized
-principals. Andvari gets its own distinct certificate identity minted at cluster-bootstrap time,
-for the same attributability reason Fafnir's and Muninn's identities exist. The deployment path
-(node agents resolving a missing artifact from Andvari instead of requiring it pre-placed on the
-local filesystem) consumes this surface; today's `/artifacts/*` API is deliberately shaped for
-that pull-through-cache flow — presence check by digest (`HEAD`) first, download only on a miss.
+principals. A node's certificate identity may
+furthermore only pull a coordinate its node currently holds an assignment for — the same
+assignment-scoping shape Fafnir applies to a node's tenant-secret reads. Andvari gets its own
+distinct certificate identity minted at cluster-bootstrap time, for the same attributability
+reason Fafnir's and Muninn's identities exist.
+
+The deployment path consumes this surface end to end: a workload manifest may omit `artifactPath`
+entirely, in which case `module: {name, version}` alone identifies the artifact — admission
+HEAD-checks the coordinate against Andvari (definitively absent rejects the manifest; an
+unreachable registry admits it with no recorded digest, and the level-triggered reconcilers
+converge once it's back), the control plane pulls the jar through its own local cache when it
+needs the module descriptor for scheduling and quota, and each node agent resolves the coordinate
+at install time through its own pull-through cache under `{gimle.data.root}/artifact-cache` —
+`imagePullPolicy: IfNotPresent` semantics, sound to trust by presence alone precisely because the
+store is immutable. The worker never sees the difference: it always receives a concrete local
+path, so the worker runtime and agent↔worker protocol are untouched. Operators push through the
+control plane's `/artifacts/*` proxy (`gimle artifact push`), which forwards the calling
+principal's identity as an internal claim exactly like the `/secrets/*` proxy — an explicit local
+`artifactPath` keeps working unchanged as the escape hatch everywhere.
 
 ## Multi-machine deployment
 

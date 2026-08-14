@@ -1,5 +1,6 @@
 package com.gimle.mimir.store;
 
+import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import java.time.Instant;
 
@@ -42,9 +43,7 @@ public record JobRun(
     if (moduleId == null) {
       throw new IllegalArgumentException("moduleId must not be null");
     }
-    if (artifactPath == null || artifactPath.isBlank()) {
-      throw new IllegalArgumentException("artifactPath must not be blank");
-    }
+    ArtifactReference.requireValid(artifactPath);
     if (startedAt == null) {
       throw new IllegalArgumentException("startedAt must not be null");
     }

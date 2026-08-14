@@ -42,6 +42,10 @@ import java.util.List;
  *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
  *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
  *   gimle secret rotate-key
+ *   gimle artifact push &lt;jar&gt;
+ *   gimle artifact list [moduleId]
+ *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
+ *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  *   gimle get roles [name]
  *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;] [--permission ...]
@@ -129,6 +133,7 @@ public final class GimleCli {
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
       case "events" -> handleEvents(rest, client, output, out);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
+      case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       default -> throw new CliException(usage());
@@ -313,6 +318,10 @@ public final class GimleCli {
           secret delete <tenantId> <key> [--destroy]
           secret versions <tenantId> <key>
           secret rotate-key
+          artifact push <jar>
+          artifact list [moduleId]
+          artifact get <moduleId> <version> [--to <path>]
+          artifact delete <moduleId> <version>
           audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                      [--since <epochMillis>] [--limit N]
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
