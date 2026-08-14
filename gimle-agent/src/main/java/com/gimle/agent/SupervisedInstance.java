@@ -13,7 +13,8 @@ import java.util.Optional;
  * lifecycle state back. {@code lifecycleState} is updated from {@code ModuleStateChanged} messages
  * as they arrive; {@code connection} starts {@code null} and is filled in asynchronously once the
  * spawned worker JVM actually connects, so creating this instance never blocks the assignment-poll
- * loop on a slow-starting JVM.
+ * loop on a slow-starting JVM. {@code assigned} is the one field here that is neither {@code final}
+ * nor {@code volatile}-but-otherwise-fixed-at-construction -- see its own javadoc below for why.
  *
  * <p>{@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} are populated from the
  * worker's {@code Hello} handshake -- the addressing needed to advertise a dialable {@link

@@ -72,6 +72,24 @@ public final class CapacityTracker {
     }
   }
 
+  /**
+   * Moves {@code oldKey}'s reservation (if any) to {@code newKey} -- for a rename-in-place, where
+   * the resource footprint itself is unchanged (same module, same limit) but the bookkeeping key
+   * this tracker keyed it under is not, so a plain {@link #release}/{@link #tryAssign} pair would
+   * either double-count or, if skipped, permanently leak the old key's reservation once nothing
+   * ever calls {@link #release} against it again. A no-op when {@code oldKey} has no reservation
+   * (the source was never actually tracked here, e.g. a rename immediately after this agent
+   * restarted).
+   */
+  public void rekey(String oldKey, String newKey) {
+    synchronized (lock) {
+      ResourceSpec limit = assigned.remove(oldKey);
+      if (limit != null) {
+        assigned.put(newKey, limit);
+      }
+    }
+  }
+
   public Snapshot snapshot() {
     synchronized (lock) {
       long assignedMemory = assigned.values().stream().mapToLong(ResourceSpec::memoryBytes).sum();

@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -114,7 +115,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
   }
 
   @Test
-  @Timeout(value = 3, unit = java.util.concurrent.TimeUnit.MINUTES)
+  @Timeout(value = 3, unit = TimeUnit.MINUTES)
   void control_plane_places_replicas_on_real_agents_and_reschedules_after_an_agent_is_killed()
       throws Exception {
     Path jar =

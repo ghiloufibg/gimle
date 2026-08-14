@@ -9,6 +9,7 @@ import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.module.VolumeRequest;
 import com.gimle.core.protocol.AssignedInstance;
@@ -24,6 +25,7 @@ import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.fabric.catalog.CatalogDelta;
 import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
@@ -280,7 +282,7 @@ public final class AgentMain {
    * own locally-cached catalog.
    */
   private static void relayCatalogDelta(
-      com.gimle.fabric.catalog.CatalogDelta delta, Map<String, SupervisedInstance> supervised) {
+      CatalogDelta delta, Map<String, SupervisedInstance> supervised) {
     ControlMessage update = toCatalogUpdate(delta);
     for (SupervisedInstance instance : supervised.values()) {
       WorkerConnection connection = instance.connection;
@@ -783,9 +785,14 @@ public final class AgentMain {
             false);
       }
       if (!supervised.containsKey(key)) {
+        // A rename hint (DeploymentReconciler#handleSurge promoting a surge instance to a
+        // permanent index) means the already-running instance at renamedFromInstanceIndex just
+        // needs retargeting, not a fresh spawn -- findRenameSource only returns present when that
+        // source is still there and already running exactly what this key now expects.
         Optional<SupervisedInstance> renameSource = findRenameSource(assigned, supervised);
         if (renameSource.isPresent()) {
-          renameInPlace(key, assigned, renameSource.get(), supervised, instanceShippers);
+          renameInPlace(
+              key, assigned, renameSource.get(), supervised, instanceShippers, capacityTracker);
         } else {
           try {
             ModuleDescriptor descriptor =
@@ -1399,9 +1406,9 @@ public final class AgentMain {
 
   private static void syncCatalogToWorker(SupervisedInstance instance, ServiceCatalog catalog) {
     WorkerConnection connection = instance.connection;
-    List<com.gimle.fabric.catalog.CatalogDelta> deltas = catalog.allPresentDeltas();
+    List<CatalogDelta> deltas = catalog.allPresentDeltas();
     log.debug("syncing {} known catalog delta(s) to a newly-connected worker", deltas.size());
-    for (com.gimle.fabric.catalog.CatalogDelta delta : deltas) {
+    for (CatalogDelta delta : deltas) {
       try {
         connection.send(toCatalogUpdate(delta));
       } catch (IOException e) {
@@ -1411,8 +1418,7 @@ public final class AgentMain {
     }
   }
 
-  private static ControlMessage.CatalogUpdate toCatalogUpdate(
-      com.gimle.fabric.catalog.CatalogDelta delta) {
+  private static ControlMessage.CatalogUpdate toCatalogUpdate(CatalogDelta delta) {
     return new ControlMessage.CatalogUpdate(
         delta.nodeId(),
         delta.workerId(),
@@ -1430,7 +1436,7 @@ public final class AgentMain {
       GossipMember gossipMember,
       ServiceCatalog catalog,
       ModuleId moduleId,
-      com.gimle.core.module.ServiceExport export,
+      ServiceExport export,
       boolean present) {
     if (instance.fabricWorkerId == null) {
       log.warn(
@@ -1661,8 +1667,8 @@ public final class AgentMain {
 
   /**
    * Retargets an already-running, already-healthy instance onto a new key in place: re-keys {@code
-   * supervised}/{@code instanceShippers} and updates the instance's own {@link
-   * SupervisedInstance#assigned}, then tells the worker (if already connected) its {@code
+   * supervised}/{@code instanceShippers}/{@code capacityTracker} and updates the instance's own
+   * {@link SupervisedInstance#assigned}, then tells the worker (if already connected) its {@code
    * InstanceIdentityRegistry} entry changed too -- no {@code stopInstance}/{@code startInstance}
    * anywhere in this path, the entire point being that the live worker process and its module state
    * are never touched. If the worker hasn't connected yet (a genuine race: the rename source only
@@ -1675,7 +1681,8 @@ public final class AgentMain {
       AssignedInstance assigned,
       SupervisedInstance instance,
       Map<String, SupervisedInstance> supervised,
-      Map<String, List<MuninnShipper>> instanceShippers) {
+      Map<String, List<MuninnShipper>> instanceShippers,
+      CapacityTracker capacityTracker) {
     String oldKey = instanceKey(instance.assigned);
     log.info("instance {} retargeted to {} -- renaming in place, no restart", oldKey, newKey);
     instance.assigned = assigned;
@@ -1685,6 +1692,10 @@ public final class AgentMain {
     if (shippers != null) {
       instanceShippers.put(newKey, shippers);
     }
+    // The resource footprint doesn't change (requiresReplacement already proved moduleId/
+    // artifactPath match), only the bookkeeping key does -- see CapacityTracker#rekey's own
+    // javadoc for why a plain release/tryAssign pair here would be wrong.
+    capacityTracker.rekey(oldKey, newKey);
     WorkerConnection connection = instance.connection;
     if (connection != null) {
       try {

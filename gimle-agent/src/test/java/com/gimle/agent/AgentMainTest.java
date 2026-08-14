@@ -2,6 +2,7 @@ package com.gimle.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.HealthProbes;
@@ -10,12 +11,17 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
+import com.gimle.core.protocol.ControlMessage;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +42,33 @@ class AgentMainTest {
 
   private static final ResourceSpec REQUEST = new ResourceSpec("16Mi", "500m");
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
+
+  /**
+   * The seven-arg {@link AgentMain#buildWorkerCommand} call every test below needs, with only the
+   * bits that actually vary per test (the limiter, the prepared handle, the assigned instance, and
+   * occasionally the node id) exposed as parameters.
+   */
+  private static List<String> buildDefaultWorkerCommand(
+      PortableJvmFlagsResourceLimiter resourceLimiter,
+      ResourceLimitHandle handle,
+      AssignedInstance assigned,
+      String nodeId) {
+    return AgentMain.buildWorkerCommand(
+        "java",
+        List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+        resourceLimiter,
+        handle,
+        Path.of("gimle-logs", "workers", "hello-deployment#0"),
+        nodeId,
+        assigned);
+  }
+
+  private static List<String> buildDefaultWorkerCommand(
+      PortableJvmFlagsResourceLimiter resourceLimiter,
+      ResourceLimitHandle handle,
+      AssignedInstance assigned) {
+    return buildDefaultWorkerCommand(resourceLimiter, handle, assigned, "node-1");
+  }
 
   private static ModuleDescriptor descriptorWithDistinctRequestAndLimit() {
     return new ModuleDescriptor(
@@ -74,15 +107,7 @@ class AgentMainTest {
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
 
-    List<String> command =
-        AgentMain.buildWorkerCommand(
-            "java",
-            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-            resourceLimiter,
-            handle,
-            Path.of("gimle-logs", "workers", "hello-deployment#0"),
-            "node-1",
-            assigned);
+    List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
 
     long limitBytes = LIMIT.memoryBytes();
     long requestBytes = REQUEST.memoryBytes();
@@ -104,15 +129,7 @@ class AgentMainTest {
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
 
-    List<String> command =
-        AgentMain.buildWorkerCommand(
-            "java",
-            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-            resourceLimiter,
-            handle,
-            Path.of("gimle-logs", "workers", "hello-deployment#0"),
-            "node-1",
-            assigned);
+    List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
 
     // WorkerProcessSupervisor's OOM crash classification depends on this flag being set on every
     // worker, unconditionally -- without it, an OOM exit is indistinguishable from any
@@ -137,29 +154,13 @@ class AgentMainTest {
       // Absent -> forwarded as "false", not simply omitted -- every worker gets an explicit
       // value rather than silently inheriting whatever WorkerMain's own default happens to be.
       System.clearProperty(property);
-      List<String> withoutProperty =
-          AgentMain.buildWorkerCommand(
-              "java",
-              List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-              resourceLimiter,
-              handle,
-              Path.of("gimle-logs", "workers", "hello-deployment#0"),
-              "node-1",
-              assigned);
+      List<String> withoutProperty = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
       assertTrue(
           withoutProperty.contains("-Dgimle.fabric.defaultDenyCrossTenant=false"),
           "expected the flag forwarded as false by default; command=" + withoutProperty);
 
       System.setProperty(property, "true");
-      List<String> withProperty =
-          AgentMain.buildWorkerCommand(
-              "java",
-              List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-              resourceLimiter,
-              handle,
-              Path.of("gimle-logs", "workers", "hello-deployment#0"),
-              "node-1",
-              assigned);
+      List<String> withProperty = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
       assertTrue(
           withProperty.contains("-Dgimle.fabric.defaultDenyCrossTenant=true"),
           "expected the agent's own property value forwarded; command=" + withProperty);
@@ -182,15 +183,7 @@ class AgentMainTest {
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
 
-    List<String> command =
-        AgentMain.buildWorkerCommand(
-            "java",
-            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-            resourceLimiter,
-            handle,
-            Path.of("gimle-logs", "workers", "hello-deployment#0"),
-            "node-1",
-            assigned);
+    List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
 
     // A worker starts once per module instance, not once per node/replica lifecycle -- unlike
     // GimleBanner's own enabled-by-default posture (see that class's javadoc), every worker
@@ -213,15 +206,7 @@ class AgentMainTest {
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
 
-    List<String> command =
-        AgentMain.buildWorkerCommand(
-            "java",
-            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
-            resourceLimiter,
-            handle,
-            Path.of("gimle-logs", "workers", "hello-deployment#0"),
-            "node-a",
-            assigned);
+    List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned, "node-a");
 
     assertTrue(
         command.contains("-Dgimle.log.console=json"),
@@ -651,14 +636,65 @@ class AgentMainTest {
     supervised.put("orders-service#5", instance);
     Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
     instanceShippers.put("orders-service#5", List.of());
+    CapacityTracker capacityTracker = new CapacityTracker(1_000_000_000L, 4000L);
+    capacityTracker.tryAssign("orders-service#5", v2.resourceRequest());
 
     AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
-    AgentMain.renameInPlace("orders-service#1", renamed, instance, supervised, instanceShippers);
+    AgentMain.renameInPlace(
+        "orders-service#1", renamed, instance, supervised, instanceShippers, capacityTracker);
 
     assertFalse(supervised.containsKey("orders-service#5"));
     assertEquals(instance, supervised.get("orders-service#1"));
     assertEquals(renamed, instance.assigned);
     assertFalse(instanceShippers.containsKey("orders-service#5"));
     assertTrue(instanceShippers.containsKey("orders-service#1"));
+    // The capacity reservation must have moved with the key, not stayed leaked under the old one
+    // or been dropped -- see CapacityTracker#rekey's own dedicated test for the full behavior.
+    assertTrue(capacityTracker.tryAssign("orders-service#5", v2.resourceRequest()));
+    assertThrows(
+        IllegalStateException.class,
+        () -> capacityTracker.tryAssign("orders-service#1", v2.resourceRequest()));
+  }
+
+  @Test
+  void rename_in_place_notifies_the_connected_worker_of_its_new_identity() throws Exception {
+    ModuleDescriptor v2 = descriptor("orders", IsolationTier.TIER_2);
+    AssignedInstance surgeAssigned =
+        new AssignedInstance(
+            "orders-service", 5, v2.id(), "/does/not/matter.jar", Optional.empty());
+
+    Path socketPath = Files.createTempDirectory("gimle-rename-notify").resolve("worker.sock");
+    try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+      server.bind(UnixDomainSocketAddress.of(socketPath));
+      try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
+        workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
+        try (SocketChannel agentRaw = server.accept()) {
+          WorkerConnection workerSide = new WorkerConnection(workerRaw);
+          WorkerConnection agentSide = new WorkerConnection(agentRaw);
+          SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, agentSide);
+          Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+          supervised.put("orders-service#5", instance);
+          Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
+
+          AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+          AgentMain.renameInPlace(
+              "orders-service#1",
+              renamed,
+              instance,
+              supervised,
+              instanceShippers,
+              new CapacityTracker(1_000_000_000L, 4000L));
+
+          Optional<ControlMessage> received = workerSide.receive();
+          assertTrue(received.isPresent());
+          assertTrue(received.get() instanceof ControlMessage.RenameInstance);
+          ControlMessage.RenameInstance renameMessage =
+              (ControlMessage.RenameInstance) received.get();
+          assertEquals(v2.id(), renameMessage.id());
+          assertEquals("orders-service", renameMessage.deploymentName());
+          assertEquals(1, renameMessage.instanceIndex());
+        }
+      }
+    }
   }
 }

@@ -8,6 +8,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -359,8 +360,8 @@ final class AgentLogServer implements AutoCloseable {
       if (eq < 0) {
         continue;
       }
-      String key = java.net.URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
-      String value = java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+      String key = URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
+      String value = URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
       result.put(key, value);
     }
     return result;
