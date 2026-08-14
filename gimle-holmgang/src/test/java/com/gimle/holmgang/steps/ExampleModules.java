@@ -13,7 +13,8 @@ final class ExampleModules {
   private static final Map<String, String> MODULE_NAMES =
       Map.of(
           "greeter-provider", "com.gimle.examples.greeter.provider",
-          "greeter-consumer", "com.gimle.examples.greeter.consumer");
+          "greeter-consumer", "com.gimle.examples.greeter.consumer",
+          "greeter-load-generator", "com.gimle.examples.greeter.loadgen");
 
   private ExampleModules() {}
 

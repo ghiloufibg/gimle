@@ -149,6 +149,55 @@ public final class ClusterApi {
     }
   }
 
+  /**
+   * Submits a deployment with an {@code autoscale:} policy. {@code targetCpuUtilizationPercent} is
+   * always written (the platform requires it); the request-rate target is optional, matching the
+   * policy's own "absent means not evaluated" shape.
+   */
+  public void submitAutoscaleDeployment(
+      final String deploymentName,
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final int minReplicas,
+      final int maxReplicas,
+      final int targetCpuUtilizationPercent,
+      final Optional<Double> targetRequestRatePerSecond) {
+    final String manifest =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        replicas: %d
+        autoscale:
+          minReplicas: %d
+          maxReplicas: %d
+          targetCpuUtilizationPercent: %d
+        %s"""
+            .formatted(
+                deploymentName,
+                moduleName,
+                moduleVersion,
+                jar.toAbsolutePath(),
+                minReplicas,
+                minReplicas,
+                maxReplicas,
+                targetCpuUtilizationPercent,
+                targetRequestRatePerSecond
+                    .map(rate -> "  targetRequestRatePerSecond: " + rate + "\n")
+                    .orElse(""));
+    expectOk("PUT", "/deployments/" + deploymentName, manifest, "autoscale deployment submission");
+  }
+
+  /** True once {@code GET /tenants/{id}} answers 200 -- the read side of a workload's writes. */
+  public boolean tenantExists(final String tenantId) {
+    final Optional<HttpResponse<String>> response = tryGet("/tenants/" + tenantId);
+    return response.isPresent() && response.get().statusCode() == 200;
+  }
+
   public void deleteDeployment(final String deploymentName) {
     expectOkNoBody("DELETE", "/deployments/" + deploymentName, "deployment deletion");
   }

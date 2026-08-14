@@ -138,6 +138,25 @@
       <artifactId>junit-platform-suite</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      Real, controllable-rate HTTP load for autoscale scenarios, spawned as Gatling's own CLI in
+      a separate JVM (its runtime is not designed to run twice in one JVM), with the same versions
+      and reasoning as gimle-smoke-tests' own Gatling dependency. gatling-charts-highcharts is
+      the self-contained CLI runner aggregate; gatling-http-java is the DSL the simulation is
+      written in.
+    -->
+    <dependency>
+      <groupId>io.gatling.highcharts</groupId>
+      <artifactId>gatling-charts-highcharts</artifactId>
+      <version>3.13.5</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.gatling</groupId>
+      <artifactId>gatling-http-java</artifactId>
+      <version>3.13.5</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

@@ -25,6 +25,11 @@ public final class ClusterSteps {
     }
   }
 
+  @When("store {int} is killed")
+  public void storeIsKilled(final int storeIndex) {
+    world.cluster().store(storeIndex).killWithDescendants();
+  }
+
   @When("node {string} is cordoned")
   public void nodeIsCordoned(final String nodeId) {
     world.cluster().api().cordonNode(nodeId);

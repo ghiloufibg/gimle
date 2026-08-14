@@ -37,6 +37,12 @@ public final class Hooks {
     if (scenario.isFailed()) {
       ClusterPool.markFailed();
     }
+    if (world.workload != null) {
+      bestEffort(world.workload::close);
+    }
+    for (final Process load : world.loadProcesses) {
+      bestEffort(load::destroyForcibly);
+    }
     while (!world.partitions.isEmpty()) {
       final var partition = world.partitions.pollLast();
       bestEffort(partition::heal);

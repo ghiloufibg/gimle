@@ -5,8 +5,8 @@ sidebar_position: 1
 # Project structure
 
 Gimlé is a multi-module Maven build. Each module below is production code — the platform itself,
-not tests or samples. (`gimle-examples/*` and `gimle-smoke-tests` exist in the repo too, but are
-sample/test-only and deliberately left out of this map.)
+not tests or samples. (`gimle-examples/*`, `gimle-smoke-tests`, and `gimle-holmgang` exist in the
+repo too, but are sample/test-only and deliberately left out of this map.)
 
 ## Dependency graph
 

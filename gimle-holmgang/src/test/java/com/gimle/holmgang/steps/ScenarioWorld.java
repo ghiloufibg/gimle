@@ -4,6 +4,7 @@ import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.cluster.GimleCluster;
 import com.gimle.holmgang.heimdall.InvariantGuard;
 import com.gimle.holmgang.loki.Loki;
+import com.gimle.holmgang.workload.RecordingWorkload;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,8 +33,10 @@ public final class ScenarioWorld {
   final List<String> cordonedNodes = new ArrayList<>();
   final Deque<InvariantGuard> guards = new ArrayDeque<>();
   final Deque<Loki.Partition> partitions = new ArrayDeque<>();
+  final List<Process> loadProcesses = new ArrayList<>();
   final Map<String, Long> workerPids = new HashMap<>();
   Integer lastSubmissionStatus;
+  RecordingWorkload workload;
 
   private GimleCluster cluster;
   private boolean destructive;
