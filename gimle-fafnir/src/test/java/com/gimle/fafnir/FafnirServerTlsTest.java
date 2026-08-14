@@ -6,18 +6,16 @@ import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.fafnir.testsupport.InProcessStore;
+import com.gimle.fafnir.testsupport.TlsTestFixtures;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
-import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
@@ -27,6 +25,7 @@ import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -44,29 +43,27 @@ import org.junit.jupiter.api.parallel.Resources;
 @ResourceLock("gimle-fafnir-server-http")
 class FafnirServerTlsTest {
 
-  private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";
-  private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
-  private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
-  private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
-
   @TempDir(cleanup = CleanupMode.NEVER)
   private Path tempDir;
 
+  private TlsTestFixtures tls;
+
+  @BeforeEach
+  void setUp() {
+    tls = new TlsTestFixtures(tempDir);
+  }
+
   @AfterEach
   void clearTransportProperties() {
-    System.clearProperty(PROTOCOL_PROPERTY);
-    System.clearProperty(CERT_FILE_PROPERTY);
-    System.clearProperty(KEY_FILE_PROPERTY);
-    System.clearProperty(CA_FILE_PROPERTY);
+    TlsTestFixtures.clearTransportProperties();
   }
 
   @Test
   @Timeout(10)
   void a_real_mtls_request_with_a_ca_signed_client_cert_succeeds() throws Exception {
-    CertificateAuthority ca =
-        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
-    configureServerTls(ca);
-    TlsSettings clientSettings = issueLeaf(ca, "caller");
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+    TlsSettings clientSettings = tls.issueLeaf(ca, "caller");
 
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
       FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
@@ -97,12 +94,11 @@ class FafnirServerTlsTest {
   @Timeout(10)
   void reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server()
       throws Exception {
-    CertificateAuthority ca =
-        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
-    configureServerTls(ca);
-    Path certFile = Path.of(System.getProperty(CERT_FILE_PROPERTY));
-    Path keyFile = Path.of(System.getProperty(KEY_FILE_PROPERTY));
-    Path caFile = Path.of(System.getProperty(CA_FILE_PROPERTY));
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+    Path certFile = Path.of(System.getProperty(TlsTestFixtures.CERT_FILE_PROPERTY));
+    Path keyFile = Path.of(System.getProperty(TlsTestFixtures.KEY_FILE_PROPERTY));
+    Path caFile = Path.of(System.getProperty(TlsTestFixtures.CA_FILE_PROPERTY));
 
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
       FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
@@ -122,13 +118,13 @@ class FafnirServerTlsTest {
 
         // Rotate: a fresh CA-signed leaf, written over the *same* cert/key file paths -- exactly
         // what a real rotation does to gimle.tls.certFile/keyFile in place.
-        KeyPair rotatedKeyPair = generateRsaKeyPair();
+        KeyPair rotatedKeyPair = TlsTestFixtures.generateRsaKeyPair();
         PKCS10CertificationRequest rotatedCsr =
             CertificateSigningRequests.generate(
                 rotatedKeyPair, new X500Name("CN=fafnir"), List.of("localhost"));
         X509Certificate rotatedLeaf = ca.signCertificateRequest(rotatedCsr, Duration.ofDays(1));
-        overwritePem(certFile, "CERTIFICATE", rotatedLeaf.getEncoded());
-        overwritePem(keyFile, "PRIVATE KEY", rotatedKeyPair.getPrivate().getEncoded());
+        tls.overwritePem(certFile, "CERTIFICATE", rotatedLeaf.getEncoded());
+        tls.overwritePem(keyFile, "PRIVATE KEY", rotatedKeyPair.getPrivate().getEncoded());
 
         server.reloadTlsMaterial();
 
@@ -147,70 +143,5 @@ class FafnirServerTlsTest {
         assertEquals(200, afterResponse.statusCode());
       }
     }
-  }
-
-  private void configureServerTls(CertificateAuthority ca) throws Exception {
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=fafnir"), List.of("localhost"));
-    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
-    Path certFile = writePem("fafnir-cert.pem", "CERTIFICATE", leaf.getEncoded());
-    Path keyFile = writePem("fafnir-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    Path caFile = writePem("fafnir-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
-
-    System.setProperty(PROTOCOL_PROPERTY, "tls");
-    System.setProperty(CERT_FILE_PROPERTY, certFile.toString());
-    System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
-    System.setProperty(CA_FILE_PROPERTY, caFile.toString());
-  }
-
-  private TlsSettings issueLeaf(CertificateAuthority ca, String commonName) throws Exception {
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
-    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
-
-    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
-    Path keyFile =
-        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
-
-    return new TlsSettings(certFile, keyFile, caFile);
-  }
-
-  private Path writePem(String fileName, String label, byte[] derBytes) throws IOException {
-    Files.writeString(fileName(fileName), pem(label, derBytes));
-    return fileName(fileName);
-  }
-
-  private void overwritePem(Path path, String label, byte[] derBytes) throws IOException {
-    Files.writeString(path, pem(label, derBytes));
-  }
-
-  private Path fileName(String fileName) {
-    return tempDir.resolve(fileName);
-  }
-
-  private static String pem(String label, byte[] derBytes) {
-    String base64 =
-        Base64.getMimeEncoder(64, System.lineSeparator().getBytes(StandardCharsets.US_ASCII))
-            .encodeToString(derBytes);
-    return "-----BEGIN "
-        + label
-        + "-----"
-        + System.lineSeparator()
-        + base64
-        + System.lineSeparator()
-        + "-----END "
-        + label
-        + "-----"
-        + System.lineSeparator();
-  }
-
-  private static KeyPair generateRsaKeyPair() throws Exception {
-    KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-    generator.initialize(2048);
-    return generator.generateKeyPair();
   }
 }

@@ -9,31 +9,23 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.Json;
-import com.gimle.core.tls.SslContexts;
-import com.gimle.core.tls.TlsSettings;
 import com.gimle.fafnir.testsupport.InProcessStore;
+import com.gimle.fafnir.testsupport.TlsTestFixtures;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.observability.FafnirMetrics;
 import com.gimle.pki.CertificateAuthority;
-import com.gimle.pki.CertificateSigningRequests;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.cert.X509Certificate;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
-import javax.net.ssl.SSLContext;
-import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,19 +37,18 @@ import org.junit.jupiter.api.parallel.Resources;
 @ResourceLock("gimle-fafnir-server-http")
 class FafnirObservabilityTest {
 
-  private static final String PROTOCOL_PROPERTY = "gimle.transport.protocol";
-  private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
-  private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
-  private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
-
   @TempDir Path tempDir;
+
+  private TlsTestFixtures tls;
+
+  @BeforeEach
+  void setUp() {
+    tls = new TlsTestFixtures(tempDir);
+  }
 
   @AfterEach
   void clearTransportProperties() {
-    System.clearProperty(PROTOCOL_PROPERTY);
-    System.clearProperty(CERT_FILE_PROPERTY);
-    System.clearProperty(KEY_FILE_PROPERTY);
-    System.clearProperty(CA_FILE_PROPERTY);
+    TlsTestFixtures.clearTransportProperties();
   }
 
   @Test
@@ -113,9 +104,8 @@ class FafnirObservabilityTest {
   @Timeout(10)
   void repeated_authorization_failures_from_the_same_principal_are_eventually_throttled()
       throws Exception {
-    CertificateAuthority ca =
-        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
-    configureServerTls(ca);
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
       // "mallory" holds no SECRET permission at all -- every request she makes is denied.
@@ -123,7 +113,7 @@ class FafnirObservabilityTest {
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        HttpClient client = clientWithLeaf(ca, "mallory");
+        HttpClient client = tls.clientWithLeaf(ca, "mallory");
 
         // LoginThrottle's default threshold is 3 -- the first three denials record but impose no
         // delay (an honest mistake shouldn't lock anyone out); the fourth must be throttled.
@@ -147,16 +137,15 @@ class FafnirObservabilityTest {
   @Test
   @Timeout(10)
   void a_successful_authorization_clears_prior_recorded_failures() throws Exception {
-    CertificateAuthority ca =
-        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
-    configureServerTls(ca);
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
       FafnirCrypto crypto =
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        HttpClient client = clientWithLeaf(ca, "alice");
+        HttpClient client = tls.clientWithLeaf(ca, "alice");
 
         // Two denials (under threshold, no delay yet), then grant the permission and succeed --
         // the success must clear alice's failure history, not merely coast under the threshold.
@@ -229,68 +218,10 @@ class FafnirObservabilityTest {
     }
   }
 
-  private static void grantSecretRead(com.gimle.mimir.store.StateStore store, String username) {
+  private static void grantSecretRead(StateStore store, String username) {
     store.putRole(
         new Role("secret-read", Set.of(Permission.unscoped(ResourceKind.SECRET, Verb.READ))));
     store.putRoleBinding(
         new RoleBinding("b-" + username, RoleBinding.userSubject(username), "secret-read"));
-  }
-
-  private void configureServerTls(CertificateAuthority ca) throws Exception {
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=fafnir"), java.util.List.of("localhost"));
-    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
-    Path certFile = writePem("fafnir-cert.pem", "CERTIFICATE", leaf.getEncoded());
-    Path keyFile = writePem("fafnir-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    Path caFile = writePem("fafnir-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
-
-    System.setProperty(PROTOCOL_PROPERTY, "tls");
-    System.setProperty(CERT_FILE_PROPERTY, certFile.toString());
-    System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
-    System.setProperty(CA_FILE_PROPERTY, caFile.toString());
-  }
-
-  private HttpClient clientWithLeaf(CertificateAuthority ca, String commonName) throws Exception {
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
-    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
-    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
-    Path keyFile =
-        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
-
-    SSLContext sslContext = SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile));
-    return HttpClient.newBuilder().sslContext(sslContext).build();
-  }
-
-  private Path writePem(String fileName, String label, byte[] derBytes) throws Exception {
-    Path path = tempDir.resolve(fileName);
-    Files.writeString(path, pem(label, derBytes));
-    return path;
-  }
-
-  private static String pem(String label, byte[] derBytes) {
-    String base64 =
-        Base64.getMimeEncoder(64, System.lineSeparator().getBytes(StandardCharsets.US_ASCII))
-            .encodeToString(derBytes);
-    return "-----BEGIN "
-        + label
-        + "-----"
-        + System.lineSeparator()
-        + base64
-        + System.lineSeparator()
-        + "-----END "
-        + label
-        + "-----"
-        + System.lineSeparator();
-  }
-
-  private static KeyPair generateRsaKeyPair() throws Exception {
-    KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-    generator.initialize(2048);
-    return generator.generateKeyPair();
   }
 }

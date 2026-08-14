@@ -10,6 +10,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.mimir.raft.StateMutation;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class FafnirCryptoTest {
 
-  @TempDir java.nio.file.Path tempDir;
+  @TempDir Path tempDir;
 
   private InProcessStore store;
   private FafnirCrypto crypto;

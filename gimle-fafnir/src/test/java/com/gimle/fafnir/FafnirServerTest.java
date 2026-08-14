@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -217,7 +218,7 @@ class FafnirServerTest {
     assertEquals("db-password", entry.get("key"));
     assertEquals(1L, entry.get("latestVersion"));
     assertEquals(false, entry.get("deleted"));
-    assertEquals(java.util.Set.of("key", "latestVersion", "deleted"), entry.keySet());
+    assertEquals(Set.of("key", "latestVersion", "deleted"), entry.keySet());
   }
 
   @Test

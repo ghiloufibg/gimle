@@ -102,12 +102,7 @@ public final class FafnirMain {
     // null means "ship nowhere," this replica's own request metrics simply aren't shipped anywhere.
     String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
     MuninnShipper metricsShipper =
-        muninnEndpoint == null
-            ? null
-            : new MuninnShipper(
-                muninnEndpoint,
-                "/ingest/metrics/FAFNIR/" + selfHost + ":" + fafnirServer.port(),
-                MUNINN_SHIP_INTERVAL);
+        shipperFor(muninnEndpoint, "metrics", selfHost, fafnirServer.port());
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(fafnirServer.metrics().registry());
     }
@@ -117,12 +112,7 @@ public final class FafnirMain {
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
     MuninnShipper tracesShipper =
-        muninnEndpoint == null
-            ? null
-            : new MuninnShipper(
-                muninnEndpoint,
-                "/ingest/traces/FAFNIR/" + selfHost + ":" + fafnirServer.port(),
-                MUNINN_SHIP_INTERVAL);
+        shipperFor(muninnEndpoint, "traces", selfHost, fafnirServer.port());
     if (tracesShipper != null) {
       GimleTracing.installWithMuninnShipping(tracesShipper);
     } else {
@@ -191,6 +181,21 @@ public final class FafnirMain {
                         tracesShipper.close();
                       }
                     }));
+  }
+
+  /**
+   * A {@link MuninnShipper} targeting {@code /ingest/{kind}/FAFNIR/{selfHost}:{port}}, or {@code
+   * null} when {@code muninnEndpoint} is unconfigured -- the shared shape behind both the metrics
+   * and traces shippers above, which differ only in the ingest path's {@code kind} segment.
+   */
+  private static MuninnShipper shipperFor(
+      String muninnEndpoint, String kind, String selfHost, int port) {
+    return muninnEndpoint == null
+        ? null
+        : new MuninnShipper(
+            muninnEndpoint,
+            "/ingest/" + kind + "/FAFNIR/" + selfHost + ":" + port,
+            MUNINN_SHIP_INTERVAL);
   }
 
   private static List<SocketAddress> parseStoreEndpoints(String spec) {

@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Map;
+import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import org.junit.jupiter.api.Test;
 
 /** AES-256-GCM round-trip. */
@@ -123,10 +126,9 @@ class SecretCipherTest {
 
   private static byte[] legacyEncrypt(byte[] plaintext, SecretKey key) throws Exception {
     byte[] iv = new byte[12];
-    new java.security.SecureRandom().nextBytes(iv);
-    javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
-    cipher.init(
-        javax.crypto.Cipher.ENCRYPT_MODE, key, new javax.crypto.spec.GCMParameterSpec(128, iv));
+    new SecureRandom().nextBytes(iv);
+    Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+    cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
     byte[] ciphertext = cipher.doFinal(plaintext);
     byte[] result = new byte[iv.length + ciphertext.length];
     System.arraycopy(iv, 0, result, 0, iv.length);

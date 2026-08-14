@@ -336,6 +336,7 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 400, "missing tenantId");
         return;
       }
+      // GET /secrets/{tenantId} -- list every secret key the tenant owns.
       if (parts.length == 1) {
         if (!"GET".equals(exchange.getRequestMethod())) {
           respond(exchange, 405, "method not allowed");
@@ -351,6 +352,7 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 400, "missing key");
         return;
       }
+      // GET /secrets/{tenantId}/{key}/versions -- list the key's stored version numbers.
       if (parts.length == 3) {
         if (!"versions".equals(parts[2])) {
           respond(exchange, 404, "unknown secrets sub-resource: " + parts[2]);
@@ -365,6 +367,8 @@ public final class FafnirServer implements AutoCloseable {
         }
         return;
       }
+      // GET/PUT/DELETE /secrets/{tenantId}/{key}[?version=N|destroy=true] -- read, write, or
+      // (soft- or, with ?destroy=true, hard-) delete a single secret.
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.of(key))) {
@@ -483,50 +487,20 @@ public final class FafnirServer implements AutoCloseable {
     if (!(exchange instanceof HttpsExchange)) {
       return true;
     }
-    Optional<Principal> principal = resolvePrincipal(exchange);
-    if (principal.isEmpty()) {
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
       respondQuietly(exchange, 401, "authentication required");
       return false;
     }
-    String throttleKey = principal.get().name();
+    Principal principal = resolved.get();
+    String throttleKey = principal.name();
     Optional<Instant> throttledUntil = authzThrottle.throttledUntil(throttleKey);
     if (throttledUntil.isPresent()) {
       respondThrottled(exchange, throttledUntil.get());
       return false;
     }
-    boolean allowed =
-        principal.get().groups().contains(BuiltinRoles.GROUP_NODES)
-            ? verb == Verb.READ && isTenantAssignedToNode(principal.get().name(), tenantId)
-            : authorizer.authorize(
-                principal.get(),
-                ResourceKind.SECRET,
-                verb,
-                Optional.of(tenantId),
-                Optional.empty());
-    auditLog.info(
-        "principal={} tenant={} key={} verb={} allow={}",
-        principal.get().name(),
-        tenantId,
-        key.orElse("-"),
-        verb,
-        allowed);
-    // The durable, queryable counterpart to the auditLog line above, giving gimle-observability
-    // a general-purpose audit-event-log mechanism it previously lacked. The SLF4J line stays: it
-    // has independent value for an operator tailing this process's own log file, no query needed.
-    crypto
-        .storeClient()
-        .propose(
-            new StateMutation.AppendAuditEvent(
-                new AuditEvent(
-                    UUID.randomUUID().toString(),
-                    principal.get().name(),
-                    principal.get().groups(),
-                    ResourceKind.SECRET.name(),
-                    verb.name(),
-                    Optional.of(tenantId),
-                    key,
-                    allowed,
-                    System.currentTimeMillis())));
+    boolean allowed = decideAllowed(principal, verb, tenantId);
+    recordAudit(principal, verb, tenantId, key, allowed);
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());
@@ -535,6 +509,49 @@ public final class FafnirServer implements AutoCloseable {
     }
     authzThrottle.recordSuccess(throttleKey);
     return true;
+  }
+
+  /**
+   * The RBAC decision itself: a {@code gimle:nodes} principal takes the node-scoped self-service
+   * path (see {@link #isTenantAssignedToNode}) rather than the ordinary {@link Authorizer} check,
+   * since a node certificate has no {@code Role}/{@code RoleBinding} of its own to look up.
+   */
+  private boolean decideAllowed(Principal principal, Verb verb, String tenantId) {
+    return principal.groups().contains(BuiltinRoles.GROUP_NODES)
+        ? verb == Verb.READ && isTenantAssignedToNode(principal.name(), tenantId)
+        : authorizer.authorize(
+            principal, ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty());
+  }
+
+  /**
+   * Dual audit logging for a completed {@code /secrets/*} authorization decision: the SLF4J {@code
+   * auditLog} line (independent value for an operator tailing this process's own log file, no query
+   * needed) plus the durable, queryable {@link AuditEvent} counterpart, giving gimle-observability
+   * a general-purpose audit-event-log mechanism it previously lacked.
+   */
+  private void recordAudit(
+      Principal principal, Verb verb, String tenantId, Optional<String> key, boolean allowed) {
+    auditLog.info(
+        "principal={} tenant={} key={} verb={} allow={}",
+        principal.name(),
+        tenantId,
+        key.orElse("-"),
+        verb,
+        allowed);
+    crypto
+        .storeClient()
+        .propose(
+            new StateMutation.AppendAuditEvent(
+                new AuditEvent(
+                    UUID.randomUUID().toString(),
+                    principal.name(),
+                    principal.groups(),
+                    ResourceKind.SECRET.name(),
+                    verb.name(),
+                    Optional.of(tenantId),
+                    key,
+                    allowed,
+                    System.currentTimeMillis())));
   }
 
   /**
