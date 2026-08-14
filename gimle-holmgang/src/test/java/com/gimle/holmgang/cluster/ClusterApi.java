@@ -22,10 +22,11 @@ import java.util.Optional;
  */
 public final class ClusterApi {
 
-  private final HttpClient httpClient = HttpClient.newHttpClient();
+  private final HttpClient httpClient;
   private final String baseUrl;
 
-  ClusterApi(final String baseUrl) {
+  ClusterApi(final HttpClient httpClient, final String baseUrl) {
+    this.httpClient = httpClient;
     this.baseUrl = baseUrl;
   }
 
@@ -34,15 +35,38 @@ public final class ClusterApi {
   }
 
   public void putTenant(final String tenantId, final QuotaSpec quota) {
-    final String body =
-        Json.write(
+    expectOk("PUT", "/tenants/" + tenantId, tenantBody(quota), "tenant creation");
+  }
+
+  /**
+   * Like {@link #putTenant}, but returns the raw status instead of failing on a non-200 -- for
+   * scenarios asserting the rejection itself (an anonymous client's 401 under mTLS).
+   */
+  public int tryPutTenant(final String tenantId, final QuotaSpec quota) {
+    try {
+      return httpClient
+          .send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+                  .method(
+                      "PUT",
+                      HttpRequest.BodyPublishers.ofString(
+                          tenantBody(quota), StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new HolmgangException("tenant write attempt failed against " + baseUrl, e);
+    }
+  }
+
+  private static String tenantBody(final QuotaSpec quota) {
+    return Json.write(
+        Map.of(
+            "quota",
             Map.of(
-                "quota",
-                Map.of(
-                    "maxMemoryBytes", quota.maxMemoryBytes(),
-                    "maxCpuMillicores", quota.maxCpuMillicores(),
-                    "maxInstances", quota.maxInstances())));
-    expectOk("PUT", "/tenants/" + tenantId, body, "tenant creation");
+                "maxMemoryBytes", quota.maxMemoryBytes(),
+                "maxCpuMillicores", quota.maxCpuMillicores(),
+                "maxInstances", quota.maxInstances())));
   }
 
   public void putAccount(final String username, final String password) {
@@ -236,7 +260,7 @@ public final class ClusterApi {
         && response.get().body().contains(text);
   }
 
-  boolean isServing() {
+  public boolean isServing() {
     final Optional<HttpResponse<String>> response = tryGet("/deployments");
     return response.isPresent() && response.get().statusCode() < 500;
   }

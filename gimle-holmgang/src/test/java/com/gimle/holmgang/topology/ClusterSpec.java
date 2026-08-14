@@ -47,6 +47,13 @@ public record ClusterSpec(
     if (fafnirReplicas < 1) {
       throw new GimleManifestException("fafnir.replicas must be >= 1, got " + fafnirReplicas);
     }
+    // Interposing a plain TCP proxy inside an mTLS connection would break peer-certificate
+    // verification; rejected outright rather than silently downgraded.
+    if (transport == Transport.MTLS && faultsProxied) {
+      throw new GimleManifestException(
+          "faults.proxied is not supported with transport mtls: partition scenarios run on"
+              + " plaintext topologies");
+    }
     nodes = List.copyOf(nodes);
     final Set<String> nodeIds = new HashSet<>();
     for (final NodeSpec node : nodes) {

@@ -37,6 +37,10 @@ public final class Hooks {
     if (scenario.isFailed()) {
       ClusterPool.markFailed();
     }
+    while (!world.partitions.isEmpty()) {
+      final var partition = world.partitions.pollLast();
+      bestEffort(partition::heal);
+    }
     HolmgangConditionError leftoverViolation = null;
     while (!world.guards.isEmpty()) {
       try {

@@ -1,0 +1,17 @@
+name: ha-proxied
+transport: plaintext
+
+store:
+  replicas: 3
+controlPlane:
+  replicas: 2
+fafnir:
+  replicas: 1
+muninn:
+  enabled: false
+
+nodes:
+  count: 1
+
+faults:
+  proxied: true

@@ -1,0 +1,22 @@
+name: mtls
+transport: mtls
+
+store:
+  replicas: 3
+controlPlane:
+  replicas: 1
+fafnir:
+  replicas: 1
+muninn:
+  enabled: false
+
+nodes:
+  count: 1
+
+seed:
+  tenants:
+    - id: holmgang-tenant
+      quota:
+        maxMemoryBytes: 268435456
+        maxCpuMillicores: 1000
+        maxInstances: 10

@@ -25,7 +25,7 @@ class ClusterTopologyParserTest {
         parse(
             """
             name: full
-            transport: mtls
+            transport: plaintext
             store:
               replicas: 3
             controlPlane:
@@ -55,7 +55,7 @@ class ClusterTopologyParserTest {
                     maxInstances: 8
             """);
     assertEquals("full", spec.name());
-    assertEquals(Transport.MTLS, spec.transport());
+    assertEquals(Transport.PLAINTEXT, spec.transport());
     assertEquals(3, spec.storeReplicas());
     assertEquals(2, spec.controlPlaneReplicas());
     assertEquals(2, spec.fafnirReplicas());

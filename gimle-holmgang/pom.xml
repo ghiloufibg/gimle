@@ -84,6 +84,19 @@
       <artifactId>snakeyaml</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- PkiBootstrapMain (mTLS topologies generate their material through it) and GimleCli
+         (bootstrap tokens are minted through the real CLI with the operator identity) are both
+         spawned against this test JVM's own classpath, so each must be a direct dependency. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-cli</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!--
       TestModuleBuilder (compiles a real, tiny JPMS module in-process via javax.tools): builds
       genuine chaos/upgrade variants of greeter-provider at scenario run time (a real v1.1.0 for

@@ -42,7 +42,7 @@ public final class Heimdall implements AutoCloseable {
   private final List<String> controlPlaneBaseUrls;
   private final List<GimleProcess> processes;
   private final Path workDir;
-  private final HttpClient httpClient = HttpClient.newHttpClient();
+  private final HttpClient httpClient;
   private final CopyOnWriteArrayList<ViewCondition> viewConditions = new CopyOnWriteArrayList<>();
   private final CopyOnWriteArrayList<LogWatch> logWatches = new CopyOnWriteArrayList<>();
   private final CopyOnWriteArrayList<ProbeCondition> probeConditions = new CopyOnWriteArrayList<>();
@@ -69,17 +69,20 @@ public final class Heimdall implements AutoCloseable {
   public static Heimdall attach(
       final List<String> controlPlaneBaseUrls,
       final List<GimleProcess> processes,
-      final Path workDir) {
-    return new Heimdall(controlPlaneBaseUrls, processes, workDir);
+      final Path workDir,
+      final HttpClient httpClient) {
+    return new Heimdall(controlPlaneBaseUrls, processes, workDir, httpClient);
   }
 
   private Heimdall(
       final List<String> controlPlaneBaseUrls,
       final List<GimleProcess> processes,
-      final Path workDir) {
+      final Path workDir,
+      final HttpClient httpClient) {
     this.controlPlaneBaseUrls = List.copyOf(controlPlaneBaseUrls);
     this.processes = List.copyOf(processes);
     this.workDir = workDir;
+    this.httpClient = httpClient;
     for (final GimleProcess process : this.processes) {
       process.onExit(() -> onProcessExit(process));
     }

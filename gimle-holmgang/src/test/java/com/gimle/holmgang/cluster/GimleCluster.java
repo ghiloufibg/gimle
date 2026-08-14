@@ -1,10 +1,13 @@
 package com.gimle.holmgang.cluster;
 
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.heimdall.Heimdall;
 import com.gimle.holmgang.heimdall.HeimdallScope;
 import com.gimle.holmgang.heimdall.Invariant;
 import com.gimle.holmgang.heimdall.InvariantGuard;
+import com.gimle.holmgang.loki.Loki;
 import com.gimle.holmgang.topology.AccountSeed;
 import com.gimle.holmgang.topology.ClusterSpec;
 import com.gimle.holmgang.topology.NodeSpec;
@@ -12,6 +15,7 @@ import com.gimle.holmgang.topology.ProcessRole;
 import com.gimle.holmgang.topology.TenantSeed;
 import com.gimle.holmgang.topology.Transport;
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -20,6 +24,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Boots a real multi-process Gimle cluster from a {@link ClusterSpec}: one JVM per process, spawned
@@ -35,11 +42,12 @@ import java.util.Optional;
  */
 public final class GimleCluster implements AutoCloseable {
 
-  private static final String LOOPBACK = "127.0.0.1";
   private static final Duration STAGE_TIMEOUT = Duration.ofSeconds(60);
+  private static final Pattern BOOTSTRAP_TOKEN = Pattern.compile("bootstrap token: (\\S+)");
 
   private final ClusterSpec spec;
   private final Path workDir;
+  private final boolean mtls;
   private final List<ManagedProcess> spawnOrder = new ArrayList<>();
   private final List<ManagedProcess> stores = new ArrayList<>();
   private final List<ManagedProcess> controlPlanes = new ArrayList<>();
@@ -48,21 +56,17 @@ public final class GimleCluster implements AutoCloseable {
   private final Map<Integer, ClusterApi> apis = new LinkedHashMap<>();
   private Heimdall heimdall;
   private ManagedProcess muninn;
+  private Path tlsDir;
+  private HttpClient operatorClient;
+  private Loki loki;
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
     this.spec = spec;
     this.workDir = workDir;
+    this.mtls = spec.transport() == Transport.MTLS;
   }
 
   public static GimleCluster start(final ClusterSpec spec, final Path workDir) {
-    if (spec.transport() == Transport.MTLS) {
-      throw new HolmgangException(
-          "mTLS topologies are not implemented yet: only plaintext clusters can start");
-    }
-    if (spec.faultsProxied()) {
-      throw new HolmgangException(
-          "fault-proxied topologies are not implemented yet: remove faults.proxied to start");
-    }
     final GimleCluster cluster = new GimleCluster(spec, workDir);
     try {
       cluster.boot();
@@ -101,7 +105,7 @@ public final class GimleCluster implements AutoCloseable {
   }
 
   public String controlPlaneBaseUrl(final int index) {
-    return "http://" + controlPlanes.get(index).endpoint();
+    return scheme() + "://" + controlPlanes.get(index).endpoint();
   }
 
   public ClusterApi api() {
@@ -110,7 +114,31 @@ public final class GimleCluster implements AutoCloseable {
 
   public ClusterApi api(final int controlPlaneIndex) {
     return apis.computeIfAbsent(
-        controlPlaneIndex, index -> new ClusterApi(controlPlaneBaseUrl(index)));
+        controlPlaneIndex, index -> new ClusterApi(operatorClient, controlPlaneBaseUrl(index)));
+  }
+
+  /**
+   * A client with no identity at all -- server-trust only under mTLS, so the TLS handshake succeeds
+   * but every authorized route sees no principal. What "anonymous client is rejected" scenarios
+   * call. Meaningless in plaintext mode, where the API deliberately has no auth.
+   */
+  public ClusterApi anonymousApi(final int controlPlaneIndex) {
+    final HttpClient anonymous =
+        mtls
+            ? HttpClient.newBuilder()
+                .sslContext(SslContexts.forServerTrustOnly(tlsDir.resolve("ca.crt")))
+                .build()
+            : HttpClient.newHttpClient();
+    return new ClusterApi(anonymous, controlPlaneBaseUrl(controlPlaneIndex));
+  }
+
+  /** The fault injector over this topology's interposed links; requires {@code faults.proxied}. */
+  public Loki faults() {
+    if (loki == null) {
+      throw new HolmgangException(
+          "topology " + spec.name() + " is not fault-proxied: set faults.proxied to use Loki");
+    }
+    return loki;
   }
 
   public List<String> controlPlaneBaseUrls() {
@@ -191,7 +219,7 @@ public final class GimleCluster implements AutoCloseable {
 
   private synchronized Heimdall heimdall() {
     if (heimdall == null) {
-      heimdall = Heimdall.attach(controlPlaneBaseUrls(), processes(), workDir);
+      heimdall = Heimdall.attach(controlPlaneBaseUrls(), processes(), workDir, operatorClient);
     }
     return heimdall;
   }
@@ -210,6 +238,10 @@ public final class GimleCluster implements AutoCloseable {
     for (int i = spawnOrder.size() - 1; i >= 0; i--) {
       spawnOrder.get(i).killWithDescendants();
     }
+    if (loki != null) {
+      loki.close();
+      loki = null;
+    }
   }
 
   private void boot() {
@@ -217,7 +249,15 @@ public final class GimleCluster implements AutoCloseable {
     final String javaExecutable = javaExecutable();
     final String classpath = System.getProperty("java.class.path");
 
-    final PortPlan ports = PortPlan.allocate(spec);
+    if (mtls) {
+      generateTlsMaterial(javaExecutable, classpath);
+    }
+    operatorClient = buildOperatorClient();
+    if (spec.faultsProxied()) {
+      loki = new Loki();
+    }
+
+    final PortPlan ports = PortPlan.allocate(spec, host());
     try (PortLease lease = ports.lease()) {
       startStores(javaExecutable, classpath, ports, lease);
       startMuninn(javaExecutable, classpath, ports, lease);
@@ -228,6 +268,109 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * Everything is addressed as {@code localhost} under mTLS, never {@code 127.0.0.1}: the PKI mints
+   * DNS-only subject alternative names, so an IP-addressed URL would fail hostname verification
+   * against an otherwise perfectly valid certificate.
+   */
+  private String host() {
+    return mtls ? "localhost" : "127.0.0.1";
+  }
+
+  private String scheme() {
+    return mtls ? "https" : "http";
+  }
+
+  private void generateTlsMaterial(final String java, final String classpath) {
+    tlsDir = workDir.resolve("tls");
+    runOneShot(
+        List.of(
+            java,
+            "-cp",
+            classpath,
+            "com.gimle.pki.PkiBootstrapMain",
+            tlsDir.toString(),
+            "holmgang-ca",
+            "localhost"),
+        workDir.resolve("pki.log"),
+        Duration.ofSeconds(120),
+        "TLS material generation");
+  }
+
+  private HttpClient buildOperatorClient() {
+    if (!mtls) {
+      return HttpClient.newHttpClient();
+    }
+    return HttpClient.newBuilder()
+        .sslContext(
+            SslContexts.forMutualTls(
+                new TlsSettings(
+                    tlsDir.resolve("operator.crt"),
+                    tlsDir.resolve("operator.key"),
+                    tlsDir.resolve("ca.crt"))))
+        .build();
+  }
+
+  /** The four flags every TLS-mode process gets, presenting {@code certName}'s leaf. */
+  private List<String> tlsFlags(final String certName) {
+    if (!mtls) {
+      return List.of();
+    }
+    return List.of(
+        "-Dgimle.transport.protocol=tls",
+        "-Dgimle.tls.certFile=" + tlsDir.resolve(certName + ".crt"),
+        "-Dgimle.tls.keyFile=" + tlsDir.resolve(certName + ".key"),
+        "-Dgimle.tls.caFile=" + tlsDir.resolve("ca.crt"));
+  }
+
+  private String mintBootstrapToken(final String java, final String classpath) {
+    final Path logFile = workDir.resolve("cli-token.log");
+    final List<String> command = new ArrayList<>();
+    command.add(java);
+    command.addAll(tlsFlags("operator"));
+    command.addAll(List.of("-cp", classpath, "com.gimle.cli.GimleCli"));
+    command.addAll(List.of("cert", "token", "create"));
+    command.addAll(List.of("--server", controlPlanes.get(0).endpoint()));
+    runOneShot(command, logFile, Duration.ofSeconds(60), "bootstrap token minting");
+    final String output;
+    try {
+      output = Files.readString(logFile);
+    } catch (final IOException e) {
+      throw new HolmgangException("failed reading the token minting output at " + logFile, e);
+    }
+    final Matcher matcher = BOOTSTRAP_TOKEN.matcher(output);
+    if (!matcher.find()) {
+      throw new HolmgangException("no bootstrap token in the CLI output; see " + logFile);
+    }
+    return matcher.group(1);
+  }
+
+  private static void runOneShot(
+      final List<String> command,
+      final Path logFile,
+      final Duration timeout,
+      final String description) {
+    final ProcessBuilder pb = new ProcessBuilder(command);
+    pb.redirectErrorStream(true);
+    pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
+    try {
+      final Process process = pb.start();
+      if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+        process.destroyForcibly();
+        throw new HolmgangException(description + " timed out; see " + logFile);
+      }
+      if (process.exitValue() != 0) {
+        throw new HolmgangException(
+            description + " failed with exit code " + process.exitValue() + "; see " + logFile);
+      }
+    } catch (final IOException e) {
+      throw new HolmgangException(description + " could not start", e);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new HolmgangException(description + " was interrupted", e);
+    }
+  }
+
   private void startStores(
       final String java, final String classpath, final PortPlan ports, final PortLease lease) {
     for (int i = 0; i < spec.storeReplicas(); i++) {
@@ -235,9 +378,12 @@ public final class GimleCluster implements AutoCloseable {
       final int clientPort = ports.storeClientPorts.get(i);
       final List<String> command = new ArrayList<>();
       command.add(java);
+      // No per-store leaf exists in the generated material; the store presents the control-plane
+      // certificate, the same reuse the platform's own TLS bootstrap ships with today.
+      command.addAll(tlsFlags("controlplane"));
       command.addAll(spec.jvmFlags(ProcessRole.STORE));
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.store.muninnEndpoint=" + LOOPBACK + ":" + ports.muninnPort);
+        command.add("-Dgimle.store.muninnEndpoint=" + host() + ":" + ports.muninnPort);
       }
       command.addAll(List.of("-cp", classpath, "com.gimle.mimir.StoreMain"));
       command.add(workDir.resolve("store-state-" + i).toString());
@@ -255,12 +401,12 @@ public final class GimleCluster implements AutoCloseable {
               "store-" + i,
               command,
               workDir.resolve("store-" + i + ".log"),
-              LOOPBACK + ":" + clientPort);
+              host() + ":" + clientPort);
       spawnOrder.add(store);
       stores.add(store);
     }
     for (final int clientPort : ports.storeClientPorts) {
-      Polls.awaitPortOpen(LOOPBACK, clientPort, STAGE_TIMEOUT);
+      Polls.awaitPortOpen(host(), clientPort, STAGE_TIMEOUT);
     }
   }
 
@@ -274,6 +420,7 @@ public final class GimleCluster implements AutoCloseable {
     // after it.
     final List<String> command = new ArrayList<>();
     command.add(java);
+    command.addAll(tlsFlags("muninn"));
     command.addAll(spec.jvmFlags(ProcessRole.MUNINN));
     command.addAll(List.of("-cp", classpath, "com.gimle.muninn.MuninnMain"));
     command.add(String.valueOf(ports.muninnPort));
@@ -286,9 +433,9 @@ public final class GimleCluster implements AutoCloseable {
             "muninn",
             command,
             workDir.resolve("muninn.log"),
-            LOOPBACK + ":" + ports.muninnPort);
+            host() + ":" + ports.muninnPort);
     spawnOrder.add(muninn);
-    Polls.awaitPortOpen(LOOPBACK, ports.muninnPort, STAGE_TIMEOUT);
+    Polls.awaitPortOpen(host(), ports.muninnPort, STAGE_TIMEOUT);
   }
 
   private void startFafnirs(
@@ -300,9 +447,10 @@ public final class GimleCluster implements AutoCloseable {
       final int port = ports.fafnirPorts.get(i);
       final List<String> command = new ArrayList<>();
       command.add(java);
+      command.addAll(tlsFlags("fafnir"));
       command.addAll(spec.jvmFlags(ProcessRole.FAFNIR));
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.fafnir.muninnEndpoint=" + LOOPBACK + ":" + ports.muninnPort);
+        command.add("-Dgimle.fafnir.muninnEndpoint=" + host() + ":" + ports.muninnPort);
       }
       command.addAll(List.of("-cp", classpath, "com.gimle.fafnir.FafnirMain"));
       command.add(String.valueOf(port));
@@ -315,12 +463,12 @@ public final class GimleCluster implements AutoCloseable {
               "fafnir-" + i,
               command,
               workDir.resolve("fafnir-" + i + ".log"),
-              LOOPBACK + ":" + port);
+              host() + ":" + port);
       spawnOrder.add(fafnir);
       fafnirs.add(fafnir);
     }
     for (final int port : ports.fafnirPorts) {
-      Polls.awaitPortOpen(LOOPBACK, port, STAGE_TIMEOUT);
+      Polls.awaitPortOpen(host(), port, STAGE_TIMEOUT);
     }
   }
 
@@ -331,16 +479,28 @@ public final class GimleCluster implements AutoCloseable {
       // Round-robin across the Fafnir replicas -- FafnirClient talks to exactly one address, so
       // this is what makes every replica independently exercised rather than just replica #0.
       final int fafnirPort = ports.fafnirPorts.get(i % ports.fafnirPorts.size());
+      // Under fault proxying, each replica gets its own interposed store endpoints -- which is
+      // exactly what lets Loki cut one replica's view of the store without touching another's.
+      final String storeEndpoints =
+          loki != null
+              ? endpointsSpec(loki.interposeControlPlaneToStores(i, host(), ports.storeClientPorts))
+              : ports.storeEndpointsSpec();
       final List<String> command = new ArrayList<>();
       command.add(java);
+      command.addAll(tlsFlags("controlplane"));
+      if (mtls) {
+        // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap
+        // through this control plane.
+        command.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
+      }
       command.addAll(spec.jvmFlags(ProcessRole.CONTROL_PLANE));
       command.addAll(List.of("-cp", classpath, "com.gimle.controlplane.ControlPlaneMain"));
       command.add(String.valueOf(port));
       command.add(workDir.resolve("controlplane-secret-" + i + ".key").toString());
-      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-      command.addAll(List.of("--fafnir-endpoint", LOOPBACK + ":" + fafnirPort));
+      command.addAll(List.of("--store-endpoints", storeEndpoints));
+      command.addAll(List.of("--fafnir-endpoint", host() + ":" + fafnirPort));
       if (spec.muninnEnabled()) {
-        command.addAll(List.of("--muninn-endpoint", LOOPBACK + ":" + ports.muninnPort));
+        command.addAll(List.of("--muninn-endpoint", host() + ":" + ports.muninnPort));
       }
       lease.release(port);
       final ManagedProcess controlPlane =
@@ -349,7 +509,7 @@ public final class GimleCluster implements AutoCloseable {
               "controlplane-" + i,
               command,
               workDir.resolve("controlplane-" + i + ".log"),
-              LOOPBACK + ":" + port);
+              host() + ":" + port);
       spawnOrder.add(controlPlane);
       controlPlanes.add(controlPlane);
       final int replicaIndex = i;
@@ -372,11 +532,13 @@ public final class GimleCluster implements AutoCloseable {
 
   private void startAgents(
       final String java, final String classpath, final PortPlan ports, final PortLease lease) {
+    // One token per agent, minted through the real /bootstrap/tokens surface with the operator
+    // identity -- so every mTLS topology exercises certificate bootstrap for free.
     String firstGossipAddress = null;
     for (int i = 0; i < spec.nodes().size(); i++) {
       final NodeSpec node = spec.nodes().get(i);
       final int gossipPort = ports.gossipPorts.get(i);
-      final String gossipAddress = LOOPBACK + ":" + gossipPort;
+      final String gossipAddress = host() + ":" + gossipPort;
       // The first agent seeds nothing; every later one seeds off the first, so a multi-node
       // topology forms one gossip cluster rather than several singletons.
       final String seeds = firstGossipAddress == null ? "-" : firstGossipAddress;
@@ -386,10 +548,16 @@ public final class GimleCluster implements AutoCloseable {
       final int fafnirPort = ports.fafnirPorts.get(i % ports.fafnirPorts.size());
       final List<String> command = new ArrayList<>();
       command.add(java);
+      // The agent's own leaf does not exist yet: it generates a keypair and CSR against these
+      // paths and bootstraps its certificate through the control plane, gated by the token.
+      command.addAll(tlsFlags("node-" + node.id()));
+      if (mtls) {
+        command.add("-Dgimle.tls.bootstrapToken=" + mintBootstrapToken(java, classpath));
+      }
       command.addAll(spec.jvmFlags(ProcessRole.AGENT));
-      command.add("-Dgimle.agent.fafnirEndpoint=" + LOOPBACK + ":" + fafnirPort);
+      command.add("-Dgimle.agent.fafnirEndpoint=" + host() + ":" + fafnirPort);
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.agent.muninnEndpoint=" + LOOPBACK + ":" + ports.muninnPort);
+        command.add("-Dgimle.agent.muninnEndpoint=" + host() + ":" + ports.muninnPort);
       }
       // Per-node, not shared: a second agent would otherwise write its agent-platform.log to the
       // exact same file as the first, interleaving both processes' JSON output.
@@ -448,8 +616,21 @@ public final class GimleCluster implements AutoCloseable {
     throw new HolmgangException("could not locate the java launcher under " + javaBin);
   }
 
+  private static String endpointsSpecOf(final String host, final List<Integer> ports) {
+    final List<String> endpoints = new ArrayList<>();
+    for (final int port : ports) {
+      endpoints.add(host + ":" + port);
+    }
+    return String.join(",", endpoints);
+  }
+
+  private String endpointsSpec(final List<Integer> ports) {
+    return endpointsSpecOf(host(), ports);
+  }
+
   /** The cluster's whole port budget, leased up front and assigned to roles deterministically. */
   private record PortPlan(
+      String host,
       List<Integer> storeRaftPorts,
       List<Integer> storeClientPorts,
       List<Integer> fafnirPorts,
@@ -458,7 +639,7 @@ public final class GimleCluster implements AutoCloseable {
       int muninnPort,
       PortLease leased) {
 
-    static PortPlan allocate(final ClusterSpec spec) {
+    static PortPlan allocate(final ClusterSpec spec, final String host) {
       final int count =
           spec.storeReplicas() * 2
               + spec.fafnirReplicas()
@@ -487,7 +668,8 @@ public final class GimleCluster implements AutoCloseable {
         gossip.add(ports.get(next++));
       }
       final int muninn = spec.muninnEnabled() ? ports.get(next) : -1;
-      return new PortPlan(storeRaft, storeClient, fafnir, controlPlane, gossip, muninn, lease);
+      return new PortPlan(
+          host, storeRaft, storeClient, fafnir, controlPlane, gossip, muninn, lease);
     }
 
     PortLease lease() {
@@ -495,11 +677,7 @@ public final class GimleCluster implements AutoCloseable {
     }
 
     String storeEndpointsSpec() {
-      final List<String> endpoints = new ArrayList<>();
-      for (final int clientPort : storeClientPorts) {
-        endpoints.add(LOOPBACK + ":" + clientPort);
-      }
-      return String.join(",", endpoints);
+      return endpointsSpecOf(host, storeClientPorts);
     }
 
     String storePeersSpecExcluding(final int excludeIndex) {
@@ -508,7 +686,7 @@ public final class GimleCluster implements AutoCloseable {
         if (i == excludeIndex) {
           continue;
         }
-        peers.add(LOOPBACK + ":" + storeRaftPorts.get(i) + ":" + storeClientPorts.get(i));
+        peers.add(host + ":" + storeRaftPorts.get(i) + ":" + storeClientPorts.get(i));
       }
       return String.join(",", peers);
     }
