@@ -1,17 +1,12 @@
 package com.gimle.holmgang.junit;
 
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.holmgang.WorkDirs;
 import com.gimle.holmgang.cluster.GimleCluster;
 import com.gimle.holmgang.topology.ClusterSpec;
 import com.gimle.holmgang.topology.ClusterTopologyParser;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Locale;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
@@ -91,50 +86,8 @@ final class HolmgangExtension
     if (holder.cluster != null) {
       holder.cluster.close();
     }
-    if (shouldDelete(holder.anyTestFailed)) {
-      deleteRecursively(holder.workDir);
-    }
-  }
-
-  private static boolean shouldDelete(final boolean anyTestFailed) {
-    final String policy =
-        System.getProperty("gimle.holmgang.keepWorkDirs", "onFailure").toLowerCase(Locale.ROOT);
-    return switch (policy) {
-      case "always" -> false;
-      case "never" -> true;
-      case "onfailure" -> !anyTestFailed;
-      default ->
-          throw new HolmgangException(
-              "unknown gimle.holmgang.keepWorkDirs policy: "
-                  + policy
-                  + " (expected onFailure, always, or never)");
-    };
-  }
-
-  private static void deleteRecursively(final Path root) {
-    if (root == null || !Files.exists(root)) {
-      return;
-    }
-    try {
-      Files.walkFileTree(
-          root,
-          new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs)
-                throws IOException {
-              Files.deleteIfExists(file);
-              return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(final Path dir, final IOException exc)
-                throws IOException {
-              Files.deleteIfExists(dir);
-              return FileVisitResult.CONTINUE;
-            }
-          });
-    } catch (final IOException e) {
-      throw new HolmgangException("failed deleting cluster work directory " + root, e);
+    if (WorkDirs.shouldDelete(holder.anyTestFailed)) {
+      WorkDirs.deleteRecursively(holder.workDir);
     }
   }
 

@@ -30,5 +30,17 @@ public final class Invariants {
               view.deployments().containsKey(name)
                   && view.deployments().get(name).countInState("ACTIVE") >= count);
     }
+
+    /**
+     * The deployment never gets an instance placed -- what a submission blocked by scheduling
+     * (every node cordoned, no feasible placement) must keep looking like for the whole window.
+     */
+    public Invariant staysUnplaced() {
+      return new Invariant(
+          "deployment " + name + " stays unplaced",
+          view ->
+              !view.deployments().containsKey(name)
+                  || view.deployments().get(name).instances().isEmpty());
+    }
   }
 }

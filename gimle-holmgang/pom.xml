@@ -27,6 +27,7 @@
   </description>
 
   <properties>
+    <cucumber.version>7.20.1</cucumber.version>
     <!-- Test-only, not part of Gimle's platform API surface: excluded from the aggregate
          Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
          entry). -->
@@ -81,6 +82,47 @@
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      TestModuleBuilder (compiles a real, tiny JPMS module in-process via javax.tools): builds
+      genuine chaos/upgrade variants of greeter-provider at scenario run time (a real v1.1.0 for
+      rolling updates, an always-failing-liveness build for self-healing escalation) without
+      committing near-duplicate example modules, the same technique gimle-smoke-tests uses.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      The Gherkin layer: scenarios live in src/test/resources/features and run on the JUnit
+      Platform through the single failsafe-matched HolmgangIT suite. cucumber-picocontainer is
+      the DI glue sharing one ScenarioWorld across step classes; junit-platform-suite provides
+      the @Suite runner (version managed by the root pom's junit-bom import).
+    -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-java</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-junit-platform-engine</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-picocontainer</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

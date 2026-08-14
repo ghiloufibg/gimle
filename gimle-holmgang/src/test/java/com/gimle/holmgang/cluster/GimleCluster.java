@@ -147,6 +147,48 @@ public final class GimleCluster implements AutoCloseable {
     return heimdall().hold(invariant);
   }
 
+  /**
+   * Holds {@code invariant} for a fixed window and throws its forensic report if any view within
+   * the window violated it -- the bounded form of a negative assertion ("stays unplaced", "is never
+   * evicted"), which cannot complete early the way a positive condition can.
+   */
+  public void holdInvariantFor(final Invariant invariant, final Duration window) {
+    heimdall().holdFor(invariant, window);
+  }
+
+  /**
+   * The live worker JVM currently hosting one instance, found the same way the platform itself
+   * can't tell you: by scanning the supervising agents' process descendants for the worker-only
+   * {@code -Dgimle.log.root=.../workers/<deployment>#<index>} flag stamped at spawn time. The
+   * trailing WorkerMain main-class argument is deliberately not matched -- {@code
+   * ProcessHandle.Info#commandLine()} truncates this repo's long classpaths before reaching it.
+   */
+  public Optional<ProcessHandle> workerFor(final String deploymentName, final int instanceIndex) {
+    final String key = deploymentName + "#" + instanceIndex;
+    for (final ManagedProcess agent : agents.values()) {
+      final Optional<ProcessHandle> worker =
+          agent
+              .process()
+              .descendants()
+              .filter(
+                  handle ->
+                      handle
+                          .info()
+                          .commandLine()
+                          .map(
+                              line ->
+                                  line.contains("-Dgimle.log.root=")
+                                      && line.contains("/workers/")
+                                      && line.contains(key))
+                          .orElse(false))
+              .findFirst();
+      if (worker.isPresent()) {
+        return worker;
+      }
+    }
+    return Optional.empty();
+  }
+
   private synchronized Heimdall heimdall() {
     if (heimdall == null) {
       heimdall = Heimdall.attach(controlPlaneBaseUrls(), processes(), workDir);

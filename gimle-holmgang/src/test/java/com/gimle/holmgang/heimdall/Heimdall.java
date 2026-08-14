@@ -84,6 +84,21 @@ public final class Heimdall implements AutoCloseable {
     return new HeimdallScope(this, replicaFilter);
   }
 
+  /**
+   * Holds {@code invariant} for a fixed window, then throws the violation's own forensic report if
+   * any view within the window broke it. The window is a deliberate wall-clock hold -- a negative
+   * assertion has no satisfying event to complete on early.
+   */
+  public void holdFor(final Invariant invariant, final Duration window) {
+    try (InvariantGuard guard = hold(invariant)) {
+      try {
+        Thread.sleep(window);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
   public InvariantGuard hold(final Invariant invariant) {
     final InvariantGuard guard = new InvariantGuard(this, invariant);
     guards.add(guard);

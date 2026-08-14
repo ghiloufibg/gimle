@@ -67,6 +67,9 @@ public final class ClusterApi {
     expectOk("PUT", "/config/" + tenantId + "/" + key, body, "config write");
   }
 
+  /** A deployment's {@code disruption:} budget; absent implies the platform's own default. */
+  public record Disruption(int maxUnavailable, int maxSurge) {}
+
   public void submitDeployment(
       final String deploymentName,
       final String moduleName,
@@ -74,8 +77,79 @@ public final class ClusterApi {
       final Path jar,
       final int replicas,
       final Optional<String> tenantId) {
+    submitDeployment(
+        deploymentName, moduleName, moduleVersion, jar, replicas, tenantId, Optional.empty());
+  }
+
+  public void submitDeployment(
+      final String deploymentName,
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final int replicas,
+      final Optional<String> tenantId,
+      final Optional<Disruption> disruption) {
+    expectOk(
+        "PUT",
+        "/deployments/" + deploymentName,
+        deploymentManifest(
+            deploymentName, moduleName, moduleVersion, jar, replicas, tenantId, disruption),
+        "deployment submission");
+  }
+
+  /**
+   * Like {@link #submitDeployment}, but returns the raw status instead of failing on a non-200 --
+   * for scenarios asserting the rejection itself (admission control's 409).
+   */
+  public int trySubmitDeployment(
+      final String deploymentName,
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final int replicas,
+      final Optional<String> tenantId) {
     final String manifest =
-        """
+        deploymentManifest(
+            deploymentName, moduleName, moduleVersion, jar, replicas, tenantId, Optional.empty());
+    try {
+      return httpClient
+          .send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + deploymentName))
+                  .method(
+                      "PUT", HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new HolmgangException("deployment submission attempt failed against " + baseUrl, e);
+    }
+  }
+
+  public void deleteDeployment(final String deploymentName) {
+    expectOkNoBody("DELETE", "/deployments/" + deploymentName, "deployment deletion");
+  }
+
+  public void deleteTenant(final String tenantId) {
+    expectOkNoBody("DELETE", "/tenants/" + tenantId, "tenant deletion");
+  }
+
+  public void cordonNode(final String nodeId) {
+    expectOkNoBody("POST", "/nodes/" + nodeId + "/cordon", "node cordon");
+  }
+
+  public void uncordonNode(final String nodeId) {
+    expectOkNoBody("POST", "/nodes/" + nodeId + "/uncordon", "node uncordon");
+  }
+
+  private static String deploymentManifest(
+      final String deploymentName,
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final int replicas,
+      final Optional<String> tenantId,
+      final Optional<Disruption> disruption) {
+    return """
         kind: Deployment
         name: %s
         module:
@@ -83,16 +157,21 @@ public final class ClusterApi {
           version: %s
         artifactPath: %s
         replicas: %d
-        %s
+        %s%s
         """
-            .formatted(
-                deploymentName,
-                moduleName,
-                moduleVersion,
-                jar.toAbsolutePath(),
-                replicas,
-                tenantId.map(id -> "tenantId: " + id).orElse(""));
-    expectOk("PUT", "/deployments/" + deploymentName, manifest, "deployment submission");
+        .formatted(
+            deploymentName,
+            moduleName,
+            moduleVersion,
+            jar.toAbsolutePath(),
+            replicas,
+            tenantId.map(id -> "tenantId: " + id + "\n").orElse(""),
+            disruption
+                .map(
+                    d ->
+                        "disruption:\n  maxUnavailable: %d\n  maxSurge: %d\n"
+                            .formatted(d.maxUnavailable(), d.maxSurge()))
+                .orElse(""));
   }
 
   public boolean isDeploymentActive(final String deploymentName) {
@@ -178,6 +257,32 @@ public final class ClusterApi {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)));
     } catch (final Exception e) {
       return Optional.empty();
+    }
+  }
+
+  private void expectOkNoBody(final String method, final String path, final String description) {
+    final HttpResponse<String> response;
+    try {
+      response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + path))
+                  .method(method, HttpRequest.BodyPublishers.noBody())
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    } catch (final Exception e) {
+      throw new HolmgangException(description + " failed against " + baseUrl + path, e);
+    }
+    if (response.statusCode() != 200) {
+      throw new HolmgangException(
+          description
+              + " failed: "
+              + response.statusCode()
+              + " "
+              + response.body()
+              + " ("
+              + baseUrl
+              + path
+              + ")");
     }
   }
 
