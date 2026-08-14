@@ -51,20 +51,9 @@ import org.slf4j.LoggerFactory;
  * reconciler restart because it's read back from the persisted rolling-index set rather than kept
  * only in memory.
  *
- * <p>{@link #handleSurge} is the mirror-image budget: instead of removing an index before its
- * replacement lands, it provisions the replacement first, at a synthetic index {@code >= replicas}
- * the ordinary {@code 0..replicas-1} range never otherwise uses, so a migration under {@code
- * maxSurge} never drops the deployment's running count below {@code replicas} even momentarily.
- * Provisioning that surge instance never calls {@link Scheduler#place} itself, the same way {@link
- * #handleRollingUpdate} doesn't -- it only tracks which synthetic index maps to which target index;
- * the same missing-index placement loop below places both a fresh scale-up index and a
- * newly-tracked surge index identically. Promotion, once the surge instance reports ready,
- * retargets it onto the target index in place -- a {@code PutAssignment} carrying {@code
- * InstanceAssignment#renamedFromInstanceIndex()} -- rather than tearing the target down and
- * re-scheduling a fresh instance there, so a migrated replica never pays for a second worker JVM
- * startup it doesn't need; {@code AgentMain} recognizes the hint and retargets its own
- * already-running worker instead of restarting it. The two budgets run as independent passes over
- * the same mismatched-index list each tick, each excluding indices the other has already claimed.
+ * <p>{@link #handleSurge} is the mirror-image budget -- see its own javadoc for the synthetic-index
+ * promotion mechanism. The two budgets run as independent passes over the same mismatched-index
+ * list each tick, each excluding indices the other has already claimed.
  */
 public final class DeploymentReconciler {
 
@@ -131,33 +120,16 @@ public final class DeploymentReconciler {
     // policy is present; absent a policy (or absent any computed value yet), the submitted count
     // is exactly what's used, unchanged from before autoscaling existed.
     int replicas = store.getEffectiveReplicas(spec.name()).orElse(spec.replicas());
-    List<InstanceAssignment> existing = store.listAssignmentsFor(spec.name());
 
-    // Scale-down: an assigned index beyond the current replica count is removed immediately (a
-    // desired-state edit only) -- the agent's own stop()/StopModule drain timing owns teardown,
-    // not this reconciler. A live surge assignment is excluded: it's also >= replicas by
-    // construction, but tearing it down here would defeat the whole point of maxSurge (see
-    // #handleSurge). Promotion removes it explicitly, in the same tick, once retargeted onto its
-    // target index -- this exclusion only ever matters for an abandoned surge (replicas shrank
-    // below its target mid-flight): its tracking entry clears without its assignment being
-    // removed, so this same loop reclaims that one on a later tick once it's no longer excluded.
-    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
-    for (InstanceAssignment assignment : existing) {
-      if (assignment.instanceIndex() >= replicas
-          && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
-        mutations.propose(
-            new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
-      }
-    }
+    reclaimStaleAssignments(spec, replicas);
 
     handleRollingUpdate(spec, replicas);
     handleSurge(spec, replicas);
 
     // Re-read: scale-down and/or the rolling-update/surge steps above may have just removed or
     // added an entry.
-    existing = store.listAssignmentsFor(spec.name());
     Set<Integer> existingIndices = new HashSet<>();
-    for (InstanceAssignment assignment : existing) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
       existingIndices.add(assignment.instanceIndex());
     }
 
@@ -166,6 +138,45 @@ public final class DeploymentReconciler {
       return;
     }
 
+    Optional<ModuleDescriptor> descriptor = validateArtifact(spec);
+    if (descriptor.isEmpty()) {
+      return;
+    }
+
+    placeInstances(spec, toPlace, descriptor.get());
+  }
+
+  /**
+   * Scale-down: an assigned index beyond {@code replicas} is removed immediately (a desired-state
+   * edit only) -- the agent's own stop()/StopModule drain timing owns teardown, not this
+   * reconciler. A live surge assignment is excluded: it's also {@code >= replicas} by construction,
+   * but tearing it down here would defeat the whole point of maxSurge (see {@link #handleSurge}).
+   * Promotion removes it explicitly, in the same tick, once retargeted onto its target index --
+   * this exclusion only ever matters for an abandoned surge (replicas shrank below its target
+   * mid-flight): its tracking entry clears without its assignment being removed, so this same loop
+   * reclaims that one on a later tick once it's no longer excluded.
+   */
+  private void reclaimStaleAssignments(DeploymentSpec spec, int replicas) {
+    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+      if (assignment.instanceIndex() >= replicas
+          && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
+        mutations.propose(
+            new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
+      }
+    }
+  }
+
+  /**
+   * Reads {@code spec}'s artifact and verifies it against the hash recorded at admission, returning
+   * the descriptor once both the read and the hash check succeed. A spec admitted with a recorded
+   * hash (Optional.empty() means admitted before this field existed, or the artifact was unreadable
+   * at admission time -- both skip the check) must still match the bytes on disk at every tick, not
+   * just at admission -- an artifact silently swapped out from under a running deployment name is
+   * exactly what this guards against. Either failure is already logged by the time this returns
+   * Optional.empty() -- the caller's only job from there is to skip placement this tick.
+   */
+  private Optional<ModuleDescriptor> validateArtifact(DeploymentSpec spec) {
     ModuleArtifact artifact;
     try {
       artifact = ModuleArtifactReader.read(Path.of(spec.artifactPath()));
@@ -175,12 +186,8 @@ public final class DeploymentReconciler {
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
-      return;
+      return Optional.empty();
     }
-    // A spec admitted with a recorded hash (Optional.empty() means admitted before this
-    // field existed, or the artifact was unreadable at admission time -- both skip the check) must
-    // still match the bytes on disk at every tick, not just at admission -- an artifact silently
-    // swapped out from under a running deployment name is exactly what this guards against.
     if (spec.artifactSha256().isPresent()
         && !spec.artifactSha256().get().equals(artifact.sha256())) {
       log.warn(
@@ -191,10 +198,13 @@ public final class DeploymentReconciler {
           spec.artifactPath(),
           spec.artifactSha256().get(),
           artifact.sha256());
-      return;
+      return Optional.empty();
     }
-    ModuleDescriptor descriptor = artifact.descriptor();
+    return Optional.of(artifact.descriptor());
+  }
 
+  private void placeInstances(
+      DeploymentSpec spec, List<Integer> toPlace, ModuleDescriptor descriptor) {
     for (int index : toPlace) {
       try {
         List<NodeCandidate> candidates = buildCandidates(spec.name());
@@ -277,20 +287,12 @@ public final class DeploymentReconciler {
       return;
     }
 
-    store.listAssignmentsFor(spec.name()).stream()
-        // UNSPECIFIED_MODULE (the three-argument constructor's placeholder) means "don't care
-        // which version this is" -- treating it as a real mismatch would spuriously trigger a
-        // rollout for every assignment that simply never specified one.
-        .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
-        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
-        .filter(assignment -> !inFlight.contains(assignment.instanceIndex()))
-        // Also skip an index #handleSurge has already claimed as a surge target this tick --
-        // maxUnavailable and maxSurge are independent budgets, but the same mismatched index must
-        // never be migrated by both at once.
-        .filter(
-            assignment ->
-                !store.getSurgeIndices(spec.name()).containsValue(assignment.instanceIndex()))
-        .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
+    // Also excludes any index #handleSurge has already claimed as a surge target this tick --
+    // maxUnavailable and maxSurge are independent budgets, but the same mismatched index must
+    // never be migrated by both at once.
+    Set<Integer> excluded = new HashSet<>(inFlight);
+    excluded.addAll(store.getSurgeIndices(spec.name()).values());
+    mismatchedAssignments(spec, excluded).stream()
         .limit(maxUnavailable - inFlight.size())
         .forEach(
             mismatched -> {
@@ -303,6 +305,26 @@ public final class DeploymentReconciler {
                   spec.name(),
                   mismatched.instanceIndex());
             });
+  }
+
+  /**
+   * Every assignment of {@code spec} whose {@code moduleId} no longer matches the spec's own,
+   * sorted by index, excluding whichever indices {@code excludedIndices} already claims -- the
+   * shared "find migration candidates" scan both {@link #handleRollingUpdate}'s {@code
+   * maxUnavailable} budget and {@link #handleSurge}'s {@code maxSurge} budget run, differing only
+   * in which in-flight/claimed indices each passes in to keep the other budget's own claims out of
+   * reach. UNSPECIFIED_MODULE (the three-argument {@link InstanceAssignment} constructor's
+   * placeholder) means "don't care which version this is" -- treating it as a real mismatch would
+   * spuriously trigger a rollout for every assignment that simply never specified one.
+   */
+  private List<InstanceAssignment> mismatchedAssignments(
+      DeploymentSpec spec, Set<Integer> excludedIndices) {
+    return store.listAssignmentsFor(spec.name()).stream()
+        .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
+        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
+        .filter(assignment -> !excludedIndices.contains(assignment.instanceIndex()))
+        .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
+        .toList();
   }
 
   /**
@@ -379,12 +401,13 @@ public final class DeploymentReconciler {
       takenSyntheticIndices.add(assignment.instanceIndex());
     }
 
-    store.listAssignmentsFor(spec.name()).stream()
-        .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
-        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
-        .filter(assignment -> !rollingInFlight.contains(assignment.instanceIndex()))
-        .filter(assignment -> !claimedTargets.contains(assignment.instanceIndex()))
-        .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
+    // Excludes rollingInFlight (handleRollingUpdate's own claimed indices) and claimedTargets
+    // (this method's own already-tracked surge targets) -- the same "keep the other budget's
+    // claims out of reach" exclusion handleRollingUpdate's own call applies in the other
+    // direction.
+    Set<Integer> excluded = new HashSet<>(rollingInFlight);
+    excluded.addAll(claimedTargets);
+    mismatchedAssignments(spec, excluded).stream()
         .limit(maxSurge - inFlight.size())
         .forEach(
             mismatched -> {
@@ -419,8 +442,8 @@ public final class DeploymentReconciler {
    * running {@code assignment}'s own {@code moduleId} -- checking {@code ready} alone would false-
    * positive on the exact heartbeat cycle a rollout starts: the previous, still-{@code ready} old
    * instance's last-received observation would otherwise look indistinguishable from the new one
-   * already having landed, letting {@link #handleRollingUpdate} clear {@code rollingIndex} and move
-   * on to the next index before the replacement has even been placed, let alone started.
+   * already having landed, letting {@link #handleRollingUpdate} clear this index's in-flight marker
+   * and move on to the next index before the replacement has even been placed, let alone started.
    */
   private boolean isReady(InstanceAssignment assignment) {
     return store

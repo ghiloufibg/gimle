@@ -2,7 +2,7 @@ package com.gimle.controlplane.admission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
@@ -32,8 +32,7 @@ class AdmissionChainTest {
     AdmissionDecision<String> decision =
         chain.admit(ResourceKind.DEPLOYMENT, Verb.WRITE, "original", store(), Optional.empty());
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<String>);
-    assertEquals("original", ((AdmissionDecision.Allow<String>) decision).spec());
+    assertEquals("original", assertInstanceOf(AdmissionDecision.Allow.class, decision).spec());
   }
 
   @Test
@@ -50,8 +49,7 @@ class AdmissionChainTest {
     AdmissionDecision<String> decision =
         chain.admit(ResourceKind.DEPLOYMENT, Verb.WRITE, "original", store(), Optional.empty());
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<String>);
-    assertEquals("no", ((AdmissionDecision.Reject<String>) decision).reason());
+    assertEquals("no", assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
     assertFalse(secondPluginRan.get(), "a later plugin must not run once an earlier one rejects");
   }
 
@@ -66,7 +64,8 @@ class AdmissionChainTest {
     AdmissionDecision<String> decision =
         chain.admit(ResourceKind.DEPLOYMENT, Verb.WRITE, "original", store(), Optional.empty());
 
-    assertEquals("ORIGINAL-reviewed", ((AdmissionDecision.Allow<String>) decision).spec());
+    assertEquals(
+        "ORIGINAL-reviewed", assertInstanceOf(AdmissionDecision.Allow.class, decision).spec());
   }
 
   private StateStore store() {

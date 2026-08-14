@@ -6,6 +6,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Shared quota-summation logic, used both at admission (the API server, before a deployment is
@@ -38,17 +39,17 @@ public final class TenantUsage {
 
   /**
    * Currently-assigned usage for {@code tenantId}, summed across every deployment sharing it
-   * *except* {@code excludingDeploymentName} (pass {@code ""} to include everything) -- the
-   * exclusion lets admission compute "what would usage be after this PUT replaces its own prior
-   * spec" without double-counting the deployment being submitted.
+   * *except* {@code excludingDeploymentName} (pass {@code Optional.empty()} to include everything)
+   * -- the exclusion lets admission compute "what would usage be after this PUT replaces its own
+   * prior spec" without double-counting the deployment being submitted.
    */
   public static Usage currentlyAssigned(
-      StoreReader store, String tenantId, String excludingDeploymentName) {
+      StoreReader store, String tenantId, Optional<String> excludingDeploymentName) {
     long memoryBytes = 0;
     long cpuMillicores = 0;
     int instances = 0;
     for (DeploymentSpec spec : store.listDeployments()) {
-      if (spec.name().equals(excludingDeploymentName)) {
+      if (excludingDeploymentName.filter(spec.name()::equals).isPresent()) {
         continue;
       }
       if (spec.tenantId().filter(tenantId::equals).isEmpty()) {

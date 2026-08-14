@@ -18,12 +18,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -123,14 +126,12 @@ class ApiServerTlsTest {
     }
   }
 
-  private static javax.net.ssl.TrustManager[] trustManagersFor(CertificateAuthority ca)
-      throws Exception {
-    java.security.KeyStore trustStore = java.security.KeyStore.getInstance("PKCS12");
+  private static TrustManager[] trustManagersFor(CertificateAuthority ca) throws Exception {
+    KeyStore trustStore = KeyStore.getInstance("PKCS12");
     trustStore.load(null, null);
     trustStore.setCertificateEntry("cluster-ca", ca.certificate());
-    javax.net.ssl.TrustManagerFactory factory =
-        javax.net.ssl.TrustManagerFactory.getInstance(
-            javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+    TrustManagerFactory factory =
+        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
     factory.init(trustStore);
     return factory.getTrustManagers();
   }

@@ -61,39 +61,38 @@ public final class QuotaReconciler {
     }
 
     for (DeploymentSpec spec : store.listDeployments()) {
-      Boolean[] violating = {Boolean.FALSE};
-      spec.tenantId()
-          .ifPresent(
-              tenantId -> {
-                Tenant tenant = store.getTenant(tenantId).orElse(null);
-                if (tenant == null) {
-                  return; // an unregistered tenantId is a manifest-validity concern, not this
-                  // reconciler's
-                }
-                TenantUsage.Usage usage =
-                    usageByTenant.getOrDefault(tenantId, new TenantUsage.Usage(0, 0, 0));
-                if (usage.exceeds(tenant.quota())) {
-                  violating[0] = Boolean.TRUE;
-                  log.warn(
-                      "tenant {} exceeds its quota (memoryBytes={}/{}, cpuMillicores={}/{},"
-                          + " instances={}/{}); deployment {} marked quota-violating",
-                      tenantId,
-                      usage.memoryBytes(),
-                      tenant.quota().maxMemoryBytes(),
-                      usage.cpuMillicores(),
-                      tenant.quota().maxCpuMillicores(),
-                      usage.instances(),
-                      tenant.quota().maxInstances(),
-                      spec.name());
-                }
-              });
+      boolean violating = false;
+      if (spec.tenantId().isPresent()) {
+        String tenantId = spec.tenantId().get();
+        Tenant tenant = store.getTenant(tenantId).orElse(null);
+        // A null tenant (an unregistered tenantId) is a manifest-validity concern, not this
+        // reconciler's -- nothing to check, so it just stays non-violating.
+        if (tenant != null) {
+          TenantUsage.Usage usage =
+              usageByTenant.getOrDefault(tenantId, new TenantUsage.Usage(0, 0, 0));
+          if (usage.exceeds(tenant.quota())) {
+            violating = true;
+            log.warn(
+                "tenant {} exceeds its quota (memoryBytes={}/{}, cpuMillicores={}/{},"
+                    + " instances={}/{}); deployment {} marked quota-violating",
+                tenantId,
+                usage.memoryBytes(),
+                tenant.quota().maxMemoryBytes(),
+                usage.cpuMillicores(),
+                tenant.quota().maxCpuMillicores(),
+                usage.instances(),
+                tenant.quota().maxInstances(),
+                spec.name());
+          }
+        }
+      }
       // Level-triggered means recomputing from scratch every tick, not re-proposing every tick:
       // this reconciler still corrects a wrong stored value on its very next run regardless of
       // what happened on prior ticks, but a value that's already correct shouldn't cost a fresh
       // replicated write -- see StateMutation's own javadoc on why heartbeats were kept out of
       // the log entirely for the same reason.
-      if (store.isQuotaViolating(spec.name()) != violating[0]) {
-        mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating[0]));
+      if (store.isQuotaViolating(spec.name()) != violating) {
+        mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating));
       }
     }
   }

@@ -86,6 +86,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -97,6 +98,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -108,6 +110,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
+import java.util.function.Predicate;
+import java.util.function.ToDoubleFunction;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -510,31 +514,83 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- /deployments/{name} ----
 
+  /**
+   * Unscoped ({@code Optional.empty()} tenant) for every verb here -- tenant-scoped deployment
+   * permissions would need this handler to resolve an existing deployment's own tenantId (or a
+   * PUT's requested one) before authorizing, real additional plumbing not built this round; a
+   * known, deliberate gap, not a silent omission. Every {@code handle{Deployment,Job,CronJob,
+   * DaemonSet,StatefulSet}} singleton-resource handler shares this same posture.
+   */
   private void handleDeployment(HttpExchange exchange) {
+    dispatchResourceRequest(
+        exchange,
+        ResourceKind.DEPLOYMENT,
+        "missing deployment name",
+        "deployment",
+        ex -> Optional.of(pathSegmentAfter(ex, "/deployments/")),
+        this::handlePutDeployment,
+        this::handleGetDeployment,
+        this::handleDeleteDeployment);
+  }
+
+  /** A {@code (HttpExchange, String name)} action that may itself throw {@link IOException}. */
+  @FunctionalInterface
+  private interface ResourceAction {
+    void run(HttpExchange exchange, String name) throws IOException;
+  }
+
+  /**
+   * A resource-name resolver that may itself throw {@link IOException} (a submitted manifest read
+   * mid-resolution) and may fully handle the request itself rather than returning a name to
+   * dispatch on -- see {@link #dispatchResourceRequest}'s own javadoc.
+   */
+  @FunctionalInterface
+  private interface ResourceNameResolver {
+    Optional<String> resolve(HttpExchange exchange) throws IOException;
+  }
+
+  /**
+   * Shared by every {@code handle{Deployment,Job,CronJob,DaemonSet,StatefulSet}} singleton-
+   * resource handler above and below: resolves the resource name via {@code nameResolver},
+   * authorizes and dispatches PUT/GET/DELETE to the three per-kind handlers, and applies the one
+   * error-mapping/exchange-close policy every one of these routes shares. {@code nameResolver} may
+   * itself fully handle the request -- the {@code /cronjobs/{name}/trigger} sub-route is not a
+   * plain PUT/GET/DELETE-by-name at all -- in which case it returns {@code Optional.empty()} to
+   * signal "already handled, skip the switch below" rather than a resolved (possibly blank) name.
+   */
+  private void dispatchResourceRequest(
+      HttpExchange exchange,
+      ResourceKind kind,
+      String missingNameMessage,
+      String requestNoun,
+      ResourceNameResolver nameResolver,
+      ResourceAction put,
+      ResourceAction get,
+      ResourceAction delete) {
     try {
-      String name = pathSegmentAfter(exchange, "/deployments/");
-      if (name.isBlank()) {
-        respond(exchange, 400, "missing deployment name");
+      Optional<String> resolved = nameResolver.resolve(exchange);
+      if (resolved.isEmpty()) {
         return;
       }
-      // Unscoped (Optional.empty() tenant) for every verb here -- tenant-scoped deployment
-      // permissions would need this handler to resolve an existing deployment's own tenantId (or
-      // a PUT's requested one) before authorizing, real additional plumbing not built this round;
-      // a known, deliberate gap, not a silent omission.
+      String name = resolved.get();
+      if (name.isBlank()) {
+        respond(exchange, 400, missingNameMessage);
+        return;
+      }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.empty())) {
-            handlePutDeployment(exchange, name);
+          if (requireAuthorized(exchange, kind, Verb.WRITE, Optional.empty())) {
+            put.run(exchange, name);
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
-            handleGetDeployment(exchange, name);
+          if (requireAuthorized(exchange, kind, Verb.READ, Optional.empty())) {
+            get.run(exchange, name);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.DELETE, Optional.empty())) {
-            handleDeleteDeployment(exchange, name);
+          if (requireAuthorized(exchange, kind, Verb.DELETE, Optional.empty())) {
+            delete.run(exchange, name);
           }
         }
         default -> respond(exchange, 405, "method not allowed");
@@ -544,7 +600,7 @@ public final class ApiServer implements AutoCloseable {
     } catch (GimleManifestException | IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
-      log.warn("deployment request failed: {}", e.getMessage());
+      log.warn("{} request failed: {}", requestNoun, e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
@@ -653,41 +709,15 @@ public final class ApiServer implements AutoCloseable {
   // ---- /jobs/{name}, /jobs ----
 
   private void handleJob(HttpExchange exchange) {
-    try {
-      String name = pathSegmentAfter(exchange, "/jobs/");
-      if (name.isBlank()) {
-        respond(exchange, 400, "missing job name");
-        return;
-      }
-      // Unscoped for every verb, matching handleDeployment's own identical documented gap above.
-      switch (exchange.getRequestMethod()) {
-        case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
-            handlePutJob(exchange, name);
-          }
-        }
-        case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
-            handleGetJob(exchange, name);
-          }
-        }
-        case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
-            handleDeleteJob(exchange, name);
-          }
-        }
-        default -> respond(exchange, 405, "method not allowed");
-      }
-    } catch (GimleRaftException e) {
-      respondStoreUnavailable(exchange);
-    } catch (GimleManifestException | IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("job request failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    dispatchResourceRequest(
+        exchange,
+        ResourceKind.JOB,
+        "missing job name",
+        "job",
+        ex -> Optional.of(pathSegmentAfter(ex, "/jobs/")),
+        this::handlePutJob,
+        this::handleGetJob,
+        this::handleDeleteJob);
   }
 
   private void handlePutJob(HttpExchange exchange, String name) throws IOException {
@@ -791,71 +821,52 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private Optional<InstanceObservation> findObservationForJobRun(JobRun run) {
-    return storeClient
-        .getNodeHeartbeat(run.nodeId())
-        .map(ObservedHeartbeat::heartbeat)
-        .flatMap(
-            heartbeat ->
-                heartbeat.instances().stream()
-                    .filter(
-                        obs ->
-                            obs.deploymentName().equals(run.jobName())
-                                && obs.instanceIndex() == run.attempt())
-                    .findFirst());
+    return findObservation(
+        run.nodeId(),
+        obs -> obs.deploymentName().equals(run.jobName()) && obs.instanceIndex() == run.attempt());
   }
 
   // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger ----
 
   private void handleCronJob(HttpExchange exchange) {
-    try {
-      String path = exchange.getRequestURI().getPath();
-      String tail = path.substring("/cronjobs/".length());
-      int slash = tail.indexOf('/');
-      String name = slash < 0 ? tail : tail.substring(0, slash);
-      if (name.isBlank()) {
-        respond(exchange, 400, "missing cronjob name");
-        return;
-      }
-      if (slash >= 0) {
-        String action = tail.substring(slash + 1);
-        if (!"trigger".equals(action)) {
-          respond(exchange, 404, "unknown cronjob endpoint: " + action);
-          return;
-        }
-        if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
-          handleCronJobTrigger(exchange, name);
-        }
-        return;
-      }
-      // Unscoped for every verb, matching handleJob's own identical documented gap.
-      switch (exchange.getRequestMethod()) {
-        case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
-            handlePutCronJob(exchange, name);
-          }
-        }
-        case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
-            handleGetCronJob(exchange, name);
-          }
-        }
-        case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.JOB, Verb.DELETE, Optional.empty())) {
-            handleDeleteCronJob(exchange, name);
-          }
-        }
-        default -> respond(exchange, 405, "method not allowed");
-      }
-    } catch (GimleRaftException e) {
-      respondStoreUnavailable(exchange);
-    } catch (GimleManifestException | IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("cronjob request failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
+    dispatchResourceRequest(
+        exchange,
+        ResourceKind.JOB,
+        "missing cronjob name",
+        "cronjob",
+        this::resolveCronJobNameOrHandleSubRoute,
+        this::handlePutCronJob,
+        this::handleGetCronJob,
+        this::handleDeleteCronJob);
+  }
+
+  /**
+   * {@code /cronjobs/{name}} name resolution is one segment, exactly like {@link
+   * #handleDeployment}'s own {@code pathSegmentAfter} call -- except a CronJob path may carry a
+   * second segment, {@code /cronjobs/{name}/trigger}, which isn't a plain PUT/GET/DELETE-by-name at
+   * all. A blank name is returned rather than handled here (regardless of whether a second segment
+   * follows it) so {@link #dispatchResourceRequest}'s own blank-name check reports it the same way
+   * every other resource kind's does; a present, non-blank second segment is handled entirely here,
+   * returning {@code Optional.empty()} to tell the caller "already handled, skip the ordinary
+   * dispatch."
+   */
+  private Optional<String> resolveCronJobNameOrHandleSubRoute(HttpExchange exchange)
+      throws IOException {
+    String tail = pathSegmentAfter(exchange, "/cronjobs/");
+    int slash = tail.indexOf('/');
+    String name = slash < 0 ? tail : tail.substring(0, slash);
+    if (name.isBlank() || slash < 0) {
+      return Optional.of(name);
     }
+    String action = tail.substring(slash + 1);
+    if (!"trigger".equals(action)) {
+      respond(exchange, 404, "unknown cronjob endpoint: " + action);
+      return Optional.empty();
+    }
+    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+      handleCronJobTrigger(exchange, name);
+    }
+    return Optional.empty();
   }
 
   private void handlePutCronJob(HttpExchange exchange, String name) throws IOException {
@@ -962,41 +973,15 @@ public final class ApiServer implements AutoCloseable {
   // ---- /daemonsets/{name}, /daemonsets ----
 
   private void handleDaemonSet(HttpExchange exchange) {
-    try {
-      String name = pathSegmentAfter(exchange, "/daemonsets/");
-      if (name.isBlank()) {
-        respond(exchange, 400, "missing daemonset name");
-        return;
-      }
-      // Unscoped for every verb, matching handleJob's own identical documented gap.
-      switch (exchange.getRequestMethod()) {
-        case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.WRITE, Optional.empty())) {
-            handlePutDaemonSet(exchange, name);
-          }
-        }
-        case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
-            handleGetDaemonSet(exchange, name);
-          }
-        }
-        case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.DELETE, Optional.empty())) {
-            handleDeleteDaemonSet(exchange, name);
-          }
-        }
-        default -> respond(exchange, 405, "method not allowed");
-      }
-    } catch (GimleRaftException e) {
-      respondStoreUnavailable(exchange);
-    } catch (GimleManifestException | IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("daemonset request failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    dispatchResourceRequest(
+        exchange,
+        ResourceKind.DAEMONSET,
+        "missing daemonset name",
+        "daemonset",
+        ex -> Optional.of(pathSegmentAfter(ex, "/daemonsets/")),
+        this::handlePutDaemonSet,
+        this::handleGetDaemonSet,
+        this::handleDeleteDaemonSet);
   }
 
   private void handlePutDaemonSet(HttpExchange exchange, String name) throws IOException {
@@ -1100,58 +1085,23 @@ public final class ApiServer implements AutoCloseable {
 
   private Optional<InstanceObservation> findObservationForDaemonSetAssignment(
       DaemonSetAssignment assignment) {
-    return storeClient
-        .getNodeHeartbeat(assignment.nodeId())
-        .map(ObservedHeartbeat::heartbeat)
-        .flatMap(
-            heartbeat ->
-                heartbeat.instances().stream()
-                    .filter(
-                        obs ->
-                            obs.deploymentName().equals(assignment.daemonSetName())
-                                && obs.instanceIndex() == 0)
-                    .findFirst());
+    return findObservation(
+        assignment.nodeId(),
+        obs -> obs.deploymentName().equals(assignment.daemonSetName()) && obs.instanceIndex() == 0);
   }
 
   // ---- /statefulsets/{name}, /statefulsets ----
 
   private void handleStatefulSet(HttpExchange exchange) {
-    try {
-      String name = pathSegmentAfter(exchange, "/statefulsets/");
-      if (name.isBlank()) {
-        respond(exchange, 400, "missing statefulset name");
-        return;
-      }
-      // Unscoped for every verb, matching handleDeployment's own identical documented gap.
-      switch (exchange.getRequestMethod()) {
-        case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.WRITE, Optional.empty())) {
-            handlePutStatefulSet(exchange, name);
-          }
-        }
-        case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
-            handleGetStatefulSet(exchange, name);
-          }
-        }
-        case "DELETE" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.STATEFULSET, Verb.DELETE, Optional.empty())) {
-            handleDeleteStatefulSet(exchange, name);
-          }
-        }
-        default -> respond(exchange, 405, "method not allowed");
-      }
-    } catch (GimleRaftException e) {
-      respondStoreUnavailable(exchange);
-    } catch (GimleManifestException | IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("statefulset request failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    dispatchResourceRequest(
+        exchange,
+        ResourceKind.STATEFULSET,
+        "missing statefulset name",
+        "statefulset",
+        ex -> Optional.of(pathSegmentAfter(ex, "/statefulsets/")),
+        this::handlePutStatefulSet,
+        this::handleGetStatefulSet,
+        this::handleDeleteStatefulSet);
   }
 
   private void handlePutStatefulSet(HttpExchange exchange, String name) throws IOException {
@@ -1263,17 +1213,11 @@ public final class ApiServer implements AutoCloseable {
 
   private Optional<InstanceObservation> findObservationForStatefulSetAssignment(
       StatefulSetAssignment assignment) {
-    return storeClient
-        .getNodeHeartbeat(assignment.nodeId())
-        .map(ObservedHeartbeat::heartbeat)
-        .flatMap(
-            heartbeat ->
-                heartbeat.instances().stream()
-                    .filter(
-                        obs ->
-                            obs.deploymentName().equals(assignment.statefulSetName())
-                                && obs.instanceIndex() == assignment.instanceIndex())
-                    .findFirst());
+    return findObservation(
+        assignment.nodeId(),
+        obs ->
+            obs.deploymentName().equals(assignment.statefulSetName())
+                && obs.instanceIndex() == assignment.instanceIndex());
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -1380,8 +1324,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private static double average(
-      List<InstanceObservation> observations,
-      java.util.function.ToDoubleFunction<InstanceObservation> extractor) {
+      List<InstanceObservation> observations, ToDoubleFunction<InstanceObservation> extractor) {
     if (observations.isEmpty()) {
       return 0.0;
     }
@@ -1389,17 +1332,28 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
+    return findObservation(
+        assignment.nodeId(),
+        obs ->
+            obs.deploymentName().equals(assignment.deploymentName())
+                && obs.instanceIndex() == assignment.instanceIndex());
+  }
+
+  /**
+   * The shared scan behind {@link #findObservation(InstanceAssignment)} and its {@code
+   * DaemonSetAssignment}/{@code StatefulSetAssignment}/{@code JobRun} siblings above: the given
+   * node's own heartbeat, if any, filtered down to the one observation {@code matches} identifies
+   * -- by deployment/job name and whichever index convention that workload kind uses (an ordinary
+   * instance index, a job run's attempt number, or a fixed {@code 0} for a DaemonSet, which has no
+   * index of its own). Absent either the heartbeat or a matching observation within it is not an
+   * error, just "nothing to report yet."
+   */
+  private Optional<InstanceObservation> findObservation(
+      String nodeId, Predicate<InstanceObservation> matches) {
     return storeClient
-        .getNodeHeartbeat(assignment.nodeId())
+        .getNodeHeartbeat(nodeId)
         .map(ObservedHeartbeat::heartbeat)
-        .flatMap(
-            heartbeat ->
-                heartbeat.instances().stream()
-                    .filter(
-                        obs ->
-                            obs.deploymentName().equals(assignment.deploymentName())
-                                && obs.instanceIndex() == assignment.instanceIndex())
-                    .findFirst());
+        .flatMap(heartbeat -> heartbeat.instances().stream().filter(matches).findFirst());
   }
 
   // ---- /nodes/{nodeId}/... ----
@@ -2735,56 +2689,39 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * {@code GET /metrics-history/{processKind}/{processId}} -- a thin, read-only proxy to Muninn's
-   * own {@code GET /metrics/{processKind}/{processId}}, the same {@code ResourceKind.LOGS}/{@code
-   * Verb.READ} gate the rest of this class's own {@code /logs/*} surface uses (metrics and traces
-   * are treated as the same shape of thing as logs -- no dedicated {@code METRICS} resource kind).
-   * {@code since}-only, no backward paging -- a deliberate scope-narrowing, not an oversight.
-   * Unlike {@code /logs/*}, there is no live-agent path to fall back from here: Muninn's shipped
-   * history *is* the only place a process's own metrics ever live, so a missing {@code
-   * muninnClient} is a plain 404 rather than a proxy failure.
+   * own {@code GET /metrics/{processKind}/{processId}}, via {@link #handleHistoryProxy}.
    */
   private void handleMetricsHistory(HttpExchange exchange) {
-    try {
-      if (!"GET".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
-        return;
-      }
-      String tail = pathSegmentAfter(exchange, "/metrics-history/");
-      String[] parts = tail.split("/", 2);
-      if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-        respond(exchange, 400, "expected /metrics-history/{processKind}/{processId}");
-        return;
-      }
-      if (muninnClient == null) {
-        respond(exchange, 404, "no muninn endpoint configured");
-        return;
-      }
-      Map<String, String> query = parseQuery(exchange);
-      String since = query.get("since");
-      String muninnPath =
-          "/metrics/" + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
-      proxyToMuninn(exchange, muninnPath);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("metrics history request failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handleHistoryProxy(exchange, "/metrics-history/", "/metrics/", "metrics history");
   }
 
   /**
    * {@code GET /traces-history/{processKind}/{processId}} -- structurally identical to {@link
    * #handleMetricsHistory} above, proxying to Muninn's own {@code GET
-   * /traces/{processKind}/{processId}} instead of {@code /metrics/...}. Same {@code
-   * ResourceKind.LOGS}/{@code Verb.READ} gate, same {@code since}-only convention, same "no
-   * live-agent fallback, a missing muninnClient is a plain 404" posture.
+   * /traces/{processKind}/{processId}} instead of {@code /metrics/...}, via {@link
+   * #handleHistoryProxy}.
    */
   private void handleTracesHistory(HttpExchange exchange) {
+    handleHistoryProxy(exchange, "/traces-history/", "/traces/", "traces history");
+  }
+
+  /**
+   * Shared by {@link #handleMetricsHistory} and {@link #handleTracesHistory}: the same {@code
+   * ResourceKind.LOGS}/{@code Verb.READ} gate the rest of this class's own {@code /logs/*} surface
+   * uses (metrics and traces are treated as the same shape of thing as logs -- no dedicated {@code
+   * METRICS}/{@code TRACES} resource kind), {@code since}-only, no backward paging -- a deliberate
+   * scope-narrowing, not an oversight. Unlike {@code /logs/*}, there is no live-agent path to fall
+   * back from here: Muninn's shipped history *is* the only place a process's own metrics or traces
+   * ever live, so a missing {@code muninnClient} is a plain 404 rather than a proxy failure.
+   *
+   * @param pathPrefix this route's own path prefix, e.g. {@code "/metrics-history/"}
+   * @param muninnPathPrefix the corresponding prefix on Muninn's own read API, e.g. {@code
+   *     "/metrics/"}
+   * @param requestNoun what to call this request kind in a warning log line, e.g. {@code "metrics
+   *     history"}
+   */
+  private void handleHistoryProxy(
+      HttpExchange exchange, String pathPrefix, String muninnPathPrefix, String requestNoun) {
     try {
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
@@ -2793,10 +2730,10 @@ public final class ApiServer implements AutoCloseable {
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
         return;
       }
-      String tail = pathSegmentAfter(exchange, "/traces-history/");
+      String tail = pathSegmentAfter(exchange, pathPrefix);
       String[] parts = tail.split("/", 2);
       if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-        respond(exchange, 400, "expected /traces-history/{processKind}/{processId}");
+        respond(exchange, 400, "expected " + pathPrefix + "{processKind}/{processId}");
         return;
       }
       if (muninnClient == null) {
@@ -2806,12 +2743,12 @@ public final class ApiServer implements AutoCloseable {
       Map<String, String> query = parseQuery(exchange);
       String since = query.get("since");
       String muninnPath =
-          "/traces/" + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
+          muninnPathPrefix + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
       proxyToMuninn(exchange, muninnPath);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
-      log.warn("traces history request failed: {}", e.getMessage());
+      log.warn("{} request failed: {}", requestNoun, e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
@@ -3128,8 +3065,8 @@ public final class ApiServer implements AutoCloseable {
       if (eq < 0) {
         continue;
       }
-      String key = java.net.URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
-      String value = java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+      String key = URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
+      String value = URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
       result.put(key, value);
     }
     return result;
@@ -3196,7 +3133,7 @@ public final class ApiServer implements AutoCloseable {
     boolean subjectsMatch;
     try {
       subjectsMatch =
-          java.util.Arrays.equals(
+          Arrays.equals(
               csr.getSubject().getEncoded(), presented.getSubjectX500Principal().getEncoded());
     } catch (IOException e) {
       subjectsMatch = false;

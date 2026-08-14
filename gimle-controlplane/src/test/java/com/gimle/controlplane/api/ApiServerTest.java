@@ -26,6 +26,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1622,11 +1623,11 @@ class ApiServerTest {
   }
 
   private static String encode(String plaintext) {
-    return java.util.Base64.getEncoder().encodeToString(plaintext.getBytes(StandardCharsets.UTF_8));
+    return Base64.getEncoder().encodeToString(plaintext.getBytes(StandardCharsets.UTF_8));
   }
 
   private static String decode(String base64) {
-    return new String(java.util.Base64.getDecoder().decode(base64), StandardCharsets.UTF_8);
+    return new String(Base64.getDecoder().decode(base64), StandardCharsets.UTF_8);
   }
 
   @Test

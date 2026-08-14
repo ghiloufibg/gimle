@@ -16,6 +16,8 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.store.StateStore;
@@ -187,14 +189,10 @@ class ApiServerAuthzTest {
     // CLUSTER_ADMIN is a constant, not stored) -- so bind admin to a small custom role instead,
     // scoped to exactly what this test needs to prove the cookie actually authorizes something.
     store.putRole(
-        new com.gimle.core.authz.Role(
+        new Role(
             "tenant-reader",
-            java.util.Set.of(
-                com.gimle.core.authz.Permission.unscoped(
-                    com.gimle.core.authz.ResourceKind.TENANT, com.gimle.core.authz.Verb.READ))));
-    store.putRoleBinding(
-        new com.gimle.core.authz.RoleBinding(
-            "b1", com.gimle.core.authz.RoleBinding.userSubject("admin"), "tenant-reader"));
+            java.util.Set.of(Permission.unscoped(ResourceKind.TENANT, Verb.READ))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("admin"), "tenant-reader"));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
@@ -615,9 +613,7 @@ class ApiServerAuthzTest {
     store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("admin"), "secret-admin"));
     // The rotation walk only visits registered Tenants (see #rotateSecretsKey's own javadoc for
     // why), so this tenant must actually be registered for the walk to reach its config entries.
-    store.putTenant(
-        new com.gimle.core.tenant.Tenant(
-            "tenant-1", new com.gimle.core.tenant.ResourceQuota(1024, 500, 10)));
+    store.putTenant(new Tenant("tenant-1", new ResourceQuota(1024, 500, 10)));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/fafnir-secret.key"));

@@ -25,6 +25,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -208,7 +209,7 @@ class HumanOperatorCsrTest {
     KeyPair keyPair = generateRsaKeyPair();
     PKCS10CertificationRequest csr =
         CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=controlplane"), java.util.List.of("localhost"));
+            keyPair, new X500Name("CN=controlplane"), List.of("localhost"));
     Path certFile =
         writePem(
             "controlplane-cert.pem",

@@ -392,6 +392,11 @@ class DeploymentReconcilerRollingUpdateTest {
     // Completion is "no index still in flight," not "every assignment already shows v2's
     // moduleId" -- placement applies v2 immediately regardless of readiness, so the latter can
     // turn true a tick before the in-flight set itself actually empties.
+    // 10 is a generous safety margin, not a tight bound: at this point 1 of 5 indices is already
+    // fully migrated and 2 more are in flight, so each further tick clears up to maxUnavailable=2
+    // and immediately tops back up, needing at most 2 more ticks to finish the remaining 4 -- the
+    // loop exists to guard against a stalled/non-converging bug turning into an infinite loop, not
+    // because this scenario is expected to need anywhere near 10.
     for (int tick = 0; tick < 10 && !store.getRollingIndices("orders-service").isEmpty(); tick++) {
       markManyReady(
           store,

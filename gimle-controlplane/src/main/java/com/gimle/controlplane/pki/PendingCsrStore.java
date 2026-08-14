@@ -1,6 +1,7 @@
 package com.gimle.controlplane.pki;
 
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -17,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class PendingCsrStore {
 
-  private static final java.time.Duration MAX_ENTRY_AGE = java.time.Duration.ofHours(24);
+  private static final Duration MAX_ENTRY_AGE = Duration.ofHours(24);
 
   /** A pending or approved request: {@code signedCertificate} is empty until approved. */
   public record Entry(

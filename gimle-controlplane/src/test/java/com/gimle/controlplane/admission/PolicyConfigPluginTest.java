@@ -2,7 +2,7 @@ package com.gimle.controlplane.admission;
 
 import static com.gimle.controlplane.admission.PolicyConfigPlugin.MAX_REPLICAS_PER_DEPLOYMENT_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
@@ -39,7 +39,7 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
   @Test
@@ -51,7 +51,7 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
   @Test
@@ -65,7 +65,7 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
   @Test
@@ -79,11 +79,10 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
     assertEquals(
         "deployment over-ceiling requests 6 replicas, exceeding tenant acme's policy ceiling of 5"
             + " (policy.maxReplicasPerDeployment)",
-        ((AdmissionDecision.Reject<DeploymentSpec>) decision).reason());
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   @Test
@@ -97,7 +96,7 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
   @Test
@@ -116,7 +115,9 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
+    assertEquals(
+        "policy rule 'policy.maxReplicasPerDeployment' for tenant acme is not a valid integer",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   @Test
@@ -132,7 +133,10 @@ class PolicyConfigPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
+    assertEquals(
+        "policy rule 'policy.maxReplicasPerDeployment' for tenant acme must not be an encrypted"
+            + " config entry",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   private static void setPolicy(StateStore store, String tenantId, int maxReplicas) {

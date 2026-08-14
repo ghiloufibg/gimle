@@ -36,11 +36,11 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
     // Sums against maxCommittedInstances() (replicas + maxSurge), not replicas alone -- a rollout
     // that surges may transiently run more instances than replicas declares, and admission has to
     // charge the tenant's quota for the peak it could actually reach, not just the steady state.
-    // maxSurge is always 0 today (rejected at parse time), so this is currently a no-op change:
-    // maxCommittedInstances() == replicas for every deployment that exists.
+    // DeploymentManifestParser accepts a nonzero maxSurge today, so this genuinely changes the
+    // admission outcome once a submission's disruption budget surges -- not a no-op.
     int committed = spec.maxCommittedInstances();
     TenantUsage.Usage existing =
-        TenantUsage.currentlyAssigned(request.store(), tenantId, spec.name());
+        TenantUsage.currentlyAssigned(request.store(), tenantId, Optional.of(spec.name()));
     TenantUsage.Usage withThisSubmission =
         existing.plus(
             descriptor.resourceRequest().memoryBytes() * committed,

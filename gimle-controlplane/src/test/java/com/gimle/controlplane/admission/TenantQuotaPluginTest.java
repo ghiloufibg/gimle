@@ -1,6 +1,7 @@
 package com.gimle.controlplane.admission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.authz.ResourceKind;
@@ -45,8 +46,7 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
-    assertEquals(spec, ((AdmissionDecision.Allow<DeploymentSpec>) decision).spec());
+    assertEquals(spec, assertInstanceOf(AdmissionDecision.Allow.class, decision).spec());
   }
 
   @Test
@@ -58,10 +58,9 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
     assertEquals(
         "unknown tenantId: does-not-exist",
-        ((AdmissionDecision.Reject<DeploymentSpec>) decision).reason());
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   @Test
@@ -75,9 +74,8 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
     assertTrue(
-        ((AdmissionDecision.Reject<DeploymentSpec>) decision)
+        assertInstanceOf(AdmissionDecision.Reject.class, decision)
             .reason()
             .startsWith("cannot verify tenant quota: artifact unreadable at"));
   }
@@ -97,10 +95,9 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
     assertEquals(
         "deployment over-quota would push tenant tight past its resource quota",
-        ((AdmissionDecision.Reject<DeploymentSpec>) decision).reason());
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   @Test
@@ -116,8 +113,7 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
-    assertEquals(spec, ((AdmissionDecision.Allow<DeploymentSpec>) decision).spec());
+    assertEquals(spec, assertInstanceOf(AdmissionDecision.Allow.class, decision).spec());
   }
 
   @Test
@@ -139,10 +135,9 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
-    assertTrue(decision instanceof AdmissionDecision.Reject<DeploymentSpec>);
     assertEquals(
         "deployment surging would push tenant surge-tight past its resource quota",
-        ((AdmissionDecision.Reject<DeploymentSpec>) decision).reason());
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
   @Test
@@ -161,7 +156,7 @@ class TenantQuotaPluginTest {
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
-    assertTrue(decision instanceof AdmissionDecision.Allow<DeploymentSpec>);
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
   /** No jar is ever built or read for this fixture -- {@code artifactPath} is a dangling path. */

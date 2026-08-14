@@ -54,11 +54,11 @@ import org.slf4j.LoggerFactory;
  * <p>Rolling updates reuse the same {@code remove-mismatched-then-let-ordinary-placement-repick}
  * shape {@link DeploymentReconciler#handleRollingUpdate} established, persisted via {@link
  * StateStore#putRollingStatefulSetIndex}/{@code getRollingStatefulSetIndex}/{@code
- * clearRollingStatefulSetIndex} -- a separate marker from {@code rollingIndex}, since the two
- * resource kinds never share a namespace. Deliberately reuses no persisted state beyond that: the
- * ordered scan itself (not a second "am I mid-rollout" check) is what keeps a rolling-update
- * removal and an ordinary scale-up from ever racing past each other, since a removed index is
- * simply "missing" to the very same scan either way.
+ * clearRollingStatefulSetIndex} -- a separate marker from {@link DeploymentReconciler}'s own
+ * in-flight index set, since the two resource kinds never share a namespace. Deliberately reuses no
+ * persisted state beyond that: the ordered scan itself (not a second "am I mid-rollout" check) is
+ * what keeps a rolling-update removal and an ordinary scale-up from ever racing past each other,
+ * since a removed index is simply "missing" to the very same scan either way.
  *
  * <p>Scale-down removes at most one index -- the highest one at or beyond {@code replicas} -- per
  * tick, then returns without attempting any other work that same tick: the same "wait a beat
