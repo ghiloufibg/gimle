@@ -31,6 +31,17 @@ public final class HeimdallScope {
     return new LogConditions(heimdall, replicaFilter, deploymentName, instanceIndex, category);
   }
 
+  /**
+   * A condition over cluster-external observable state (a worker process's pid, a file on disk)
+   * that no control-plane view or log stream can express -- evaluated by the shared watcher loop,
+   * never a poll loop at the call site. Replica pinning does not apply: probes observe the machine,
+   * not a control plane.
+   */
+  public HolmgangCondition probe(
+      final String description, final java.util.function.BooleanSupplier condition) {
+    return heimdall.registerProbeCondition(description, condition);
+  }
+
   String describeScope() {
     return replicaFilter.isPresent()
         ? " (observed via control-plane replica #" + replicaFilter.getAsInt() + ")"

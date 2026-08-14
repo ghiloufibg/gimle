@@ -162,16 +162,6 @@ public final class DeploymentSteps {
         .await(Duration.ofSeconds(seconds));
   }
 
-  @Then("within {int}s deployment {string} is not fully ACTIVE")
-  public void deploymentIsNotFullyActive(final int seconds, final String deployment) {
-    world
-        .cluster()
-        .when()
-        .deployment(deployment)
-        .isNotFullyActive()
-        .await(Duration.ofSeconds(seconds));
-  }
-
   @Then("within {int}s deployment {string} is absent")
   public void deploymentIsAbsent(final int seconds, final String deployment) {
     world.cluster().when().deployment(deployment).isAbsent().await(Duration.ofSeconds(seconds));

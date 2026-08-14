@@ -45,6 +45,7 @@ public final class Heimdall implements AutoCloseable {
   private final HttpClient httpClient = HttpClient.newHttpClient();
   private final CopyOnWriteArrayList<ViewCondition> viewConditions = new CopyOnWriteArrayList<>();
   private final CopyOnWriteArrayList<LogWatch> logWatches = new CopyOnWriteArrayList<>();
+  private final CopyOnWriteArrayList<ProbeCondition> probeConditions = new CopyOnWriteArrayList<>();
   private final CopyOnWriteArrayList<InvariantGuard> guards = new CopyOnWriteArrayList<>();
   private final Deque<String> recentEvents = new ArrayDeque<>();
   private final Map<String, String> lastDeploymentSummaries = new LinkedHashMap<>();
@@ -59,6 +60,11 @@ public final class Heimdall implements AutoCloseable {
       CompletableFuture<Void> future) {}
 
   record LogWatch(String description, CompletableFuture<Void> future) {}
+
+  record ProbeCondition(
+      String description,
+      java.util.function.BooleanSupplier probe,
+      CompletableFuture<Void> future) {}
 
   public static Heimdall attach(
       final List<String> controlPlaneBaseUrls,
@@ -119,6 +125,9 @@ public final class Heimdall implements AutoCloseable {
     for (final LogWatch watch : logWatches) {
       watch.future().cancel(true);
     }
+    for (final ProbeCondition probe : probeConditions) {
+      probe.future().cancel(true);
+    }
   }
 
   // ---- registration (called by the condition builders) ----
@@ -137,6 +146,20 @@ public final class Heimdall implements AutoCloseable {
       evaluate(condition, view);
     }
     return new HolmgangCondition(this, description, deploymentHint, future);
+  }
+
+  /**
+   * A condition over cluster-external observable state (a worker process's pid, a file on disk)
+   * that no control-plane view or log stream can express. Evaluated by the shared watcher loop on
+   * its own cadence -- one loop for every registered probe, never a poll loop per call site.
+   */
+  HolmgangCondition registerProbeCondition(
+      final String description, final java.util.function.BooleanSupplier probe) {
+    final CompletableFuture<Void> future = new CompletableFuture<>();
+    final ProbeCondition condition = new ProbeCondition(description, probe, future);
+    probeConditions.add(condition);
+    evaluate(condition);
+    return new HolmgangCondition(this, description, Optional.empty(), future);
   }
 
   HolmgangCondition registerLogCondition(
@@ -166,6 +189,11 @@ public final class Heimdall implements AutoCloseable {
     while (running) {
       final int replica = (int) (tick % controlPlaneBaseUrls.size());
       tick++;
+      // Probes first, and unconditionally: they observe cluster-external state (process pids,
+      // files) and must keep firing even while no control-plane replica is reachable.
+      for (final ProbeCondition probe : probeConditions) {
+        evaluate(probe);
+      }
       final Optional<ClusterView> view = fetchView(replica);
       if (view.isPresent()) {
         lastPollFailed = false;
@@ -191,6 +219,27 @@ public final class Heimdall implements AutoCloseable {
     }
     for (final InvariantGuard guard : guards) {
       guard.evaluate(view);
+    }
+  }
+
+  private void evaluate(final ProbeCondition condition) {
+    if (condition.future().isDone()) {
+      probeConditions.remove(condition);
+      return;
+    }
+    final boolean satisfied;
+    try {
+      satisfied = condition.probe().getAsBoolean();
+    } catch (final RuntimeException e) {
+      // A probe that throws mid-transition (a pid vanishing between scan and read) just means
+      // "not yet".
+      return;
+    }
+    if (satisfied) {
+      probeConditions.remove(condition);
+      if (condition.future().complete(null)) {
+        recordEvent("condition satisfied: " + condition.description());
+      }
     }
   }
 
@@ -236,6 +285,10 @@ public final class Heimdall implements AutoCloseable {
     for (final LogWatch watch : logWatches) {
       watch.future().completeExceptionally(error);
       logWatches.remove(watch);
+    }
+    for (final ProbeCondition probe : probeConditions) {
+      probe.future().completeExceptionally(error);
+      probeConditions.remove(probe);
     }
   }
 

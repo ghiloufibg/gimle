@@ -53,18 +53,6 @@ public final class DeploymentConditions {
                 && view.deployments().get(name).countInState("FAILED") > 0);
   }
 
-  /**
-   * The deployment is known but not fully serving -- at least one placed instance is missing or
-   * off-{@code ACTIVE}. The transitional state a self-healing scenario must observe between a kill
-   * and the recovery, proving the later return to ACTIVE was a real recovery rather than a stale
-   * view that never noticed the kill.
-   */
-  public HolmgangCondition isNotFullyActive() {
-    return register(
-        "deployment " + name + " is not fully ACTIVE",
-        view -> view.deployments().containsKey(name) && !view.deployments().get(name).allActive());
-  }
-
   public HolmgangCondition isAbsent() {
     return register(
         "deployment " + name + " is absent", view -> !view.deployments().containsKey(name));
