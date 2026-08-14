@@ -34,6 +34,8 @@ class ClusterTopologyParserTest {
               replicas: 2
             muninn:
               enabled: true
+            andvari:
+              enabled: true
             nodes:
               - id: node-a
                 labels: [gpu, ssd]
@@ -60,6 +62,7 @@ class ClusterTopologyParserTest {
     assertEquals(2, spec.controlPlaneReplicas());
     assertEquals(2, spec.fafnirReplicas());
     assertTrue(spec.muninnEnabled());
+    assertTrue(spec.andvariEnabled());
     assertEquals(
         List.of(new NodeSpec("node-a", List.of("gpu", "ssd")), new NodeSpec("node-b", List.of())),
         spec.nodes());
@@ -81,6 +84,7 @@ class ClusterTopologyParserTest {
     assertEquals(1, spec.controlPlaneReplicas());
     assertEquals(1, spec.fafnirReplicas());
     assertFalse(spec.muninnEnabled());
+    assertFalse(spec.andvariEnabled());
     assertEquals(List.of(), spec.nodes());
     assertFalse(spec.faultsProxied());
     assertEquals(SeedSpec.EMPTY, spec.seed());
@@ -184,6 +188,19 @@ class ClusterTopologyParserTest {
     assertEquals(3, ha.storeReplicas());
     assertEquals(2, ha.controlPlaneReplicas());
     assertTrue(ha.muninnEnabled());
+    assertFalse(ha.andvariEnabled());
+    final ClusterSpec registry = ClusterTopologyParser.fromClasspath("topologies/registry.yaml");
+    assertEquals("registry", registry.name());
+    assertTrue(registry.andvariEnabled());
+    assertFalse(registry.muninnEnabled());
+  }
+
+  @Test
+  void rejects_an_andvari_section_without_an_enabled_flag() {
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class, () -> parse("name: bad\nandvari:\n  on: true\n"));
+    assertTrue(e.getMessage().contains("andvari.enabled"));
   }
 
   @Test

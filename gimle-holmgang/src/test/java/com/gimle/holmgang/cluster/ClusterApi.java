@@ -118,8 +118,59 @@ public final class ClusterApi {
         "PUT",
         "/deployments/" + deploymentName,
         deploymentManifest(
-            deploymentName, moduleName, moduleVersion, jar, replicas, tenantId, disruption),
+            deploymentName,
+            moduleName,
+            moduleVersion,
+            Optional.of(jar),
+            replicas,
+            tenantId,
+            disruption),
         "deployment submission");
+  }
+
+  /**
+   * Submits a deployment naming no {@code artifactPath} at all: the module coordinate alone, which
+   * the control plane and the placing node agent each resolve through the artifact registry.
+   */
+  public void submitDeploymentByCoordinate(
+      final String deploymentName,
+      final String moduleName,
+      final String moduleVersion,
+      final int replicas,
+      final Optional<String> tenantId) {
+    expectOk(
+        "PUT",
+        "/deployments/" + deploymentName,
+        deploymentManifest(
+            deploymentName,
+            moduleName,
+            moduleVersion,
+            Optional.empty(),
+            replicas,
+            tenantId,
+            Optional.empty()),
+        "coordinate-only deployment submission");
+  }
+
+  /**
+   * Pushes a module jar to the artifact registry through the control plane's own {@code
+   * /artifacts/*} proxy -- the same route {@code gimle artifact push} takes, rather than straight
+   * at the Andvari port. The body is streamed from the file, never buffered whole.
+   */
+  public void pushArtifact(final String moduleName, final String moduleVersion, final Path jar) {
+    final String path = "/artifacts/" + moduleName + "/" + moduleVersion;
+    final HttpResponse<String> response;
+    try {
+      response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + path))
+                  .PUT(HttpRequest.BodyPublishers.ofFile(jar.toAbsolutePath()))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    } catch (final Exception e) {
+      throw new HolmgangException("artifact push failed against " + baseUrl + path, e);
+    }
+    requireOk(response, path, "artifact push");
   }
 
   /**
@@ -135,7 +186,13 @@ public final class ClusterApi {
       final Optional<String> tenantId) {
     final String manifest =
         deploymentManifest(
-            deploymentName, moduleName, moduleVersion, jar, replicas, tenantId, Optional.empty());
+            deploymentName,
+            moduleName,
+            moduleVersion,
+            Optional.of(jar),
+            replicas,
+            tenantId,
+            Optional.empty());
     try {
       return httpClient
           .send(
@@ -215,11 +272,12 @@ public final class ClusterApi {
     expectOkNoBody("POST", "/nodes/" + nodeId + "/uncordon", "node uncordon");
   }
 
+  /** An absent {@code jar} writes no {@code artifactPath} line: a registry-coordinate manifest. */
   private static String deploymentManifest(
       final String deploymentName,
       final String moduleName,
       final String moduleVersion,
-      final Path jar,
+      final Optional<Path> jar,
       final int replicas,
       final Optional<String> tenantId,
       final Optional<Disruption> disruption) {
@@ -229,15 +287,14 @@ public final class ClusterApi {
         module:
           name: %s
           version: %s
-        artifactPath: %s
-        replicas: %d
+        %sreplicas: %d
         %s%s
         """
         .formatted(
             deploymentName,
             moduleName,
             moduleVersion,
-            jar.toAbsolutePath(),
+            jar.map(path -> "artifactPath: " + path.toAbsolutePath() + "\n").orElse(""),
             replicas,
             tenantId.map(id -> "tenantId: " + id + "\n").orElse(""),
             disruption
@@ -386,18 +443,7 @@ public final class ClusterApi {
     } catch (final Exception e) {
       throw new HolmgangException(description + " failed against " + baseUrl + path, e);
     }
-    if (response.statusCode() != 200) {
-      throw new HolmgangException(
-          description
-              + " failed: "
-              + response.statusCode()
-              + " "
-              + response.body()
-              + " ("
-              + baseUrl
-              + path
-              + ")");
-    }
+    requireOk(response, path, description);
   }
 
   private void expectOk(
@@ -413,6 +459,11 @@ public final class ClusterApi {
     } catch (final Exception e) {
       throw new HolmgangException(description + " failed against " + baseUrl + path, e);
     }
+    requireOk(response, path, description);
+  }
+
+  private void requireOk(
+      final HttpResponse<String> response, final String path, final String description) {
     if (response.statusCode() != 200) {
       throw new HolmgangException(
           description

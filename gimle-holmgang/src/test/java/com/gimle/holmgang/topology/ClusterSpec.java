@@ -24,6 +24,7 @@ public record ClusterSpec(
     int controlPlaneReplicas,
     int fafnirReplicas,
     boolean muninnEnabled,
+    boolean andvariEnabled,
     List<NodeSpec> nodes,
     boolean faultsProxied,
     Map<ProcessRole, List<String>> extraJvmFlags,

@@ -62,6 +62,24 @@ public final class DeploymentSteps {
             ExampleModules.moduleName(artifact), version, replicas, Optional.empty()));
   }
 
+  /**
+   * The registry path: the submission names a module coordinate and no artifact path at all, so
+   * reaching ACTIVE requires the control plane and the placing agent to each resolve it themselves.
+   */
+  @When(
+      "module {string} version {string} submitted from the registry with {int} replica(s) as"
+          + " {string}")
+  public void moduleSubmittedFromTheRegistry(
+      final String artifact, final String version, final int replicas, final String deployment) {
+    final String moduleName = ExampleModules.moduleName(artifact);
+    world
+        .cluster()
+        .api()
+        .submitDeploymentByCoordinate(deployment, moduleName, version, replicas, Optional.empty());
+    world.deployments.put(
+        deployment, new DeployedModule(moduleName, version, replicas, Optional.empty()));
+  }
+
   @When("a provider that always fails liveness is deployed as {string}")
   public void anAlwaysUnhealthyProviderIsDeployedAs(final String deployment) {
     final Path jar = ModuleFixtures.alwaysUnhealthyProviderJar(world.fixturesDir());

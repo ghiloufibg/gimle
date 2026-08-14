@@ -20,6 +20,7 @@ class ClusterTopologyDslTest {
             .controlPlanes(2)
             .fafnirs(2)
             .muninn()
+            .andvari()
             .nodes(2)
             .jvmFlags(ProcessRole.STORE, "-Xmx256m")
             .seedTenant("acme", QuotaSpec.of(2_147_483_648L, 4000, 8))
@@ -36,6 +37,8 @@ class ClusterTopologyDslTest {
                 fafnir:
                   replicas: 2
                 muninn:
+                  enabled: true
+                andvari:
                   enabled: true
                 nodes:
                   count: 2

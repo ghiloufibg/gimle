@@ -3,7 +3,7 @@ package com.gimle.holmgang.topology;
 import com.gimle.core.exception.GimleManifestException;
 
 /**
- * The six spawnable process kinds a topology can configure. {@code WORKER} is never spawned
+ * The seven spawnable process kinds a topology can configure. {@code WORKER} is never spawned
  * directly -- the agent spawns workers itself -- but is addressable here so a topology can add JVM
  * flags to the worker command tail handed to {@code AgentMain}.
  */
@@ -12,6 +12,7 @@ public enum ProcessRole {
   CONTROL_PLANE,
   FAFNIR,
   MUNINN,
+  ANDVARI,
   AGENT,
   WORKER;
 
@@ -21,13 +22,14 @@ public enum ProcessRole {
       case "controlPlane" -> CONTROL_PLANE;
       case "fafnir" -> FAFNIR;
       case "muninn" -> MUNINN;
+      case "andvari" -> ANDVARI;
       case "agent" -> AGENT;
       case "worker" -> WORKER;
       default ->
           throw new GimleManifestException(
               "unknown jvm flags role: "
                   + value
-                  + " (expected store, controlPlane, fafnir, muninn, agent, or worker)");
+                  + " (expected store, controlPlane, fafnir, muninn, andvari, agent, or worker)");
     };
   }
 }

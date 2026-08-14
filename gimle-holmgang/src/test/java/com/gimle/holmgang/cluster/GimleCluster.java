@@ -36,8 +36,8 @@ import java.util.regex.Pattern;
 /**
  * Boots a real multi-process Gimle cluster from a {@link ClusterSpec}: one JVM per process, spawned
  * with the same mechanics the platform's own launchers use, on dynamically leased loopback ports.
- * Startup follows the dependency order stores, then Muninn, then Fafnir, then control planes, then
- * agents, awaiting each stage's real readiness signal (a listening client port; {@code
+ * Startup follows the dependency order stores, then Muninn, then Andvari, then Fafnir, then control
+ * planes, then agents, awaiting each stage's real readiness signal (a listening client port; {@code
  * /deployments} responding; the node appearing in {@code /nodes}, which the agent only registers
  * after its gossip join completed) before starting the stage that depends on it.
  *
@@ -63,12 +63,14 @@ public final class GimleCluster implements AutoCloseable {
   private final List<Integer> storeClientPorts = new ArrayList<>();
   private Heimdall heimdall;
   private ManagedProcess muninn;
+  private ManagedProcess andvari;
   private Path tlsDir;
   private HttpClient operatorClient;
   private Loki loki;
   private String javaExecutablePath;
   private String classpath;
   private int muninnPort = -1;
+  private int andvariPort = -1;
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
     this.spec = spec;
@@ -122,6 +124,13 @@ public final class GimleCluster implements AutoCloseable {
       throw new HolmgangException("topology " + spec.name() + " does not enable Muninn");
     }
     return muninn;
+  }
+
+  public GimleProcess andvari() {
+    if (andvari == null) {
+      throw new HolmgangException("topology " + spec.name() + " does not enable Andvari");
+    }
+    return andvari;
   }
 
   public GimleProcess agent(final String nodeId) {
@@ -436,9 +445,11 @@ public final class GimleCluster implements AutoCloseable {
 
     final PortPlan ports = PortPlan.allocate(spec, host());
     this.muninnPort = ports.muninnPort();
+    this.andvariPort = ports.andvariPort();
     try (PortLease lease = ports.lease()) {
       startStores(javaExecutable, classpath, ports, lease);
       startMuninn(javaExecutable, classpath, ports, lease);
+      startAndvari(javaExecutable, classpath, ports, lease);
       startFafnirs(javaExecutable, classpath, ports, lease);
       startControlPlanes(javaExecutable, classpath, ports, lease);
       applySeed();
@@ -621,6 +632,33 @@ public final class GimleCluster implements AutoCloseable {
     Polls.awaitPortOpen(host(), ports.muninnPort, STAGE_TIMEOUT);
   }
 
+  private void startAndvari(
+      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
+    if (!spec.andvariEnabled()) {
+      return;
+    }
+    // Like Muninn, Andvari needs only the store, so it comes up before the control planes and
+    // agents that resolve module coordinates through it.
+    final List<String> command = new ArrayList<>();
+    command.add(java);
+    command.addAll(tlsFlags("andvari"));
+    command.addAll(spec.jvmFlags(ProcessRole.ANDVARI));
+    command.addAll(List.of("-cp", classpath, "com.gimle.andvari.AndvariMain"));
+    command.add(String.valueOf(ports.andvariPort));
+    command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
+    command.addAll(List.of("--data-root", workDir.resolve("andvari-data").toString()));
+    lease.release(ports.andvariPort);
+    andvari =
+        new ManagedProcess(
+            ProcessRole.ANDVARI,
+            "andvari",
+            command,
+            workDir.resolve("andvari.log"),
+            host() + ":" + ports.andvariPort);
+    spawnOrder.add(andvari);
+    Polls.awaitPortOpen(host(), ports.andvariPort, STAGE_TIMEOUT);
+  }
+
   private void startFafnirs(
       final String java, final String classpath, final PortPlan ports, final PortLease lease) {
     // One key file shared across every replica: each must be able to decrypt secrets written
@@ -685,6 +723,9 @@ public final class GimleCluster implements AutoCloseable {
       if (spec.muninnEnabled()) {
         command.addAll(List.of("--muninn-endpoint", host() + ":" + ports.muninnPort));
       }
+      if (spec.andvariEnabled()) {
+        command.addAll(List.of("--andvari-endpoint", host() + ":" + ports.andvariPort));
+      }
       lease.release(port);
       final ManagedProcess controlPlane =
           new ManagedProcess(
@@ -741,6 +782,9 @@ public final class GimleCluster implements AutoCloseable {
       command.add("-Dgimle.agent.fafnirEndpoint=" + host() + ":" + fafnirPort);
       if (spec.muninnEnabled()) {
         command.add("-Dgimle.agent.muninnEndpoint=" + host() + ":" + ports.muninnPort);
+      }
+      if (spec.andvariEnabled()) {
+        command.add("-Dgimle.agent.andvariEndpoint=" + host() + ":" + ports.andvariPort);
       }
       // Per-node, not shared: a second agent would otherwise write its agent-platform.log to the
       // exact same file as the first, interleaving both processes' JSON output.
@@ -820,6 +864,7 @@ public final class GimleCluster implements AutoCloseable {
       List<Integer> controlPlanePorts,
       List<Integer> gossipPorts,
       int muninnPort,
+      int andvariPort,
       PortLease leased) {
 
     static PortPlan allocate(final ClusterSpec spec, final String host) {
@@ -828,7 +873,8 @@ public final class GimleCluster implements AutoCloseable {
               + spec.fafnirReplicas()
               + spec.controlPlaneReplicas()
               + spec.nodes().size()
-              + (spec.muninnEnabled() ? 1 : 0);
+              + (spec.muninnEnabled() ? 1 : 0)
+              + (spec.andvariEnabled() ? 1 : 0);
       final PortLease lease = PortLease.reserve(count);
       final List<Integer> ports = lease.ports();
       int next = 0;
@@ -850,9 +896,10 @@ public final class GimleCluster implements AutoCloseable {
       for (int i = 0; i < spec.nodes().size(); i++) {
         gossip.add(ports.get(next++));
       }
-      final int muninn = spec.muninnEnabled() ? ports.get(next) : -1;
+      final int muninn = spec.muninnEnabled() ? ports.get(next++) : -1;
+      final int andvari = spec.andvariEnabled() ? ports.get(next++) : -1;
       return new PortPlan(
-          host, storeRaft, storeClient, fafnir, controlPlane, gossip, muninn, lease);
+          host, storeRaft, storeClient, fafnir, controlPlane, gossip, muninn, andvari, lease);
     }
 
     PortLease lease() {

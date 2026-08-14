@@ -1,0 +1,16 @@
+name: registry
+transport: plaintext
+
+store:
+  replicas: 1
+controlPlane:
+  replicas: 1
+fafnir:
+  replicas: 1
+muninn:
+  enabled: false
+andvari:
+  enabled: true
+
+nodes:
+  count: 1

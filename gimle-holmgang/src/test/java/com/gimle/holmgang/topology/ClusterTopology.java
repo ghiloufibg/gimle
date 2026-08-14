@@ -26,6 +26,7 @@ public final class ClusterTopology {
     private int controlPlaneReplicas = 1;
     private int fafnirReplicas = 1;
     private boolean muninnEnabled;
+    private boolean andvariEnabled;
     private final List<NodeSpec> nodes = new ArrayList<>();
     private boolean faultsProxied;
     private final Map<ProcessRole, List<String>> extraJvmFlags = new EnumMap<>(ProcessRole.class);
@@ -58,6 +59,11 @@ public final class ClusterTopology {
 
     public Builder muninn() {
       this.muninnEnabled = true;
+      return this;
+    }
+
+    public Builder andvari() {
+      this.andvariEnabled = true;
       return this;
     }
 
@@ -102,6 +108,7 @@ public final class ClusterTopology {
           controlPlaneReplicas,
           fafnirReplicas,
           muninnEnabled,
+          andvariEnabled,
           nodes,
           faultsProxied,
           extraJvmFlags,

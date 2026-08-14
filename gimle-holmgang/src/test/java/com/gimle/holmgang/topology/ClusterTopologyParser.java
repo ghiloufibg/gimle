@@ -58,6 +58,7 @@ public final class ClusterTopologyParser {
     final int controlPlaneReplicas = replicasOf(root, "controlPlane");
     final int fafnirReplicas = replicasOf(root, "fafnir");
     final boolean muninnEnabled = muninnEnabled(root);
+    final boolean andvariEnabled = andvariEnabled(root);
     final List<NodeSpec> nodes = parseNodes(root);
     final boolean faultsProxied = faultsProxied(root);
     final Map<ProcessRole, List<String>> extraJvmFlags = parseJvmFlags(root);
@@ -69,6 +70,7 @@ public final class ClusterTopologyParser {
         controlPlaneReplicas,
         fafnirReplicas,
         muninnEnabled,
+        andvariEnabled,
         nodes,
         faultsProxied,
         extraJvmFlags,
@@ -96,6 +98,17 @@ public final class ClusterTopologyParser {
       throw new GimleManifestException("'muninn' must be a mapping");
     }
     return requireBoolean(map, "enabled", "muninn.");
+  }
+
+  private static boolean andvariEnabled(final Map<?, ?> root) {
+    final Object value = root.get("andvari");
+    if (value == null) {
+      return false;
+    }
+    if (!(value instanceof Map<?, ?> map)) {
+      throw new GimleManifestException("'andvari' must be a mapping");
+    }
+    return requireBoolean(map, "enabled", "andvari.");
   }
 
   private static boolean faultsProxied(final Map<?, ?> root) {
