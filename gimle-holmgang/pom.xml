@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-holmgang</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Holmgang</name>
+  <description>
+    Functional cluster validation: boots a real multi-process Gimle cluster from a declarative
+    topology (a YAML file or an equivalent Java builder -- replica counts per process kind, node
+    count and labels, transport) and validates end-to-end behavior against it. Test-only: no main
+    sources. Unlike gimle-smoke-tests' single hard-coded topology, every port here is leased
+    dynamically at boot and every count comes from the topology document, so different cluster
+    shapes can be exercised without editing a fixture. Deliberately not part of the default
+    `mvn verify` -- opt in with `-Pvalidation`, matching gimle-smoke-tests' own `-Psmoke`
+    precedent, since this spawns real JVM subprocess clusters and needs `mvn install` to have
+    already produced the example-module jars it deploys.
+  </description>
+
+  <properties>
+    <!-- Test-only, not part of Gimle's platform API surface: excluded from the aggregate
+         Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
+         entry). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+    <!-- Overrides the root .mvn/maven-build-cache-config.xml's global enabled=true: this
+         module's cacheable behavior depends on whether -Pvalidation is active (a plain verify
+         runs no *IT.java at all; -Pvalidation runs the full real-cluster suite), which the build
+         cache's source-fingerprint hash has no visibility into. A cache hit recorded under one
+         profile state and replayed under the other would silently skip tests that needed to
+         run. -->
+    <maven.build.cache.enabled>false</maven.build.cache.enabled>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-controlplane</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-agent</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-worker</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      gimle-controlplane's own gimle-fafnir dependency is test-scoped and therefore not
+      transitive, so this module needs its own dependency to get FafnirMain onto the fork
+      classpath the real Fafnir replica subprocesses are launched against, the same reasoning as
+      gimle-smoke-tests' own dependency on it.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Same reasoning as gimle-fafnir above, for MuninnMain. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-muninn</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Two independent, redundant defenses against the real-cluster suite ever running under
+        plain mvn verify, copied verbatim from gimle-smoke-tests, where an unqualified
+        -Dtest='!A,!B,...' (exclusions only, no positive pattern) was observed to broaden
+        Surefire's own default class discovery enough to pick an *IT class up anyway: the
+        excludes pattern alone is not enough, and JUnit 5's tag-based excludedGroups filtering is
+        a separate mechanism unaffected by that override. Every concrete *IT class in this module
+        carries @Tag("holmgang") for exactly this. Plain unit tests (topology parsing, port
+        leasing) still run under the default build, keeping this module compiling and covered
+        even when no real cluster is ever spawned.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+          <excludedGroups>holmgang</excludedGroups>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>validation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

@@ -37,6 +37,7 @@
     <module>gimle-examples/greeter-consumer</module>
     <module>gimle-examples/greeter-load-generator</module>
     <module>gimle-smoke-tests</module>
+    <module>gimle-holmgang</module>
   </modules>
 
   <properties>
