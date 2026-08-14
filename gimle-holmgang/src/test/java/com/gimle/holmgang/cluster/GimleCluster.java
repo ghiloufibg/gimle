@@ -90,12 +90,27 @@ public final class GimleCluster implements AutoCloseable {
     return stores.get(index);
   }
 
+  /** How many store processes currently exist -- grows and shrinks with live membership changes. */
+  public int storeCount() {
+    return stores.size();
+  }
+
   public GimleProcess controlPlane(final int index) {
     return controlPlanes.get(index);
   }
 
+  /** How many control-plane replicas this topology booted. */
+  public int controlPlaneCount() {
+    return controlPlanes.size();
+  }
+
   public GimleProcess fafnir(final int index) {
     return fafnirs.get(index);
+  }
+
+  /** How many Fafnir replicas this topology booted. */
+  public int fafnirCount() {
+    return fafnirs.size();
   }
 
   public GimleProcess muninn() {

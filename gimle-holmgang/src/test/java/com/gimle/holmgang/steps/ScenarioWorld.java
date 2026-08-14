@@ -2,6 +2,7 @@ package com.gimle.holmgang.steps;
 
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.cluster.GimleCluster;
+import com.gimle.holmgang.fenrir.ChaosLedger;
 import com.gimle.holmgang.heimdall.InvariantGuard;
 import com.gimle.holmgang.loki.Loki;
 import com.gimle.holmgang.workload.RecordingWorkload;
@@ -37,6 +38,7 @@ public final class ScenarioWorld {
   final Map<String, Long> workerPids = new HashMap<>();
   Integer lastSubmissionStatus;
   RecordingWorkload workload;
+  ChaosLedger chaosLedger;
 
   private GimleCluster cluster;
   private boolean destructive;

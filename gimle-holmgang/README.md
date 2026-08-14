@@ -38,6 +38,7 @@ one load scenario can run on a machine at a time.)
 | Cluster bootstrap runtime (`GimleCluster`, `ClusterApi`) | `com.gimle.holmgang.cluster` |
 | Heimdall condition harness (views, log follow, probes, invariants) | `com.gimle.holmgang.heimdall` |
 | Loki network-fault injection (proxied topologies) | `com.gimle.holmgang.loki` |
+| Fenrir randomized chaos scheduler (`FenrirPlan`, `Fenrir`, `ChaosLedger`) | `com.gimle.holmgang.fenrir` |
 | Gatling load (`LoadGenerator`, simulation) | `com.gimle.holmgang.load` |
 | Recorded write workloads | `com.gimle.holmgang.workload` |
 | Step definitions, hooks, cluster pool | `com.gimle.holmgang.steps` |
@@ -55,6 +56,21 @@ target one replica precisely. The two are mutually exclusive by design.
 Clusters are pooled per topology across non-destructive scenarios (each hands the cluster back as
 found — the after-scenario hook enforces it). Scenarios tagged `@destructive` get a fresh cluster
 to themselves.
+
+## Chaos soaks (Fenrir)
+
+Where a scenario injects one hand-aimed fault and asserts it once, **Fenrir** runs a randomized
+soak: over a window, it repeatedly strikes a healthy cluster from a weighted palette — worker kills
+(the platform supervisor must respawn them), store/leader/control-plane bounces (kill, dwell,
+harness `restart()`, then a rejoin gate), and link cuts on proxied topologies — and, by default,
+gates every next strike on full recovery from the last, so a failure names exactly one fault on a
+provably healthy cluster. One fault is in flight at a time; a quorum guard and a control-plane
+floor skip (never silently drop) any strike that would breach them.
+
+The strike sequence is seeded and printed into the `ChaosLedger`, so a failing run replays with
+`-Dgimle.holmgang.chaosSeed=<seed>`. A soak is expressed in Gherkin — `When Fenrir is unleashed for
+N seconds striking every M seconds` — and always runs on a `@destructive` scenario, since repeated
+kills leave no clean state for a pooled cluster. See `features/chaos-soak.feature`.
 
 ## Failure forensics
 
