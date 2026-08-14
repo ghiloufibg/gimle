@@ -3,7 +3,9 @@ package com.gimle.holmgang.saga;
 import com.gimle.core.protocol.Json;
 import com.gimle.holmgang.HolmgangException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -26,17 +28,55 @@ final class SagaWriter {
 
   private SagaWriter() {}
 
+  private static final String CONSOLE_TEMPLATE = "saga/saga-console.html";
+  private static final String REPORT_PLACEHOLDER = "__SAGA_REPORT_JSON__";
+
   static Path write(final SagaCollector c) {
-    final Path runDir = Path.of("target", "holmgang", "saga", c.runId());
+    return write(c, Path.of("target", "holmgang", "saga"));
+  }
+
+  static Path write(final SagaCollector c, final Path outputRoot) {
+    final Path runDir = outputRoot.resolve(c.runId());
     final Path file = runDir.resolve("holmgang-report.json");
+    final String json = Json.write(report(c));
     try {
       Files.createDirectories(runDir);
-      Files.writeString(file, Json.write(report(c)));
+      Files.writeString(file, json);
     } catch (final IOException e) {
       throw new HolmgangException("failed writing Saga report under " + runDir, e);
     }
     System.out.println("Saga report written to " + file.toAbsolutePath());
+    writeHtml(runDir, json);
     return file;
+  }
+
+  /**
+   * Emits the browsable report next to the JSON -- the bundled Saga console with this run's data
+   * embedded, so {@code holmgang-report.html} opens directly in a browser on the run it describes,
+   * the way surefire's HTML reports do. Best-effort by design: the JSON (the data contract) is
+   * already on disk, and an HTML rendering hiccup in a shutdown hook must never mask it.
+   */
+  private static void writeHtml(final Path runDir, final String json) {
+    try {
+      final String template = consoleTemplate();
+      // "</" would end the embedding <script> block early if the data contained it; "<\/" is the
+      // standard script-safe spelling and stays valid JSON (an escaped solidus inside strings).
+      final String scriptSafeJson = json.replace("</", "<\\/");
+      final Path html = runDir.resolve("holmgang-report.html");
+      Files.writeString(html, template.replace(REPORT_PLACEHOLDER, scriptSafeJson));
+      System.out.println("Saga report console written to " + html.toAbsolutePath());
+    } catch (final IOException | RuntimeException e) {
+      System.out.println("Saga report console not written: " + e);
+    }
+  }
+
+  private static String consoleTemplate() throws IOException {
+    try (InputStream in = SagaWriter.class.getClassLoader().getResourceAsStream(CONSOLE_TEMPLATE)) {
+      if (in == null) {
+        throw new HolmgangException("no console template on the classpath: " + CONSOLE_TEMPLATE);
+      }
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    }
   }
 
   static Map<String, Object> report(final SagaCollector c) {

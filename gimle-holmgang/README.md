@@ -41,6 +41,7 @@ one load scenario can run on a machine at a time.)
 | Fenrir randomized chaos scheduler (`FenrirPlan`, `Fenrir`, `ChaosLedger`) | `com.gimle.holmgang.fenrir` |
 | Surtr scale/churn workload runner (`SurtrWorkload`, `SurtrRunner`, `SurtrReport`) | `com.gimle.holmgang.surtr` |
 | Saga run-report writer (`SagaCollector`, `SagaCucumberPlugin`, `SagaJUnitListener`, `SagaWriter`) | `com.gimle.holmgang.saga` |
+| Saga report console template (embedded into each run's `holmgang-report.html`) | `src/test/resources/saga/saga-console.html` |
 | Workload documents | `src/test/resources/workloads/*.yaml` |
 | Gatling load (`LoadGenerator`, simulation) | `com.gimle.holmgang.load` |
 | Recorded write workloads | `com.gimle.holmgang.workload` |
@@ -113,10 +114,14 @@ if any scenario or Surtr gate failed, else `PASSED`. (`SurtrIT` is deliberately 
 plain scenario — it appears in its own richer `surtr` section — and the Cucumber engine's tests are
 counted once, by the plugin.)
 
-The report is the data contract for the standalone Saga report console (a separate viewer, not part
-of this repo): drop the `holmgang-report.json` onto that page to browse scenarios, chaos ledgers,
-and scale measurements — and diff two runs to catch regressions. The writer adds nothing to a plain
-`mvn verify`; it activates only when a validation run actually produces results.
+Next to the JSON, the writer also emits **`holmgang-report.html`** — the bundled Saga report
+console (`src/test/resources/saga/saga-console.html`) with that run's data embedded — so, like
+surefire's HTML reports, it opens directly in a browser on the run it describes: scenarios split
+into Gherkin and JUnit groups, chaos ledgers with a strike timeline, Surtr measurements and gates.
+Use **Compare to baseline…** in its sidebar to load an earlier run's `holmgang-report.json` and
+diff the two (new failures, fixed scenarios, latency deltas). The JSON stays the data contract;
+the HTML is a rendering of it. The writer adds nothing to a plain `mvn verify`; it activates only
+when a validation run actually produces results.
 
 ## Failure forensics
 

@@ -109,6 +109,30 @@ final class SagaWriterTest {
     assertEquals("PASSED", ((Map<String, Object>) report.get("run")).get("outcome"));
   }
 
+  @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir;
+
+  @Test
+  void the_html_report_embeds_the_run_and_escapes_script_closers() throws java.io.IOException {
+    final SagaCollector c = SagaCollector.forTest();
+    final Map<String, Object> failing = scenario("embedding is script safe", "FAILED");
+    failing.put(
+        "failure", mapOf("message", "boom </script> injection", "forensicReportPath", null));
+    c.addScenario("Embedding", "embedding.feature", failing);
+
+    final java.nio.file.Path json = SagaWriter.write(c, tempDir);
+    final java.nio.file.Path html = json.resolveSibling("holmgang-report.html");
+    assertTrue(
+        java.nio.file.Files.isRegularFile(html), "the browsable report must sit by the JSON");
+
+    final String content = java.nio.file.Files.readString(html);
+    assertFalse(content.contains("__SAGA_REPORT_JSON__"), "the placeholder must be replaced");
+    assertTrue(content.contains("embedding is script safe"), "the run's own data must be embedded");
+    // A "</" inside the data would end the embedding <script> early; it must arrive as "<\/".
+    assertFalse(content.contains("boom </script> injection"));
+    assertTrue(content.contains("boom <\\/script> injection"));
+    assertTrue(content.contains("saga-embedded-report"), "the console shell must stay intact");
+  }
+
   @Test
   void failure_extraction_lifts_the_forensic_path_and_truncates() {
     assertEquals(null, SagaCollector.failureFrom(null));
