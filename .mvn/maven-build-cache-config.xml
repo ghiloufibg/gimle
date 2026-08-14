@@ -41,7 +41,18 @@
     <global>
       <glob>{*.java,*.xml,*.yaml,*.yml,*.properties}</glob>
       <excludes>
-        <exclude>target/**</exclude>
+        <!-- Deliberately "target", not "target/**": the extension rewrites this pattern's own
+             "/" to the platform separator before handing it to java.nio.file's glob matcher, and
+             on Windows that separator is "\", which is that same matcher's own escape character,
+             so "target/**" becomes the literal glob text "target\**"; "\*" there is an illegal
+             escape sequence, hard-failing every build ("Illegal char <*>") on Windows the moment
+             the extension is actually active (it self-disables under Maven < 3.9, which is all
+             that kept this latent before this project adopted a Maven 3.9+ wrapper). A bare
+             directory-name exclude with no wildcard sidesteps the platform-specific rewrite
+             entirely and still excludes the whole target/ subtree from the input hash, confirmed
+             stable and reproducible across repeated builds, since this exclude is evaluated per
+             path segment against every module in the reactor rather than the root project alone. -->
+        <exclude>target</exclude>
       </excludes>
     </global>
   </input>

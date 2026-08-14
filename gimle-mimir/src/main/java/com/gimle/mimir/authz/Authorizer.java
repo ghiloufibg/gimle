@@ -66,7 +66,7 @@ public final class Authorizer {
       if (!matchingSubjects.contains(binding.subject())) {
         continue;
       }
-      Optional<Role> role = store.getRole(binding.roleName());
+      Optional<Role> role = resolveRole(binding.roleName());
       if (role.isEmpty()) {
         continue;
       }
@@ -77,6 +77,24 @@ public final class Authorizer {
       }
     }
     return false;
+  }
+
+  /**
+   * {@link BuiltinRoles#CLUSTER_ADMIN} is deliberately never a stored {@link Role} (see its own
+   * javadoc), so a plain {@code store.getRole(binding.roleName())} can never resolve an explicit
+   * {@link RoleBinding} naming it by name -- only the separate {@code GROUP_OPERATORS} constant
+   * check above ever granted it. That leaves the exact flow {@code PkiBootstrapMain} prints as this
+   * cluster's own first-login instructions ({@code gimle set rolebinding ... --role cluster-admin})
+   * permanently unsatisfiable: the binding gets created, but every authorization check against it
+   * silently falls through to "no matching role, no permission" forever. Recognizing the built-in's
+   * name here, falling back to the store only for anything else, is what actually makes binding
+   * {@code cluster-admin} to a specific user (not just the whole operator group) work.
+   */
+  private Optional<Role> resolveRole(String roleName) {
+    if (BuiltinRoles.CLUSTER_ADMIN.name().equals(roleName)) {
+      return Optional.of(BuiltinRoles.CLUSTER_ADMIN);
+    }
+    return store.getRole(roleName);
   }
 
   /**

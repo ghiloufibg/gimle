@@ -164,6 +164,13 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
+    // Before anything below that needs gimle.tls.certFile/keyFile to already point at real files
+    // (the MuninnShipper construction just below above all): in TLS mode this agent starts with
+    // no certificate of its own and only obtains one here, live, via the bootstrap CSR flow --
+    // see this method's own javadoc. Constructing a mutual-TLS SSLContext any earlier would fail
+    // outright since those files wouldn't exist yet.
+    bootstrapCertificateIfNeeded(nodeId, baseUrl);
+
     // One Timer/Counter pair around this agent's own tick body -- constructed unconditionally
     // (cheap, in-memory-only unless shipped) so #agentTick can record into it regardless of
     // whether muninnEndpoint is configured.
@@ -194,7 +201,6 @@ public final class AgentMain {
     VolumeManager volumeManager =
         new LocalDiskVolumeManager(Path.of(System.getProperty("gimle.data.root", "gimle-data")));
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
-    bootstrapCertificateIfNeeded(nodeId, baseUrl);
     HttpClient httpClient = buildHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
     // Keyed the same way supervised is (deploymentName#instanceIndex): a supervised instance's

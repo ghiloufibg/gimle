@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.BooleanSupplier;
@@ -25,13 +26,25 @@ import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.repository.RemoteRepository;
 
 /**
- * {@code mvn gimle:bootstrap [-Dgimle.bootstrap.protocol=plaintext|tls]} -- collapses the
- * multi-terminal local-dev walkthrough ({@code gimle-console/LOCAL_DEV.md}: {@code tls-init} if
- * TLS, {@code store}, {@code controlplane}, {@code agent}, then a {@code cert token create} +
- * {@code apply} per manifest if TLS) into one foreground command: brings up a single-node store +
- * control plane + agent (with its own worker child, same as {@code gimle:agent} today), deploys
- * every {@code gimle-examples} module once the cluster is ready, prints a summary, then blocks
- * until interrupted and tears the whole cluster back down.
+ * {@code mvn gimle:bootstrap [-Dgimle.bootstrap.protocol=plaintext|tls] [-Dgimle.bootstrap.clean]}
+ * -- collapses the multi-terminal local-dev walkthrough ({@code gimle-console/LOCAL_DEV.md}: {@code
+ * tls-init} if TLS, {@code store}, {@code controlplane}, {@code agent}, then a {@code cert token
+ * create} + {@code apply} per manifest if TLS) into one foreground command: brings up a single-node
+ * store + control plane + agent (with its own worker child, same as {@code gimle:agent} today),
+ * deploys every {@code gimle-examples} module once the cluster is ready, prints a summary, then
+ * blocks until interrupted and tears the whole cluster back down.
+ *
+ * <p>{@code gimle-bootstrap/} (store Raft state, secret key files, Muninn's day files, TLS
+ * material) survives between runs by design, so stopping and restarting this goal resumes the same
+ * cluster rather than starting from scratch. The cost of that persistence: every persisted format
+ * here (the Raft log entry encoding above all) is read back with no version tag or compatibility
+ * shim -- deliberately, per this project's own "no backward-compat needed pre-release" stance -- so
+ * a {@code gimle-bootstrap/} directory left over from before such a format changed will make the
+ * affected process (typically the store, via {@code RaftLog}'s constructor) crash before it ever
+ * opens its port, which surfaces here only as this goal's own readiness-timeout error. {@code
+ * -Dgimle.bootstrap.clean=true} wipes {@code gimle-bootstrap/} before spawning anything, trading
+ * that persistence away for a guaranteed-fresh cluster -- the fix any time a stale local {@code
+ * gimle-bootstrap/} directory is suspected, not just after a format change.
  *
  * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs eight modules'
  * runtime classpaths (store, fafnir, muninn, control plane, agent, worker, pki, cli), not one, and
@@ -119,6 +132,9 @@ public final class BootstrapMojo extends AbstractMojo {
   @Parameter(property = "gimle.bootstrap.deployExamples", defaultValue = "true")
   private boolean deployExamples;
 
+  @Parameter(property = "gimle.bootstrap.clean", defaultValue = "false")
+  private boolean clean;
+
   @Parameter(property = "gimle.bootstrap.readyTimeoutSeconds", defaultValue = "120")
   private long readyTimeoutSeconds;
 
@@ -146,6 +162,9 @@ public final class BootstrapMojo extends AbstractMojo {
     Path base = Path.of(baseDir).toAbsolutePath();
     Path logsDir = base.resolve("logs");
     Path tlsDir = base.resolve("tls");
+    if (clean) {
+      deleteRecursively(base);
+    }
     createDirectory(logsDir);
 
     if (deployExamples) {
@@ -240,6 +259,25 @@ public final class BootstrapMojo extends AbstractMojo {
       Files.createDirectories(dir);
     } catch (IOException e) {
       throw new MojoExecutionException("failed to create " + dir, e);
+    }
+  }
+
+  /**
+   * Recursively deletes {@code dir} (a no-op if it doesn't exist) -- backs {@code
+   * gimle.bootstrap.clean}, see the class javadoc for why a stale {@code gimle-bootstrap/} needs
+   * this rather than a per-file compatibility fix.
+   */
+  private void deleteRecursively(Path dir) throws MojoExecutionException {
+    if (!Files.exists(dir)) {
+      return;
+    }
+    getLog().info("cleaning " + dir + " before bootstrapping");
+    try (var paths = Files.walk(dir)) {
+      for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.delete(path);
+      }
+    } catch (IOException e) {
+      throw new MojoExecutionException("failed to clean " + dir, e);
     }
   }
 
@@ -351,6 +389,11 @@ public final class BootstrapMojo extends AbstractMojo {
       // bootstrap has exactly one control-plane replica, so it's always the one holding
       // cluster-signing authority here.
       extraJvmArgs.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
+      // The one-time bootstrap admin account runTlsInit's PkiBootstrapMain call just minted and
+      // printed to this goal's own console output -- without this, BootstrapAccountFile never
+      // finds the file, no Account is ever seeded while the store has zero accounts, and that
+      // printed password can never actually log in.
+      extraJvmArgs.add("-Dgimle.bootstrap.accountFile=" + tlsDir.resolve("bootstrap-account.yaml"));
     }
     return spawnGimleProcess(
         tls,
