@@ -73,6 +73,10 @@
               <goal>exec</goal>
             </goals>
             <configuration>
+              <!-- exec-maven-plugin has no built-in notion of "this is a test execution" the way
+                   surefire does, so -DskipTests silently does nothing to it without this explicit
+                   binding to the root pom's own skipTests property. -->
+              <skip>${skipTests}</skip>
               <executable>bun</executable>
               <workingDirectory>${project.basedir}</workingDirectory>
               <!-- `bun test` (no "run") invokes Bun's own native test runner, which silently

@@ -43,6 +43,13 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>25</maven.compiler.release>
+    <!-- Surefire/failsafe already bind their own -DskipTests handling internally; declaring the
+         property here too (default false, overridden by -DskipTests on the command line the same
+         way) is what lets gimle-console/gimle-fafnir-console's own bun-test exec-maven-plugin
+         execution reference ${skipTests} and actually honor the flag, since exec-maven-plugin has
+         no built-in notion of "this is a test" the way surefire does; without an explicit binding,
+         -DskipTests silently has no effect on it at all. -->
+    <skipTests>false</skipTests>
     <junit.version>5.11.4</junit.version>
     <snakeyaml.version>2.3</snakeyaml.version>
     <micrometer.version>1.16.3</micrometer.version>
