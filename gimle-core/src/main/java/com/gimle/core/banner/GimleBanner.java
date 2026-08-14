@@ -52,12 +52,26 @@ public final class GimleBanner {
 
   private GimleBanner() {}
 
-  /** No-ops when {@code -Dgimle.banner.enabled=false} -- see the class javadoc. */
+  /**
+   * No-ops when {@code -Dgimle.banner.enabled=false} -- see the class javadoc.
+   *
+   * <p>Writes raw UTF-8 bytes rather than {@code out.println(String)}, deliberately: a plain {@code
+   * println} encodes through {@code out}'s own default charset, which for {@code System.out}
+   * follows the JVM's {@code stdout.encoding} -- left at the platform's native encoding on every
+   * process this project spawns, never overridden to UTF-8. On a non-UTF-8-locale host that
+   * silently corrupts any non-ASCII {@code app.name} (e.g. "Gimlé") into an invalid byte, while
+   * every other line in the same log file is unconditionally UTF-8 (see {@code
+   * TextLogEncoder}/{@code JsonLogEncoder}) -- since {@code ProcessBuilder.Redirect} merges stdout
+   * and Logback's own output into one physical file, that mismatch made the file as a whole not
+   * valid UTF-8. Encoding explicitly here, matching Logback's own posture, is what keeps every line
+   * in it in one consistent, locale-independent encoding.
+   */
   public static void print(PrintStream out, Map<String, String> values) {
     if (!enabled()) {
       return;
     }
-    out.println(render(values));
+    byte[] bytes = (render(values) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+    out.write(bytes, 0, bytes.length);
     out.flush();
   }
 
