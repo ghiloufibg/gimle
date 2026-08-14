@@ -674,6 +674,145 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * A real {@code kind: Job}-compatible module: {@code lifecycle.jobHooks} (not {@code
+   * lifecycle.hooks}, and deliberately no {@code health:} block -- a Job-kind module has no
+   * liveness/readiness semantics, see {@link com.gimle.module.lifecycle.JobHooks}'s own javadoc)
+   * whose {@code run} returns {@link com.gimle.module.lifecycle.CompletionStatus#SUCCEEDED}
+   * immediately, no real work simulated -- what matters for a real-cluster proof is the full
+   * agent-spawns-a-real-worker-JVM -&gt; {@code WorkerRuntime} drives {@code JobHooks#run} on its
+   * own virtual thread -&gt; {@code ModuleController#complete} -&gt; the worker reports {@code
+   * lifecycleState: COMPLETED} on its next heartbeat -&gt; {@code JobReconciler} translates that
+   * into {@code JobPhase.SUCCEEDED} chain, not the hook body itself (already covered at the unit
+   * tier by {@code JobHooksExecutionTest}).
+   */
+  Path buildQuickSucceedingJobModuleJar(String moduleName, String version) {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module %s {
+              requires static com.gimle.module;
+              exports %s;
+            }
+            """
+                .formatted(moduleName, moduleName))
+        .withClass(
+            moduleName + ".QuickSucceedingJobHooks",
+            """
+            package %s;
+            import com.gimle.module.lifecycle.CompletionStatus;
+            import com.gimle.module.lifecycle.JobHooks;
+            import com.gimle.module.lifecycle.ModuleContext;
+            public final class QuickSucceedingJobHooks implements JobHooks {
+              public CompletionStatus run(ModuleContext ctx) {
+                return CompletionStatus.SUCCEEDED;
+              }
+            }
+            """
+                .formatted(moduleName))
+        .withDescriptor(
+            """
+            name: %s
+            version: %s
+            isolation:
+              tier: TIER_1
+            resources:
+              request:
+                memory: 16Mi
+                cpu: 10m
+              limit:
+                memory: 32Mi
+                cpu: 50m
+            lifecycle:
+              jobHooks: %s.QuickSucceedingJobHooks
+            """
+                .formatted(moduleName, version, moduleName))
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, moduleName + "-" + version + ".jar");
+  }
+
+  /**
+   * A real {@code kind: StatefulSet}-compatible module: declares {@code volume:} (sibling to {@code
+   * isolation:}/{@code resources:} in its own descriptor, per {@code
+   * com.gimle.core.module.VolumeRequest}'s own javadoc -- persistent storage is a property of the
+   * artifact, not the workload manifest) and, on {@code onStart}, writes a marker file into {@link
+   * com.gimle.module.lifecycle.ModuleContext#dataDirectory()} the first time it runs, or logs that
+   * the marker already existed on every later start -- exactly the observable difference between "a
+   * fresh volume" and "the same volume, reused," logged via the same real {@code
+   * slf4j}/APPLICATION- category path {@code GreeterProviderHooks} already proves out (see {@code
+   * GreeterSmokeClusterSupport#instanceLogContains}).
+   */
+  Path buildStatefulModuleJar(String moduleName, String version) {
+    List<Path> compileJars = findCompileModulePathJars();
+    return TestModuleBuilder.module(
+            """
+            module %s {
+              requires static com.gimle.module;
+              requires static org.slf4j;
+              exports %s;
+            }
+            """
+                .formatted(moduleName, moduleName))
+        .withClass(
+            moduleName + ".StatefulHooks",
+            """
+            package %s;
+            import com.gimle.module.lifecycle.ModuleContext;
+            import com.gimle.module.lifecycle.ModuleLifecycleHooks;
+            import java.nio.file.Files;
+            import java.nio.file.Path;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            public final class StatefulHooks implements ModuleLifecycleHooks {
+              private static final Logger log = LoggerFactory.getLogger(StatefulHooks.class);
+              public void onInstall(ModuleContext ctx) {}
+              public void onStart(ModuleContext ctx) {
+                ctx.dataDirectory().ifPresentOrElse(
+                    dir -> {
+                      try {
+                        Path marker = dir.resolve("marker.txt");
+                        if (Files.exists(marker)) {
+                          String previous = Files.readString(marker);
+                          log.info("volume marker already present from a previous start: {}", previous.trim());
+                        } else {
+                          Files.writeString(marker, "written-by-instance-start");
+                          log.info("volume marker written for the first time");
+                        }
+                      } catch (java.io.IOException e) {
+                        log.error("failed to read/write volume marker", e);
+                      }
+                    },
+                    () -> log.error("no dataDirectory available -- volume was not allocated"));
+              }
+              public void onStop(ModuleContext ctx) {}
+              public void onUninstall(ModuleContext ctx) {}
+            }
+            """
+                .formatted(moduleName))
+        .withDescriptor(
+            """
+            name: %s
+            version: %s
+            isolation:
+              tier: TIER_1
+            resources:
+              request:
+                memory: 16Mi
+                cpu: 10m
+              limit:
+                memory: 32Mi
+                cpu: 50m
+            volume:
+              sizeBytes: 1048576
+              mountPath: /data
+            lifecycle:
+              hooks: %s.StatefulHooks
+            """
+                .formatted(moduleName, version, moduleName))
+        .dependsOn(compileJars.toArray(Path[]::new))
+        .build(tempDir, moduleName + "-" + version + ".jar");
+  }
+
+  /**
    * A real {@code greeter-provider} whose {@code greet} always sleeps ~300ms before returning --
    * paired with sustained concurrent (not just rate-limited) load, this is what actually builds a
    * real backlog on {@code WorkerRuntime}'s per-module {@code BoundedModuleScheduler} (concurrency
@@ -1375,6 +1514,12 @@ abstract class GreeterSmokeClusterSupport {
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
+            // Same tempDir/nodeId-scoping reasoning as -Dgimle.log.root= just below: absent this,
+            // AgentMain's LocalDiskVolumeManager defaults to "gimle-data" relative to the forked
+            // test JVM's own CWD, so a StatefulSet instance's volume would accumulate on disk
+            // across every separate `mvn verify -Psmoke` invocation in the same checkout instead
+            // of living inside this test's own @TempDir.
+            "-Dgimle.data.root=" + tempDir.resolve("gimle-data-" + nodeId),
             // Every other process this fixture spawns (store, fafnir, muninn, control plane) is
             // already given a tempDir-scoped path for its own state/logs -- the agent (and, through
             // it, every worker it supervises: buildWorkerCommand's own -Dgimle.log.root scopes a
@@ -1405,6 +1550,292 @@ abstract class GreeterSmokeClusterSupport {
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
+  }
+
+  // ---- Job / CronJob / DaemonSet / StatefulSet: submission + status polling ----
+  //
+  // Every one of these PUTs to its own kind-specific route (/jobs/, /cronjobs/, /daemonsets/,
+  // /statefulsets/) -- ApiServer rejects a manifest whose kind: doesn't match the route it was
+  // PUT to, so, unlike the Deployment-only helpers above, there is no shared submission body to
+  // factor out beyond this one generic PUT-and-check-200 primitive.
+
+  private void submitManifest(String baseUrl, String routePrefix, String name, String manifest)
+      throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + routePrefix + name))
+                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail(
+          routePrefix
+              + name
+              + " submission failed: "
+              + response.statusCode()
+              + " "
+              + response.body());
+    }
+  }
+
+  void submitJob(
+      String baseUrl, String jobName, String moduleName, String version, Path jar, int backoffLimit)
+      throws Exception {
+    String manifest =
+        """
+        kind: Job
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        backoffLimit: %d
+        """
+            .formatted(jobName, moduleName, version, jar.toAbsolutePath(), backoffLimit);
+    submitManifest(baseUrl, "/jobs/", jobName, manifest);
+  }
+
+  /**
+   * {@code JobPhase} is {@code RUNNING}/{@code SUCCEEDED}/{@code FAILED} ({@code
+   * com.gimle.mimir.store.JobPhase}) -- distinct from the module's own {@code lifecycleState}
+   * ({@code ACTIVE}/{@code COMPLETED}/...), which {@code JobReconciler} translates into this. A
+   * missing job (never submitted, or already known-gone) reads as the sentinel {@code "UNKNOWN"},
+   * never a thrown exception, so a caller can poll this the same way {@link #isActive} is polled.
+   */
+  Map<String, Object> jobStatus(String baseUrl, String jobName) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + jobName)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      return Map.of("phase", "UNKNOWN");
+    }
+    return Json.asObject(Json.parse(response.body()));
+  }
+
+  boolean jobPhaseIs(String baseUrl, String jobName, String expectedPhase) {
+    try {
+      return expectedPhase.equals(jobStatus(baseUrl, jobName).get("phase"));
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * {@code GET /jobs} -- every job across every tenant, {@code CronJobReconciler}'s own generated
+   * ones included (they're ordinary Jobs once materialized, not a separate resource).
+   */
+  List<Map<String, Object>> listJobs(String baseUrl) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      return List.of();
+    }
+    return Json.asObjectList(Json.parse(response.body()));
+  }
+
+  void submitCronJob(
+      String baseUrl,
+      String cronJobName,
+      String moduleName,
+      String version,
+      Path jar,
+      String schedule,
+      String concurrencyPolicy)
+      throws Exception {
+    String manifest =
+        """
+        kind: CronJob
+        name: %s
+        schedule: "%s"
+        concurrencyPolicy: %s
+        jobTemplate:
+          module:
+            name: %s
+            version: %s
+          artifactPath: %s
+        """
+            .formatted(
+                cronJobName,
+                schedule,
+                concurrencyPolicy,
+                moduleName,
+                version,
+                jar.toAbsolutePath());
+    submitManifest(baseUrl, "/cronjobs/", cronJobName, manifest);
+  }
+
+  /**
+   * {@code POST /cronjobs/{name}/trigger} -- the one CronJob action verb, distinct from the
+   * ordinary PUT/GET/DELETE every other kind gets (see {@code ApiServer#handleCronJobTrigger}).
+   * Returns the real generated Job's own name ({@code "{cronJobName}-{epochSeconds}"}) straight off
+   * the server's {@code {"jobName": "..."}} response body, so a caller never has to guess or
+   * reconstruct it.
+   */
+  String triggerCronJobNow(String baseUrl, String cronJobName) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/" + cronJobName + "/trigger"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("cronjob trigger failed: " + response.statusCode() + " " + response.body());
+    }
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    return (String) body.get("jobName");
+  }
+
+  /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #triggerCronJobNow} -- a submitted
+   * CronJob's write commits synchronously (the PUT does not return 200 until it has), but reading
+   * it right back on the very next request is not guaranteed instantly visible depending on which
+   * store replica/control-plane replica actually answers this read (the same class of transient
+   * unavailability {@code submitDeploymentWithRetry}'s own javadoc already documents for writes,
+   * here on the read-your-own-write side instead). Retries on any failure (a 404 "no such cronjob"
+   * before it's visible yet, or a transient store-unavailable 503), not just one specific status.
+   */
+  String triggerCronJobNowWithRetry(String baseUrl, String cronJobName, Duration timeout)
+      throws Exception {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (true) {
+      try {
+        return triggerCronJobNow(baseUrl, cronJobName);
+      } catch (AssertionError e) {
+        if (System.nanoTime() > deadline) {
+          throw e;
+        }
+        Thread.sleep(500);
+      }
+    }
+  }
+
+  void submitDaemonSet(String baseUrl, String name, String moduleName, String version, Path jar)
+      throws Exception {
+    String manifest =
+        """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        """
+            .formatted(name, moduleName, version, jar.toAbsolutePath());
+    submitManifest(baseUrl, "/daemonsets/", name, manifest);
+  }
+
+  Map<String, Object> daemonSetStatus(String baseUrl, String name) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      return Map.of("instances", List.of());
+    }
+    return Json.asObject(Json.parse(response.body()));
+  }
+
+  /** One instance per node, always at index 0 -- {@code ApiServer#daemonSetStatus}'s own shape. */
+  int daemonSetActiveNodeCount(String baseUrl, String name) {
+    try {
+      Map<String, Object> status = daemonSetStatus(baseUrl, name);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      int count = 0;
+      for (Map<String, Object> instance : instances) {
+        Object observation = instance.get("observation");
+        if (observation instanceof Map<?, ?> obsMap
+            && "ACTIVE".equals(obsMap.get("lifecycleState"))) {
+          count++;
+        }
+      }
+      return count;
+    } catch (Exception e) {
+      return -1;
+    }
+  }
+
+  boolean daemonSetHasNodeAssignment(String baseUrl, String name, String nodeId) {
+    try {
+      Map<String, Object> status = daemonSetStatus(baseUrl, name);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      for (Map<String, Object> instance : instances) {
+        if (nodeId.equals(instance.get("nodeId"))) {
+          return true;
+        }
+      }
+      return false;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  void submitStatefulSet(
+      String baseUrl, String name, String moduleName, String version, Path jar, int replicas)
+      throws Exception {
+    String manifest =
+        """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        replicas: %d
+        """
+            .formatted(name, moduleName, version, jar.toAbsolutePath(), replicas);
+    submitManifest(baseUrl, "/statefulsets/", name, manifest);
+  }
+
+  Map<String, Object> statefulSetStatus(String baseUrl, String name) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/" + name)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      return Map.of("instances", List.of());
+    }
+    return Json.asObject(Json.parse(response.body()));
+  }
+
+  /**
+   * {@code instanceIndex}/{@code nodeId} are both surfaced unconditionally on every instance
+   * ({@code ApiServer#statefulSetStatus}'s own javadoc: deliberate, to make sticky placement
+   * observable) -- this is what a caller polls to prove the same index keeps landing on the same
+   * node across a restart.
+   */
+  Optional<String> statefulSetIndexNode(String baseUrl, String name, int index) {
+    try {
+      Map<String, Object> status = statefulSetStatus(baseUrl, name);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      for (Map<String, Object> instance : instances) {
+        if (instance.get("instanceIndex") instanceof Number n && n.intValue() == index) {
+          return Optional.ofNullable((String) instance.get("nodeId"));
+        }
+      }
+      return Optional.empty();
+    } catch (Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  boolean statefulSetIndexReady(String baseUrl, String name, int index) {
+    try {
+      Map<String, Object> status = statefulSetStatus(baseUrl, name);
+      List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+      for (Map<String, Object> instance : instances) {
+        if (instance.get("instanceIndex") instanceof Number n && n.intValue() == index) {
+          Object observation = instance.get("observation");
+          return observation instanceof Map<?, ?> obsMap
+              && Boolean.TRUE.equals(obsMap.get("ready"));
+        }
+      }
+      return false;
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   void submitDeployment(String baseUrl, String deploymentName, String moduleName, Path jar)
