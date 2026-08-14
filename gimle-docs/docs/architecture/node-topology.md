@@ -160,6 +160,18 @@ control plane's `/artifacts/*` proxy (`gimle artifact push`), which forwards the
 principal's identity as an internal claim exactly like the `/secrets/*` proxy — an explicit local
 `artifactPath` keeps working unchanged as the escape hatch everywhere.
 
+A second, Maven-2-shaped view over the identical store lives under `/repository/**`, so a plain
+`mvn deploy`/`mvn install` targeting Andvari as a repository just works: Gimlé module names are
+dotted reverse-DNS JPMS names, which map onto Maven coordinates by the obvious rule — the last
+segment is the artifactId, everything before it is the groupId — so `com/gimle/examples/greeter/
+provider/1.0.0/provider-1.0.0.jar` resolves to the same `(com.gimle.examples.greeter.provider,
+1.0.0)` coordinate `/artifacts/*` uses, and a push through either surface lands identically.
+`.sha256` is always server-computed from the stored jar and served fresh on every `GET`, never
+trusted from an uploaded sidecar; `.pom` and any client-computed checksum sidecar are accepted and
+stored opaquely, never parsed; `maven-metadata.xml` is generated on every request from the live
+version list, never stored as uploaded, so a stale or hand-edited metadata file can never hide a
+real version.
+
 ## Multi-machine deployment
 
 Nothing here is loopback-only — the `127.0.0.1` addresses in the local-dev walkthrough are

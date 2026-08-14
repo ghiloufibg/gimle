@@ -104,6 +104,29 @@ class ArtifactStoreTest {
   }
 
   @Test
+  void a_sidecar_round_trips_alongside_its_version() throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    store.putSidecar("com.example.app", "1.0.0", "app-1.0.0.pom", bytes("<project/>"));
+
+    byte[] pom = store.sidecar("com.example.app", "1.0.0", "app-1.0.0.pom").orElseThrow();
+    assertEquals("<project/>", new String(pom, StandardCharsets.UTF_8));
+    assertTrue(store.sidecar("com.example.app", "1.0.0", "no-such-file").isEmpty());
+  }
+
+  @Test
+  void delete_also_removes_sidecars_and_leaves_no_orphaned_directory() throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+    store.putSidecar("com.example.app", "1.0.0", "app-1.0.0.pom", bytes("<project/>"));
+
+    assertTrue(store.delete("com.example.app", "1.0.0"));
+
+    assertTrue(store.sidecar("com.example.app", "1.0.0", "app-1.0.0.pom").isEmpty());
+    assertEquals(List.of(), store.moduleIds());
+    assertFalse(Files.exists(tempDir.resolve("artifacts").resolve("com.example.app")));
+  }
+
+  @Test
   void path_traversal_and_malformed_segments_are_rejected() {
     for (String bad : new String[] {"..", "../escape", "a/b", "a\\b", "", ".hidden", "-flag"}) {
       assertThrows(IllegalArgumentException.class, () -> store.put("ok", bad, bytes("x"), "ana"));

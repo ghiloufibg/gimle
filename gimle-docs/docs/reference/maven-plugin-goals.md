@@ -52,6 +52,26 @@ points at `mvn gimle:store`'s default client port.
 mvn gimle:muninn -Dgimle.muninn.port=9093
 ```
 
+## `mvn gimle:andvari`
+
+Launches a real `AndvariMain` process — the module artifact registry as its own process (see [Node
+topology](../architecture/node-topology.md#andvari)), talking to a `gimle-mimir` store cluster over
+the network for its own read-only `Authorizer` check, the same posture `gimle:muninn` and
+`gimle:fafnir` already take. Run this *before* `mvn gimle:agent` if any deployment will resolve an
+artifact by coordinate instead of a local `artifactPath`.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.andvari.port` | `9094` | Operational (`/artifacts/*`) and Maven-2 (`/repository/**`) HTTP port. |
+| `gimle.andvari.dataRoot` | `${project.build.directory}/gimle-andvari-data` | Where pushed jars persist to disk, content-addressed by `(moduleId, version)`. |
+| `gimle.andvari.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
+| `gimle.andvari.csrEndpoint` | *(unset)* | `host:port` of a reachable `ApiServer` to submit this replica's own certificate-rotation CSRs to — only meaningful in TLS mode. |
+| `gimle.andvari.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+
+```bash
+mvn gimle:andvari -Dgimle.andvari.port=9094
+```
+
 ## `mvn gimle:controlplane`
 
 Launches a real `ControlPlaneMain` process, talking to a `gimle-mimir` store cluster over the
@@ -83,6 +103,7 @@ itself](../architecture/node-topology.md)). Requires `mvn install` to have alrea
 | `gimle.agent.controlPlaneUrl` | `http://127.0.0.1:8080` | Control plane to register with. |
 | `gimle.agent.gossipAddress` | `127.0.0.1:9090` | This node's own gossip listen address — see [Service fabric](../architecture/service-fabric.md). |
 | `gimle.agent.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+| `gimle.agent.andvariEndpoint` | *(unset)* | `host:port` of the artifact registry to pull module jars from on a coordinate-only deployment's cache miss — see [Node topology](../architecture/node-topology.md#andvari). An agent whose tenants only ever use a local `artifactPath` never needs this configured. |
 
 ```bash
 # A second agent alongside the first, on the same machine
@@ -101,6 +122,25 @@ A thin wrapper around a real `GimleCli apply` invocation — see
 
 ```bash
 mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/greeter-provider/deployment.yaml
+```
+
+## `mvn gimle:publish`
+
+A thin wrapper around a real `GimleCli artifact push` invocation, run from inside a module's own
+project directory once its jar is built — the `gimle:deploy` shape applied to pushing rather than
+deploying. Unlike `gimle:deploy`, this goal isn't self-filtered to one reactor module: it resolves
+`gimle-cli`'s own runtime classpath by coordinate, so it works from any module project that depends
+on `gimle-maven-plugin`. The coordinate itself is read from the jar's own bundled
+`gimle-module.yaml`, not from a Maven property.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.publish.file` | `${project.build.directory}/${project.build.finalName}.jar` | The module jar to push. |
+| `gimle.publish.server` | `127.0.0.1:8080` | Control plane address (pushes proxy through `/artifacts/*`, the same as `gimle artifact push` run directly). |
+| `gimle.publish.cliVersion` | `${plugin.version}` | Version of `gimle-cli` to resolve and spawn — defaults to this plugin's own version, since the two ship from one build; override to pin a CLI build other than the plugin's own. |
+
+```bash
+mvn gimle:publish -pl gimle-examples/greeter-provider
 ```
 
 ## `mvn gimle:tls-init`

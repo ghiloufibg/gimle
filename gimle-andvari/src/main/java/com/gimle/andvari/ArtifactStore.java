@@ -43,6 +43,10 @@ public final class ArtifactStore {
    */
   private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
+  private static final String JAR_FILE = "artifact.jar";
+  private static final String META_FILE = "meta.json";
+  private static final String SIDECARS_DIR = "sidecars";
+
   /** How one {@link #put} attempt ended; {@code IDENTICAL} and {@code CONFLICT} wrote nothing. */
   public enum PutOutcome {
     CREATED,
@@ -103,13 +107,13 @@ public final class ArtifactStore {
         Files.createDirectories(versionDir);
         Files.move(
             tempFile,
-            versionDir.resolve("artifact.jar"),
+            versionDir.resolve(JAR_FILE),
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING);
         StoredArtifact stored =
             new StoredArtifact(
                 moduleId, version, sha256, sizeBytes, System.currentTimeMillis(), pushedBy);
-        Files.writeString(versionDir.resolve("meta.json"), Json.write(metaJson(stored)));
+        Files.writeString(versionDir.resolve(META_FILE), Json.write(metaJson(stored)));
         return new PutResult(PutOutcome.CREATED, stored);
       }
     } finally {
@@ -121,7 +125,7 @@ public final class ArtifactStore {
   public Optional<StoredArtifact> meta(String moduleId, String version) {
     requireValidSegment(moduleId, "moduleId");
     requireValidSegment(version, "version");
-    Path metaFile = versionDir(moduleId, version).resolve("meta.json");
+    Path metaFile = versionDir(moduleId, version).resolve(META_FILE);
     if (!Files.isRegularFile(metaFile)) {
       return Optional.empty();
     }
@@ -144,8 +148,48 @@ public final class ArtifactStore {
   public Optional<Path> jarPath(String moduleId, String version) {
     requireValidSegment(moduleId, "moduleId");
     requireValidSegment(version, "version");
-    Path jar = versionDir(moduleId, version).resolve("artifact.jar");
+    Path jar = versionDir(moduleId, version).resolve(JAR_FILE);
     return Files.isRegularFile(jar) ? Optional.of(jar) : Optional.empty();
+  }
+
+  /**
+   * Stores an opaque sidecar file beside a version's jar -- a Maven {@code .pom} or a
+   * client-computed checksum upload (the Maven-2 repository surface's own PUTs, never anything
+   * Andvari parses or trusts). Unlike {@link #put}, this has no immutability check: a re-uploaded
+   * sidecar simply replaces the previous one, since sidecars carry no integrity guarantee of their
+   * own to protect -- the jar's own {@code sha256} in {@link #meta} is what a reader actually
+   * trusts.
+   */
+  public void putSidecar(String moduleId, String version, String fileName, InputStream body)
+      throws IOException {
+    requireValidSegment(moduleId, "moduleId");
+    requireValidSegment(version, "version");
+    requireValidSegment(fileName, "sidecar file name");
+    Path sidecarsDir = versionDir(moduleId, version).resolve(SIDECARS_DIR);
+    Files.createDirectories(sidecarsDir);
+    Path tempFile = tmpRoot.resolve("sidecar-" + UUID.randomUUID());
+    try {
+      Files.copy(body, tempFile, StandardCopyOption.REPLACE_EXISTING);
+      Files.move(
+          tempFile,
+          sidecarsDir.resolve(fileName),
+          StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING);
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  /** A stored sidecar's raw bytes, empty when nothing was ever uploaded under that name. */
+  public Optional<byte[]> sidecar(String moduleId, String version, String fileName)
+      throws IOException {
+    requireValidSegment(moduleId, "moduleId");
+    requireValidSegment(version, "version");
+    requireValidSegment(fileName, "sidecar file name");
+    Path sidecarFile = versionDir(moduleId, version).resolve(SIDECARS_DIR).resolve(fileName);
+    return Files.isRegularFile(sidecarFile)
+        ? Optional.of(Files.readAllBytes(sidecarFile))
+        : Optional.empty();
   }
 
   /** Every stored version of one module, sorted by version string; empty for an unknown module. */
@@ -180,8 +224,13 @@ public final class ArtifactStore {
     if (!Files.isDirectory(versionDir)) {
       return false;
     }
-    Files.deleteIfExists(versionDir.resolve("artifact.jar"));
-    Files.deleteIfExists(versionDir.resolve("meta.json"));
+    Files.deleteIfExists(versionDir.resolve(JAR_FILE));
+    Files.deleteIfExists(versionDir.resolve(META_FILE));
+    // A version can carry Maven-surface sidecars (a .pom, client-uploaded checksums) that put()
+    // never writes and knows nothing about; deleteIfExists(versionDir) below silently no-ops on a
+    // non-empty directory, which would otherwise leave that sidecar dir (and this whole version
+    // directory) orphaned on disk forever after every caller believes the version is gone.
+    deleteDirectoryIfExists(versionDir.resolve(SIDECARS_DIR));
     Files.deleteIfExists(versionDir);
     // A module directory left with no versions disappears from the catalog; removing the empty
     // directory keeps the filesystem in step with what moduleIds() reports.
@@ -203,6 +252,18 @@ public final class ArtifactStore {
     json.put("pushedAtEpochMilli", stored.pushedAtEpochMilli());
     json.put("pushedBy", stored.pushedBy());
     return json;
+  }
+
+  private static void deleteDirectoryIfExists(Path directory) throws IOException {
+    if (!Files.isDirectory(directory)) {
+      return;
+    }
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory)) {
+      for (Path entry : entries) {
+        Files.deleteIfExists(entry);
+      }
+    }
+    Files.deleteIfExists(directory);
   }
 
   private static List<String> listDirectoryNames(Path directory) {

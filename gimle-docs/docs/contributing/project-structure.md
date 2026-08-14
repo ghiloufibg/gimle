@@ -95,5 +95,5 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |
 | `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`/`cert`). |
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
-| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:deploy`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
+| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |

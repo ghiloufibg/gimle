@@ -46,11 +46,12 @@ import org.eclipse.aether.repository.RemoteRepository;
  * that persistence away for a guaranteed-fresh cluster -- the fix any time a stale local {@code
  * gimle-bootstrap/} directory is suspected, not just after a format change.
  *
- * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs eight modules'
- * runtime classpaths (store, fafnir, muninn, control plane, agent, worker, pki, cli), not one, and
- * supervises four long-running processes together rather than one. So it self-filters to the root
- * aggregator project (artifactId {@code "gimle"}, guaranteed present regardless of {@code -pl}),
- * the same pattern {@link DocsMojo} already uses, instead of extending {@link AbstractGimleMojo}.
+ * <p>Unlike every other goal here, this doesn't map to one reactor module: it needs nine modules'
+ * runtime classpaths (store, fafnir, muninn, andvari, control plane, agent, worker, pki, cli), not
+ * one, and supervises six long-running processes together rather than one. So it self-filters to
+ * the root aggregator project (artifactId {@code "gimle"}, guaranteed present regardless of {@code
+ * -pl}), the same pattern {@link DocsMojo} already uses, instead of extending {@link
+ * AbstractGimleMojo}.
  *
  * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link FafnirMojo}/{@link
  * MuninnMojo}/{@link ControlPlaneMojo}/{@link AgentMojo} already use, deliberately: this goal and
@@ -82,6 +83,8 @@ public final class BootstrapMojo extends AbstractMojo {
   private static final int FAFNIR_PORT = 9092;
   // Matches MuninnMojo's own gimle.muninn.port default.
   private static final int MUNINN_PORT = 9093;
+  // Matches AndvariMojo's own gimle.andvari.port default -- next free after muninn's 9093.
+  private static final int ANDVARI_PORT = 9094;
   private static final int CONTROLPLANE_PORT = 8080;
   private static final String AGENT_NODE_ID = "node-1";
   private static final String GOSSIP_BIND_ADDRESS = "127.0.0.1:9090";
@@ -197,6 +200,15 @@ public final class BootstrapMojo extends AbstractMojo {
           () -> isPortOpen(MUNINN_PORT),
           readyTimeout,
           "muninn port " + MUNINN_PORT + " should start listening");
+
+      // Alongside Muninn, and for the same reason: Andvari only needs the store, and every later
+      // stage that might resolve a registry coordinate (the control plane's own admission check,
+      // the agent's pull cache) needs it already listening.
+      spawned.add(spawnAndvari(base, tls, tlsDir, logsDir));
+      awaitTrue(
+          () -> isPortOpen(ANDVARI_PORT),
+          readyTimeout,
+          "andvari port " + ANDVARI_PORT + " should start listening");
 
       spawned.add(spawnFafnir(base, tls, tlsDir, logsDir));
       awaitTrue(
@@ -379,6 +391,28 @@ public final class BootstrapMojo extends AbstractMojo {
         logsDir.resolve("muninn.log"));
   }
 
+  private Process spawnAndvari(Path base, boolean tls, Path tlsDir, Path logsDir)
+      throws MojoExecutionException {
+    return spawnGimleProcess(
+        tls,
+        tlsDir,
+        // Its own dedicated leaf identity, the same reasoning as Fafnir's and Muninn's above: an
+        // artifact push is a supply-chain event whose audit record has to name the pusher's own
+        // certificate Subject, which a borrowed identity would erase.
+        "andvari",
+        List.of(),
+        "gimle-andvari",
+        "com.gimle.andvari.AndvariMain",
+        List.of(
+            String.valueOf(ANDVARI_PORT),
+            "--store-endpoints",
+            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "--data-root",
+            base.resolve("andvari-data").toString()),
+        "starting andvari on port " + ANDVARI_PORT,
+        logsDir.resolve("andvari.log"));
+  }
+
   private Process spawnControlPlane(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
     List<String> extraJvmArgs = new ArrayList<>();
@@ -412,18 +446,23 @@ public final class BootstrapMojo extends AbstractMojo {
             // Optional -- lets this replica's /logs/* proxy fall back to Muninn's own shipped
             // history for a gone node/instance instead of a bare 404/502.
             "--muninn-endpoint",
-            "127.0.0.1:" + MUNINN_PORT),
+            "127.0.0.1:" + MUNINN_PORT,
+            // Optional too -- without it a deployment manifest that names only a registry
+            // coordinate (no artifactPath) has nothing to resolve against, and admission can't
+            // check that the coordinate exists before scheduling it.
+            "--andvari-endpoint",
+            "127.0.0.1:" + ANDVARI_PORT),
         "starting control plane on port " + CONTROLPLANE_PORT,
         logsDir.resolve("controlplane.log"));
   }
 
   /**
    * Shared skeleton behind {@link #spawnStore}/{@link #spawnFafnir}/{@link #spawnMuninn}/{@link
-   * #spawnControlPlane}: build the {@code java -cp ... mainClass args...} command line, adding TLS
-   * flags for {@code certName}'s leaf certificate when {@code tls} is set, then hand it to {@link
-   * #spawnLongRunning}. The four callers differ only in which cert they present, which extra JVM
-   * system properties they need, which module's classpath/main class to launch, and which
-   * positional args that main class takes.
+   * #spawnAndvari}/{@link #spawnControlPlane}: build the {@code java -cp ... mainClass args...}
+   * command line, adding TLS flags for {@code certName}'s leaf certificate when {@code tls} is set,
+   * then hand it to {@link #spawnLongRunning}. The five callers differ only in which cert they
+   * present, which extra JVM system properties they need, which module's classpath/main class to
+   * launch, and which positional args that main class takes.
    */
   private Process spawnGimleProcess(
       boolean tls,
@@ -479,6 +518,9 @@ public final class BootstrapMojo extends AbstractMojo {
     // Same reasoning, for shipping this agent's own + every supervised worker's logs to Muninn --
     // see AgentMain's own javadoc on gimle.agent.muninnEndpoint.
     command.add("-Dgimle.agent.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
+    // Same reasoning again, for pulling a coordinate-only assignment's jar into this agent's own
+    // ArtifactPullCache instead of requiring the jar to pre-exist on this machine's filesystem.
+    command.add("-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT);
     command.add("-cp");
     command.add(resolveClasspath("gimle-agent"));
     command.add("com.gimle.agent.AgentMain");

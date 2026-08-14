@@ -40,6 +40,12 @@ public final class AgentMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.agent.fafnirEndpoint", defaultValue = "127.0.0.1:9092")
   private String fafnirEndpoint;
 
+  // Unset by default, unlike fafnirEndpoint above: an agent whose assignments all carry an
+  // explicit artifactPath never resolves a registry coordinate at all, and a local-dev session
+  // running no registry process shouldn't have its agent pointed at a dead port.
+  @Parameter(property = "gimle.agent.andvariEndpoint")
+  private String andvariEndpoint;
+
   /**
    * Local-dev convenience for {@code gimle.transport.protocol} -- same shape as {@code
    * ControlPlaneMojo#transportProtocol}, unset by default.
@@ -85,6 +91,9 @@ public final class AgentMojo extends AbstractGimleMojo {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
     }
     command.add("-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint);
+    if (andvariEndpoint != null && !andvariEndpoint.isBlank()) {
+      command.add("-Dgimle.agent.andvariEndpoint=" + andvariEndpoint);
+    }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));
     command.add("com.gimle.agent.AgentMain");
