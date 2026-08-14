@@ -93,11 +93,7 @@ function autoscaleYaml(a: AutoscalePolicy): string[] {
 }
 
 function disruptionYaml(d: DisruptionBudget): string[] {
-  return [
-    "disruption:",
-    `  maxUnavailable: ${d.maxUnavailable}`,
-    `  maxSurge: ${d.maxSurge}`,
-  ];
+  return ["disruption:", `  maxUnavailable: ${d.maxUnavailable}`, `  maxSurge: ${d.maxSurge}`];
 }
 
 function toManifestYaml(spec: DeploymentSpecInput): string {

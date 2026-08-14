@@ -161,10 +161,10 @@ class SpaStaticHandlerTest {
   }
 
   /**
-   * Audit finding F-02 (third pass): a symlink inside {@code staticRoot} pointing at a file outside
-   * it must not be served. Skipped, not failed, where the account lacks the privilege to create a
-   * symlink (unprivileged Windows without Developer Mode) -- that's an environment limitation, not
-   * evidence the guard works or doesn't.
+   * A symlink inside {@code staticRoot} pointing at a file outside it must not be served. Skipped,
+   * not failed, where the account lacks the privilege to create a symlink (unprivileged Windows
+   * without Developer Mode) -- that's an environment limitation, not evidence the guard works or
+   * doesn't.
    */
   @Test
   void rejects_a_symlink_that_escapes_the_static_root() throws Exception {

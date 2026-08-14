@@ -31,12 +31,12 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 /**
- * F-01 regression: {@link AgentMain#prepareResourceLimit} must hand the limiter the manifest's
- * resource *limit*, not its request, and {@link AgentMain#buildWorkerCommand} must then carry that
- * limit's {@code -Xmx} into the spawned worker's command line. Both are exercised directly, not
- * through the full {@code startInstance}/process-spawning path, which {@code
- * AgentWorkerIntegrationTest} and {@code ResourceLimitEnforcementTest} already cover with a
- * hand-built command that never goes through either of these call sites.
+ * Regression: {@link AgentMain#prepareResourceLimit} must hand the limiter the manifest's resource
+ * *limit*, not its request, and {@link AgentMain#buildWorkerCommand} must then carry that limit's
+ * {@code -Xmx} into the spawned worker's command line. Both are exercised directly, not through the
+ * full {@code startInstance}/process-spawning path, which {@code AgentWorkerIntegrationTest} and
+ * {@code ResourceLimitEnforcementTest} already cover with a hand-built command that never goes
+ * through either of these call sites.
  */
 class AgentMainTest {
 

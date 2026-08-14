@@ -146,9 +146,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   }
 
   /**
-   * Test-only: injects a short {@code proposeTimeout} so a test exercising the timeout path (F-14,
-   * the ghost-write fix) doesn't have to wait out the real 5-second production value. Package-
-   * private, exercised only by {@code RaftNodeSafetyMechanicsTest} in this same package.
+   * Test-only: injects a short {@code proposeTimeout} so a test exercising the timeout path (a
+   * timed-out proposal must be truncated so it can't silently ghost-commit once quorum returns --
+   * see {@code RaftNodeSafetyMechanicsTest}) doesn't have to wait out the real 5-second production
+   * value. Package-private, exercised only by that test class, in this same package.
    */
   RaftNode(
       String selfId,

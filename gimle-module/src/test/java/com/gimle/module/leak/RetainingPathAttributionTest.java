@@ -22,8 +22,8 @@ import org.slf4j.Logger;
 import org.yaml.snakeyaml.Yaml;
 
 /**
- * F-01 acceptance test: {@code OldObjectSampleCorrelator} can only surface a retaining path when
- * the JVM it runs in was launched with {@code jdk.OldObjectSample#path-to-gc-roots=true} -- a
+ * Acceptance test: {@code OldObjectSampleCorrelator} can only surface a retaining path when the JVM
+ * it runs in was launched with {@code jdk.OldObjectSample#path-to-gc-roots=true} -- a
  * recording-launch option, not something the correlator can enable on itself in-process. Runs
  * {@link RetainingPathDriver} as a real subprocess with that flag, the same "real subprocess, not
  * mocked JFR" pattern {@code RedeployLoopFlatMetaspaceTest} establishes for metaspace behavior.

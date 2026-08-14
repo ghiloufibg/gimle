@@ -3,7 +3,7 @@ import { removeSecret, secretMetadata, secretsByTenant, upsertSecret } from "./f
 import { delay, paginate } from "./util";
 
 /**
- * Fafnir's /secrets/* surface (design doc §6e/§7) never returns a value alongside metadata --
+ * Fafnir's /secrets/* surface never returns a value alongside metadata --
  * unlike {@link ConfigRepository}'s fetch-everything-at-once shape, {@link fetchPage} here returns
  * metadata only, and revealing a row's value is a separate, explicit {@link fetchValue} call.
  */

@@ -27,12 +27,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 // The deployments-detail screen fetches its deployment exactly once per page load (no
-// auto-refresh) via a StoreClient read that round-robins across every gimle-mimir store replica
-// (design doc §4.5 -- reads are deliberately not linearizable). A page load can land on a replica
-// that hasn't yet caught up with a very recent write and would then show that stale state forever
-// with no way to self-correct -- so this reloads the whole page on retry, not just re-checking the
-// same already-rendered DOM, the same reason gimle-mimir's own StoreClientClusterTest needed an
-// equivalent same-poll-iteration read fix (see that test's `awaitPresent` helper).
+// auto-refresh) via a StoreClient read that round-robins across every gimle-mimir store replica --
+// reads are deliberately not linearizable (a leader-only read would bottleneck the whole cluster
+// on one node). A page load can land on a replica that hasn't yet caught up with a very recent
+// write and would then show that stale state forever with no way to self-correct -- so this
+// reloads the whole page on retry, not just re-checking the same already-rendered DOM, the same
+// reason gimle-mimir's own StoreClientClusterTest needed an equivalent same-poll-iteration read
+// fix (see that test's `awaitPresent` helper).
 async function expectDeploymentActive(page: import("@playwright/test").Page, name: string) {
   await expect(async () => {
     await page.goto(`/console/deployments/${name}`);
@@ -146,9 +147,9 @@ test("metrics history shows real shipped time-series data for the control plane"
 
 test("audit trail screen loads and queries the real backend without crashing", async ({ page }) => {
   // Unlike every other real-data assertion in this file, this one deliberately does NOT assert a
-  // non-empty result: GreeterSmokeClusterSupport's cluster runs in plaintext mode (design doc's own
-  // authn-authz posture -- ApiServer#requireAuthorized bypasses auth entirely without TLS, the same
-  // reason SMOKE_OPERATOR_USERNAME/PASSWORD above works via an *unauthenticated* PUT /accounts/*),
+  // non-empty result: GreeterSmokeClusterSupport's cluster runs in plaintext mode, and
+  // ApiServer#requireAuthorized bypasses auth entirely without TLS (the same reason
+  // SMOKE_OPERATOR_USERNAME/PASSWORD above works via an *unauthenticated* PUT /accounts/*),
   // and requireAuthorized only ever calls recordAuditEvent after resolving a real principal, which
   // never happens without TLS -- so this cluster's audit trail is genuinely, correctly always empty.
   // The real assertion here is that GET /audit round-trips (200, not a crash) and the empty state

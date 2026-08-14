@@ -162,7 +162,7 @@ export const deployments: Deployment[] = Array.from({ length: 42 }, (_, i) => {
   };
 });
 
-// ---------- Jobs (priority-3 design doc §3) ----------
+// ---------- Jobs ----------
 const JOB_PHASE_WEIGHTS: [Job["phase"], number][] = [
   ["RUNNING", 50],
   ["SUCCEEDED", 35],
@@ -246,7 +246,7 @@ export const cronJobs: CronJob[] = Array.from({ length: 6 }, (_, i) => {
   };
 });
 
-// ---------- DaemonSets (priority-3 design doc §4d) ----------
+// ---------- DaemonSets ----------
 const NODE_LABEL_SETS: string[][] = [[], [], [], ["gpu"], ["ssd"], ["edge"], ["gpu", "ssd"]];
 
 function makeDaemonSetInstance(nodeId: string): DaemonSetInstance {
@@ -291,7 +291,7 @@ export const daemonSets: DaemonSet[] = Array.from({ length: 4 }, (_, i) => {
   };
 });
 
-// ---------- StatefulSets (priority-3 design doc §5) ----------
+// ---------- StatefulSets ----------
 function makeStatefulSetInstance(idx: number, nodeId: string): StatefulSetInstance {
   const state = weightedLifecycle();
   const active = state === "ACTIVE";
@@ -454,7 +454,7 @@ export function removeConfig(tenantId: string, key: string) {
   if (i >= 0) list.splice(i, 1);
 }
 
-// ---- Secrets (design doc §6e/§7) ----
+// ---- Secrets ----
 
 const SECRET_KEYS = ["db.password", "api.key", "jwt.signingKey", "s3.secretKey", "smtp.password"];
 
@@ -488,8 +488,8 @@ export function secretMetadata(secret: MockSecret): SecretMetadata {
   };
 }
 
-/** Upserts by appending a new version, matching §7b's "a write always claims a new version, never
- * overwrites an existing one" semantics -- a previously soft-deleted key becomes live again. */
+/** Upserts by appending a new version -- a write always claims a new version, never overwrites an
+ * existing one -- so a previously soft-deleted key becomes live again. */
 export function upsertSecret(tenantId: string, key: string, value: string): MockSecret {
   const list = (secretsByTenant[tenantId] ??= []);
   const existing = list.find((s) => s.key === key);
@@ -503,8 +503,8 @@ export function upsertSecret(tenantId: string, key: string, value: string): Mock
   return created;
 }
 
-/** {@code destroy}: hard-delete (removes the entry entirely); otherwise soft-delete (§7d), keeping
- * every version reachable by explicit version number. */
+/** {@code destroy}: hard-delete (removes the entry entirely); otherwise soft-delete, keeping every
+ * version reachable by explicit version number. */
 export function removeSecret(tenantId: string, key: string, destroy: boolean) {
   const list = secretsByTenant[tenantId];
   if (!list) return;

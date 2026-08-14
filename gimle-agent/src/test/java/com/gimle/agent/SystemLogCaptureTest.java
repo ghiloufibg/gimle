@@ -17,7 +17,7 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * F-02 regression test: {@code WorkerProcessSupervisor.closeSystemLog()} used to close the SYSTEM
+ * Regression test: {@code WorkerProcessSupervisor.closeSystemLog()} used to close the SYSTEM
  * capture stream without nulling the field, so every respawn after the first silently lost SYSTEM
  * capture (a swallowed {@code ClosedChannelException}) -- proven live with a scratch test during
  * the 2026-07-27 re-audit and fixed by nulling {@code systemLogStream} inside {@code

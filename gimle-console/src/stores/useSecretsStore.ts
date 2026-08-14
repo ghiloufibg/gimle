@@ -11,7 +11,7 @@ interface State {
   hasMore: boolean;
   loading: boolean;
   error: string | null;
-  // Fetched on demand, not present in the list response (§7c) -- keyed by secret key.
+  // Fetched on demand, not present in the list response -- keyed by secret key.
   revealed: Record<string, SecretValue>;
   versions: Record<string, number[]>;
   setTenant(id: string | null): void;

@@ -19,7 +19,7 @@ interface RawLogPage {
 }
 
 /**
- * fetchPage() is a plain GET against the real /logs/... routes (§6 of log-explorer-design.md).
+ * fetchPage() is a plain GET against the real /logs/... routes.
  * openFollow() polls the same non-streaming route on a backoff interval rather than consuming the
  * backend's chunked follow=true stream directly: java.net.http.HttpClient-based Java consumers
  * (gimle-cli, the control plane's own agent-proxy hop) read that stream via a raw Socket instead of

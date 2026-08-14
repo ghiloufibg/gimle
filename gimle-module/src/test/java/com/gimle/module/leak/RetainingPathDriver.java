@@ -13,7 +13,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Acceptance-test driver for retaining-path attribution (F-01). Run as a <em>separate process</em>
+ * Acceptance-test driver for retaining-path attribution. Run as a <em>separate process</em>
  * launched with {@code path-to-gc-roots=true} (a {@code -XX:StartFlightRecording} option) -- {@link
  * OldObjectSampleCorrelator}'s own javadoc documents why that can't be enabled from inside this
  * process. Calls {@link OldObjectSampleCorrelator#findRetainingPath} directly (rather than going

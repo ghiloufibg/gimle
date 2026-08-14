@@ -7,10 +7,10 @@ import type { ProcessKind, ProcessTarget } from "@/types";
 export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"];
 
 /**
- * A worker JVM's processId is `{nodeId}:{workerId}` (design doc §6b -- workers have no host:port
- * of their own the way ControlPlane/Fafnir/Mimir/Agent do), split back into its two parts so the
- * picker can offer a real node dropdown (same source as AGENT's) alongside a free-text workerId
- * field, since no discovery API exists to enumerate a node's own workers.
+ * A worker JVM's processId is `{nodeId}:{workerId}` -- workers have no host:port of their own the
+ * way ControlPlane/Fafnir/Mimir/Agent do -- split back into its two parts so the picker can offer
+ * a real node dropdown (same source as AGENT's) alongside a free-text workerId field, since no
+ * discovery API exists to enumerate a node's own workers.
  */
 function splitWorkerProcessId(processId: string): [string, string] {
   const colon = processId.indexOf(":");
@@ -18,9 +18,9 @@ function splitWorkerProcessId(processId: string): [string, string] {
 }
 
 /**
- * There is no discovery API for which processIds exist (design doc Part B/O-10) -- every
- * non-AGENT processId is a self-reported {@code host:port} string chosen at that process's own
- * startup (e.g. {@code ControlPlaneMain}'s {@code selfApiAddress}), not a fixed constant, and a
+ * There is no discovery API for which processIds exist -- every non-AGENT processId is a
+ * self-reported {@code host:port} string chosen at that process's own startup (e.g. {@code
+ * ControlPlaneMain}'s {@code selfApiAddress}), not a fixed constant, and a
  * cluster can run multiple replicas of each kind. The one processId this console can genuinely
  * know without asking: the control plane serving this console page IS a CONTROLPLANE replica, and
  * `window.location.host` is exactly the address a browser used to reach it -- the same address

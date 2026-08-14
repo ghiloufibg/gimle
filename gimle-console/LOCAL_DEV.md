@@ -12,9 +12,9 @@ JDK 25 install for every step, and `bun` must be on `PATH` (Maven shells out to 
 `gimle-console/pom.xml`).
 
 The control plane no longer embeds its own Raft-replicated state store directly — it talks over
-the network to a separate `gimle-mimir` store process instead (etcd-store-extraction design doc),
-launched via its own `mvn gimle:store` goal, one process kind mirroring what `kube-apiserver`/
-`etcd` are to each other. `mvn gimle:controlplane`'s own default `--store-endpoints` already points
+the network to a separate `gimle-mimir` store process instead, launched via its own `mvn
+gimle:store` goal, one process kind mirroring what `kube-apiserver`/`etcd` are to each other: real
+multi-node HA and failover need the store's own replica count decoupled from the control plane's. `mvn gimle:controlplane`'s own default `--store-endpoints` already points
 at `mvn gimle:store`'s own default client port, so the two goals work together with no extra flags
 for this single-node walkthrough.
 

@@ -3,8 +3,9 @@
 Operator web console for the Gimlé cluster control plane — deployments, instances, nodes, tenants,
 config, and logs. Built with TanStack Start, React, Zustand, and Tailwind (shadcn/ui components).
 
-Pulled from a Lovable-generated project (commit `a8b1adff21e60177df602d40f3b0a1a8a5d32e54`); see
-`claudedocs/web-console-design.md` in the repo root for the design rationale and integration plan.
+Pulled from a Lovable-generated project (commit `a8b1adff21e60177df602d40f3b0a1a8a5d32e54`) and
+rewired here to talk to the real control-plane API instead of the mock data it originally shipped
+with, keeping the mock repository set around for reference/tests (see below).
 
 **Status**: wired to the real `gimle-controlplane` API for every screen, including live log tailing
 (`src/repositories/http/*.ts`) — the mock repository set (`src/repositories/fixture.ts`) still exists

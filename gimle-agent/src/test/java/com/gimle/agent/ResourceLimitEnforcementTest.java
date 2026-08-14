@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * F-03 acceptance test: {@code PortableJvmFlagsResourceLimiter}'s computed {@code -Xmx}/{@code
+ * Acceptance test: {@code PortableJvmFlagsResourceLimiter}'s computed {@code -Xmx}/{@code
  * -XX:ActiveProcessorCount} flags are verified against a real spawned worker JVM, not just asserted
  * to be present in a command list ({@code PortableJvmFlagsResourceLimiterTest} already covers
  * that). {@code AgentWorkerIntegrationTest} spawns a real worker but with a hand-built command that

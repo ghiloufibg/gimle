@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK_SEARCH, searchSchemaWithFallback, validCategories } from "./logs";
 
-// F-03/F-05a regressions. Pure schema/branching logic only -- this project's vitest config is
-// deliberately node-environment, store/repository-logic-only (see vitest.config.ts); the JSX
-// rendering half of these fixes (F-05b's error banner) is verified live per the QA fix plan's
-// verification section, not here.
+// Pure schema/branching logic only -- this project's vitest config is deliberately
+// node-environment, store/repository-logic-only (see vitest.config.ts); the JSX-rendering half of
+// this behavior (the error banner shown for an invalid search param) is verified live in a real
+// browser instead, not here.
 describe("logs route search schema", () => {
   it("falls back to the control plane target instead of throwing when no search params are given", () => {
     const result = searchSchemaWithFallback.safeParse({});

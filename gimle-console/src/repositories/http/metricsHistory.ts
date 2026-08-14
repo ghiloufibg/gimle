@@ -11,7 +11,7 @@ function pathFor(target: ProcessTarget): string {
 }
 
 /**
- * fetchPage()/fetchSince() are plain GETs against /metrics-history/* (design doc Part B/O-10).
+ * fetchPage()/fetchSince() are plain GETs against /metrics-history/*.
  * openPoll() polls fetchSince on an interval rather than a live stream: the backend explicitly
  * rejects follow=true (Muninn only ever serves shipped history), the same reasoning
  * HttpLogsRepository.openFollow documents for /logs/*, which this class otherwise mirrors closely.

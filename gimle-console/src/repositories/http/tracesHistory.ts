@@ -7,7 +7,7 @@ function pathFor(target: ProcessTarget): string {
 }
 
 /**
- * Structurally identical to HttpMetricsHistoryRepository (design doc Part B/O-13): same envelope,
+ * Structurally identical to HttpMetricsHistoryRepository: same envelope,
  * same since XOR cursor+limit rule, same "no live stream, poll instead" posture.
  */
 export class HttpTracesHistoryRepository implements TracesHistoryRepository {

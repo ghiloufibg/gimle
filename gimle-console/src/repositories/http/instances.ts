@@ -39,7 +39,7 @@ function applyFilter(rows: ModuleInstance[], f?: InstancesFilter): ModuleInstanc
   });
 }
 
-/** No dedicated endpoint exists (§4a) -- flattens the SAME cached array HttpDeploymentsRepository
+/** No dedicated endpoint exists -- flattens the SAME cached array HttpDeploymentsRepository
  * holds, rather than a second independent GET /deployments call that could race and disagree. */
 export class HttpInstancesRepository implements InstancesRepository {
   constructor(private readonly deploymentsRepo: HttpDeploymentsRepository) {}

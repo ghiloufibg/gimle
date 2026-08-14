@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 import { readFileSync } from "node:fs";
 
-// Single source of truth for the version the Overview footer and sidebar both display (F-08) --
+// Single source of truth for the version the Overview footer and sidebar both display --
 // previously two independent hardcoded strings, one of them wrong.
 const pkgVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"))
   .version as string;
@@ -45,8 +45,8 @@ export default defineConfig(({ command }) => ({
     port: 8080,
     // Dev-only proxy so src/repositories/http/apiClient.ts can use same-origin relative paths
     // (/deployments, /nodes, /tenants, /config) in both dev and prod, with no runtime env var for
-    // an API base URL (see web-console-design.md §9 -- that constraint is about the shipped app's
-    // own code, not this build-time-only Vite config, so reading process.env here is fine).
+    // an API base URL -- that constraint is about the shipped app's own code, not this
+    // build-time-only Vite config, so reading process.env here is fine.
     // Override the target port with GIMLE_CONTROLPLANE_PORT if your local control plane isn't on
     // 8081 (chosen to avoid colliding with this dev server's own port 8080 above).
     proxy: {

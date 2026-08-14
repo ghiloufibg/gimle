@@ -11,7 +11,7 @@ interface RawSecretMetadata {
 /**
  * Deliberately uncached, the same as {@link HttpConfigRepository}: {@link fetchPage} only ever
  * fetches metadata (Fafnir's own {@code /secrets/{tenantId}} list response never carries a
- * {@code value}, design doc §7c), and revealing a row's value is a distinct, on-demand {@link
+ * {@code value}), and revealing a row's value is a distinct, on-demand {@link
  * fetchValue} call rather than something already present in the list.
  *
  * <p>{@code value} crosses the wire as base64 (Fafnir's own body shape is binary-safe, unlike

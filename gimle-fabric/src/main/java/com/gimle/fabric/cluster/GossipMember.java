@@ -775,12 +775,11 @@ public final class GossipMember implements AutoCloseable {
       deadSince.remove(incoming.id().nodeId());
     }
     markChanged(incoming.id().nodeId());
-    // Real-cluster QA finding (see GossipFailureDetectionIT / QA_FINDINGS.md): {@link
-    // #markSuspect}/{@link #markDead} are the only places that log a status transition, but both
-    // fire only for a status *this node itself* locally detected via its own probe timeout --
-    // a node that instead learns of a peer's SUSPECT/DEAD status secondhand, via an incoming
-    // message's piggyback or an anti-entropy sync, adopted it silently right here with no log
-    // line at all. That left an operator grepping cluster logs for "is now DEAD" with an
+    // {@link #markSuspect}/{@link #markDead} are the only places that log a status transition,
+    // but both fire only for a status *this node itself* locally detected via its own probe
+    // timeout -- a node that instead learns of a peer's SUSPECT/DEAD status secondhand, via an
+    // incoming message's piggyback or an anti-entropy sync, adopted it silently right here with
+    // no log line at all. That left an operator grepping cluster logs for "is now DEAD" with an
     // incomplete picture: only whichever node(s) happened to directly detect a failure ever said
     // so, even though every other node's own membership table was updated correctly. Same exact
     // wording as markSuspect/markDead precisely so a single substring search catches a status

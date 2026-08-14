@@ -66,8 +66,8 @@ function toManifestYaml(spec: DaemonSetSpecInput): string {
     `  version: ${q(spec.moduleId.version)}`,
     `artifactPath: ${q(spec.artifactPath)}`,
   ];
-  // No `antiAffinity` line, ever: DaemonSetManifestParser rejects the key outright if present
-  // (priority-3 design doc §4d) -- one-per-node placement makes anti-affinity meaningless.
+  // No `antiAffinity` line, ever: DaemonSetManifestParser rejects the key outright if present --
+  // one-per-node placement makes anti-affinity meaningless.
   if (spec.placement.requiredNodeLabels.length > 0) {
     lines.push(`placement:`);
     lines.push(`  requiredLabels: [${spec.placement.requiredNodeLabels.map(q).join(", ")}]`);

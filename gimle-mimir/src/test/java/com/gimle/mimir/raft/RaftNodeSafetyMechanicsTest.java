@@ -173,7 +173,7 @@ class RaftNodeSafetyMechanicsTest {
         () -> inconsistentLeader.forceLeaderForTest(Map.of("B", 99L, "C", 99L)));
   }
 
-  // ---- F-14: a client-visible-failed proposal must not silently commit once quorum returns ----
+  // ---- a client-visible-failed proposal must not silently commit once quorum returns ----
 
   @Test
   @Timeout(5)

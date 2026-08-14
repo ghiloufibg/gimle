@@ -24,11 +24,10 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * F-04 acceptance test: a real {@link WorkerProcessSupervisor} supervising a real crashing
- * subprocess (not a mock), proving the worker-level {@code CrashLoopBackOff}-equivalent tier
- * end-to-end -- kill detection, respawn, escalating backoff, and eventual give-up, none of which
- * {@code RestartTrackerTest}'s own unit tests (which drive the tracker directly) can prove by
- * themselves.
+ * Acceptance test: a real {@link WorkerProcessSupervisor} supervising a real crashing subprocess
+ * (not a mock), proving the worker-level {@code CrashLoopBackOff}-equivalent tier end-to-end --
+ * kill detection, respawn, escalating backoff, and eventual give-up, none of which {@code
+ * RestartTrackerTest}'s own unit tests (which drive the tracker directly) can prove by themselves.
  */
 class WorkerProcessSupervisorTest {
 
