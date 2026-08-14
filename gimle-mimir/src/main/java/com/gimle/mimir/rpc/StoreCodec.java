@@ -141,6 +141,8 @@ public final class StoreCodec {
   private static final byte TAG_STRING_SET_RESULT = 88;
   private static final byte TAG_LIST_SURGE_INDICES = 89;
   private static final byte TAG_INT_INT_MAP_RESULT = 90;
+  private static final byte TAG_STATUS = 91;
+  private static final byte TAG_STATUS_RESULT = 92;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -335,6 +337,7 @@ public final class StoreCodec {
           DomainCodec.writeOptionalString(out, v.tenantId());
           DomainCodec.writeOptionalLong(out, v.since());
         }
+        case StoreRpc.Status v -> out.writeByte(TAG_STATUS);
         case StoreRpc.AddServer v -> {
           out.writeByte(TAG_ADD_SERVER);
           out.writeUTF(v.peerId());
@@ -475,6 +478,16 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (String value : v.values()) {
             out.writeUTF(value);
+          }
+        }
+        case StoreRpc.StatusResult v -> {
+          out.writeByte(TAG_STATUS_RESULT);
+          out.writeUTF(v.selfId());
+          out.writeBoolean(v.leader());
+          out.writeUTF(v.leaderId());
+          out.writeInt(v.memberIds().size());
+          for (String memberId : v.memberIds()) {
+            out.writeUTF(memberId);
           }
         }
         case StoreRpc.StatefulSetAssignmentListResult v -> {
@@ -692,6 +705,7 @@ public final class StoreCodec {
                 DomainCodec.readOptionalString(in),
                 DomainCodec.readOptionalString(in),
                 DomainCodec.readOptionalLong(in));
+        case TAG_STATUS -> new StoreRpc.Status();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
         case TAG_LEASE_RESULT ->
@@ -877,6 +891,17 @@ public final class StoreCodec {
             values.add(in.readUTF());
           }
           yield new StoreRpc.StringSetResult(values);
+        }
+        case TAG_STATUS_RESULT -> {
+          String selfId = in.readUTF();
+          boolean leader = in.readBoolean();
+          String leaderId = in.readUTF();
+          int memberCount = in.readInt();
+          List<String> memberIds = new ArrayList<>();
+          for (int i = 0; i < memberCount; i++) {
+            memberIds.add(in.readUTF());
+          }
+          yield new StoreRpc.StatusResult(selfId, leader, leaderId, memberIds);
         }
         case TAG_CONFIG_ENTRY_LIST_RESULT -> {
           int count = in.readInt();

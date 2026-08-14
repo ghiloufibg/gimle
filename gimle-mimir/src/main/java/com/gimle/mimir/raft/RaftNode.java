@@ -277,6 +277,23 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     return selfId;
   }
 
+  /**
+   * This node's currently configured membership, itself included, sorted for a stable wire shape --
+   * a snapshot taken under the lock, since {@link #peers} is reconfigured in place by membership
+   * changes.
+   */
+  public List<String> memberIds() {
+    lock.lock();
+    try {
+      final List<String> members = new ArrayList<>(peers.keySet());
+      members.add(selfId);
+      members.sort(String::compareTo);
+      return List.copyOf(members);
+    } finally {
+      lock.unlock();
+    }
+  }
+
   // ---- propose: the only entry point application code calls ----
 
   /**

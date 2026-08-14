@@ -99,7 +99,8 @@ public sealed interface StoreRpc {
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
           ListInstanceEvents,
-          ListAuditEvents {}
+          ListAuditEvents,
+          Status {}
 
   sealed interface Response extends StoreRpc
       permits Ok,
@@ -142,7 +143,8 @@ public sealed interface StoreRpc {
           ReconcilerInstanceStateResult,
           ReconcilerInstanceStateListResult,
           InstanceEventListResult,
-          AuditEventListResult {}
+          AuditEventListResult,
+          StatusResult {}
 
   // ---- leader-only requests (writes, plus the one leader-local read) ----
 
@@ -263,6 +265,16 @@ public sealed interface StoreRpc {
   record ListReconcilerInstanceStates() implements Request {}
 
   record ListInstanceEvents(String deploymentName, int instanceIndex) implements Request {}
+
+  /**
+   * The answering node's own view of the cluster: its Raft id, whether it currently believes itself
+   * leader, its leader hint, and the membership it is configured with -- etcd's own client API
+   * exposes exactly this, and for the same reason: leader-aware operators and tooling otherwise
+   * have no way to ask "who leads?" or "who is a member?" without attempting a write and fishing
+   * the answer out of a {@link NotLeader} redirect. A plain node-local read, served by any node;
+   * the answer is that node's view, which mid-election may briefly name no leader.
+   */
+  record Status() implements Request {}
 
   /**
    * The first {@code Request} variant with optional fields -- every filter defaults to "match
@@ -402,4 +414,12 @@ public sealed interface StoreRpc {
   record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
 
   record AuditEventListResult(List<AuditEvent> values) implements Response {}
+
+  /**
+   * {@code leaderId} is {@code ""} when the answering node has no current leader hint (a
+   * mid-election gap), the same empty-string convention {@link NotLeader} uses. {@code memberIds}
+   * is the answering node's currently configured membership, itself included.
+   */
+  record StatusResult(String selfId, boolean leader, String leaderId, List<String> memberIds)
+      implements Response {}
 }

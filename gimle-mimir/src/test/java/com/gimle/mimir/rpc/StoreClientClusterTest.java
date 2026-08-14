@@ -237,6 +237,22 @@ class StoreClientClusterTest {
 
   @Test
   @Timeout(15)
+  void status_names_the_leader_and_the_full_membership_from_any_endpoint() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    ClusterNode leader = awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    StoreRpc.StatusResult status = client.status();
+    assertEquals(leader.id(), status.leaderId());
+    assertEquals(3, status.memberIds().size());
+    assertTrue(status.memberIds().contains(status.selfId()));
+    assertTrue(status.memberIds().contains(leader.id()));
+    // Whichever node answered, its self-reported leadership must agree with its leader hint.
+    assertEquals(status.selfId().equals(leader.id()), status.leader());
+  }
+
+  @Test
+  @Timeout(15)
   void leases_are_acquired_renewed_and_released_through_the_client() throws Exception {
     List<ClusterNode> cluster = buildCluster(3);
     awaitLeader(cluster);

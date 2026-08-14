@@ -190,6 +190,7 @@ class StoreCodecTest {
             Optional.of("SECRET"),
             Optional.of("tenant-1"),
             Optional.of(1_000L)),
+        new StoreRpc.Status(),
         // responses
         new StoreRpc.Ok(),
         new StoreRpc.NotLeader("node-2:8081"),
@@ -224,7 +225,10 @@ class StoreCodecTest {
         new StoreRpc.RoleListResult(List.of(role())),
         new StoreRpc.RoleBindingListResult(List.of(roleBinding())),
         new StoreRpc.InstanceEventListResult(List.of(instanceEvent())),
-        new StoreRpc.AuditEventListResult(List.of(auditEvent())));
+        new StoreRpc.AuditEventListResult(List.of(auditEvent())),
+        new StoreRpc.StatusResult(
+            "node-a:9080", true, "node-a:9080", List.of("node-a:9080", "node-b:9080")),
+        new StoreRpc.StatusResult("node-b:9080", false, "", List.of("node-b:9080")));
   }
 
   @ParameterizedTest

@@ -285,6 +285,16 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.TenantListResult) sendRead(new StoreRpc.ListTenants())).values();
   }
 
+  /**
+   * The answering node's own view of the cluster (Raft id, leadership, leader hint, membership) --
+   * served by whichever configured endpoint answers first, like every other read here. A follower's
+   * view names the leader too, so any answering node identifies it; {@code leaderId()} is {@code
+   * ""} in a mid-election gap.
+   */
+  public StoreRpc.StatusResult status() {
+    return (StoreRpc.StatusResult) sendRead(new StoreRpc.Status());
+  }
+
   public List<ConfigEntry> listConfigEntriesFor(String tenantId) {
     return ((StoreRpc.ConfigEntryListResult) sendRead(new StoreRpc.ListConfigEntriesFor(tenantId)))
         .values();

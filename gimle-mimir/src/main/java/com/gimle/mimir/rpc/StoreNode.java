@@ -139,6 +139,12 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListAuditEvents r ->
           new StoreRpc.AuditEventListResult(
               store.listAuditEvents(r.principal(), r.resourceKind(), r.tenantId(), r.since()));
+      case StoreRpc.Status r ->
+          new StoreRpc.StatusResult(
+              raftNode.selfId(),
+              raftNode.isLeader(),
+              raftNode.leaderHint().orElse(""),
+              raftNode.memberIds());
     };
   }
 
