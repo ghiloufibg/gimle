@@ -14,8 +14,9 @@ const config: Config = {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
-  // Hosting target is not decided yet (see claudedocs/docs-site-design.md §1) -- placeholder until
-  // a real static host is chosen.
+  // No hosting target has been chosen yet -- this is a placeholder URL until a real static host is
+  // decided (this field only affects generated absolute links/sitemap entries, not the local or CI
+  // build itself).
   url: 'https://example.com',
   baseUrl: '/',
 
@@ -51,9 +52,9 @@ const config: Config = {
     [
       '@easyops-cn/docusaurus-search-local',
       {
-        // Offline/self-hosted full-text search: no external service or API key, consistent with
-        // this being a self-contained static site (see claudedocs/docs-site-design.md). Indexes
-        // build client-side into the site's own static output.
+        // Offline/self-hosted full-text search: no external service or API key, since the site has
+        // no real hosting target yet (see the url placeholder above) and shouldn't depend on one
+        // just to be searchable. Indexes build client-side into the site's own static output.
         hashed: true,
         language: ['en'],
         indexBlog: false, // blog is disabled (see presets.classic.blog below)

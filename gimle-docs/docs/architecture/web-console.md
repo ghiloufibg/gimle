@@ -11,13 +11,17 @@ served at `/console` with no separate deploy step (see
 
 ## Screens
 
-Thirteen routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
+Seventeen routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
 same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth:
 
 | Screen | Shows |
 |---|---|
 | Overview | Landing dashboard summarizing cluster state at a glance. |
 | Deployments | List/create/inspect deployments — the UI equivalent of `gimle get/apply/delete deployment`. Create/detail also expose the optional `autoscale:` policy and `disruption:` budget (below). |
+| Jobs | List/create/inspect [`kind: Job`](../reference/manifest-schema.md#job-manifest) run-to-completion workloads — the UI equivalent of `gimle get jobs`. |
+| CronJobs | List/create/inspect [`kind: CronJob`](../reference/manifest-schema.md#cronjob-manifest) scheduled generators, including each one's generated Jobs — the UI equivalent of `gimle get cronjobs`. |
+| DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one. |
+| StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment. |
 | Instances | Per-instance detail: lifecycle state, health, resource usage. |
 | Nodes | Registered node agents and their reported capacity — the UI equivalent of `gimle get nodes`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
@@ -32,8 +36,8 @@ same data the [CLI](../reference/cli-reference.md) reads, not a parallel source 
 
 ## Metrics history, traces, and audit trail
 
-Roadmap item 9's remaining gap — none of the audit logging, observability, or autoscaling work
-had a console screen — is closed. Three additions, all backed by real API surfaces that existed
+Until now, none of the audit logging, observability, or autoscaling work had a console screen of
+its own — that gap is closed. Three additions, all backed by real API surfaces that existed
 before the UI did:
 
 - **Metrics history** (`GET /metrics-history/{processKind}/{processId}`, proxying to

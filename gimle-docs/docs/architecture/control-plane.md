@@ -154,6 +154,13 @@ actions:
 - `AutoscaleReconciler` (driven by `AutoscalePolicy`)
 - `HealthReconciler`
 - `QuotaReconciler`
+- `JobReconciler` (see [Manifest schema § Job manifest](../reference/manifest-schema.md#job-manifest))
+- `CronJobReconciler` (see [Manifest schema § CronJob manifest](../reference/manifest-schema.md#cronjob-manifest))
+- `DaemonSetReconciler` (see [Manifest schema § DaemonSet manifest](../reference/manifest-schema.md#daemonset-manifest))
+- `StatefulSetReconciler` (see [Manifest schema § StatefulSet manifest](../reference/manifest-schema.md#statefulset-manifest))
+
+Every distinct `kind:` a manifest can declare gets its own reconciler this way, following the same
+desired-vs-observed convergence loop shape described above.
 
 `AutoscaleReconciler` folds up to four independently-optional signals into one scaling decision:
 CPU utilization (always evaluated), plus request rate, error rate, and queue depth, each evaluated

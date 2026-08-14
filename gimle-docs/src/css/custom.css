@@ -18,8 +18,10 @@
 @import '@fontsource/jetbrains-mono/700.css';
 
 /* You can override the default Infima variables here. */
-/* Gimlé brand accent: a deep slate blue, not Docusaurus's default green -- swapped here only,
-   full re-theming is a later, optional pass (see claudedocs/docs-site-design.md §1.6). */
+/* Gimlé brand accent: a deep slate blue, not Docusaurus's default green. Only the primary-color
+   variables, fonts, and code-highlight background are overridden here -- every other Infima
+   default (spacing, non-primary component colors, layout variables, etc.) is left as-is, since
+   those don't carry brand identity the way the accent color and typography do. */
 :root {
   --ifm-color-primary: #2a5a8c;
   --ifm-color-primary-dark: #26517e;

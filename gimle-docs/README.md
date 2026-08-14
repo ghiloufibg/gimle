@@ -2,9 +2,12 @@
 
 The developer documentation site: architecture, tutorials, reference material, and an aggregated
 Javadoc API reference for onboarding into the Gimlé codebase. Built with
-[Docusaurus](https://docusaurus.io/) (React/MDX) and Bun. See `claudedocs/docs-site-design.md` in
-the repo root for the design rationale (why Docusaurus over a Lovable-scaffolded app, why this
-module is `packaging=pom`, etc.).
+[Docusaurus](https://docusaurus.io/) (React/MDX) and Bun rather than a Lovable-scaffolded app,
+since a docs site is prose-and-navigation-heavy content that a docs-focused static-site generator
+already handles well (versioned pages, sidebar/TOC generation, search, MDX), not a custom UI worth
+hand-building. It's still a Maven module (`packaging=pom`, no Java sources) purely so `mvn verify`
+and `mvn gimle:docs` can cover it in the same one-command build as the rest of the reactor, gated
+behind the `docs` profile since it's not part of the default `mvn verify`.
 
 This is an independent Bun/Docusaurus project, but it *is* a Maven module (see `pom.xml`) — one
 reactor-gated behind the `docs` profile, not part of the default `mvn verify`: `exec-maven-plugin`

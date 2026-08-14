@@ -164,9 +164,9 @@ instance is ever placed.
 
 ## Job manifest
 
-`kind: Job` (priority-3 roadmap item 10) is a genuinely different workload shape from a Deployment:
-one logical unit of work, run to completion exactly once and retried up to `backoffLimit` times on
-failure, not a fixed-size pool of long-running replicas. There is deliberately no
+`kind: Job` is a genuinely different workload shape from a Deployment: one logical unit of work,
+run to completion exactly once and retried up to `backoffLimit` times on failure, not a fixed-size
+pool of long-running replicas. There is deliberately no
 `replicas`/`autoscale` here — a Job is never scaled, only retried — and no `parallelism`/
 `completions` either (Kubernetes Job's own multi-pod fan-out): a Job manifest here always describes
 exactly one attempt at a time. The module it names must declare `lifecycle.jobHooks` (see the
@@ -210,8 +210,8 @@ deferred, not an oversight. Scheduled, repeating firing of a Job is `kind: CronJ
 
 ## CronJob manifest
 
-`kind: CronJob` (priority-3 roadmap item 10) is a thin, scheduled generator over `kind: Job` — never
-a second execution engine. Each due firing materializes an ordinary `Job` named
+`kind: CronJob` is a thin, scheduled generator over `kind: Job` — never a second execution engine.
+Each due firing materializes an ordinary `Job` named
 `{cronJobName}-{epochSeconds}`; placement, retries, and completion from there on are entirely the
 same `JobSpec`/`JobReconciler` mechanics described above, unchanged. `schedule` is a standard
 5-field cron expression (`minute hour day-of-month month day-of-week`), evaluated in UTC — there is
@@ -269,8 +269,8 @@ scope).
 
 ## DaemonSet manifest
 
-`kind: DaemonSet` (priority-3 roadmap item 11) places exactly one instance on every node currently
-eligible for it, not an operator-chosen count — there is deliberately no `replicas`/`autoscale`
+`kind: DaemonSet` places exactly one instance on every node currently eligible for it, not an
+operator-chosen count — there is deliberately no `replicas`/`autoscale`
 field here, and none is coming: a DaemonSet's size is topology-derived (however many nodes match),
 recomputed on every reconcile tick as nodes join, leave, or are cordoned. `Scheduler.eligibleNodes`
 (the same five-step tier/cordon/anti-affinity/tenant/label filter chain `place` uses for a
@@ -324,8 +324,8 @@ Isolation](../architecture/tiered-isolation.md)); no `maxSurge` (rejected outrig
 
 ## StatefulSet manifest
 
-`kind: StatefulSet` (priority-3 roadmap item 12, the last workload-diversity item) is an index space
-`0..replicas-1` exactly like a Deployment's, but with two properties neither Deployment nor DaemonSet
+`kind: StatefulSet`, the last workload-diversity item, is an index space `0..replicas-1` exactly
+like a Deployment's, but with two properties neither Deployment nor DaemonSet
 has: **ordered rollout** (`OrderedReady`, Kubernetes StatefulSet's own default, not an alternative
 invented here — index `i+1` is never placed until index `i` reports ready, and scale-down removes the
 highest index first, one at a time) and **sticky placement** — once an index is first placed on a
@@ -375,7 +375,8 @@ of persistent storage. There is no replication, no backup, no CSI-style pluggabl
 StatefulSet replica's data does not survive its node's permanent loss. If the node a sticky index is
 bound to is gone for good, that index stays unplaced (never silently relocated, which would silently
 orphan the volume) until an operator intervenes. Real durability (replicated volumes, backup/restore)
-is explicitly out of scope for this iteration, not a "phase 2" of this design.
+is a real, larger piece of scope that is deliberately not provided here, not something planned for
+a later addition to `kind: StatefulSet` itself.
 
 **What this does not provide, plainly stated**: no multi-volume support (one `volume:` per module
 descriptor only); no CSI-style pluggable storage backends; no volume snapshotting or backup/restore;

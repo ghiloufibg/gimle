@@ -5,8 +5,9 @@ sidebar_position: 9
 # Transport security
 
 `gimle.transport.protocol=tls` (default `plaintext`) turns on mutual TLS across every
-network-exposed transport in the cluster — a single, cluster-wide switch, not a per-component one.
-Full design: `claudedocs/tls-transport-security-design.md`.
+network-exposed transport in the cluster — a single, cluster-wide switch, not a per-component one,
+since a cluster running a mix of TLS and plaintext transports would leave an operator unable to
+reason about the system's actual trust boundary from the config alone.
 
 ## Per-transport mapping
 
