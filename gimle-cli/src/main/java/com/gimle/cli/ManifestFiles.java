@@ -1,0 +1,65 @@
+package com.gimle.cli;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+/**
+ * Shared manifest-file handling for every {@code apply -f}-accepting command: locating the {@code
+ * -f}/{@code --file} flag, reading the manifest's raw bytes, and parsing just enough YAML (via
+ * SnakeYAML, the same library the control plane itself uses to parse it) to pull out a single
+ * top-level field -- {@code name} for the six resource-specific commands, {@code kind} for {@link
+ * GimleCli}'s own apply-dispatch -- without ever re-serializing the file, so the original bytes can
+ * still be PUT verbatim and comments/formatting survive.
+ */
+final class ManifestFiles {
+
+  private ManifestFiles() {}
+
+  static Path requireFileFlag(List<String> args) {
+    for (int i = 0; i < args.size(); i++) {
+      if (("-f".equals(args.get(i)) || "--file".equals(args.get(i))) && i + 1 < args.size()) {
+        return Path.of(args.get(i + 1));
+      }
+    }
+    throw new CliException("apply requires -f <manifest.yaml>");
+  }
+
+  static byte[] readManifestBytes(Path file) {
+    try {
+      return Files.readAllBytes(file);
+    } catch (IOException e) {
+      throw new CliException("could not read manifest file " + file + ": " + e.getMessage(), e);
+    }
+  }
+
+  static String extractName(Path file, byte[] manifestBytes) {
+    return extractField(file, manifestBytes, "name");
+  }
+
+  static String extractKind(Path file) {
+    return extractField(file, readManifestBytes(file), "kind");
+  }
+
+  private static String extractField(Path file, byte[] manifestBytes, String field) {
+    Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+    Object parsed;
+    try {
+      parsed = yaml.load(new ByteArrayInputStream(manifestBytes));
+    } catch (RuntimeException e) {
+      throw new CliException("malformed manifest " + file + ": " + e.getMessage(), e);
+    }
+    if (!(parsed instanceof Map<?, ?> map)
+        || !(map.get(field) instanceof String value)
+        || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
+  }
+}

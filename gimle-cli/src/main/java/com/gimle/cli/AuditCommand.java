@@ -6,9 +6,12 @@ import java.util.Set;
 
 /**
  * {@code audit list [--principal <name>] [--resource <kind>] [--tenant <id>] [--since <ts>]
- * [--limit N]} -- reads the cross-resource audit trail (see {@code OBSERVABILITY_AUDIT_DESIGN.md}'s
- * Part A), every filter optional and independently combinable, matching {@code ApiServer}'s own
- * {@code GET /audit} query-parameter shape exactly.
+ * [--limit N]} -- reads the cross-resource audit trail: every access-control decision the control
+ * plane records (role/permission changes, secret access, resource writes, and any reads opted into
+ * auditing), independent of any single resource kind's own history, so an operator can answer "who
+ * did what" without knowing in advance which resource to look under. Every filter is optional and
+ * independently combinable, matching {@code ApiServer}'s own {@code GET /audit} query-parameter
+ * shape exactly.
  */
 public final class AuditCommand {
 

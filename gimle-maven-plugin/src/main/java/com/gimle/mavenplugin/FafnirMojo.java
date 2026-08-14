@@ -9,11 +9,14 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 
 /**
  * {@code mvn gimle:fafnir} -- launches a real {@code FafnirMain} process using {@code
- * gimle-fafnir}'s own resolved runtime classpath: the secrets service as its own process (design
- * doc), talking to a {@code gimle-mimir} store cluster over the network exactly the way {@code
- * gimle-controlplane} does. {@code gimle.fafnir.storeEndpoints} defaults to {@code gimle:store}'s
- * own default client port, so the goals keep working together with zero extra flags for single-node
- * local dev. No-ops in every other reactor module (see {@link AbstractGimleMojo}).
+ * gimle-fafnir}'s own resolved runtime classpath. Fafnir runs as its own dedicated process, not
+ * embedded in the control plane, so the master key ring and every secret encrypt/decrypt operation
+ * live in a process with a smaller blast radius than the control plane's own API surface -- the
+ * control plane only ever proxies to it over mTLS, never performs cryptography itself. It talks to
+ * a {@code gimle-mimir} store cluster over the network exactly the way {@code gimle-controlplane}
+ * does. {@code gimle.fafnir.storeEndpoints} defaults to {@code gimle:store}'s own default client
+ * port, so the goals keep working together with zero extra flags for single-node local dev. No-ops
+ * in every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(name = "fafnir", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class FafnirMojo extends AbstractGimleMojo {

@@ -27,7 +27,9 @@ import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -129,12 +131,12 @@ class GimleCliTest {
                 HttpRequest.BodyPublishers.ofString(
                     "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
             .build(),
-        java.net.http.HttpResponse.BodyHandlers.discarding());
+        HttpResponse.BodyHandlers.discarding());
   }
 
   private Path writeManifest(String name, int replicas) throws IOException {
     Path file = tempDir.resolve(name + ".yaml");
-    java.nio.file.Files.writeString(
+    Files.writeString(
         file,
         """
         kind: Deployment

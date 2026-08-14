@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -73,8 +74,8 @@ public final class RolesCommand {
       throw new CliException("invalid --permission " + spec + " (expected resource:verb[:tenant])");
     }
     Map<String, Object> permission = new LinkedHashMap<>();
-    permission.put("resource", parts[0].toUpperCase(java.util.Locale.ROOT));
-    permission.put("verb", parts[1].toUpperCase(java.util.Locale.ROOT));
+    permission.put("resource", parts[0].toUpperCase(Locale.ROOT));
+    permission.put("verb", parts[1].toUpperCase(Locale.ROOT));
     if (parts.length == 3) {
       permission.put("tenantScope", parts[2]);
     }

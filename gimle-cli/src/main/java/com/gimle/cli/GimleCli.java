@@ -1,18 +1,11 @@
 package com.gimle.cli;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.Map;
-import org.yaml.snakeyaml.LoaderOptions;
-import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * The CLI's entry point and global-flag/verb dispatch: a {@code kubectl}-shaped client for familiar
@@ -153,8 +146,8 @@ public final class GimleCli {
    */
   private static void handleApply(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
-    Path file = requireFileFlag(args);
-    switch (extractKind(file)) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    switch (ManifestFiles.extractKind(file)) {
       case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args);
       case "Job" -> new JobsCommand(client, output, out).apply(args);
       case "CronJob" -> new CronJobsCommand(client, output, out).apply(args);
@@ -181,37 +174,6 @@ public final class GimleCli {
           new CronJobsCommand(client, output, out).trigger(requireOne(rest, "cronjob trigger"));
       default -> throw new CliException("unknown cronjob action: " + action);
     }
-  }
-
-  private static Path requireFileFlag(List<String> args) {
-    for (int i = 0; i < args.size(); i++) {
-      if (("-f".equals(args.get(i)) || "--file".equals(args.get(i))) && i + 1 < args.size()) {
-        return Path.of(args.get(i + 1));
-      }
-    }
-    throw new CliException("apply requires -f <manifest.yaml>");
-  }
-
-  private static String extractKind(Path file) {
-    byte[] manifestBytes;
-    try {
-      manifestBytes = Files.readAllBytes(file);
-    } catch (IOException e) {
-      throw new CliException("could not read manifest file " + file + ": " + e.getMessage(), e);
-    }
-    Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
-    Object parsed;
-    try {
-      parsed = yaml.load(new ByteArrayInputStream(manifestBytes));
-    } catch (RuntimeException e) {
-      throw new CliException("malformed manifest " + file + ": " + e.getMessage(), e);
-    }
-    if (!(parsed instanceof Map<?, ?> map)
-        || !(map.get("kind") instanceof String kind)
-        || kind.isBlank()) {
-      throw new CliException("manifest " + file + " has no top-level 'kind' field");
-    }
-    return kind;
   }
 
   private static void handleEvents(

@@ -82,6 +82,14 @@ public final class BootstrapMojo extends AbstractMojo {
   private record ExampleModule(
       String deploymentName, String manifestPath, String jarPathTemplate) {}
 
+  /**
+   * The four values every CLI-driven readiness/apply helper below needs to build a {@code gimle}
+   * command line against the cluster this goal just brought up -- bundled together so {@link
+   * #cliCommand} and its five callers thread one value instead of four.
+   */
+  private record ClusterEndpoint(
+      String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost) {}
+
   private static final List<ExampleModule> EXAMPLES =
       List.of(
           new ExampleModule(
@@ -183,18 +191,23 @@ public final class BootstrapMojo extends AbstractMojo {
           readyTimeout,
           "control-plane port " + CONTROLPLANE_PORT + " should start listening");
 
-      String bootstrapToken = tls ? mintBootstrapToken(tlsDir, controlPlaneHost) : null;
+      String cliClasspath = resolveClasspath("gimle-cli");
+      String bootstrapToken =
+          tls
+              ? mintBootstrapToken(
+                  new ClusterEndpoint(cliClasspath, true, tlsDir, controlPlaneHost))
+              : null;
 
       spawned.add(spawnAgent(tls, tlsDir, controlPlaneHost, bootstrapToken, logsDir));
-      String cliClasspath = resolveClasspath("gimle-cli");
+      ClusterEndpoint endpoint = new ClusterEndpoint(cliClasspath, tls, tlsDir, controlPlaneHost);
       awaitTrue(
-          () -> hasRegisteredNodes(cliClasspath, tls, tlsDir, controlPlaneHost),
+          () -> hasRegisteredNodes(endpoint),
           readyTimeout,
           "the agent should register a node with the control plane");
 
       if (deployExamples) {
-        applyExamples(cliClasspath, tls, tlsDir, controlPlaneHost);
-        awaitExamplesActive(cliClasspath, tls, tlsDir, controlPlaneHost, readyTimeout);
+        applyExamples(endpoint);
+        awaitExamplesActive(endpoint, readyTimeout);
       }
 
       printSummary(tls, controlPlaneHost, base);
@@ -266,116 +279,136 @@ public final class BootstrapMojo extends AbstractMojo {
 
   private Process spawnStore(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
-    List<String> command = new ArrayList<>();
-    command.add(GimleProcesses.javaExecutable());
-    if (tls) {
-      // See the class javadoc: reuses the controlplane leaf certificate, there is no dedicated
-      // store identity yet.
-      addTlsFlags(
-          command,
-          tlsDir.resolve("controlplane.crt"),
-          tlsDir.resolve("controlplane.key"),
-          tlsDir.resolve("ca.crt"));
-    }
-    // Optional -- see AgentMain's own javadoc on
-    // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
-    command.add("-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
-    command.add("-cp");
-    command.add(resolveClasspath("gimle-mimir"));
-    command.add("com.gimle.mimir.StoreMain");
-    command.add(base.resolve("store-state").toString());
-    command.add(String.valueOf(STORE_RAFT_PORT));
-    command.add(String.valueOf(STORE_CLIENT_PORT));
-    getLog().info("starting store on client port " + STORE_CLIENT_PORT);
-    return spawnLongRunning(command, logsDir.resolve("store.log"));
+    return spawnGimleProcess(
+        tls,
+        tlsDir,
+        // See the class javadoc: reuses the controlplane leaf certificate, there is no dedicated
+        // store identity yet.
+        "controlplane",
+        // Optional -- see AgentMain's own javadoc on gimle.agent.muninnEndpoint for why this is a
+        // system property rather than a new CLI flag.
+        List.of("-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT),
+        "gimle-mimir",
+        "com.gimle.mimir.StoreMain",
+        List.of(
+            base.resolve("store-state").toString(),
+            String.valueOf(STORE_RAFT_PORT),
+            String.valueOf(STORE_CLIENT_PORT)),
+        "starting store on client port " + STORE_CLIENT_PORT,
+        logsDir.resolve("store.log"));
   }
 
   private Process spawnFafnir(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
-    List<String> command = new ArrayList<>();
-    command.add(GimleProcesses.javaExecutable());
-    if (tls) {
-      // Unlike the store above, Fafnir gets its own distinct leaf identity from cluster-bootstrap
-      // time -- see the class javadoc for why sharing the control plane's borrowed identity, the
-      // store's own stand-in, isn't an option here.
-      addTlsFlags(
-          command,
-          tlsDir.resolve("fafnir.crt"),
-          tlsDir.resolve("fafnir.key"),
-          tlsDir.resolve("ca.crt"));
-    }
-    // Optional -- see AgentMain's own javadoc on
-    // gimle.agent.muninnEndpoint for why this is a system property rather than a new CLI flag.
-    command.add("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
-    command.add("-cp");
-    command.add(resolveClasspath("gimle-fafnir"));
-    command.add("com.gimle.fafnir.FafnirMain");
-    command.add(String.valueOf(FAFNIR_PORT));
-    command.add(base.resolve("fafnir-secret.key").toString());
-    command.add("--store-endpoints");
-    command.add("127.0.0.1:" + STORE_CLIENT_PORT);
-    getLog().info("starting fafnir on port " + FAFNIR_PORT);
-    return spawnLongRunning(command, logsDir.resolve("fafnir.log"));
+    return spawnGimleProcess(
+        tls,
+        tlsDir,
+        // Unlike the store above, Fafnir gets its own distinct leaf identity from
+        // cluster-bootstrap time -- see the class javadoc for why sharing the control plane's
+        // borrowed identity, the store's own stand-in, isn't an option here.
+        "fafnir",
+        List.of("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + MUNINN_PORT),
+        "gimle-fafnir",
+        "com.gimle.fafnir.FafnirMain",
+        List.of(
+            String.valueOf(FAFNIR_PORT),
+            base.resolve("fafnir-secret.key").toString(),
+            "--store-endpoints",
+            "127.0.0.1:" + STORE_CLIENT_PORT),
+        "starting fafnir on port " + FAFNIR_PORT,
+        logsDir.resolve("fafnir.log"));
   }
 
   private Process spawnMuninn(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
-    List<String> command = new ArrayList<>();
-    command.add(GimleProcesses.javaExecutable());
-    if (tls) {
-      // Its own dedicated leaf identity, the same reasoning as Fafnir's above: Muninn's own
-      // independent Authorizer check on proxied reads needs to be attributable to its own
-      // certificate Subject, not a borrowed one.
-      addTlsFlags(
-          command,
-          tlsDir.resolve("muninn.crt"),
-          tlsDir.resolve("muninn.key"),
-          tlsDir.resolve("ca.crt"));
-    }
-    command.add("-cp");
-    command.add(resolveClasspath("gimle-muninn"));
-    command.add("com.gimle.muninn.MuninnMain");
-    command.add(String.valueOf(MUNINN_PORT));
-    command.add("--store-endpoints");
-    command.add("127.0.0.1:" + STORE_CLIENT_PORT);
-    command.add("--data-root");
-    command.add(base.resolve("muninn-data").toString());
-    getLog().info("starting muninn on port " + MUNINN_PORT);
-    return spawnLongRunning(command, logsDir.resolve("muninn.log"));
+    return spawnGimleProcess(
+        tls,
+        tlsDir,
+        // Its own dedicated leaf identity, the same reasoning as Fafnir's above: Muninn's own
+        // independent Authorizer check on proxied reads needs to be attributable to its own
+        // certificate Subject, not a borrowed one.
+        "muninn",
+        List.of(),
+        "gimle-muninn",
+        "com.gimle.muninn.MuninnMain",
+        List.of(
+            String.valueOf(MUNINN_PORT),
+            "--store-endpoints",
+            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "--data-root",
+            base.resolve("muninn-data").toString()),
+        "starting muninn on port " + MUNINN_PORT,
+        logsDir.resolve("muninn.log"));
   }
 
   private Process spawnControlPlane(Path base, boolean tls, Path tlsDir, Path logsDir)
       throws MojoExecutionException {
-    List<String> command = new ArrayList<>();
-    command.add(GimleProcesses.javaExecutable());
+    List<String> extraJvmArgs = new ArrayList<>();
     if (tls) {
-      addTlsFlags(
-          command,
-          tlsDir.resolve("controlplane.crt"),
-          tlsDir.resolve("controlplane.key"),
-          tlsDir.resolve("ca.crt"));
       // Distinct from gimle.tls.keyFile (this node's own leaf key): the cluster CA's own private
       // key, needed so this control plane can sign incoming CSRs and mint bootstrap tokens at
       // /bootstrap/csr and /bootstrap/tokens (see CaKeyMaterial's own javadoc). A single-node
       // bootstrap has exactly one control-plane replica, so it's always the one holding
       // cluster-signing authority here.
-      command.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
+      extraJvmArgs.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
     }
+    return spawnGimleProcess(
+        tls,
+        tlsDir,
+        "controlplane",
+        extraJvmArgs,
+        "gimle-controlplane",
+        "com.gimle.controlplane.ControlPlaneMain",
+        List.of(
+            String.valueOf(CONTROLPLANE_PORT),
+            base.resolve("controlplane-secret.key").toString(),
+            "--store-endpoints",
+            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "--fafnir-endpoint",
+            "127.0.0.1:" + FAFNIR_PORT,
+            // Optional -- lets this replica's /logs/* proxy fall back to Muninn's own shipped
+            // history for a gone node/instance instead of a bare 404/502.
+            "--muninn-endpoint",
+            "127.0.0.1:" + MUNINN_PORT),
+        "starting control plane on port " + CONTROLPLANE_PORT,
+        logsDir.resolve("controlplane.log"));
+  }
+
+  /**
+   * Shared skeleton behind {@link #spawnStore}/{@link #spawnFafnir}/{@link #spawnMuninn}/{@link
+   * #spawnControlPlane}: build the {@code java -cp ... mainClass args...} command line, adding TLS
+   * flags for {@code certName}'s leaf certificate when {@code tls} is set, then hand it to {@link
+   * #spawnLongRunning}. The four callers differ only in which cert they present, which extra JVM
+   * system properties they need, which module's classpath/main class to launch, and which
+   * positional args that main class takes.
+   */
+  private Process spawnGimleProcess(
+      boolean tls,
+      Path tlsDir,
+      String certName,
+      List<String> extraJvmArgs,
+      String classpathArtifactId,
+      String mainClass,
+      List<String> args,
+      String startingLogMessage,
+      Path logFile)
+      throws MojoExecutionException {
+    List<String> command = new ArrayList<>();
+    command.add(GimleProcesses.javaExecutable());
+    if (tls) {
+      addTlsFlags(
+          command,
+          tlsDir.resolve(certName + ".crt"),
+          tlsDir.resolve(certName + ".key"),
+          tlsDir.resolve("ca.crt"));
+    }
+    command.addAll(extraJvmArgs);
     command.add("-cp");
-    command.add(resolveClasspath("gimle-controlplane"));
-    command.add("com.gimle.controlplane.ControlPlaneMain");
-    command.add(String.valueOf(CONTROLPLANE_PORT));
-    command.add(base.resolve("controlplane-secret.key").toString());
-    command.add("--store-endpoints");
-    command.add("127.0.0.1:" + STORE_CLIENT_PORT);
-    command.add("--fafnir-endpoint");
-    command.add("127.0.0.1:" + FAFNIR_PORT);
-    // Optional -- lets this replica's /logs/* proxy fall back to
-    // Muninn's own shipped history for a gone node/instance instead of a bare 404/502.
-    command.add("--muninn-endpoint");
-    command.add("127.0.0.1:" + MUNINN_PORT);
-    getLog().info("starting control plane on port " + CONTROLPLANE_PORT);
-    return spawnLongRunning(command, logsDir.resolve("controlplane.log"));
+    command.add(resolveClasspath(classpathArtifactId));
+    command.add(mainClass);
+    command.addAll(args);
+    getLog().info(startingLogMessage);
+    return spawnLongRunning(command, logFile);
   }
 
   private Process spawnAgent(
@@ -440,31 +473,28 @@ public final class BootstrapMojo extends AbstractMojo {
 
   // ---- CLI helpers (bootstrap token, node registration, apply, ACTIVE polling) ----
 
-  private List<String> cliCommand(
-      String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost, String... args) {
+  private List<String> cliCommand(ClusterEndpoint endpoint, String... args) {
     List<String> command = new ArrayList<>();
     command.add(GimleProcesses.javaExecutable());
-    if (tls) {
+    if (endpoint.tls()) {
       addTlsFlags(
           command,
-          tlsDir.resolve("operator.crt"),
-          tlsDir.resolve("operator.key"),
-          tlsDir.resolve("ca.crt"));
+          endpoint.tlsDir().resolve("operator.crt"),
+          endpoint.tlsDir().resolve("operator.key"),
+          endpoint.tlsDir().resolve("ca.crt"));
     }
     command.add("-cp");
-    command.add(cliClasspath);
+    command.add(endpoint.cliClasspath());
     command.add("com.gimle.cli.GimleCli");
     command.addAll(List.of(args));
     command.add("--server");
-    command.add(controlPlaneHost + ":" + CONTROLPLANE_PORT);
+    command.add(endpoint.controlPlaneHost() + ":" + CONTROLPLANE_PORT);
     return command;
   }
 
-  private String mintBootstrapToken(Path tlsDir, String controlPlaneHost)
+  private String mintBootstrapToken(ClusterEndpoint endpoint)
       throws MojoExecutionException, MojoFailureException {
-    String cliClasspath = resolveClasspath("gimle-cli");
-    List<String> command =
-        cliCommand(cliClasspath, true, tlsDir, controlPlaneHost, "cert", "token", "create");
+    List<String> command = cliCommand(endpoint, "cert", "token", "create");
     getLog().info("minting a node bootstrap token");
     String output = runCapturing(command);
     Matcher matcher = Pattern.compile("bootstrap token: (\\S+)").matcher(output);
@@ -475,10 +505,8 @@ public final class BootstrapMojo extends AbstractMojo {
     return matcher.group(1);
   }
 
-  private boolean hasRegisteredNodes(
-      String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost) {
-    List<String> command =
-        cliCommand(cliClasspath, tls, tlsDir, controlPlaneHost, "get", "nodes", "-o", "json");
+  private boolean hasRegisteredNodes(ClusterEndpoint endpoint) {
+    List<String> command = cliCommand(endpoint, "get", "nodes", "-o", "json");
     try {
       return !runCapturing(command).strip().equals("[]");
     } catch (MojoExecutionException | MojoFailureException e) {
@@ -486,13 +514,11 @@ public final class BootstrapMojo extends AbstractMojo {
     }
   }
 
-  private void applyExamples(String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost)
+  private void applyExamples(ClusterEndpoint endpoint)
       throws MojoExecutionException, MojoFailureException {
     for (ExampleModule example : EXAMPLES) {
       Path manifest = repoRoot().resolve(example.manifestPath());
-      List<String> command =
-          cliCommand(
-              cliClasspath, tls, tlsDir, controlPlaneHost, "apply", "-f", manifest.toString());
+      List<String> command = cliCommand(endpoint, "apply", "-f", manifest.toString());
       getLog().info("deploying " + example.deploymentName());
       runToCompletion(command);
     }
@@ -506,14 +532,11 @@ public final class BootstrapMojo extends AbstractMojo {
    * await()} budget takes for the identical reason, just downgraded from a test assertion to a
    * dev-convenience nudge.
    */
-  private void awaitExamplesActive(
-      String cliClasspath, boolean tls, Path tlsDir, String controlPlaneHost, Duration timeout) {
+  private void awaitExamplesActive(ClusterEndpoint endpoint, Duration timeout) {
     for (ExampleModule example : EXAMPLES) {
       try {
         awaitTrue(
-            () ->
-                isDeploymentActive(
-                    cliClasspath, tls, tlsDir, controlPlaneHost, example.deploymentName()),
+            () -> isDeploymentActive(endpoint, example.deploymentName()),
             timeout,
             example.deploymentName() + " should reach ACTIVE");
       } catch (MojoExecutionException e) {
@@ -527,23 +550,8 @@ public final class BootstrapMojo extends AbstractMojo {
     }
   }
 
-  private boolean isDeploymentActive(
-      String cliClasspath,
-      boolean tls,
-      Path tlsDir,
-      String controlPlaneHost,
-      String deploymentName) {
-    List<String> command =
-        cliCommand(
-            cliClasspath,
-            tls,
-            tlsDir,
-            controlPlaneHost,
-            "get",
-            "deployments",
-            deploymentName,
-            "-o",
-            "json");
+  private boolean isDeploymentActive(ClusterEndpoint endpoint, String deploymentName) {
+    List<String> command = cliCommand(endpoint, "get", "deployments", deploymentName, "-o", "json");
     try {
       return runCapturing(command).contains("\"lifecycleState\":\"ACTIVE\"");
     } catch (MojoExecutionException | MojoFailureException e) {
