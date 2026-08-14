@@ -1,0 +1,16 @@
+name: surtr-density
+transport: plaintext
+
+# A lean two-node cluster for scale/density burns: single store, control plane, and Fafnir keep the
+# process count and boot time down, while two nodes let placement spread across machines.
+store:
+  replicas: 1
+controlPlane:
+  replicas: 1
+fafnir:
+  replicas: 1
+muninn:
+  enabled: false
+
+nodes:
+  count: 2

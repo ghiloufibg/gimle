@@ -39,6 +39,8 @@ one load scenario can run on a machine at a time.)
 | Heimdall condition harness (views, log follow, probes, invariants) | `com.gimle.holmgang.heimdall` |
 | Loki network-fault injection (proxied topologies) | `com.gimle.holmgang.loki` |
 | Fenrir randomized chaos scheduler (`FenrirPlan`, `Fenrir`, `ChaosLedger`) | `com.gimle.holmgang.fenrir` |
+| Surtr scale/churn workload runner (`SurtrWorkload`, `SurtrRunner`, `SurtrReport`) | `com.gimle.holmgang.surtr` |
+| Workload documents | `src/test/resources/workloads/*.yaml` |
 | Gatling load (`LoadGenerator`, simulation) | `com.gimle.holmgang.load` |
 | Recorded write workloads | `com.gimle.holmgang.workload` |
 | Step definitions, hooks, cluster pool | `com.gimle.holmgang.steps` |
@@ -71,6 +73,31 @@ The strike sequence is seeded and printed into the `ChaosLedger`, so a failing r
 `-Dgimle.holmgang.chaosSeed=<seed>`. A soak is expressed in Gherkin — `When Fenrir is unleashed for
 N seconds striking every M seconds` — and always runs on a `@destructive` scenario, since repeated
 kills leave no clean state for a pooled cluster. See `features/chaos-soak.feature`.
+
+## Scale & performance burns (Surtr)
+
+Where the scenario suite validates behaviour and Fenrir injects faults, **Surtr** answers the scale
+question: what the control plane does when asked for many of everything. A workload YAML declares a
+topology, jobs (`create` at a controlled QPS/burst, `churn` that redeploys or recreates a fraction
+per cycle, `delete`), the measurements to collect, and the gates that fail the run. One built
+reference module is deployed under N templated names — the pause-image trick — so object count
+scales without building N artifacts; `-Dgimle.surtr.scale=N` multiplies a create job's iterations.
+
+Startup latency is measured from the platform's **own lifecycle event log** (per-transition
+timestamps the platform recorded), not from harness polling, which would drown millisecond Tier-1
+deploys in sampling noise; API latency is client-observed. Every run writes a timestamped
+`target/holmgang/surtr/<workload>-<timestamp>/` directory — `summary.json` with an environment
+fingerprint plus per-measurement NDJSON — so two runs diff with `jq`. `maxFailedSubmissions` and
+`maxNeverActive` gate by default; latency gates are opt-in tripwires.
+
+```sh
+mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.surtr.workload=module-density
+mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.surtr.workload=module-density -Dgimle.surtr.scale=10
+```
+
+Without `-Dgimle.surtr.workload`, `SurtrIT` skips via a JUnit assumption, so ordinary validation
+runs are untouched. Bundled workloads live in `workloads/`; the property also accepts a filesystem
+path to a custom one.
 
 ## Failure forensics
 

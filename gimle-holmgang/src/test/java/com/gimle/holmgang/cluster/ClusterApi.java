@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -312,6 +313,46 @@ public final class ClusterApi {
   public boolean isServing() {
     final Optional<HttpResponse<String>> response = tryGet("/deployments");
     return response.isPresent() && response.get().statusCode() < 500;
+  }
+
+  /** One instance's placement: its index, the node hosting it, and its lifecycle state. */
+  public record InstancePlacement(int instanceIndex, String nodeId, String lifecycleState) {}
+
+  /** Every instance of a deployment with its node and state -- the placement-spread source. */
+  public List<InstancePlacement> placements(final String deploymentName) {
+    final List<InstancePlacement> placements = new ArrayList<>();
+    for (final Map<String, Object> instance : instancesOf(deploymentName)) {
+      final String state =
+          instance.get("observation") instanceof Map<?, ?> observation
+              ? String.valueOf(observation.get("lifecycleState"))
+              : "UNOBSERVED";
+      placements.add(
+          new InstancePlacement(
+              ((Number) instance.get("instanceIndex")).intValue(),
+              String.valueOf(instance.get("nodeId")),
+              state));
+    }
+    return placements;
+  }
+
+  /**
+   * One instance's platform lifecycle event log ({@code GET /events}): each entry carries the
+   * platform's own {@code occurredAtEpochMilli}, {@code kind}, and {@code message}. Empty when the
+   * instance has no events yet or the read fails. This is the authoritative source for
+   * startup-phase latencies -- timestamps the platform recorded, not the harness observed.
+   */
+  public List<Map<String, Object>> instanceEvents(
+      final String deploymentName, final int instanceIndex) {
+    final Optional<HttpResponse<String>> response =
+        tryGet("/events?deployment=" + deploymentName + "&instance=" + instanceIndex);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return List.of();
+    }
+    try {
+      return Json.asObjectList(Json.parse(response.get().body()));
+    } catch (final RuntimeException e) {
+      return List.of();
+    }
   }
 
   private List<Map<String, Object>> instancesOf(final String deploymentName) {
