@@ -11,7 +11,7 @@ served at `/console` with no separate deploy step (see
 
 ## Screens
 
-Twelve routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
+Thirteen routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
 same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth:
 
 | Screen | Shows |
@@ -26,6 +26,7 @@ same data the [CLI](../reference/cli-reference.md) reads, not a parallel source 
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
 | Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker, soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
+| Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
 | Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
 | Logs | Live log tailing and crash-dump listing, below. |
 
@@ -61,6 +62,12 @@ before the UI did:
   real principal (and therefore only ever records an audit event) when the transport is TLS, via
   either a verified mTLS client certificate or a verified console session cookie — plaintext mode
   has neither.
+- **Access Control** (`GET/PUT/DELETE /roles/*`, `/rolebindings/*`, `/accounts/*`): three tabs —
+  Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope), Role
+  Bindings (a user/group subject toggle plus a role picker sourced from the Roles tab's own store),
+  and Accounts (username plus a create-or-reset password form — the API never returns password
+  material, so the list view never shows one). `RoleBinding`'s `id` is caller-chosen; the create
+  form defaults it to a slug of the subject and role rather than asking the operator to invent one.
 
 Deployment create/detail also gained the `autoscale:` policy (see [Manifest
 schema](../reference/manifest-schema.md#deployment-manifest-autoscale)): a read-only panel on the
@@ -104,6 +111,6 @@ footer. A 401 from any endpoint clears local session state and redirects to `/lo
 in place as "you don't have permission" instead, since the user is legitimately logged in and just
 lacks that specific permission.
 
-Managing `Role`/`RoleBinding`/`Account` objects themselves is CLI-only for now (see the
-[CLI reference](../reference/cli-reference.md)) — no dedicated "Access Control" screen yet. A
-natural, explicitly scoped follow-up, not a gap in this design.
+`Role`/`RoleBinding`/`Account` objects are managed from the Access Control screen (three tabs,
+below) as well as the CLI (see the [CLI reference](../reference/cli-reference.md)) — both read and
+write the same `/roles`, `/rolebindings`, and `/accounts` API surface, not two independent stores.

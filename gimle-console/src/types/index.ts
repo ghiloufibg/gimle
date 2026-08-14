@@ -435,3 +435,68 @@ export interface DisruptionBudget {
   maxUnavailable: number;
   maxSurge: number;
 }
+
+/* ---------------------------------------------------------------------------
+ * RBAC (Access Control): roles, role bindings, accounts
+ * ------------------------------------------------------------------------ */
+
+export type ResourceKind =
+  | "DEPLOYMENT"
+  | "JOB"
+  | "DAEMONSET"
+  | "STATEFULSET"
+  | "NODE"
+  | "TENANT"
+  | "CONFIG"
+  | "SECRET"
+  | "LOGS"
+  | "CERTIFICATE_REQUEST"
+  | "BOOTSTRAP_TOKEN"
+  | "ROLE"
+  | "ROLE_BINDING"
+  | "ACCOUNT"
+  | "AUDIT";
+
+export type Verb = "READ" | "WRITE" | "DELETE" | "APPROVE";
+
+export interface Permission {
+  resource: ResourceKind;
+  verb: Verb;
+  tenantScope?: string;
+}
+
+export interface Role {
+  name: string;
+  permissions: Permission[];
+}
+
+export interface RoleBinding {
+  id: string;
+  subject: string;
+  roleName: string;
+}
+
+/** List/detail shape only — the API never returns password material. */
+export interface Account {
+  username: string;
+}
+
+export const RESOURCE_KINDS: ResourceKind[] = [
+  "DEPLOYMENT",
+  "JOB",
+  "DAEMONSET",
+  "STATEFULSET",
+  "NODE",
+  "TENANT",
+  "CONFIG",
+  "SECRET",
+  "LOGS",
+  "CERTIFICATE_REQUEST",
+  "BOOTSTRAP_TOKEN",
+  "ROLE",
+  "ROLE_BINDING",
+  "ACCOUNT",
+  "AUDIT",
+];
+
+export const VERBS: Verb[] = ["READ", "WRITE", "DELETE", "APPROVE"];

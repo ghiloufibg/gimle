@@ -187,8 +187,8 @@ user is legitimately logged in, just lacks that permission) — it surfaces as a
 what `requireAuthorized` introduces at the API layer, in place of the single-status-code
 `requireClientCertificate` it replaced.
 
-**Managing `Role`/`RoleBinding`/`Account` objects themselves is CLI-only for now** — no "Access
-Control" console screen yet. It's a natural, explicitly scoped follow-up, not a gap in this design.
+**Managing `Role`/`RoleBinding`/`Account` objects** is available both from the CLI and from the
+console's own Access Control screen — see [Web console](./web-console.md).
 
 ## Audit logging
 

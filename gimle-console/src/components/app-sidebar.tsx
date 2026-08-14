@@ -11,6 +11,7 @@ import {
   BarChart3,
   Activity,
   ScrollText,
+  ShieldCheck,
   LogOut,
   ListChecks,
   Clock,
@@ -50,6 +51,7 @@ const items = [
   { title: "Tenants", url: "/tenants", icon: Users },
   { title: "Config", url: "/config", icon: Settings },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
+  { title: "Access Control", url: "/access-control", icon: ShieldCheck },
   { title: "Audit", url: "/audit", icon: ScrollText },
 ];
 

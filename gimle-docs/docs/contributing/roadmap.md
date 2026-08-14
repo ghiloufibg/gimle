@@ -17,8 +17,10 @@ Nothing else matters until this exists.
    [Authentication and authorization](../architecture/authn-authz.md). Real identity (mTLS
    certificate or console session) and real `Role`/`RoleBinding` authorization now sit in front of
    every `ApiServer` route; a node certificate is restricted to its own self-service endpoints, an
-   operator certificate defaults to full access via a built-in `cluster-admin` binding. Explicitly
-   left for a follow-up: an "Access Control" console screen (CLI-only for now).
+   operator certificate defaults to full access via a built-in `cluster-admin` binding. The
+   console's own "Access Control" screen for managing `Role`/`RoleBinding`/`Account` objects —
+   once a scoped CLI-only follow-up — has since landed too; see [Web
+   console](../architecture/web-console.md).
 2. ~~**Audit logging.**~~ **Done** — see [Authentication and
    authorization](../architecture/authn-authz.md#audit-logging). Every `WRITE`/`DELETE` decision
    `requireAuthorized` (and Fafnir's own `/secrets/*` equivalent) makes, allowed and denied alike,
