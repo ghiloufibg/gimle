@@ -28,6 +28,7 @@ import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.time.Instant;
@@ -466,7 +467,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     int colon = hostPort.lastIndexOf(':');
     String host = hostPort.substring(0, colon);
     int port = Integer.parseInt(hostPort.substring(colon + 1));
-    return new java.net.InetSocketAddress(host, port);
+    return new InetSocketAddress(host, port);
   }
 
   @Override

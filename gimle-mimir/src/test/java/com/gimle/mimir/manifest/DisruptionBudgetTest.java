@@ -44,9 +44,9 @@ class DisruptionBudgetTest {
 
   @Test
   void a_nonzero_max_surge_is_accepted_by_the_record_itself() {
-    // The record itself doesn't reject maxSurge > 0 -- only DeploymentManifestParser/
-    // DaemonSetManifestParser do, at the manifest layer, since "not implemented yet" and
-    // "meaningless on this workload kind" are business rules, not this type's own invariant.
+    // The record itself doesn't reject maxSurge > 0 -- only DaemonSetManifestParser does, at
+    // the manifest layer, since "meaningless on this workload kind" is a business rule, not this
+    // type's own invariant. DeploymentManifestParser accepts a nonzero maxSurge.
     DisruptionBudget budget = new DisruptionBudget(2, 1);
 
     assertEquals(2, budget.maxUnavailable());

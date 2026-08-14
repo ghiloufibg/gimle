@@ -41,7 +41,7 @@ public final class ManifestParser {
     if (!(raw instanceof Map<?, ?> root)) {
       throw new GimleManifestException("manifest must contain a YAML mapping at the root");
     }
-    String kind = requireString(root, "kind");
+    String kind = ManifestFields.requireString(root, "kind");
     return switch (kind) {
       case "Deployment" -> DeploymentManifestParser.parseRoot(root);
       case "Job" -> JobManifestParser.parseRoot(root);
@@ -50,13 +50,5 @@ public final class ManifestParser {
       case "StatefulSet" -> StatefulSetManifestParser.parseRoot(root);
       default -> throw GimleManifestException.unknownKind(kind);
     };
-  }
-
-  private static String requireString(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("missing or blank required field: " + key);
-    }
-    return s;
   }
 }

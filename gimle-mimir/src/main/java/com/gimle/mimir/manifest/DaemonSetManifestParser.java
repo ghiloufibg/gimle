@@ -2,10 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
-import com.gimle.core.module.Version;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -48,9 +45,9 @@ public final class DaemonSetManifestParser {
   // Package-visible, not private: ManifestParser calls this directly after peeling off kind:,
   // mirroring DeploymentManifestParser.parseRoot's own visibility exactly.
   static DaemonSetSpec parseRoot(Map<?, ?> root) {
-    String name = requireString(root, "name");
-    ModuleId moduleId = parseModuleId(requireMap(root, "module"));
-    String artifactPath = requireString(root, "artifactPath");
+    String name = ManifestFields.requireString(root, "name");
+    ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
+    String artifactPath = ManifestFields.requireString(root, "artifactPath");
     PlacementConstraints placement = parsePlacement(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
@@ -71,36 +68,18 @@ public final class DaemonSetManifestParser {
    * placement.antiAffinity}.
    */
   private static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
-    Object disruptionObj = root.get("disruption");
-    if (disruptionObj == null) {
-      return Optional.empty();
-    }
-    if (!(disruptionObj instanceof Map<?, ?> disruption)) {
-      throw new GimleManifestException("'disruption' must be a mapping");
-    }
-    int maxUnavailable = optionalIntField(disruption, "maxUnavailable").orElse(1);
-    if (disruption.containsKey("maxSurge")
-        && optionalIntField(disruption, "maxSurge").orElse(0) != 0) {
-      throw new GimleManifestException(
-          "'disruption.maxSurge' is not meaningful on a DaemonSet -- one instance per node is"
-              + " already the strongest guarantee a surge could offer; remove the field");
-    }
-    try {
-      return Optional.of(new DisruptionBudget(maxUnavailable));
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
-    }
-  }
-
-  private static Optional<Integer> optionalIntField(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new GimleManifestException("non-numeric field if present: disruption." + key);
-    }
-    return Optional.of(number.intValue());
+    return ManifestFields.parseDisruptionBudget(
+        root,
+        (disruption, maxUnavailable) -> {
+          if (disruption.containsKey("maxSurge")
+              && ManifestFields.optionalIntField(disruption, "maxSurge", "disruption.").orElse(0)
+                  != 0) {
+            throw new GimleManifestException(
+                "'disruption.maxSurge' is not meaningful on a DaemonSet -- one instance per node"
+                    + " is already the strongest guarantee a surge could offer; remove the field");
+          }
+          return new DisruptionBudget(maxUnavailable);
+        });
   }
 
   /** {@code tenantId} is optional: absent means untenanted. */
@@ -131,16 +110,6 @@ public final class DaemonSetManifestParser {
     return Optional.of(s);
   }
 
-  private static ModuleId parseModuleId(Map<?, ?> module) {
-    String moduleName = requireString(module, "name");
-    String versionText = requireString(module, "version");
-    try {
-      return new ModuleId(moduleName, Version.parse(versionText));
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid module reference: " + e.getMessage(), e);
-    }
-  }
-
   private static PlacementConstraints parsePlacement(Map<?, ?> root) {
     Object placementObj = root.get("placement");
     if (placementObj == null) {
@@ -157,46 +126,11 @@ public final class DaemonSetManifestParser {
           "'placement.antiAffinity' is not meaningful on a DaemonSet -- one per node is already"
               + " stronger than anti-affinity; remove the field");
     }
-    Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
+    Optional<Set<String>> requiredLabels = ManifestFields.parseRequiredLabels(placement);
     try {
       return new PlacementConstraints(requiredLabels, false);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid placement: " + e.getMessage(), e);
     }
-  }
-
-  private static Optional<Set<String>> parseRequiredLabels(Map<?, ?> placement) {
-    Object value = placement.get("requiredLabels");
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof List<?> list)) {
-      throw new GimleManifestException("'placement.requiredLabels' must be a list");
-    }
-    List<String> labels = new ArrayList<>();
-    for (Object entry : list) {
-      if (!(entry instanceof String s) || s.isBlank()) {
-        throw new GimleManifestException(
-            "each 'placement.requiredLabels' entry must be a non-blank string");
-      }
-      labels.add(s);
-    }
-    return Optional.of(Set.copyOf(labels));
-  }
-
-  private static String requireString(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("missing or blank required field: " + key);
-    }
-    return s;
-  }
-
-  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof Map<?, ?> m)) {
-      throw new GimleManifestException("missing or malformed required section: " + key);
-    }
-    return m;
   }
 }

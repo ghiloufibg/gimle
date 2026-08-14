@@ -30,6 +30,7 @@ import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
@@ -163,7 +164,7 @@ class RaftCodecTest {
   @Test
   void rejects_an_oversized_length_prefix_before_allocating() throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    new java.io.DataOutputStream(buffer).writeInt(Integer.MAX_VALUE);
+    new DataOutputStream(buffer).writeInt(Integer.MAX_VALUE);
     assertThrows(
         GimleCodecException.class,
         () -> RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
@@ -172,7 +173,7 @@ class RaftCodecTest {
   @Test
   void rejects_a_negative_length_prefix_before_allocating() throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    new java.io.DataOutputStream(buffer).writeInt(-1);
+    new DataOutputStream(buffer).writeInt(-1);
     assertThrows(
         GimleCodecException.class,
         () -> RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray())));
@@ -181,7 +182,7 @@ class RaftCodecTest {
   @Test
   void rejects_a_forged_huge_entry_count_without_preallocating() throws IOException {
     ByteArrayOutputStream body = new ByteArrayOutputStream();
-    java.io.DataOutputStream bodyOut = new java.io.DataOutputStream(body);
+    DataOutputStream bodyOut = new DataOutputStream(body);
     bodyOut.writeByte(2); // TAG_APPEND_ENTRIES
     bodyOut.writeLong(1L); // term
     bodyOut.writeUTF("node-1"); // leaderId
@@ -193,7 +194,7 @@ class RaftCodecTest {
     byte[] bodyBytes = body.toByteArray();
 
     ByteArrayOutputStream frame = new ByteArrayOutputStream();
-    new java.io.DataOutputStream(frame).writeInt(bodyBytes.length);
+    new DataOutputStream(frame).writeInt(bodyBytes.length);
     frame.write(bodyBytes);
     byte[] frameBytes = frame.toByteArray();
 

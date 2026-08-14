@@ -1,9 +1,22 @@
 package com.gimle.mimir.rpc;
 
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -211,35 +224,31 @@ public final class StoreNode implements StoreRpcHandler {
     return new StoreRpc.NotLeader(leaderClientAddress.orElse(""));
   }
 
-  private static StoreRpc.TenantResult tenantResult(Optional<com.gimle.core.tenant.Tenant> value) {
+  private static StoreRpc.TenantResult tenantResult(Optional<Tenant> value) {
     return value
         .map(v -> new StoreRpc.TenantResult(true, v))
         .orElseGet(() -> new StoreRpc.TenantResult(false, null));
   }
 
-  private static StoreRpc.DeploymentResult deploymentResult(
-      Optional<com.gimle.mimir.manifest.DeploymentSpec> value) {
+  private static StoreRpc.DeploymentResult deploymentResult(Optional<DeploymentSpec> value) {
     return value
         .map(v -> new StoreRpc.DeploymentResult(true, v))
         .orElseGet(() -> new StoreRpc.DeploymentResult(false, null));
   }
 
-  private static StoreRpc.JobSpecResult jobSpecResult(
-      Optional<com.gimle.mimir.manifest.JobSpec> value) {
+  private static StoreRpc.JobSpecResult jobSpecResult(Optional<JobSpec> value) {
     return value
         .map(v -> new StoreRpc.JobSpecResult(true, v))
         .orElseGet(() -> new StoreRpc.JobSpecResult(false, null));
   }
 
-  private static StoreRpc.JobPhaseResult jobPhaseResult(
-      Optional<com.gimle.mimir.store.JobPhase> value) {
+  private static StoreRpc.JobPhaseResult jobPhaseResult(Optional<JobPhase> value) {
     return value
         .map(v -> new StoreRpc.JobPhaseResult(true, v))
         .orElseGet(() -> new StoreRpc.JobPhaseResult(false, null));
   }
 
-  private static StoreRpc.CronJobSpecResult cronJobSpecResult(
-      Optional<com.gimle.mimir.manifest.CronJobSpec> value) {
+  private static StoreRpc.CronJobSpecResult cronJobSpecResult(Optional<CronJobSpec> value) {
     return value
         .map(v -> new StoreRpc.CronJobSpecResult(true, v))
         .orElseGet(() -> new StoreRpc.CronJobSpecResult(false, null));
@@ -251,15 +260,14 @@ public final class StoreNode implements StoreRpcHandler {
         .orElseGet(() -> new StoreRpc.InstantResult(false, 0L));
   }
 
-  private static StoreRpc.DaemonSetSpecResult daemonSetSpecResult(
-      Optional<com.gimle.mimir.manifest.DaemonSetSpec> value) {
+  private static StoreRpc.DaemonSetSpecResult daemonSetSpecResult(Optional<DaemonSetSpec> value) {
     return value
         .map(v -> new StoreRpc.DaemonSetSpecResult(true, v))
         .orElseGet(() -> new StoreRpc.DaemonSetSpecResult(false, null));
   }
 
   private static StoreRpc.StatefulSetSpecResult statefulSetSpecResult(
-      Optional<com.gimle.mimir.manifest.StatefulSetSpec> value) {
+      Optional<StatefulSetSpec> value) {
     return value
         .map(v -> new StoreRpc.StatefulSetSpecResult(true, v))
         .orElseGet(() -> new StoreRpc.StatefulSetSpecResult(false, null));
@@ -271,35 +279,32 @@ public final class StoreNode implements StoreRpcHandler {
         .orElseGet(() -> new StoreRpc.StringResult(false, ""));
   }
 
-  private static StoreRpc.RoleResult roleResult(Optional<com.gimle.core.authz.Role> value) {
+  private static StoreRpc.RoleResult roleResult(Optional<Role> value) {
     return value
         .map(v -> new StoreRpc.RoleResult(true, v))
         .orElseGet(() -> new StoreRpc.RoleResult(false, null));
   }
 
-  private static StoreRpc.RoleBindingResult roleBindingResult(
-      Optional<com.gimle.core.authz.RoleBinding> value) {
+  private static StoreRpc.RoleBindingResult roleBindingResult(Optional<RoleBinding> value) {
     return value
         .map(v -> new StoreRpc.RoleBindingResult(true, v))
         .orElseGet(() -> new StoreRpc.RoleBindingResult(false, null));
   }
 
-  private static StoreRpc.AccountResult accountResult(
-      Optional<com.gimle.core.authz.Account> value) {
+  private static StoreRpc.AccountResult accountResult(Optional<Account> value) {
     return value
         .map(v -> new StoreRpc.AccountResult(true, v))
         .orElseGet(() -> new StoreRpc.AccountResult(false, null));
   }
 
   private static StoreRpc.NodeRegistrationResult nodeRegistrationResult(
-      Optional<com.gimle.core.protocol.NodeRegistration> value) {
+      Optional<NodeRegistration> value) {
     return value
         .map(v -> new StoreRpc.NodeRegistrationResult(true, v))
         .orElseGet(() -> new StoreRpc.NodeRegistrationResult(false, null));
   }
 
-  private static StoreRpc.HeartbeatResult heartbeatResult(
-      Optional<com.gimle.mimir.store.ObservedHeartbeat> value) {
+  private static StoreRpc.HeartbeatResult heartbeatResult(Optional<ObservedHeartbeat> value) {
     return value
         .map(v -> new StoreRpc.HeartbeatResult(true, v))
         .orElseGet(() -> new StoreRpc.HeartbeatResult(false, null));
@@ -322,7 +327,7 @@ public final class StoreNode implements StoreRpcHandler {
   }
 
   private static StoreRpc.ReconcilerInstanceStateResult reconcilerInstanceStateResult(
-      Optional<com.gimle.mimir.store.ReconcilerInstanceState> value) {
+      Optional<ReconcilerInstanceState> value) {
     return value
         .map(v -> new StoreRpc.ReconcilerInstanceStateResult(true, v))
         .orElseGet(() -> new StoreRpc.ReconcilerInstanceStateResult(false, null));

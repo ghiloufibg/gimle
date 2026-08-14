@@ -2,15 +2,11 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
-import com.gimle.core.module.Version;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
-import java.util.Set;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -46,11 +42,11 @@ public final class DeploymentManifestParser {
   // of duplicating it. Deliberately still ignorant of kind: itself -- this method's only job is
   // "given a root map, build a DeploymentSpec," the same contract it had before kind: existed.
   static DeploymentSpec parseRoot(Map<?, ?> root) {
-    String name = requireString(root, "name");
-    ModuleId moduleId = parseModuleId(requireMap(root, "module"));
-    String artifactPath = requireString(root, "artifactPath");
+    String name = ManifestFields.requireString(root, "name");
+    ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
+    String artifactPath = ManifestFields.requireString(root, "artifactPath");
     int replicas = parseReplicas(root);
-    PlacementConstraints placement = parsePlacement(root);
+    PlacementConstraints placement = ManifestFields.parsePlacement(root);
     Optional<AutoscalePolicy> autoscale = parseAutoscale(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
@@ -74,42 +70,19 @@ public final class DeploymentManifestParser {
   }
 
   /**
-   * Unlike {@link DaemonSetManifestParser#parseDisruptionBudget}, a nonzero {@code maxSurge} is
+   * Unlike {@link DaemonSetManifestParser}'s own disruption parsing, a nonzero {@code maxSurge} is
    * accepted here -- {@code DeploymentReconciler#handleSurge} implements it via a synthetic index
    * range above {@code replicas}, a mechanism a DaemonSet's one-instance-per-node placement has no
    * equivalent of. See {@link DisruptionBudget}'s own javadoc for the full reasoning.
    */
   static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
-    Object disruptionObj = root.get("disruption");
-    if (disruptionObj == null) {
-      return Optional.empty();
-    }
-    if (!(disruptionObj instanceof Map<?, ?> disruption)) {
-      throw new GimleManifestException("'disruption' must be a mapping");
-    }
-    int maxUnavailable = optionalDisruptionIntField(disruption, "maxUnavailable").orElse(1);
-    int maxSurge = optionalDisruptionIntField(disruption, "maxSurge").orElse(0);
-    try {
-      return Optional.of(new DisruptionBudget(maxUnavailable, maxSurge));
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
-    }
-  }
-
-  /**
-   * Unlike {@link #optionalIntField}, error messages are scoped to {@code disruption.} rather than
-   * {@code autoscale.} -- a dedicated helper rather than parameterizing the prefix, matching this
-   * file's existing precedent of small, scope-specific helpers over a shared generalized one.
-   */
-  private static OptionalInt optionalDisruptionIntField(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (value == null) {
-      return OptionalInt.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new GimleManifestException("non-numeric field if present: disruption." + key);
-    }
-    return OptionalInt.of(number.intValue());
+    return ManifestFields.parseDisruptionBudget(
+        root,
+        (disruption, maxUnavailable) -> {
+          int maxSurge =
+              ManifestFields.optionalIntField(disruption, "maxSurge", "disruption.").orElse(0);
+          return new DisruptionBudget(maxUnavailable, maxSurge);
+        });
   }
 
   private static Optional<AutoscalePolicy> parseAutoscale(Map<?, ?> root) {
@@ -120,19 +93,25 @@ public final class DeploymentManifestParser {
     if (!(autoscaleObj instanceof Map<?, ?> autoscale)) {
       throw new GimleManifestException("'autoscale' must be a mapping");
     }
-    int minReplicas = requiredIntField(autoscale, "minReplicas");
-    int maxReplicas = requiredIntField(autoscale, "maxReplicas");
-    int targetCpuUtilizationPercent = requiredIntField(autoscale, "targetCpuUtilizationPercent");
+    int minReplicas = ManifestFields.requiredIntField(autoscale, "minReplicas", "autoscale.");
+    int maxReplicas = ManifestFields.requiredIntField(autoscale, "maxReplicas", "autoscale.");
+    int targetCpuUtilizationPercent =
+        ManifestFields.requiredIntField(autoscale, "targetCpuUtilizationPercent", "autoscale.");
     OptionalDouble targetRequestRatePerSecond =
-        optionalDoubleField(autoscale, "targetRequestRatePerSecond");
+        ManifestFields.optionalDoubleField(autoscale, "targetRequestRatePerSecond", "autoscale.");
     OptionalDouble targetErrorRatePercent =
-        optionalDoubleField(autoscale, "targetErrorRatePercent");
-    OptionalInt targetQueueDepth = optionalIntField(autoscale, "targetQueueDepth");
+        ManifestFields.optionalDoubleField(autoscale, "targetErrorRatePercent", "autoscale.");
+    OptionalInt targetQueueDepth =
+        ManifestFields.optionalIntField(autoscale, "targetQueueDepth", "autoscale.");
     AutoscalePolicy.CombinationMode combinationMode = parseCombinationMode(autoscale);
-    OptionalDouble cpuWeight = optionalDoubleField(autoscale, "cpuWeight");
-    OptionalDouble requestRateWeight = optionalDoubleField(autoscale, "requestRateWeight");
-    OptionalDouble errorRateWeight = optionalDoubleField(autoscale, "errorRateWeight");
-    OptionalDouble queueDepthWeight = optionalDoubleField(autoscale, "queueDepthWeight");
+    OptionalDouble cpuWeight =
+        ManifestFields.optionalDoubleField(autoscale, "cpuWeight", "autoscale.");
+    OptionalDouble requestRateWeight =
+        ManifestFields.optionalDoubleField(autoscale, "requestRateWeight", "autoscale.");
+    OptionalDouble errorRateWeight =
+        ManifestFields.optionalDoubleField(autoscale, "errorRateWeight", "autoscale.");
+    OptionalDouble queueDepthWeight =
+        ManifestFields.optionalDoubleField(autoscale, "queueDepthWeight", "autoscale.");
     try {
       return Optional.of(
           new AutoscalePolicy(
@@ -204,116 +183,11 @@ public final class DeploymentManifestParser {
     return Optional.of(s);
   }
 
-  private static int requiredIntField(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof Number number)) {
-      throw new GimleManifestException("missing or non-numeric required field: autoscale." + key);
-    }
-    return number.intValue();
-  }
-
-  /** Unlike {@link #requiredIntField}, absence means "not evaluated" rather than an error. */
-  private static OptionalDouble optionalDoubleField(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (value == null) {
-      return OptionalDouble.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new GimleManifestException("non-numeric field if present: autoscale." + key);
-    }
-    return OptionalDouble.of(number.doubleValue());
-  }
-
-  /** Unlike {@link #requiredIntField}, absence means "not evaluated" rather than an error. */
-  private static OptionalInt optionalIntField(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (value == null) {
-      return OptionalInt.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new GimleManifestException("non-numeric field if present: autoscale." + key);
-    }
-    return OptionalInt.of(number.intValue());
-  }
-
-  private static ModuleId parseModuleId(Map<?, ?> module) {
-    String moduleName = requireString(module, "name");
-    String versionText = requireString(module, "version");
-    try {
-      return new ModuleId(moduleName, Version.parse(versionText));
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid module reference: " + e.getMessage(), e);
-    }
-  }
-
   private static int parseReplicas(Map<?, ?> root) {
     Object value = root.get("replicas");
     if (!(value instanceof Number number)) {
       throw new GimleManifestException("missing or non-numeric required field: replicas");
     }
     return number.intValue();
-  }
-
-  private static PlacementConstraints parsePlacement(Map<?, ?> root) {
-    Object placementObj = root.get("placement");
-    if (placementObj == null) {
-      return PlacementConstraints.NONE;
-    }
-    if (!(placementObj instanceof Map<?, ?> placement)) {
-      throw new GimleManifestException("'placement' must be a mapping");
-    }
-    boolean antiAffinity = booleanField(placement, "antiAffinity", false);
-    Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
-    try {
-      return new PlacementConstraints(requiredLabels, antiAffinity);
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid placement: " + e.getMessage(), e);
-    }
-  }
-
-  private static Optional<Set<String>> parseRequiredLabels(Map<?, ?> placement) {
-    Object value = placement.get("requiredLabels");
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof List<?> list)) {
-      throw new GimleManifestException("'placement.requiredLabels' must be a list");
-    }
-    List<String> labels = new ArrayList<>();
-    for (Object entry : list) {
-      if (!(entry instanceof String s) || s.isBlank()) {
-        throw new GimleManifestException(
-            "each 'placement.requiredLabels' entry must be a non-blank string");
-      }
-      labels.add(s);
-    }
-    return Optional.of(Set.copyOf(labels));
-  }
-
-  private static boolean booleanField(Map<?, ?> map, String key, boolean defaultValue) {
-    Object value = map.get(key);
-    if (value == null) {
-      return defaultValue;
-    }
-    if (!(value instanceof Boolean b)) {
-      throw new GimleManifestException("field must be a boolean if present: " + key);
-    }
-    return b;
-  }
-
-  private static String requireString(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("missing or blank required field: " + key);
-    }
-    return s;
-  }
-
-  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof Map<?, ?> m)) {
-      throw new GimleManifestException("missing or malformed required section: " + key);
-    }
-    return m;
   }
 }

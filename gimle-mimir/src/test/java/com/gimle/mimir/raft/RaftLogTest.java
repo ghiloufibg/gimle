@@ -23,6 +23,74 @@ class RaftLogTest {
     return new LogEntry(term, index, new StateMutation.RemoveDeployment("deployment-" + index));
   }
 
+  /** Every field empty/default -- a base other tests build on by overriding just what they need. */
+  private static StateSnapshot emptySnapshot() {
+    return new StateSnapshot(
+        List.of(), // deployments
+        List.of(), // assignments
+        List.of(), // jobSpecs
+        List.of(), // jobRuns
+        Map.of(), // jobPhases
+        List.of(), // cronJobSpecs
+        Map.of(), // cronJobLastSchedule
+        List.of(), // daemonSetSpecs
+        List.of(), // daemonSetAssignments
+        Map.of(), // rollingDaemonSetNodes
+        List.of(), // statefulSetSpecs
+        List.of(), // statefulSetAssignments
+        Map.of(), // rollingStatefulSetIndices
+        Map.of(), // statefulSetIndexNodes
+        List.of(), // nodeRegistrations
+        Map.of(), // rollingIndices
+        Map.of(), // surgeIndices
+        Map.of(), // effectiveReplicas
+        List.of(), // tenants
+        Set.of(), // quotaViolatingDeployments
+        List.of(), // configEntries
+        List.of(), // roles
+        List.of(), // roleBindings
+        List.of(), // accounts
+        List.of(), // reconcilerInstanceStates
+        Set.of(), // cordonedNodes
+        List.of(), // instanceEvents
+        List.of()); // auditEvents
+  }
+
+  /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
+  private static StateSnapshot snapshotWithQuotaViolatingDeployments(
+      Set<String> quotaViolatingDeployments) {
+    StateSnapshot base = emptySnapshot();
+    return new StateSnapshot(
+        base.deployments(),
+        base.assignments(),
+        base.jobSpecs(),
+        base.jobRuns(),
+        base.jobPhases(),
+        base.cronJobSpecs(),
+        base.cronJobLastSchedule(),
+        base.daemonSetSpecs(),
+        base.daemonSetAssignments(),
+        base.rollingDaemonSetNodes(),
+        base.statefulSetSpecs(),
+        base.statefulSetAssignments(),
+        base.rollingStatefulSetIndices(),
+        base.statefulSetIndexNodes(),
+        base.nodeRegistrations(),
+        base.rollingIndices(),
+        base.surgeIndices(),
+        base.effectiveReplicas(),
+        base.tenants(),
+        quotaViolatingDeployments,
+        base.configEntries(),
+        base.roles(),
+        base.roleBindings(),
+        base.accounts(),
+        base.reconcilerInstanceStates(),
+        base.cordonedNodes(),
+        base.instanceEvents(),
+        base.auditEvents());
+  }
+
   @Test
   void appends_and_reads_back_entries() {
     RaftLog log = new RaftLog(tempDir.resolve("log1"));
@@ -109,12 +177,7 @@ class RaftLogTest {
     log.append(entry(1, 2));
     log.append(entry(2, 3));
 
-    StateSnapshot snapshot =
-        new StateSnapshot(
-            List.of(), List.of(), List.of(), List.of(), Map.of(), List.of(), Map.of(), List.of(),
-            List.of(), Map.of(), List.of(), List.of(), Map.of(), Map.of(), List.of(), Map.of(),
-            Map.of(), Map.of(), List.of(), Set.of(), List.of(), List.of(), List.of(), List.of(),
-            List.of(), Set.of(), List.of(), List.of());
+    StateSnapshot snapshot = emptySnapshot();
     log.installSnapshot(2, 1, RaftCodec.encodeSnapshot(snapshot));
 
     assertEquals(2L, log.snapshotLastIncludedIndex());
@@ -130,36 +193,7 @@ class RaftLogTest {
   void a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen() {
     Path dir = tempDir.resolve("log9");
     RaftLog log = new RaftLog(dir);
-    StateSnapshot snapshot =
-        new StateSnapshot(
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            Map.of(),
-            List.of(),
-            Map.of(),
-            List.of(),
-            List.of(),
-            Map.of(),
-            List.of(),
-            List.of(),
-            Map.of(),
-            Map.of(),
-            List.of(),
-            Map.of(),
-            Map.of(),
-            Map.of(),
-            List.of(),
-            Set.of("orders"),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            Set.of(),
-            List.of(),
-            List.of());
+    StateSnapshot snapshot = snapshotWithQuotaViolatingDeployments(Set.of("orders"));
     log.installSnapshot(10, 3, RaftCodec.encodeSnapshot(snapshot));
 
     RaftLog reopened = new RaftLog(dir);

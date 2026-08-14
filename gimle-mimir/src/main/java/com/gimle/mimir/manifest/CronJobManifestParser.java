@@ -2,11 +2,11 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
-import com.gimle.core.module.Version;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,9 +53,9 @@ public final class CronJobManifestParser {
   // Package-visible, not private: ManifestParser calls this directly after peeling off kind:,
   // mirroring JobManifestParser.parseRoot's own visibility exactly.
   static CronJobSpec parseRoot(Map<?, ?> root) {
-    String name = requireString(root, "name");
-    String schedule = requireString(root, "schedule");
-    JobTemplate jobTemplate = parseJobTemplate(requireMap(root, "jobTemplate"));
+    String name = ManifestFields.requireString(root, "name");
+    String schedule = ManifestFields.requireString(root, "schedule");
+    JobTemplate jobTemplate = parseJobTemplate(ManifestFields.requireMap(root, "jobTemplate"));
     Optional<Duration> startingDeadline = parseStartingDeadline(root);
     ConcurrencyPolicy concurrencyPolicy = parseConcurrencyPolicy(root);
     Optional<String> tenantId = parseTenantId(root);
@@ -70,8 +70,8 @@ public final class CronJobManifestParser {
   }
 
   private static JobTemplate parseJobTemplate(Map<?, ?> template) {
-    ModuleId moduleId = parseModuleId(requireMap(template, "module"));
-    String artifactPath = requireString(template, "artifactPath");
+    ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(template, "module"));
+    String artifactPath = ManifestFields.requireString(template, "artifactPath");
     PlacementConstraints placement = parsePlacement(template);
     Optional<Duration> activeDeadline = parseActiveDeadline(template);
     int backoffLimit = parseBackoffLimit(template);
@@ -103,7 +103,7 @@ public final class CronJobManifestParser {
       throw new GimleManifestException("'concurrencyPolicy' must be a string if present");
     }
     try {
-      return ConcurrencyPolicy.valueOf(s.toUpperCase(java.util.Locale.ROOT));
+      return ConcurrencyPolicy.valueOf(s.toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "'concurrencyPolicy' must be one of ALLOW, FORBID, REPLACE (case-insensitive); got: "
@@ -148,16 +148,9 @@ public final class CronJobManifestParser {
     return Optional.of(s);
   }
 
-  private static ModuleId parseModuleId(Map<?, ?> module) {
-    String moduleName = requireString(module, "name");
-    String versionText = requireString(module, "version");
-    try {
-      return new ModuleId(moduleName, Version.parse(versionText));
-    } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid module reference: " + e.getMessage(), e);
-    }
-  }
-
+  // jobTemplate.placement's error messages are scoped to jobTemplate.placement.* rather than
+  // ManifestFields.parsePlacement's plain placement.* -- kept as a local variant instead of
+  // parameterizing that shared helper's prefix for a single caller.
   private static PlacementConstraints parsePlacement(Map<?, ?> template) {
     Object placementObj = template.get("placement");
     if (placementObj == null) {
@@ -166,7 +159,7 @@ public final class CronJobManifestParser {
     if (!(placementObj instanceof Map<?, ?> placement)) {
       throw new GimleManifestException("'jobTemplate.placement' must be a mapping");
     }
-    boolean antiAffinity = booleanField(placement, "antiAffinity", false);
+    boolean antiAffinity = ManifestFields.booleanField(placement, "antiAffinity", false);
     Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
     try {
       return new PlacementConstraints(requiredLabels, antiAffinity);
@@ -192,32 +185,5 @@ public final class CronJobManifestParser {
       labels.add(s);
     }
     return Optional.of(Set.copyOf(labels));
-  }
-
-  private static boolean booleanField(Map<?, ?> map, String key, boolean defaultValue) {
-    Object value = map.get(key);
-    if (value == null) {
-      return defaultValue;
-    }
-    if (!(value instanceof Boolean b)) {
-      throw new GimleManifestException("field must be a boolean if present: " + key);
-    }
-    return b;
-  }
-
-  private static String requireString(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("missing or blank required field: " + key);
-    }
-    return s;
-  }
-
-  private static Map<?, ?> requireMap(Map<?, ?> map, String key) {
-    Object value = map.get(key);
-    if (!(value instanceof Map<?, ?> m)) {
-      throw new GimleManifestException("missing or malformed required section: " + key);
-    }
-    return m;
   }
 }

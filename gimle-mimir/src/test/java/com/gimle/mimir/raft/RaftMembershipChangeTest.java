@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -75,7 +77,7 @@ class RaftMembershipChangeTest {
   private RaftNode newSingleNodeLeader(
       Path dirName,
       RaftPeerClientFactory factory,
-      java.util.function.Consumer<Map<String, PeerAddress>> membershipListener,
+      Consumer<Map<String, PeerAddress>> membershipListener,
       Duration proposeTimeout) {
     Path dir = tempDir.resolve(dirName);
     StateStore store = new StateStore(dir.resolve("store"));
@@ -164,7 +166,7 @@ class RaftMembershipChangeTest {
     // own addServer call means that call's lock.lock() cannot succeed until the background call's
     // entire locked section -- including setting pendingMembershipChangeIndex -- has completed,
     // eliminating the race a fixed sleep or bounded retry loop would only reduce, not remove.
-    java.util.concurrent.CountDownLatch peerConnected = new java.util.concurrent.CountDownLatch(1);
+    CountDownLatch peerConnected = new CountDownLatch(1);
     RaftNode leader =
         newSingleNodeLeader(
             Path.of("in-flight"),

@@ -1,6 +1,7 @@
 package com.gimle.mimir.rpc;
 
 import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.protocol.AuditEvent;
@@ -366,7 +367,7 @@ public sealed interface StoreRpc {
 
   record TenantResult(boolean present, Tenant value) implements Response {}
 
-  record RoleResult(boolean present, com.gimle.core.authz.Role value) implements Response {}
+  record RoleResult(boolean present, Role value) implements Response {}
 
   record RoleBindingResult(boolean present, RoleBinding value) implements Response {}
 
@@ -388,7 +389,7 @@ public sealed interface StoreRpc {
 
   record ConfigEntryListResult(List<ConfigEntry> values) implements Response {}
 
-  record RoleListResult(List<com.gimle.core.authz.Role> values) implements Response {}
+  record RoleListResult(List<Role> values) implements Response {}
 
   record RoleBindingListResult(List<RoleBinding> values) implements Response {}
 

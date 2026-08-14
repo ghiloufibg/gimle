@@ -763,6 +763,12 @@ public final class RaftCodec {
         DomainCodec.writeConfigEntry(out, entry);
       }
       out.writeInt(snapshot.roles().size());
+      // Fully qualified deliberately: this package already declares its own Role (a Raft node's
+      // FOLLOWER/CANDIDATE/LEADER state), which shadows an unqualified single-type-import of the
+      // RBAC com.gimle.core.authz.Role of the same simple name -- same-package types always win
+      // Java's unqualified-name resolution over an import, silently, with no compile error at the
+      // declaration site (only at first attempted use of the wrong type). See StateMutation.java's
+      // own PutRole for the identical collision.
       for (com.gimle.core.authz.Role role : snapshot.roles()) {
         DomainCodec.writeRole(out, role);
       }
@@ -924,6 +930,8 @@ public final class RaftCodec {
       for (int i = 0; i < configCount; i++) {
         configEntries.add(DomainCodec.readConfigEntry(in));
       }
+      // Fully qualified deliberately: same Role/Role collision as writeSnapshot above -- see the
+      // comment there.
       List<com.gimle.core.authz.Role> roles = new ArrayList<>();
       int roleCount = in.readInt();
       for (int i = 0; i < roleCount; i++) {

@@ -1033,17 +1033,13 @@ public final class StateStore implements StoreReader {
         Map.copyOf(cronJobLastSchedule),
         List.copyOf(daemonSetSpecs.values()),
         List.copyOf(daemonSetAssignments.values()),
-        rollingDaemonSetNodes.entrySet().stream()
-            .collect(
-                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue()))),
+        rollingDaemonSetNodesSnapshot(),
         List.copyOf(statefulSetSpecs.values()),
         List.copyOf(statefulSetAssignments.values()),
         Map.copyOf(rollingStatefulSetIndices),
         Map.copyOf(statefulSetIndexNodes),
         List.copyOf(nodeRegistrations.values()),
-        rollingIndices.entrySet().stream()
-            .collect(
-                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue()))),
+        rollingIndicesSnapshot(),
         surgeIndices.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Map.copyOf(e.getValue()))),
@@ -1071,6 +1067,18 @@ public final class StateStore implements StoreReader {
     synchronized (auditEventsLock) {
       return List.copyOf(auditEvents);
     }
+  }
+
+  /** The deep-copied {@code rollingDaemonSetNodes} shape {@link #snapshot()} embeds. */
+  private Map<String, Set<String>> rollingDaemonSetNodesSnapshot() {
+    return rollingDaemonSetNodes.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+  }
+
+  /** The deep-copied {@code rollingIndices} shape {@link #snapshot()} embeds. */
+  private Map<String, Set<Integer>> rollingIndicesSnapshot() {
+    return rollingIndices.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 
   /**
@@ -1789,6 +1797,29 @@ public final class StateStore implements StoreReader {
   // DeploymentManifestParser -- these are our own written files, not user-facing input, but kept
   // just as defensive (SafeConstructor on read) for consistency. ----
 
+  /**
+   * The {@code {name, version}} shape a {@link ModuleId} is written as, everywhere it's embedded.
+   */
+  private static Map<String, Object> moduleIdToYamlMap(ModuleId moduleId) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", moduleId.name());
+    map.put("version", moduleId.version().toString());
+    return map;
+  }
+
+  /** The inverse of {@link #moduleIdToYamlMap}. */
+  private static ModuleId moduleIdFromYamlMap(Map<?, ?> map) {
+    return new ModuleId((String) map.get("name"), Version.parse((String) map.get("version")));
+  }
+
+  /**
+   * {@code map.get(key)}, null-safe into an {@link Optional} instead of a raw possibly-null cast.
+   */
+  private static Optional<String> optionalString(Map<?, ?> map, String key) {
+    Object value = map.get(key);
+    return value == null ? Optional.empty() : Optional.of((String) value);
+  }
+
   private static String deploymentToYaml(DeploymentSpec spec) {
     Map<String, Object> root = new LinkedHashMap<>();
     // Every manifest carries kind: now -- this is our own round-trip write, not operator input,
@@ -1796,10 +1827,7 @@ public final class StateStore implements StoreReader {
     // it costs nothing and keeps this file self-describing on disk.
     root.put("kind", "Deployment");
     root.put("name", spec.name());
-    Map<String, Object> module = new LinkedHashMap<>();
-    module.put("name", spec.moduleId().name());
-    module.put("version", spec.moduleId().version().toString());
-    root.put("module", module);
+    root.put("module", moduleIdToYamlMap(spec.moduleId()));
     root.put("artifactPath", spec.artifactPath());
     root.put("replicas", spec.replicas());
     Map<String, Object> placement = new LinkedHashMap<>();
@@ -1826,10 +1854,7 @@ public final class StateStore implements StoreReader {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("kind", "Job");
     root.put("name", spec.name());
-    Map<String, Object> module = new LinkedHashMap<>();
-    module.put("name", spec.moduleId().name());
-    module.put("version", spec.moduleId().version().toString());
-    root.put("module", module);
+    root.put("module", moduleIdToYamlMap(spec.moduleId()));
     root.put("artifactPath", spec.artifactPath());
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.placement().antiAffinityAcrossNodes());
@@ -1849,20 +1874,14 @@ public final class StateStore implements StoreReader {
     root.put("jobName", run.jobName());
     root.put("attempt", run.attempt());
     root.put("nodeId", run.nodeId());
-    Map<String, Object> moduleId = new LinkedHashMap<>();
-    moduleId.put("name", run.moduleId().name());
-    moduleId.put("version", run.moduleId().version().toString());
-    root.put("moduleId", moduleId);
+    root.put("moduleId", moduleIdToYamlMap(run.moduleId()));
     root.put("artifactPath", run.artifactPath());
     root.put("startedAt", run.startedAt().toString());
     return new Yaml().dump(root);
   }
 
   private static JobRun jobRunFromMap(Map<?, ?> map) {
-    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
-    ModuleId moduleId =
-        new ModuleId(
-            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    ModuleId moduleId = moduleIdFromYamlMap((Map<?, ?>) map.get("moduleId"));
     return new JobRun(
         (String) map.get("jobName"),
         ((Number) map.get("attempt")).intValue(),
@@ -1888,10 +1907,7 @@ public final class StateStore implements StoreReader {
     root.put("name", spec.name());
     root.put("schedule", spec.schedule());
     Map<String, Object> template = new LinkedHashMap<>();
-    Map<String, Object> module = new LinkedHashMap<>();
-    module.put("name", spec.jobTemplate().moduleId().name());
-    module.put("version", spec.jobTemplate().moduleId().version().toString());
-    template.put("module", module);
+    template.put("module", moduleIdToYamlMap(spec.jobTemplate().moduleId()));
     template.put("artifactPath", spec.jobTemplate().artifactPath());
     Map<String, Object> placement = new LinkedHashMap<>();
     placement.put("antiAffinity", spec.jobTemplate().placement().antiAffinityAcrossNodes());
@@ -1925,10 +1941,7 @@ public final class StateStore implements StoreReader {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("kind", "DaemonSet");
     root.put("name", spec.name());
-    Map<String, Object> module = new LinkedHashMap<>();
-    module.put("name", spec.moduleId().name());
-    module.put("version", spec.moduleId().version().toString());
-    root.put("module", module);
+    root.put("module", moduleIdToYamlMap(spec.moduleId()));
     root.put("artifactPath", spec.artifactPath());
     Map<String, Object> placement = new LinkedHashMap<>();
     spec.placement()
@@ -1944,19 +1957,13 @@ public final class StateStore implements StoreReader {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("daemonSetName", assignment.daemonSetName());
     root.put("nodeId", assignment.nodeId());
-    Map<String, Object> moduleId = new LinkedHashMap<>();
-    moduleId.put("name", assignment.moduleId().name());
-    moduleId.put("version", assignment.moduleId().version().toString());
-    root.put("moduleId", moduleId);
+    root.put("moduleId", moduleIdToYamlMap(assignment.moduleId()));
     root.put("artifactPath", assignment.artifactPath());
     return new Yaml().dump(root);
   }
 
   private static DaemonSetAssignment daemonSetAssignmentFromMap(Map<?, ?> map) {
-    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
-    ModuleId moduleId =
-        new ModuleId(
-            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    ModuleId moduleId = moduleIdFromYamlMap((Map<?, ?>) map.get("moduleId"));
     return new DaemonSetAssignment(
         (String) map.get("daemonSetName"),
         (String) map.get("nodeId"),
@@ -1981,10 +1988,7 @@ public final class StateStore implements StoreReader {
     Map<String, Object> root = new LinkedHashMap<>();
     root.put("kind", "StatefulSet");
     root.put("name", spec.name());
-    Map<String, Object> module = new LinkedHashMap<>();
-    module.put("name", spec.moduleId().name());
-    module.put("version", spec.moduleId().version().toString());
-    root.put("module", module);
+    root.put("module", moduleIdToYamlMap(spec.moduleId()));
     root.put("artifactPath", spec.artifactPath());
     root.put("replicas", spec.replicas());
     Map<String, Object> placement = new LinkedHashMap<>();
@@ -2003,19 +2007,13 @@ public final class StateStore implements StoreReader {
     root.put("statefulSetName", assignment.statefulSetName());
     root.put("instanceIndex", assignment.instanceIndex());
     root.put("nodeId", assignment.nodeId());
-    Map<String, Object> moduleId = new LinkedHashMap<>();
-    moduleId.put("name", assignment.moduleId().name());
-    moduleId.put("version", assignment.moduleId().version().toString());
-    root.put("moduleId", moduleId);
+    root.put("moduleId", moduleIdToYamlMap(assignment.moduleId()));
     root.put("artifactPath", assignment.artifactPath());
     return new Yaml().dump(root);
   }
 
   private static StatefulSetAssignment statefulSetAssignmentFromMap(Map<?, ?> map) {
-    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
-    ModuleId moduleId =
-        new ModuleId(
-            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    ModuleId moduleId = moduleIdFromYamlMap((Map<?, ?>) map.get("moduleId"));
     return new StatefulSetAssignment(
         (String) map.get("statefulSetName"),
         ((Number) map.get("instanceIndex")).intValue(),
@@ -2076,10 +2074,7 @@ public final class StateStore implements StoreReader {
     root.put("deploymentName", assignment.deploymentName());
     root.put("instanceIndex", assignment.instanceIndex());
     root.put("nodeId", assignment.nodeId());
-    Map<String, Object> moduleId = new LinkedHashMap<>();
-    moduleId.put("name", assignment.moduleId().name());
-    moduleId.put("version", assignment.moduleId().version().toString());
-    root.put("moduleId", moduleId);
+    root.put("moduleId", moduleIdToYamlMap(assignment.moduleId()));
     root.put("artifactPath", assignment.artifactPath());
     assignment
         .renamedFromInstanceIndex()
@@ -2088,10 +2083,7 @@ public final class StateStore implements StoreReader {
   }
 
   private static InstanceAssignment assignmentFromMap(Map<?, ?> map) {
-    Map<?, ?> moduleIdMap = (Map<?, ?>) map.get("moduleId");
-    ModuleId moduleId =
-        new ModuleId(
-            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    ModuleId moduleId = moduleIdFromYamlMap((Map<?, ?>) map.get("moduleId"));
     Object artifactPath = map.get("artifactPath");
     Object renamedFrom = map.get("renamedFromInstanceIndex");
     return new InstanceAssignment(
@@ -2135,11 +2127,8 @@ public final class StateStore implements StoreReader {
             : rawLabels.stream()
                 .map(String.class::cast)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-    Object apiAddress = root.get("apiAddress");
     return new NodeRegistration(
-        nodeId,
-        new NodeCapabilities(supportedTiers, labels),
-        apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress));
+        nodeId, new NodeCapabilities(supportedTiers, labels), optionalString(root, "apiAddress"));
   }
 
   private static String heartbeatToYaml(NodeHeartbeat heartbeat, Instant receivedAt) {
@@ -2157,10 +2146,7 @@ public final class StateStore implements StoreReader {
       Map<String, Object> m = new LinkedHashMap<>();
       m.put("deploymentName", obs.deploymentName());
       m.put("instanceIndex", obs.instanceIndex());
-      Map<String, Object> moduleId = new LinkedHashMap<>();
-      moduleId.put("name", obs.moduleId().name());
-      moduleId.put("version", obs.moduleId().version().toString());
-      m.put("moduleId", moduleId);
+      m.put("moduleId", moduleIdToYamlMap(obs.moduleId()));
       m.put("lifecycleState", obs.lifecycleState());
       m.put("alive", obs.alive());
       m.put("ready", obs.ready());
@@ -2193,10 +2179,7 @@ public final class StateStore implements StoreReader {
     List<InstanceObservation> instances = new ArrayList<>();
     for (Object o : instancesList) {
       Map<?, ?> m = (Map<?, ?>) o;
-      Map<?, ?> moduleIdMap = (Map<?, ?>) m.get("moduleId");
-      ModuleId moduleId =
-          new ModuleId(
-              (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+      ModuleId moduleId = moduleIdFromYamlMap((Map<?, ?>) m.get("moduleId"));
       instances.add(
           new InstanceObservation(
               (String) m.get("deploymentName"),
@@ -2276,12 +2259,7 @@ public final class StateStore implements StoreReader {
       Map<?, ?> m = (Map<?, ?>) o;
       ResourceKind resource = ResourceKind.valueOf((String) m.get("resource"));
       Verb verb = Verb.valueOf((String) m.get("verb"));
-      Object tenantScope = m.get("tenantScope");
-      permissions.add(
-          new Permission(
-              resource,
-              verb,
-              tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope)));
+      permissions.add(new Permission(resource, verb, optionalString(m, "tenantScope")));
     }
     return new Role(name, permissions);
   }
@@ -2349,14 +2327,13 @@ public final class StateStore implements StoreReader {
   }
 
   private static InstanceEvent instanceEventFromMap(Map<?, ?> root) {
-    Object causeSummary = root.get("causeSummary");
     return new InstanceEvent(
         (String) root.get("id"),
         (String) root.get("deploymentName"),
         ((Number) root.get("instanceIndex")).intValue(),
         InstanceEventKind.valueOf((String) root.get("kind")),
         (String) root.get("message"),
-        causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
+        optionalString(root, "causeSummary"),
         ((Number) root.get("occurredAtEpochMilli")).longValue());
   }
 
@@ -2382,16 +2359,14 @@ public final class StateStore implements StoreReader {
             : rawGroups.stream()
                 .map(String.class::cast)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-    Object tenantId = root.get("tenantId");
-    Object targetId = root.get("targetId");
     return new AuditEvent(
         (String) root.get("id"),
         (String) root.get("principal"),
         groups,
         (String) root.get("resourceKind"),
         (String) root.get("verb"),
-        tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
-        targetId == null ? Optional.empty() : Optional.of((String) targetId),
+        optionalString(root, "tenantId"),
+        optionalString(root, "targetId"),
         (Boolean) root.get("allowed"),
         ((Number) root.get("occurredAtEpochMilli")).longValue());
   }

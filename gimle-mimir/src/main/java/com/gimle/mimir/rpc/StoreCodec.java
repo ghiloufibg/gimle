@@ -1,6 +1,7 @@
 package com.gimle.mimir.rpc;
 
 import com.gimle.core.authz.Account;
+import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.codec.Frames;
 import com.gimle.core.config.ConfigEntry;
@@ -575,7 +576,7 @@ public final class StoreCodec {
         case StoreRpc.RoleListResult v -> {
           out.writeByte(TAG_ROLE_LIST_RESULT);
           out.writeInt(v.values().size());
-          for (com.gimle.core.authz.Role r : v.values()) {
+          for (Role r : v.values()) {
             DomainCodec.writeRole(out, r);
           }
         }
@@ -887,7 +888,7 @@ public final class StoreCodec {
         }
         case TAG_ROLE_LIST_RESULT -> {
           int count = in.readInt();
-          List<com.gimle.core.authz.Role> values = new ArrayList<>();
+          List<Role> values = new ArrayList<>();
           for (int i = 0; i < count; i++) {
             values.add(DomainCodec.readRole(in));
           }
