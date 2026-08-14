@@ -989,7 +989,20 @@ public final class AgentMain {
             Optional.of(systemLogFile),
             WorkerProcessSupervisor.DEFAULT_STABLE_UPTIME_THRESHOLD,
             Optional.of(workerLogRoot),
-            crash -> onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId));
+            crash -> onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId),
+            spawnedWorkerId ->
+                onWorkerRespawned(
+                    spawnedWorkerId,
+                    supervised,
+                    gossipMember,
+                    catalog,
+                    httpClient,
+                    baseUrl,
+                    fafnirBaseUrl,
+                    nodeId,
+                    volumeManager,
+                    muninnEndpoint,
+                    workerShippers));
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
@@ -1056,6 +1069,97 @@ public final class AgentMain {
               Instant.now().toEpochMilli());
       postInstanceEvent(httpClient, baseUrl, nodeId, event);
     }
+  }
+
+  /**
+   * Re-runs the {@code InstallModule}/{@code ResolveModule}/{@code StartModule} handshake against a
+   * worker JVM that just came back up after a crash-triggered respawn ({@link
+   * WorkerProcessSupervisor}'s {@code onRespawned} callback). A freshly-spawned process is a blank
+   * slate -- no installed module, no resolved layer, nothing started -- even though it shares its
+   * predecessor's {@code workerId} and control-socket path, so every {@code SupervisedInstance} the
+   * crashed worker hosted (more than one under Tier 1 density, all sharing one {@link
+   * ControlChannelServer}) is reset to its pre-connection state and re-driven together over the one
+   * freshly-accepted connection, exactly like a brand-new worker's first start.
+   *
+   * <p>{@code instance.volumeHandle} is deliberately left untouched by the reset: {@link
+   * #allocateVolumeIfNeeded}, called again as part of {@link #sendInstallStartSequence}, resolves
+   * to the same on-disk directory for the same {@code (deploymentName, instanceIndex)} pair (see
+   * {@code LocalDiskVolumeManager#allocate}'s idempotent {@code createDirectories}), so re-deriving
+   * it here would be redundant, not incorrect -- but skipping it keeps this method's intent (reset
+   * only what the crash actually invalidated) honest.
+   */
+  private static void onWorkerRespawned(
+      String spawnedWorkerId,
+      Map<String, SupervisedInstance> supervised,
+      GossipMember gossipMember,
+      ServiceCatalog catalog,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl,
+      String nodeId,
+      VolumeManager volumeManager,
+      String muninnEndpoint,
+      Map<String, WorkerShipperPair> workerShippers) {
+    List<Map.Entry<String, SupervisedInstance>> hosted =
+        supervised.entrySet().stream()
+            .filter(entry -> entry.getValue().supervisor.workerId().equals(spawnedWorkerId))
+            .toList();
+    if (hosted.isEmpty()) {
+      // Every instance the crashed worker hosted was torn down (undeploy, rename, scale-down)
+      // in the window between the crash and this respawn notification -- nothing left to redrive.
+      return;
+    }
+    for (Map.Entry<String, SupervisedInstance> entry : hosted) {
+      resetForRespawn(entry.getValue());
+    }
+    Map.Entry<String, SupervisedInstance> first = hosted.get(0);
+    try {
+      WorkerConnection connection = first.getValue().server.accept();
+      for (Map.Entry<String, SupervisedInstance> entry : hosted) {
+        entry.getValue().connection = connection;
+      }
+      Thread.ofVirtual()
+          .name("gimle-instance-reader-" + first.getKey())
+          .start(
+              () ->
+                  readLoop(
+                      first.getValue(),
+                      first.getKey(),
+                      gossipMember,
+                      catalog,
+                      httpClient,
+                      baseUrl,
+                      nodeId,
+                      supervised,
+                      muninnEndpoint,
+                      workerShippers));
+      for (Map.Entry<String, SupervisedInstance> entry : hosted) {
+        sendInstallStartSequence(
+            entry.getValue(), connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
+      }
+    } catch (IOException e) {
+      log.error("failed to redrive worker {} after respawn: {}", spawnedWorkerId, e.getMessage());
+    }
+  }
+
+  /**
+   * Rolls one {@code SupervisedInstance} back to the state {@link #startInstance} would have given
+   * it before its worker ever connected the first time -- everything a respawned worker's blank
+   * slate has invalidated. Never touches {@link SupervisedInstance#volumeHandle} (see {@link
+   * #onWorkerRespawned}'s own javadoc) or {@link SupervisedInstance#assigned}/{@code supervisor}/
+   * {@code server}/{@code descriptor}, none of which the crash changed.
+   */
+  private static void resetForRespawn(SupervisedInstance instance) {
+    instance.connection = null;
+    instance.lifecycleState = "INSTALLED";
+    instance.fabricWorkerId = null;
+    instance.fabricUdsPath = "";
+    instance.fabricTcpAddress = null;
+    instance.cpuMillicoresUsed = 0;
+    instance.memoryBytesUsed = 0;
+    instance.requestRatePerSecond = 0;
+    instance.errorRatePerSecond = 0;
+    instance.queueDepth = 0;
   }
 
   /**

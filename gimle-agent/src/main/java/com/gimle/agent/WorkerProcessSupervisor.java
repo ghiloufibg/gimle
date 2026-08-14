@@ -53,6 +53,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   static final int OOM_EXIT_CODE = 3;
 
   private static final Consumer<CrashInfo> NO_OP_ON_CRASH = info -> {};
+  private static final Consumer<String> NO_OP_ON_RESPAWNED = workerId -> {};
 
   private final String workerId;
   private final List<String> baseCommand;
@@ -63,6 +64,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   private final Duration stableUptimeThreshold;
   private final Optional<Path> workerLogRoot;
   private final Consumer<CrashInfo> onCrash;
+  private final Consumer<String> onRespawned;
 
   private volatile Process process;
   private volatile boolean closed;
@@ -84,7 +86,8 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
         Optional.empty(),
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         Optional.empty(),
-        NO_OP_ON_CRASH);
+        NO_OP_ON_CRASH,
+        NO_OP_ON_RESPAWNED);
   }
 
   /**
@@ -110,7 +113,8 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
         systemLogFile,
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         Optional.empty(),
-        NO_OP_ON_CRASH);
+        NO_OP_ON_CRASH,
+        NO_OP_ON_RESPAWNED);
   }
 
   /**
@@ -136,7 +140,8 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
         systemLogFile,
         stableUptimeThreshold,
         Optional.empty(),
-        NO_OP_ON_CRASH);
+        NO_OP_ON_CRASH,
+        NO_OP_ON_RESPAWNED);
   }
 
   /**
@@ -145,7 +150,9 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    * crash-dump correlation, matching every shorter overload above. {@code onCrash} is called from
    * {@link #onExit} with a best-effort {@link CrashInfo} classification of every unexpected exit,
    * before the respawn decision is made; the default no-op matches this class's previous behavior
-   * of only ever logging the raw exit code.
+   * of only ever logging the raw exit code. Delegates to the ten-arg canonical constructor with a
+   * no-op {@code onRespawned} -- for a caller (or test) that doesn't care about redriving a
+   * respawned worker's handshake.
    */
   public WorkerProcessSupervisor(
       String workerId,
@@ -157,6 +164,39 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       Duration stableUptimeThreshold,
       Optional<Path> workerLogRoot,
       Consumer<CrashInfo> onCrash) {
+    this(
+        workerId,
+        baseCommand,
+        controlSocketPath,
+        restartTracker,
+        onRestartBudgetExhausted,
+        systemLogFile,
+        stableUptimeThreshold,
+        workerLogRoot,
+        onCrash,
+        NO_OP_ON_RESPAWNED);
+  }
+
+  /**
+   * {@code onRespawned} is called with {@code workerId} after a crash-triggered respawn's {@link
+   * #spawn()} call returns successfully -- a fresh worker process shares this supervisor's {@code
+   * workerId} and control-socket path, but starts with none of the platform state (installed
+   * module, resolved layer, started lifecycle) the previous process had, so the caller needs a
+   * signal to re-drive that handshake from scratch. Called outside this instance's own monitor
+   * lock, since the caller's handshake involves a blocking {@code accept()} that must never hold up
+   * a concurrent {@link #stop()}.
+   */
+  public WorkerProcessSupervisor(
+      String workerId,
+      List<String> baseCommand,
+      Path controlSocketPath,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Optional<Path> systemLogFile,
+      Duration stableUptimeThreshold,
+      Optional<Path> workerLogRoot,
+      Consumer<CrashInfo> onCrash,
+      Consumer<String> onRespawned) {
     this.workerId = workerId;
     this.baseCommand = List.copyOf(baseCommand);
     this.controlSocketPath = controlSocketPath;
@@ -166,6 +206,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     this.stableUptimeThreshold = stableUptimeThreshold;
     this.workerLogRoot = workerLogRoot;
     this.onCrash = onCrash;
+    this.onRespawned = onRespawned;
   }
 
   public synchronized void start() throws IOException {
@@ -302,8 +343,10 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
                   scheduleStabilityConfirmation(process);
                 } catch (IOException e) {
                   log.error("worker {} respawn failed: {}", workerId, e.getMessage());
+                  return;
                 }
               }
+              onRespawned.accept(workerId);
             });
   }
 
