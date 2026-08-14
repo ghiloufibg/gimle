@@ -46,6 +46,10 @@ class ForensicReportTest {
 
   @Test
   void the_report_carries_view_processes_events_and_log_location() {
+    // A real Path, not a hardcoded forward-slash literal: ForensicReport.render appends workDir
+    // via its own toString(), which is backslash-separated on Windows -- comparing against the
+    // same Path's own rendering (below) keeps this assertion platform-independent.
+    final Path workDir = Path.of("work", "dir");
     final ClusterView view =
         new ClusterView(
             Instant.now(),
@@ -70,7 +74,7 @@ class ForensicReportTest {
                 new StubProcess(ProcessRole.AGENT, "node-1", false, true)),
             List.of("2026-08-14T05:00:00Z greeter: desired 1, ACTIVE=0 [...]"),
             List.of("2026-08-14T05:00:02Z greeter#0 SCHEDULED: placed on node-1"),
-            Path.of("/work/dir"));
+            workDir);
     assertTrue(report.contains("condition not met: something"), report);
     assertTrue(report.contains("last ClusterView"), report);
     assertTrue(report.contains("via control-plane replica #1"), report);
@@ -79,7 +83,7 @@ class ForensicReportTest {
     assertTrue(report.contains("AGENT node-1 (by harness)"), report);
     assertTrue(report.contains("recent harness events:"), report);
     assertTrue(report.contains("recent platform events:"), report);
-    assertTrue(report.contains("process logs under: /work/dir"), report);
+    assertTrue(report.contains("process logs under: " + workDir), report);
   }
 
   @Test

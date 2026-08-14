@@ -18,6 +18,8 @@ final class ManagedProcess implements GimleProcess {
 
   private final ProcessRole role;
   private final String id;
+  // The caller's original command, rewritten by JavaArgFile.rewrite into "java @argfile" form --
+  // see that class's own javadoc for why every spawn here needs it, not just AGENT's.
   private final List<String> command;
   private final Path logFile;
   private final String endpoint;
@@ -33,7 +35,7 @@ final class ManagedProcess implements GimleProcess {
       final String endpoint) {
     this.role = role;
     this.id = id;
-    this.command = List.copyOf(command);
+    this.command = JavaArgFile.rewrite(command, Path.of(logFile + ".args"));
     this.logFile = logFile;
     this.endpoint = endpoint;
     this.current = spawn(ProcessBuilder.Redirect.to(logFile.toFile()));
@@ -115,10 +117,6 @@ final class ManagedProcess implements GimleProcess {
   @Override
   public String endpoint() {
     return endpoint;
-  }
-
-  Process process() {
-    return current;
   }
 
   private void awaitExit() {

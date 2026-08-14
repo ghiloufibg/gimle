@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -340,37 +341,55 @@ public final class GimleCluster implements AutoCloseable {
     heimdall().holdFor(invariant, window);
   }
 
+  private static final Pattern WORKER_SPAWN_LINE =
+      Pattern.compile("spawned worker (\\S+) as pid (\\d+)");
+
   /**
    * The live worker JVM currently hosting one instance, found the same way the platform itself
-   * can't tell you: by scanning the supervising agents' process descendants for the worker-only
-   * {@code -Dgimle.log.root=.../workers/<deployment>#<index>} flag stamped at spawn time. The
-   * trailing WorkerMain main-class argument is deliberately not matched -- {@code
-   * ProcessHandle.Info#commandLine()} truncates this repo's long classpaths before reaching it.
+   * can't tell you: {@code WorkerProcessSupervisor} logs {@code "spawned worker <key> as pid
+   * <pid>"} on every spawn and respawn, so the agent's own log file is a reliable, already-durable
+   * record of which OS pid currently backs a given instance -- taking the last matching line
+   * naturally picks up a post-respawn pid over a stale pre-kill one. Deliberately not {@code
+   * ProcessHandle.Info#commandLine()}-based matching on a descendant process's own flags (an
+   * earlier approach here): that command line embeds this repo's own long, still-growing classpath,
+   * and Windows silently truncates a queried process's reported command line well before the
+   * identifying flag ever appears in it -- a failure this method used to hit as "no live worker
+   * found" for a worker that was, in fact, alive and correctly spawned.
    */
   public Optional<ProcessHandle> workerFor(final String deploymentName, final int instanceIndex) {
     final String key = deploymentName + "#" + instanceIndex;
     for (final ManagedProcess agent : agents.values()) {
       final Optional<ProcessHandle> worker =
-          agent
-              .process()
-              .descendants()
-              .filter(
-                  handle ->
-                      handle
-                          .info()
-                          .commandLine()
-                          .map(
-                              line ->
-                                  line.contains("-Dgimle.log.root=")
-                                      && line.contains("/workers/")
-                                      && line.contains(key))
-                          .orElse(false))
-              .findFirst();
+          latestWorkerPid(agent.logFile(), key)
+              .flatMap(ProcessHandle::of)
+              .filter(ProcessHandle::isAlive);
       if (worker.isPresent()) {
         return worker;
       }
     }
     return Optional.empty();
+  }
+
+  private static Optional<Long> latestWorkerPid(final Path agentLogFile, final String key) {
+    Long pid = null;
+    try {
+      // ISO-8859-1, deliberately not UTF-8: this file is still being appended to by the live
+      // agent process as it's read, and a read landing mid-write can catch a multi-byte UTF-8
+      // sequence (the banner's "Gimlé") only half-flushed, which UTF-8 decoding rejects outright
+      // as malformed input. ISO-8859-1 maps every byte 0x00-0xFF to a character, so it can never
+      // throw here -- the only text this method actually parses (the ASCII "spawned worker ..."
+      // line) decodes identically either way, so a possibly-mangled banner elsewhere in the file
+      // costs nothing.
+      for (final String line : Files.readAllLines(agentLogFile, StandardCharsets.ISO_8859_1)) {
+        final Matcher matcher = WORKER_SPAWN_LINE.matcher(line);
+        if (matcher.find() && matcher.group(1).equals(key)) {
+          pid = Long.parseLong(matcher.group(2));
+        }
+      }
+    } catch (final IOException e) {
+      throw new HolmgangException("failed reading agent log " + agentLogFile, e);
+    }
+    return Optional.ofNullable(pid);
   }
 
   private synchronized Heimdall heimdall() {
@@ -509,7 +528,10 @@ public final class GimleCluster implements AutoCloseable {
       final Path logFile,
       final Duration timeout,
       final String description) {
-    final ProcessBuilder pb = new ProcessBuilder(command);
+    // See JavaArgFile's own javadoc: the same shared, long test classpath every ManagedProcess
+    // spawn needs this for applies here too (TLS material generation, bootstrap token minting).
+    final ProcessBuilder pb =
+        new ProcessBuilder(JavaArgFile.rewrite(command, Path.of(logFile + ".args")));
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     try {
