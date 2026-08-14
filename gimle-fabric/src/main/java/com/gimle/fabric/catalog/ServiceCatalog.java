@@ -7,6 +7,7 @@ import com.gimle.fabric.cluster.PiggybackExtension;
 import java.net.InetSocketAddress;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -31,8 +32,8 @@ public final class ServiceCatalog implements PiggybackExtension {
   private static final Logger log = LoggerFactory.getLogger(ServiceCatalog.class);
   private static final int DEFAULT_MAX_PIGGYBACK_DELTAS = 8;
   private static final int MAX_RETAINED_RECENT_DELTAS = 256;
-  private static final java.util.Comparator<ServiceEndpoint> ENDPOINT_ORDER =
-      java.util.Comparator.<ServiceEndpoint, String>comparing(e -> e.node().nodeId())
+  private static final Comparator<ServiceEndpoint> ENDPOINT_ORDER =
+      Comparator.<ServiceEndpoint, String>comparing(e -> e.node().nodeId())
           .thenComparing(ServiceEndpoint::workerId);
 
   private final int maxPiggybackDeltas;

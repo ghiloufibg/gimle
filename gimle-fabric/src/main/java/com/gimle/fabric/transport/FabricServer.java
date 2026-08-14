@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import javax.net.ssl.SSLServerSocket;
 import org.slf4j.Logger;
@@ -431,27 +432,31 @@ public final class FabricServer implements AutoCloseable {
       return TraceState.getDefault();
     }
     TraceStateBuilder builder = TraceState.builder();
-    for (String pair : encoded.split(",")) {
-      int eq = pair.indexOf('=');
-      if (eq > 0) {
-        builder.put(pair.substring(0, eq), pair.substring(eq + 1));
-      }
-    }
+    parsePairs(encoded, builder::put);
     return builder.build();
   }
 
   /** Inverse of {@code FabricServiceRegistry#encodeBaggage} -- see that method's own javadoc. */
   private static Baggage decodeBaggage(String encoded) {
     BaggageBuilder builder = Baggage.builder();
-    if (!encoded.isEmpty()) {
-      for (String pair : encoded.split(",")) {
-        int eq = pair.indexOf('=');
-        if (eq > 0) {
-          builder.put(pair.substring(0, eq), pair.substring(eq + 1));
-        }
+    parsePairs(encoded, builder::put);
+    return builder.build();
+  }
+
+  /**
+   * Splits a comma-separated {@code key=value} list, calling {@code put} for each pair. A segment
+   * with no {@code =} (or one starting with {@code =}) is skipped.
+   */
+  private static void parsePairs(String encoded, BiConsumer<String, String> put) {
+    if (encoded.isEmpty()) {
+      return;
+    }
+    for (String pair : encoded.split(",")) {
+      int eq = pair.indexOf('=');
+      if (eq > 0) {
+        put.accept(pair.substring(0, eq), pair.substring(eq + 1));
       }
     }
-    return builder.build();
   }
 
   static String traceIdHex(long high, long low) {

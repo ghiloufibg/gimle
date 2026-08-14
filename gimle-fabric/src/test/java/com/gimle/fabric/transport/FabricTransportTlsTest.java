@@ -3,6 +3,8 @@ package com.gimle.fabric.transport;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.fabric.registry.Greeter;
 import com.gimle.fabric.trace.TraceContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
@@ -126,9 +128,8 @@ class FabricTransportTlsTest {
     assertThrows(IOException.class, () -> FabricClient.call(address, invokeGreet("world")));
   }
 
-  private static final com.gimle.core.module.ModuleId OWNER =
-      new com.gimle.core.module.ModuleId(
-          "com.gimle.example.greeter", com.gimle.core.module.Version.parse("1.0.0"));
+  private static final ModuleId OWNER =
+      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
 
   private FabricFrame.InvokeRequest invokeGreet(String arg) {
     return new FabricFrame.InvokeRequest(

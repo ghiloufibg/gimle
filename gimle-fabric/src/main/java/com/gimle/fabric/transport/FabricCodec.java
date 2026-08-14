@@ -3,6 +3,7 @@ package com.gimle.fabric.transport;
 import com.gimle.core.codec.Frames;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.fabric.trace.TraceContext;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -117,7 +118,7 @@ public final class FabricCodec {
 
   private static FabricFrame decodeBody(byte[] body) {
     try {
-      DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(body));
+      DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
       int version = in.readByte();
       GimleCodecException.checkVersion(version, CURRENT_VERSION);
       byte tag = in.readByte();

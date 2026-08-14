@@ -31,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
 import org.slf4j.Logger;
@@ -464,7 +465,7 @@ public final class GossipMember implements AutoCloseable {
             .filter(state -> !state.id().nodeId().equals(self.nodeId()))
             .filter(state -> !state.id().nodeId().equals(pending.target.nodeId()))
             .filter(state -> state.status() != MemberStatus.DEAD)
-            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            .collect(Collectors.toCollection(ArrayList::new));
     Collections.shuffle(relayCandidates, ThreadLocalRandom.current());
     int fanout = Math.min(config.indirectFanout(), relayCandidates.size());
     for (int i = 0; i < fanout; i++) {
