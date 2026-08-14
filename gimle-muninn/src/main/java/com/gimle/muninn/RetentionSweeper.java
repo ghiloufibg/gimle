@@ -3,6 +3,7 @@ package com.gimle.muninn;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.concurrent.Executors;
@@ -31,7 +32,7 @@ final class RetentionSweeper implements AutoCloseable {
   private final int retentionDays;
   private final ScheduledExecutorService scheduler;
 
-  RetentionSweeper(Path dataRoot, int retentionDays, java.time.Duration sweepInterval) {
+  RetentionSweeper(Path dataRoot, int retentionDays, Duration sweepInterval) {
     this.dataRoot = dataRoot;
     this.retentionDays = retentionDays;
     this.scheduler =

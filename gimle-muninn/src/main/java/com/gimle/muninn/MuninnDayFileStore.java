@@ -18,19 +18,19 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Backs every one of Muninn's three ingested data kinds (logs, and -- once B-9/B-11 land --
- * metrics/traces): one day-bucketed JSON-lines file per calendar day (UTC) under a caller-chosen
- * subtree, e.g. {@code logs/nodes/<nodeId>/<category>/2026-08-10.log}. Deliberately its own small
- * reader/writer rather than a literal reuse of {@link com.gimle.core.logging.LogFileReader}: that
- * class tails one "active file" plus a fixed, small number of count-rotated {@code .1}.. {@code .N}
- * copies (a single node's own local disk), whereas Muninn accumulates an unbounded, ever-growing
- * history from every shipper across the whole cluster, which needs age-based (not count-based)
- * retention -- a fundamentally different file-naming scheme, not a smaller version of the same one.
- * What *is* shared: the JSON-line shape a line round-trips as ({@code Map<String, Object>}, keyed
- * at minimum by {@code timestamp}), the {@link LogPage} result shape (reused directly, not
- * re-declared), and the oldest-first/cursor-by-timestamp paging semantics -- so {@code ApiServer}'s
- * proxy and the console/CLI callers on the other end of it see the same behavior regardless of
- * which store actually answered.
+ * Backs all three of Muninn's ingested data kinds -- logs, metrics, and traces: one day-bucketed
+ * JSON-lines file per calendar day (UTC) under a caller-chosen subtree, e.g. {@code
+ * logs/nodes/<nodeId>/<category>/2026-08-10.log}. Deliberately its own small reader/writer rather
+ * than a literal reuse of {@link com.gimle.core.logging.LogFileReader}: that class tails one
+ * "active file" plus a fixed, small number of count-rotated {@code .1}.. {@code .N} copies (a
+ * single node's own local disk), whereas Muninn accumulates an unbounded, ever-growing history from
+ * every shipper across the whole cluster, which needs age-based (not count-based) retention -- a
+ * fundamentally different file-naming scheme, not a smaller version of the same one. What *is*
+ * shared: the JSON-line shape a line round-trips as ({@code Map<String, Object>}, keyed at minimum
+ * by {@code timestamp}), the {@link LogPage} result shape (reused directly, not re-declared), and
+ * the oldest-first/cursor-by-timestamp paging semantics -- so {@code ApiServer}'s proxy and the
+ * console/CLI callers on the other end of it see the same behavior regardless of which store
+ * actually answered.
  */
 final class MuninnDayFileStore {
 

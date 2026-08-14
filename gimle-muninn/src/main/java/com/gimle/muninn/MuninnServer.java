@@ -185,80 +185,88 @@ public final class MuninnServer implements AutoCloseable {
     }
   }
 
-  // ---- POST /ingest/logs/nodes/{nodeId}/{category} ----
+  /** The body of a route handler, run once {@link #handle} has confirmed the request method. */
+  @FunctionalInterface
+  private interface RouteBody {
+    void run(HttpExchange exchange) throws IOException;
+  }
 
-  private void handleIngestNodeLogs(HttpExchange exchange) {
+  /**
+   * Common scaffolding for every ingest/read route below: rejects a mismatched HTTP method with
+   * {@code 405}, runs {@code body} for the matching one, maps a thrown {@link
+   * IllegalArgumentException} (e.g. a malformed ingest batch) to {@code 400} and any other {@link
+   * IOException}/{@link RuntimeException} to a logged {@code 500}, and always closes {@code
+   * exchange}. {@code logLabel} names the route in that failure log line (e.g. {@code "node log
+   * ingest"}).
+   */
+  private void handle(
+      HttpExchange exchange, String expectedMethod, String logLabel, RouteBody body) {
     try {
-      if (!"POST".equals(exchange.getRequestMethod())) {
+      if (!expectedMethod.equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      String[] parts = tailAfter(exchange, "/ingest/logs/nodes/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PATH_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /ingest/logs/nodes/{nodeId}/{category}");
-        return;
-      }
-      String nodeId = parts[0];
-      String category = parts[1];
-      if (!identityAllowedToIngestAsNode(exchange, nodeId)) {
-        respond(exchange, 403, "certificate identity does not match nodeId");
-        return;
-      }
-      ingest(exchange, "logs/nodes/" + nodeId + "/" + category);
+      body.run(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
-      log.warn("node log ingest failed: {}", e.getMessage());
+      log.warn("{} failed: {}", logLabel, e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
   }
 
+  // ---- POST /ingest/logs/nodes/{nodeId}/{category} ----
+
+  private void handleIngestNodeLogs(HttpExchange exchange) {
+    handle(
+        exchange,
+        "POST",
+        "node log ingest",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex, "/ingest/logs/nodes/", PATH_SEGMENT, PATH_SEGMENT, "{nodeId}/{category}");
+          if (parts == null) {
+            return;
+          }
+          String nodeId = parts[0];
+          String category = parts[1];
+          if (!identityAllowedToIngestAsNode(ex, nodeId)) {
+            respond(ex, 403, "certificate identity does not match nodeId");
+            return;
+          }
+          ingest(ex, "logs/nodes/" + nodeId + "/" + category);
+        });
+  }
+
   // ---- POST /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category} ----
 
   private void handleIngestInstanceLogs(HttpExchange exchange) {
-    try {
-      if (!"POST".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/ingest/logs/instances/").split("/", 3);
-      if (parts.length != 3 || !PATH_SEGMENT.matcher(parts[0]).matches()) {
-        respond(
-            exchange,
-            400,
-            "expected /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category}");
-        return;
-      }
-      String deploymentName = parts[0];
-      int instanceIndex;
-      try {
-        instanceIndex = Integer.parseInt(parts[1]);
-      } catch (NumberFormatException e) {
-        respond(exchange, 400, "invalid instanceIndex");
-        return;
-      }
-      String category = parts[2];
-      if (!PATH_SEGMENT.matcher(category).matches()) {
-        respond(exchange, 400, "invalid category: " + category);
-        return;
-      }
-      if (!identityAllowedToIngestAsInstanceOwner(exchange, deploymentName, instanceIndex)) {
-        respond(exchange, 403, "certificate identity does not own this instance's assignment");
-        return;
-      }
-      ingest(exchange, "logs/instances/" + deploymentName + "#" + instanceIndex + "/" + category);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("instance log ingest failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "POST",
+        "instance log ingest",
+        ex -> {
+          InstanceLogPath ref = parseInstanceLogPath(ex, "/ingest/logs/instances/");
+          if (ref == null) {
+            return;
+          }
+          if (!identityAllowedToIngestAsInstanceOwner(
+              ex, ref.deploymentName(), ref.instanceIndex())) {
+            respond(ex, 403, "certificate identity does not own this instance's assignment");
+            return;
+          }
+          ingest(
+              ex,
+              "logs/instances/"
+                  + ref.deploymentName()
+                  + "#"
+                  + ref.instanceIndex()
+                  + "/"
+                  + ref.category());
+        });
   }
 
   /**
@@ -283,175 +291,130 @@ public final class MuninnServer implements AutoCloseable {
   // ---- POST /ingest/metrics/{processKind}/{processId} ----
 
   private void handleIngestMetrics(HttpExchange exchange) {
-    try {
-      if (!"POST".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/ingest/metrics/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /ingest/metrics/{processKind}/{processId}");
-        return;
-      }
-      if (!identityAllowedToIngestMetricsOrTraces(exchange)) {
-        respond(exchange, 403, "no verified client certificate");
-        return;
-      }
-      ingest(exchange, "metrics/" + parts[0] + "/" + parts[1]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("metrics ingest failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "POST",
+        "metrics ingest",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex,
+                  "/ingest/metrics/",
+                  PATH_SEGMENT,
+                  PROCESS_ID_SEGMENT,
+                  "{processKind}/{processId}");
+          if (parts == null) {
+            return;
+          }
+          if (!identityAllowedToIngestMetricsOrTraces(ex)) {
+            respond(ex, 403, "no verified client certificate");
+            return;
+          }
+          ingest(ex, "metrics/" + parts[0] + "/" + parts[1]);
+        });
   }
 
   // ---- POST /ingest/traces/{processKind}/{processId} ----
 
   private void handleIngestTraces(HttpExchange exchange) {
-    try {
-      if (!"POST".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/ingest/traces/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /ingest/traces/{processKind}/{processId}");
-        return;
-      }
-      if (!identityAllowedToIngestMetricsOrTraces(exchange)) {
-        respond(exchange, 403, "no verified client certificate");
-        return;
-      }
-      ingest(exchange, "traces/" + parts[0] + "/" + parts[1]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("traces ingest failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "POST",
+        "traces ingest",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex,
+                  "/ingest/traces/",
+                  PATH_SEGMENT,
+                  PROCESS_ID_SEGMENT,
+                  "{processKind}/{processId}");
+          if (parts == null) {
+            return;
+          }
+          if (!identityAllowedToIngestMetricsOrTraces(ex)) {
+            respond(ex, 403, "no verified client certificate");
+            return;
+          }
+          ingest(ex, "traces/" + parts[0] + "/" + parts[1]);
+        });
   }
 
   // ---- GET /logs/nodes/{nodeId}/{category} ----
 
   private void handleReadNodeLogs(HttpExchange exchange) {
-    try {
-      if (!"GET".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/logs/nodes/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PATH_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /logs/nodes/{nodeId}/{category}");
-        return;
-      }
-      read(exchange, "logs/nodes/" + parts[0] + "/" + parts[1]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("node log read failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "GET",
+        "node log read",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex, "/logs/nodes/", PATH_SEGMENT, PATH_SEGMENT, "{nodeId}/{category}");
+          if (parts == null) {
+            return;
+          }
+          read(ex, "logs/nodes/" + parts[0] + "/" + parts[1]);
+        });
   }
 
   // ---- GET /logs/instances/{deploymentName}/{instanceIndex}/{category} ----
 
   private void handleReadInstanceLogs(HttpExchange exchange) {
-    try {
-      if (!"GET".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/logs/instances/").split("/", 3);
-      if (parts.length != 3 || !PATH_SEGMENT.matcher(parts[0]).matches()) {
-        respond(
-            exchange, 400, "expected /logs/instances/{deploymentName}/{instanceIndex}/{category}");
-        return;
-      }
-      int instanceIndex;
-      try {
-        instanceIndex = Integer.parseInt(parts[1]);
-      } catch (NumberFormatException e) {
-        respond(exchange, 400, "invalid instanceIndex");
-        return;
-      }
-      if (!PATH_SEGMENT.matcher(parts[2]).matches()) {
-        respond(exchange, 400, "invalid category: " + parts[2]);
-        return;
-      }
-      read(exchange, "logs/instances/" + parts[0] + "#" + instanceIndex + "/" + parts[2]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("instance log read failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "GET",
+        "instance log read",
+        ex -> {
+          InstanceLogPath ref = parseInstanceLogPath(ex, "/logs/instances/");
+          if (ref == null) {
+            return;
+          }
+          read(
+              ex,
+              "logs/instances/"
+                  + ref.deploymentName()
+                  + "#"
+                  + ref.instanceIndex()
+                  + "/"
+                  + ref.category());
+        });
   }
 
   // ---- GET /metrics/{processKind}/{processId} ----
 
   private void handleReadMetrics(HttpExchange exchange) {
-    try {
-      if (!"GET".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/metrics/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /metrics/{processKind}/{processId}");
-        return;
-      }
-      read(exchange, "metrics/" + parts[0] + "/" + parts[1]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("metrics read failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "GET",
+        "metrics read",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex, "/metrics/", PATH_SEGMENT, PROCESS_ID_SEGMENT, "{processKind}/{processId}");
+          if (parts == null) {
+            return;
+          }
+          read(ex, "metrics/" + parts[0] + "/" + parts[1]);
+        });
   }
 
   // ---- GET /traces/{processKind}/{processId} ----
 
   private void handleReadTraces(HttpExchange exchange) {
-    try {
-      if (!"GET".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      String[] parts = tailAfter(exchange, "/traces/").split("/", 2);
-      if (parts.length != 2
-          || !PATH_SEGMENT.matcher(parts[0]).matches()
-          || !PROCESS_ID_SEGMENT.matcher(parts[1]).matches()) {
-        respond(exchange, 400, "expected /traces/{processKind}/{processId}");
-        return;
-      }
-      read(exchange, "traces/" + parts[0] + "/" + parts[1]);
-    } catch (IllegalArgumentException e) {
-      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
-    } catch (IOException | RuntimeException e) {
-      log.warn("traces read failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    handle(
+        exchange,
+        "GET",
+        "traces read",
+        ex -> {
+          String[] parts =
+              parseTwoSegments(
+                  ex, "/traces/", PATH_SEGMENT, PROCESS_ID_SEGMENT, "{processKind}/{processId}");
+          if (parts == null) {
+            return;
+          }
+          read(ex, "traces/" + parts[0] + "/" + parts[1]);
+        });
   }
 
   /**
@@ -553,6 +516,65 @@ public final class MuninnServer implements AutoCloseable {
 
   private static String tailAfter(HttpExchange exchange, String prefix) {
     return exchange.getRequestURI().getPath().substring(prefix.length());
+  }
+
+  /**
+   * Shared two-segment path parsing/validation for every {@code {nodeId}/{category}} and {@code
+   * {processKind}/{processId}} route below: splits the request path's tail after {@code prefix}
+   * into exactly two segments and checks each against its own pattern. On success returns the two
+   * segments; on failure writes a {@code 400} response describing the expected shape (built from
+   * {@code prefix} and {@code segmentLabels}, e.g. {@code "{nodeId}/{category}"}) and returns
+   * {@code null} -- the caller must check for that and return without further processing.
+   */
+  private static String[] parseTwoSegments(
+      HttpExchange exchange,
+      String prefix,
+      Pattern firstPattern,
+      Pattern secondPattern,
+      String segmentLabels)
+      throws IOException {
+    String[] parts = tailAfter(exchange, prefix).split("/", 2);
+    if (parts.length != 2
+        || !firstPattern.matcher(parts[0]).matches()
+        || !secondPattern.matcher(parts[1]).matches()) {
+      respond(exchange, 400, "expected " + prefix + segmentLabels);
+      return null;
+    }
+    return parts;
+  }
+
+  /**
+   * The parsed and validated tail of an instance log route: {@code
+   * {deploymentName}/{instanceIndex}/{category}}.
+   */
+  private record InstanceLogPath(String deploymentName, int instanceIndex, String category) {}
+
+  /**
+   * Shared parsing/validation for the instance log routes' {@code
+   * {deploymentName}/{instanceIndex}/{category}} tail, used by both the ingest and read handlers.
+   * On failure writes the appropriate {@code 400} response itself and returns {@code null} -- the
+   * caller must check for that and return without further processing.
+   */
+  private static InstanceLogPath parseInstanceLogPath(HttpExchange exchange, String prefix)
+      throws IOException {
+    String[] parts = tailAfter(exchange, prefix).split("/", 3);
+    if (parts.length != 3 || !PATH_SEGMENT.matcher(parts[0]).matches()) {
+      respond(exchange, 400, "expected " + prefix + "{deploymentName}/{instanceIndex}/{category}");
+      return null;
+    }
+    int instanceIndex;
+    try {
+      instanceIndex = Integer.parseInt(parts[1]);
+    } catch (NumberFormatException e) {
+      respond(exchange, 400, "invalid instanceIndex");
+      return null;
+    }
+    String category = parts[2];
+    if (!PATH_SEGMENT.matcher(category).matches()) {
+      respond(exchange, 400, "invalid category: " + category);
+      return null;
+    }
+    return new InstanceLogPath(parts[0], instanceIndex, category);
   }
 
   private static int parseLimit(String raw) {

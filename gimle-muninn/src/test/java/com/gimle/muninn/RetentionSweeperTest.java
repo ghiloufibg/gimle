@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -23,7 +24,7 @@ class RetentionSweeperTest {
   void a_day_file_older_than_the_retention_window_is_deleted() throws Exception {
     Path dir = tempDir.resolve("logs/nodes/n1/PLATFORM");
     Files.createDirectories(dir);
-    String oldDay = LocalDate.now(java.time.ZoneOffset.UTC).minusDays(40).toString();
+    String oldDay = LocalDate.now(ZoneOffset.UTC).minusDays(40).toString();
     Files.writeString(dir.resolve(oldDay + ".log"), "{}\n");
 
     try (RetentionSweeper sweeper = new RetentionSweeper(tempDir, 30, Duration.ofDays(1))) {
@@ -37,7 +38,7 @@ class RetentionSweeperTest {
   void a_day_file_within_the_retention_window_survives() throws Exception {
     Path dir = tempDir.resolve("logs/nodes/n1/PLATFORM");
     Files.createDirectories(dir);
-    String recentDay = LocalDate.now(java.time.ZoneOffset.UTC).minusDays(2).toString();
+    String recentDay = LocalDate.now(ZoneOffset.UTC).minusDays(2).toString();
     Files.writeString(dir.resolve(recentDay + ".log"), "{}\n");
 
     try (RetentionSweeper sweeper = new RetentionSweeper(tempDir, 30, Duration.ofDays(1))) {
@@ -52,7 +53,7 @@ class RetentionSweeperTest {
       throws Exception {
     Path dir = tempDir.resolve("logs/nodes/n1/PLATFORM");
     Files.createDirectories(dir);
-    String oldDay = LocalDate.now(java.time.ZoneOffset.UTC).minusDays(40).toString();
+    String oldDay = LocalDate.now(ZoneOffset.UTC).minusDays(40).toString();
     Files.writeString(dir.resolve(oldDay + ".log"), "{}\n");
 
     try (RetentionSweeper sweeper = new RetentionSweeper(tempDir, 30, Duration.ofDays(1))) {
