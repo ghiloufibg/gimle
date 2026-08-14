@@ -1515,6 +1515,52 @@ abstract class GreeterSmokeClusterSupport {
     }
   }
 
+  /**
+   * Same shape as {@link #metricsHistoryShowsDeploymentsRequestCount}, but for the {@code WORKER}
+   * process kind -- a real deployed module's own request counter ({@code
+   * WorkerMetrics#recordRequest}, tagged by {@code module}), shipped by the worker JVM itself over
+   * its agent's control channel (workers have no outbound network identity of their own) rather
+   * than the control plane shipping directly. {@code processId} is {@code "{nodeId}:worker-{pid}"},
+   * matching {@code WorkerMain}'s own {@code workerId} derivation.
+   */
+  boolean metricsHistoryShowsWorkerRequestCount(String baseUrl, String processId, String module) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-history/WORKER/" + processId))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200
+          && response.body().contains("gimle.module.request.count")
+          && response.body().contains(module);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * Structurally identical to {@link #metricsHistoryShowsWorkerRequestCount}, reading {@code
+   * /traces-history/WORKER/{processId}} instead -- a real span {@code FabricServer} starts around
+   * one inbound fabric call, relayed by {@code RelayingSpanExporter} the same way {@code
+   * MetricsSnapshot} relays the meter registry, both over the same worker-to-agent control channel.
+   * {@code spanName} matches {@code FabricServer#startChildSpanContext}'s own {@code
+   * interfaceName#methodName} convention.
+   */
+  boolean tracesHistoryShowsSpan(String baseUrl, String processId, String spanName) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/traces-history/WORKER/" + processId))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 && response.body().contains(spanName);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   SmokeCluster startCluster(Path repoRoot, String javaExecutable, String classpath)
       throws IOException {
     List<Process> storeProcesses = new ArrayList<>();
