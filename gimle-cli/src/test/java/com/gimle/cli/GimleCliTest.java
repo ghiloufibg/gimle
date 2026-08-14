@@ -698,7 +698,8 @@ class GimleCliTest {
     assertTrue(stdout().contains("tenant/acme deleted"));
   }
 
-  // ---- Job / CronJob / DaemonSet / StatefulSet -- previously entirely uncovered by this class ----
+  // ---- Job / CronJob / DaemonSet / StatefulSet -- previously entirely uncovered by this class
+  // ----
 
   @Test
   void apply_then_get_jobs_round_trips() throws Exception {
