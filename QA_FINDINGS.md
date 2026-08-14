@@ -789,3 +789,88 @@ an unrelated shared-cause failure, see above). The `logback.xml` fix and the `Ra
 leader fix were each verified independently: the former via direct XML parsing of every tracked
 `*.xml` file in the repo, the latter via a full, clean `mvn -pl gimle-mimir -am verify` (216+ tests,
 zero regressions) plus 5 real-cluster smoke runs of the reproduction test that motivated it.
+
+## 2026-08-14 — worker crash-respawn fix, workload-kind + worker-observability real-cluster coverage, and a fresh gap sweep
+
+### Real bug found and fixed: a respawned worker never re-established its control channel
+
+While closing the DaemonSet/StatefulSet/Job/CronJob real-cluster coverage gap left open by the
+prior session (see "Scope explicitly not covered this session" above),
+`StatefulSetPersistenceIT#a_statefulset_instance_keeps_its_sticky_node_and_its_volume_data_across_a_worker_restart`
+surfaced a genuine production bug distinct from the worker-tier respawn `GreeterSmokeTestIT`
+already covers: after `WorkerProcessSupervisor` respawns a crashed worker JVM, `AgentMain` never
+re-ran `InstallModule`/`ResolveModule`/`StartModule` against it -- the fresh process sat idle while
+`SupervisedInstance.lifecycleState` stayed permanently stale at whatever it was before the crash.
+`SelfHealingIT` never caught this because it only asserts on that same stale field.
+
+**The fix**: `WorkerProcessSupervisor` gained an `onRespawned` callback, fired once a respawn's
+`spawn()` call returns successfully (outside its own monitor lock, since the caller's handshake
+does a blocking `accept()`). `AgentMain` wires this to reset every `SupervisedInstance` the crashed
+worker hosted (all of them under Tier 1 density, sharing one `ControlChannelServer`) back to its
+pre-connection state and re-accept the connection, redriving the install sequence exactly as a
+worker's first start does. `instance.volumeHandle` is deliberately left untouched -- re-allocating
+it resolves to the same on-disk directory anyway (`LocalDiskVolumeManager#allocate` is idempotent).
+
+**Verification**: `StatefulSetPersistenceIT` passes; `SelfHealingIT` re-verified with no
+regression, now passing for the right reason; `gimle-agent`'s full unit suite green, via a
+backward-compatible constructor overload so no existing test call site needed a signature change.
+
+### Real-cluster coverage added: DaemonSet, StatefulSet, Job/CronJob, and worker-tier metrics/traces
+
+Four new `gimle-smoke-tests` `*IT` classes close the "unit/reconciler-tested but never run against
+a real multi-process cluster" gap for every workload kind added since the last QA pass, plus the
+worker-to-agent-to-Muninn observability relay:
+
+- `JobLifecycleIT` -- a real worker JVM runs `JobHooks#run` to completion and `JobReconciler`
+  observes the real `lifecycleState: COMPLETED` heartbeat; a triggered CronJob generates a real,
+  independently-listed Job the same way.
+- `DaemonSetLifecycleIT` -- per-node placement against a real agent.
+- `StatefulSetPersistenceIT` -- sticky placement and volume data survive a real worker restart
+  (see the bug above, found by this test).
+- `WorkerObservabilityIT` -- a real deployed module's own request counter and the real span its
+  fabric call produces both travel worker JVM -> agent -> Muninn and read back through
+  `/metrics-history/WORKER/*` and `/traces-history/WORKER/*`, closing the gap that
+  `AgentMuninnShippingTest` only proved this relay against a stub Muninn and a hand-driven raw
+  worker socket, never a real worker JVM.
+
+`GimleCliTest` also gained coverage for the `job`/`cronjob`/`daemonset`/`statefulset` CLI commands,
+previously entirely untested (0 -> 9 new tests).
+
+### Updated remaining scope
+
+The one item the prior session left open -- RBAC/authz edge cases (cross-tenant denial, node-scoped
+self-service) at the smoke-test tier, needing a TLS+auth-enabled cluster variant -- is still open;
+`gimle-holmgang`'s `mtls.feature` (added since, see below) only tests an anonymous client being
+rejected at authentication, not an authenticated tenant's cross-tenant access, and its topology
+model has no role/role-binding seed to build one on.
+
+A fresh gap sweep across the ~90 commits that landed between the prior session and this one --
+admission chain/`PolicyConfigPlugin`, `maxUnavailable`/`maxSurge` disruption budgets and surge-in-
+place retargeting, weighted multi-metric autoscaling, opt-in audit-on-READ, and the entire new
+`gimle-holmgang` topology-driven Gherkin/Heimdall functional-validation module (`-Pvalidation`) --
+found the following still open, ranked by value:
+
+1. **Pure-surge rollout (`maxUnavailable: 0` + nonzero `maxSurge`) is unproven.** The fix that
+   unblocked this shape (`d0c83fd`) landed with three manifest-*parsing* unit tests only; no
+   reconciler test, unit or real-cluster, has ever actually run a rollout with `maxUnavailable: 0`.
+2. **Machine-tier reschedule after node death has no real-cluster proof.** The fix for a dead node
+   staying a placement candidate (`3ca6907`) landed with a unit test only. This is the one of the
+   platform's three self-healing tiers (module dispose+reinstantiate, worker respawn, machine-level
+   reschedule) still unproven against a real cluster -- `GossipFailureDetectionIT` stops at DEAD
+   convergence, never asserting the dead node's instances actually land on a survivor.
+3. **Agent secret-delivery independence (`b52735e`) has no test at all**, at any tier -- its trigger
+   (a denied `/config` read must not block Fafnir secret delivery) only occurs on an authz-enabled
+   cluster, which nothing real-cluster runs today.
+4. **`PolicyConfigPlugin` admission rejection is untested outside its own unit test.** It's live on
+   the real `PUT /deployments` path; no real submission has ever actually been rejected -- or
+   allowed -- by a configured policy. `gimle-holmgang`'s `ClusterApi#putConfig` and its existing
+   `quota-and-admission.feature` shape already provide the harness to close this cheaply.
+5. **READ-decision audit opt-in and the console's Access Control screen** share the same missing
+   prerequisite as the RBAC/authz gap above (an auth-enabled real cluster): both are validated only
+   in-process (`ApiServerAuthzTest`) or against a mock fixture, never against a real backend.
+
+Not gaps, for contrast: weighted multi-metric autoscaling (`AutoscaleIT`), the TCP delayed-ACK fix
+(`StoreRpcLatencyTest`), and surge retargeting plus the rolling-update disruption-budget floor
+(`SurgePromotionIT`, `RollingUpdateIT`) all already have real regression coverage.
+`gimle-holmgang` itself is additive, not redundant with `gimle-smoke-tests` -- it covers
+partition-tolerance and live membership-change scenarios nothing else touches.
