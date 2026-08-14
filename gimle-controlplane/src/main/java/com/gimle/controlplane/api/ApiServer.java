@@ -2616,7 +2616,19 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  /** Polled by the console on load to tell "already logged in" apart from "show the login page". */
+  /**
+   * Polled by the console on load to tell "already logged in" apart from "show the login page".
+   *
+   * <p>Needs the same plaintext carve-out {@link #requireAuthorized} already has, but as a fallback
+   * behind {@link #resolvePrincipal} rather than ahead of it: a genuine session cookie must still
+   * resolve to its real principal regardless of transport (plaintext-mode login is a supported,
+   * tested path, not just a TLS thing), so only the true "nobody's logged in" case gets the
+   * plaintext carve-out. Without it, a bare 401 there -- indistinguishable from "on TLS and not
+   * logged in" -- would send the console straight to a login form no credential could ever satisfy
+   * (plaintext bootstrap never seeds a bootstrap account, see {@code BootstrapAccountFile}),
+   * locking the operator out entirely rather than leaving the cluster open the way every other
+   * endpoint already is in this mode.
+   */
   private void handleAuthSession(HttpExchange exchange) {
     try {
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -2624,11 +2636,20 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       Optional<Principal> principal = resolvePrincipal(exchange);
-      if (principal.isEmpty()) {
-        respondQuietly(exchange, 401, "not authenticated");
+      if (principal.isPresent()) {
+        respondJson(exchange, 200, principalToJson(principal.get()));
         return;
       }
-      respondJson(exchange, 200, principalToJson(principal.get()));
+      if (!(exchange instanceof HttpsExchange)) {
+        // Plaintext mode: no real session, but nothing is actually gated behind one either (see
+        // requireAuthorized's own carve-out) -- report an anonymous session rather than 401, so
+        // the console doesn't force a login screen that, with no bootstrap account seeded in
+        // plaintext mode, may not be satisfiable by any credential at all. A genuine login (see
+        // the branch above) still takes priority whenever a valid cookie is actually presented.
+        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of())));
+        return;
+      }
+      respondQuietly(exchange, 401, "not authenticated");
     } catch (IOException e) {
       respondQuietly(exchange, 500, "internal error");
     } finally {

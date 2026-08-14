@@ -82,8 +82,12 @@ class FafnirServerAuthTest {
   void login_session_and_logout_round_trip_with_no_client_certificate_at_all() throws Exception {
     seedAccount("admin", "s3cret-password");
 
-    // 1. No cookie yet: /auth/session is unauthenticated.
-    assertEquals(401, getWithCookie("/auth/session", null).statusCode());
+    // 1. No cookie yet, and this server runs plaintext (see setUp): /auth/session reports an
+    // anonymous session rather than 401, the same carve-out authorizeSecrets already gets in this
+    // mode -- nothing here is actually gated behind a real login either.
+    HttpResponse<String> anonymous = getWithCookie("/auth/session", null);
+    assertEquals(200, anonymous.statusCode());
+    assertEquals("anonymous", Json.asObject(Json.parse(anonymous.body())).get("username"));
 
     // 2. A correct login sets a session cookie.
     HttpResponse<String> login =
