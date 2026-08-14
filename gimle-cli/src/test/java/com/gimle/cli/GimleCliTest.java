@@ -149,6 +149,74 @@ class GimleCliTest {
     return file;
   }
 
+  private Path writeJobManifest(String name) throws IOException {
+    Path file = tempDir.resolve(name + ".yaml");
+    java.nio.file.Files.writeString(
+        file,
+        """
+        kind: Job
+        name: %s
+        module:
+          name: com.gimle.example.cleanup
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+        backoffLimit: 3
+        """
+            .formatted(name));
+    return file;
+  }
+
+  private Path writeCronJobManifest(String name) throws IOException {
+    Path file = tempDir.resolve(name + ".yaml");
+    java.nio.file.Files.writeString(
+        file,
+        """
+        kind: CronJob
+        name: %s
+        schedule: "0 0 1 1 *"
+        jobTemplate:
+          module:
+            name: com.gimle.example.cleanup
+            version: 1.0.0
+          artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+        """
+            .formatted(name));
+    return file;
+  }
+
+  private Path writeDaemonSetManifest(String name) throws IOException {
+    Path file = tempDir.resolve(name + ".yaml");
+    java.nio.file.Files.writeString(
+        file,
+        """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: com.gimle.example.node-exporter
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+        """
+            .formatted(name));
+    return file;
+  }
+
+  private Path writeStatefulSetManifest(String name, int replicas) throws IOException {
+    Path file = tempDir.resolve(name + ".yaml");
+    java.nio.file.Files.writeString(
+        file,
+        """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: %d
+        """
+            .formatted(name, replicas));
+    return file;
+  }
+
   @Test
   void apply_then_get_deployments_round_trips() throws Exception {
     Path manifest = writeManifest("orders-service", 3);
@@ -626,5 +694,125 @@ class GimleCliTest {
     int deleteExit = run("delete", "tenant", "acme");
     assertEquals(0, deleteExit);
     assertTrue(stdout().contains("tenant/acme deleted"));
+  }
+
+  // ---- Job / CronJob / DaemonSet / StatefulSet -- previously entirely uncovered by this class ----
+
+  @Test
+  void apply_then_get_jobs_round_trips() throws Exception {
+    Path manifest = writeJobManifest("nightly-cleanup");
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit);
+    assertTrue(stdout().contains("job/nightly-cleanup applied"));
+
+    outBuffer.reset();
+    int getExit = run("get", "jobs");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("nightly-cleanup"));
+  }
+
+  @Test
+  void apply_then_delete_removes_the_job() throws Exception {
+    Path manifest = writeJobManifest("one-off-job");
+    run("apply", "-f", manifest.toString());
+    int deleteExit = run("delete", "job", "one-off-job");
+    assertEquals(0, deleteExit);
+    int getAfterDeleteExit = run("get", "job", "one-off-job");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void apply_then_get_cronjobs_round_trips() throws Exception {
+    Path manifest = writeCronJobManifest("nightly-cleanup-cron");
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit);
+    assertTrue(stdout().contains("cronjob/nightly-cleanup-cron applied"));
+
+    outBuffer.reset();
+    int getExit = run("get", "cronjobs");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("nightly-cleanup-cron"));
+  }
+
+  @Test
+  void cronjob_trigger_fires_immediately_and_the_generated_job_is_real() throws Exception {
+    Path manifest = writeCronJobManifest("trigger-me");
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    int triggerExit = run("cronjob", "trigger", "trigger-me");
+    assertEquals(0, triggerExit);
+    assertTrue(
+        stdout().contains("cronjob/trigger-me triggered -> job/trigger-me-"),
+        "unexpected trigger output: " + stdout());
+
+    // Extract the real generated job name (trigger-me-<epochSeconds>) straight out of the CLI's
+    // own printed sentence, then confirm it's a real, independently-fetchable Job -- not just a
+    // string the trigger command happened to print. Anchored on "-> job/", not just "job/": the
+    // sentence's own "cronjob/trigger-me" prefix already contains the substring "job/" (the last
+    // three letters of "cronjob" plus the following slash), so a bare indexOf("job/") matches
+    // there first instead of the actual generated-job segment.
+    String marker = "-> job/";
+    String jobName = stdout().trim().substring(stdout().indexOf(marker) + marker.length());
+    outBuffer.reset();
+    int getExit = run("get", "job", jobName);
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains(jobName));
+  }
+
+  @Test
+  void cronjob_trigger_on_an_unknown_cronjob_fails() throws Exception {
+    int triggerExit = run("cronjob", "trigger", "no-such-cronjob");
+    assertEquals(1, triggerExit);
+    assertTrue(stderr().contains("no such cronjob"));
+  }
+
+  @Test
+  void apply_then_get_daemonsets_round_trips() throws Exception {
+    Path manifest = writeDaemonSetManifest("node-exporter");
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit);
+    assertTrue(stdout().contains("daemonset/node-exporter applied"));
+
+    outBuffer.reset();
+    int getExit = run("get", "daemonsets");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("node-exporter"));
+  }
+
+  @Test
+  void apply_then_delete_removes_the_daemonset() throws Exception {
+    Path manifest = writeDaemonSetManifest("short-lived-daemonset");
+    run("apply", "-f", manifest.toString());
+    int deleteExit = run("delete", "daemonset", "short-lived-daemonset");
+    assertEquals(0, deleteExit);
+    int getAfterDeleteExit = run("get", "daemonset", "short-lived-daemonset");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void apply_then_get_statefulsets_round_trips() throws Exception {
+    Path manifest = writeStatefulSetManifest("orders-statefulset", 3);
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit);
+    assertTrue(stdout().contains("statefulset/orders-statefulset applied"));
+
+    outBuffer.reset();
+    int getExit = run("get", "statefulsets");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("orders-statefulset"));
+  }
+
+  @Test
+  void apply_then_delete_removes_the_statefulset() throws Exception {
+    Path manifest = writeStatefulSetManifest("short-lived-statefulset", 1);
+    run("apply", "-f", manifest.toString());
+    int deleteExit = run("delete", "statefulset", "short-lived-statefulset");
+    assertEquals(0, deleteExit);
+    int getAfterDeleteExit = run("get", "statefulset", "short-lived-statefulset");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
   }
 }
