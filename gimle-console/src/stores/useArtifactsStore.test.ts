@@ -39,7 +39,10 @@ describe("useArtifactsStore", () => {
   });
 
   it("loadCatalog stores the module ids and clears loading", async () => {
-    vi.mocked(artifactsRepo.fetchCatalog).mockResolvedValueOnce(["greeter-provider", "edge-router"]);
+    vi.mocked(artifactsRepo.fetchCatalog).mockResolvedValueOnce([
+      "greeter-provider",
+      "edge-router",
+    ]);
 
     await useArtifactsStore.getState().loadCatalog();
 
@@ -169,9 +172,9 @@ describe("useArtifactsStore", () => {
     });
     vi.mocked(artifactsRepo.remove).mockRejectedValueOnce(new Error("forbidden"));
 
-    await expect(
-      useArtifactsStore.getState().remove("greeter-provider", "1.0.0"),
-    ).rejects.toThrow("forbidden");
+    await expect(useArtifactsStore.getState().remove("greeter-provider", "1.0.0")).rejects.toThrow(
+      "forbidden",
+    );
 
     const state = useArtifactsStore.getState();
     expect(state.error).toBe("forbidden");
