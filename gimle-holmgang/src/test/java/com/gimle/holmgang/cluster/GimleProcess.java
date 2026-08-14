@@ -27,6 +27,16 @@ public interface GimleProcess {
   /** Respawns with the identical command line, appending to the same log file. */
   void restart();
 
+  /**
+   * Registers a callback invoked whenever the underlying process exits -- including a respawned one
+   * after {@link #restart()}. Fires on harness-initiated kills too; distinguish with {@link
+   * #exitWasExpected()}.
+   */
+  void onExit(Runnable callback);
+
+  /** True when the most recent exit (or in-flight kill) was initiated by the harness itself. */
+  boolean exitWasExpected();
+
   Path logFile();
 
   String endpoint();

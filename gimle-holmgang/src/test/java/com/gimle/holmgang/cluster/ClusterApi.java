@@ -9,7 +9,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -17,9 +16,9 @@ import java.util.Optional;
 
 /**
  * Scenario-facing client for one control-plane replica's HTTP API: submissions fail loudly on any
- * non-200, while the {@code is*}/{@code awaitDeployment*} condition helpers swallow transport
- * failures ("not ready yet" and "connection refused" both just mean "not yet" to a caller
- * mid-await, never a hard failure worth surfacing).
+ * non-200, while the single-shot {@code is*} readers swallow transport failures ("not ready yet"
+ * and "connection refused" both just mean "not yet", never a hard failure worth surfacing). Waiting
+ * for state belongs to the Heimdall condition API, not here.
  */
 public final class ClusterApi {
 
@@ -156,34 +155,6 @@ public final class ClusterApi {
     return response.isPresent()
         && response.get().statusCode() == 200
         && response.get().body().contains(text);
-  }
-
-  public void awaitDeploymentActive(final String deploymentName, final Duration timeout) {
-    Polls.await(
-        () -> isDeploymentActive(deploymentName),
-        timeout,
-        "deployment " + deploymentName + " should reach ACTIVE via " + baseUrl);
-  }
-
-  public void awaitInstanceLogContains(
-      final String deploymentName,
-      final int instanceIndex,
-      final String category,
-      final String text,
-      final Duration timeout) {
-    Polls.await(
-        () -> instanceLogContains(deploymentName, instanceIndex, category, text),
-        timeout,
-        "instance "
-            + deploymentName
-            + "#"
-            + instanceIndex
-            + "'s "
-            + category
-            + " log should contain \""
-            + text
-            + "\" via "
-            + baseUrl);
   }
 
   boolean isServing() {

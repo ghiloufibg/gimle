@@ -1,6 +1,10 @@
 package com.gimle.holmgang.cluster;
 
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.holmgang.heimdall.Heimdall;
+import com.gimle.holmgang.heimdall.HeimdallScope;
+import com.gimle.holmgang.heimdall.Invariant;
+import com.gimle.holmgang.heimdall.InvariantGuard;
 import com.gimle.holmgang.topology.AccountSeed;
 import com.gimle.holmgang.topology.ClusterSpec;
 import com.gimle.holmgang.topology.NodeSpec;
@@ -42,6 +46,7 @@ public final class GimleCluster implements AutoCloseable {
   private final List<ManagedProcess> fafnirs = new ArrayList<>();
   private final Map<String, ManagedProcess> agents = new LinkedHashMap<>();
   private final Map<Integer, ClusterApi> apis = new LinkedHashMap<>();
+  private Heimdall heimdall;
   private ManagedProcess muninn;
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
@@ -108,10 +113,58 @@ public final class GimleCluster implements AutoCloseable {
         controlPlaneIndex, index -> new ClusterApi(controlPlaneBaseUrl(index)));
   }
 
+  public List<String> controlPlaneBaseUrls() {
+    final List<String> urls = new ArrayList<>();
+    for (int i = 0; i < controlPlanes.size(); i++) {
+      urls.add(controlPlaneBaseUrl(i));
+    }
+    return urls;
+  }
+
+  public List<GimleProcess> processes() {
+    return List.copyOf(spawnOrder);
+  }
+
+  public Path workDir() {
+    return workDir;
+  }
+
+  /** Conditions completed by a satisfying view observed through any control-plane replica. */
+  public HeimdallScope when() {
+    return heimdall().scope(java.util.OptionalInt.empty());
+  }
+
+  /**
+   * Conditions completed only by views fetched through one specific control-plane replica -- the
+   * deterministic way to assert state written through one replica is observable through another.
+   */
+  public HeimdallScope when(final int controlPlaneIndex) {
+    return heimdall().scope(java.util.OptionalInt.of(controlPlaneIndex));
+  }
+
+  /** Holds {@code invariant} over every observed view until the returned guard is closed. */
+  public InvariantGuard holdInvariant(final Invariant invariant) {
+    return heimdall().hold(invariant);
+  }
+
+  private synchronized Heimdall heimdall() {
+    if (heimdall == null) {
+      heimdall = Heimdall.attach(controlPlaneBaseUrls(), processes(), workDir);
+    }
+    return heimdall;
+  }
+
   @Override
   public void close() {
-    // Reverse of spawn order, so nothing still-running races a peer it depends on already being
+    // The watcher first, so teardown kills never register as unexpected deaths mid-report; then
+    // reverse of spawn order, so nothing still-running races a peer it depends on already being
     // gone. Killing an already-dead process is a harmless no-op.
+    synchronized (this) {
+      if (heimdall != null) {
+        heimdall.close();
+        heimdall = null;
+      }
+    }
     for (int i = spawnOrder.size() - 1; i >= 0; i--) {
       spawnOrder.get(i).killWithDescendants();
     }

@@ -5,11 +5,14 @@ import com.gimle.holmgang.topology.ProcessRole;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * The one {@link GimleProcess} implementation: remembers its own spawn command so {@link #restart}
  * can respawn identically, appending to the same log file so the pre- and post-restart output stays
- * one readable stream.
+ * one readable stream. Exit callbacks are re-armed on every respawn, and {@link #exitWasExpected}
+ * is raised before any harness-initiated kill so a watcher can tell scenario action from genuine
+ * crash.
  */
 final class ManagedProcess implements GimleProcess {
 
@@ -18,7 +21,9 @@ final class ManagedProcess implements GimleProcess {
   private final List<String> command;
   private final Path logFile;
   private final String endpoint;
+  private final CopyOnWriteArrayList<Runnable> exitCallbacks = new CopyOnWriteArrayList<>();
   private volatile Process current;
+  private volatile boolean exitExpected;
 
   ManagedProcess(
       final ProcessRole role,
@@ -42,7 +47,9 @@ final class ManagedProcess implements GimleProcess {
     pb.redirectErrorStream(true);
     pb.redirectOutput(output);
     try {
-      return pb.start();
+      final Process process = pb.start();
+      process.onExit().thenRun(() -> exitCallbacks.forEach(Runnable::run));
+      return process;
     } catch (final IOException e) {
       throw new HolmgangException("failed spawning " + role + " " + id, e);
     }
@@ -70,12 +77,14 @@ final class ManagedProcess implements GimleProcess {
 
   @Override
   public void kill() {
+    exitExpected = true;
     current.destroyForcibly();
     awaitExit();
   }
 
   @Override
   public void killWithDescendants() {
+    exitExpected = true;
     current.descendants().forEach(ProcessHandle::destroy);
     current.destroyForcibly();
     awaitExit();
@@ -85,6 +94,17 @@ final class ManagedProcess implements GimleProcess {
   public void restart() {
     killWithDescendants();
     current = spawn(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
+    exitExpected = false;
+  }
+
+  @Override
+  public void onExit(final Runnable callback) {
+    exitCallbacks.add(callback);
+  }
+
+  @Override
+  public boolean exitWasExpected() {
+    return exitExpected;
   }
 
   @Override
