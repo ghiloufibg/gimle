@@ -45,6 +45,7 @@ class SurtrIT {
     final GimleCluster cluster = GimleCluster.start(spec, workDir);
     try {
       final SurtrRunResult result = new SurtrRunner(cluster, workload).run();
+      com.gimle.holmgang.saga.SagaCollector.instance().recordSurtr(result);
       final Path report = SurtrReport.write(result, Path.of("target", "holmgang", "surtr"));
       System.out.println(SurtrReport.render(result));
       System.out.println("Surtr report written to " + report.toAbsolutePath());

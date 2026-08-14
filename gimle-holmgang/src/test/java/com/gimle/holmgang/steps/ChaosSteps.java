@@ -50,6 +50,8 @@ public final class ChaosSteps {
     }
     final ChaosLedger ledger = Fenrir.unleash(world.cluster(), plan.build());
     world.chaosLedger = ledger;
+    com.gimle.holmgang.saga.SagaCollector.instance()
+        .recordFenrir(world.scenarioName, ledger, Duration.ofSeconds(soakSeconds).toMillis());
     // The test JVM's own stdout -- the ledger summary belongs in the scenario log on success, and
     // is the first thing to read on failure.
     System.out.println(ledger.render());

@@ -27,6 +27,7 @@ public final class Hooks {
 
   @Before
   public void beforeScenario(final Scenario scenario) {
+    world.scenarioName = scenario.getName();
     if (scenario.getSourceTagNames().contains("@destructive")) {
       world.markDestructive();
     }

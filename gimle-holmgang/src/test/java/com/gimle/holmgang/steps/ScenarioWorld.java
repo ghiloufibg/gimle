@@ -39,6 +39,7 @@ public final class ScenarioWorld {
   Integer lastSubmissionStatus;
   RecordingWorkload workload;
   ChaosLedger chaosLedger;
+  String scenarioName = "scenario";
 
   private GimleCluster cluster;
   private boolean destructive;

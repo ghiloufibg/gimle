@@ -52,6 +52,22 @@ public final class SurtrReport {
     return runDir;
   }
 
+  /**
+   * The report shape for one run, without the top-level envelope -- used to embed a Surtr run
+   * inside the aggregate Holmgang report alongside scenario and Fenrir results.
+   */
+  public static Map<String, Object> reportRun(final SurtrRunResult result) {
+    final Map<String, Object> run = new LinkedHashMap<>();
+    run.put("workload", result.workload());
+    run.put("scaleFactor", result.scaleFactor());
+    run.put("topology", result.topology());
+    run.put("outcome", result.passed() ? "PASSED" : "FAILED");
+    run.put("jobs", jobs(result));
+    run.put("measurements", measurements(result));
+    run.put("gates", gates(result));
+    return run;
+  }
+
   private static Map<String, Object> summary(final SurtrRunResult result) {
     final Map<String, Object> root = new LinkedHashMap<>();
     root.put("schemaVersion", 1);

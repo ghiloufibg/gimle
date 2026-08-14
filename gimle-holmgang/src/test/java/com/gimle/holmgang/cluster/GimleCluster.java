@@ -77,6 +77,9 @@ public final class GimleCluster implements AutoCloseable {
 
   public static GimleCluster start(final ClusterSpec spec, final Path workDir) {
     final GimleCluster cluster = new GimleCluster(spec, workDir);
+    // Register the booted topology for the run report before boot, so it is captured even if boot
+    // later fails partway.
+    com.gimle.holmgang.saga.SagaCollector.instance().recordTopology(spec);
     try {
       cluster.boot();
     } catch (final RuntimeException e) {

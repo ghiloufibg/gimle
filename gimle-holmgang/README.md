@@ -40,6 +40,7 @@ one load scenario can run on a machine at a time.)
 | Loki network-fault injection (proxied topologies) | `com.gimle.holmgang.loki` |
 | Fenrir randomized chaos scheduler (`FenrirPlan`, `Fenrir`, `ChaosLedger`) | `com.gimle.holmgang.fenrir` |
 | Surtr scale/churn workload runner (`SurtrWorkload`, `SurtrRunner`, `SurtrReport`) | `com.gimle.holmgang.surtr` |
+| Saga run-report writer (`SagaCollector`, `SagaCucumberPlugin`, `SagaWriter`) | `com.gimle.holmgang.saga` |
 | Workload documents | `src/test/resources/workloads/*.yaml` |
 | Gatling load (`LoadGenerator`, simulation) | `com.gimle.holmgang.load` |
 | Recorded write workloads | `com.gimle.holmgang.workload` |
@@ -98,6 +99,20 @@ mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.surtr.workload=module-density
 Without `-Dgimle.surtr.workload`, `SurtrIT` skips via a JUnit assumption, so ordinary validation
 runs are untouched. Bundled workloads live in `workloads/`; the property also accepts a filesystem
 path to a custom one.
+
+## Run report (Saga)
+
+Every `-Pvalidation` run writes one **Saga** report — a versioned `holmgang-report.json` under
+`target/holmgang/saga/<run-id>/` — that gathers the whole run's story in one file: scenario results
+(from a Cucumber event-listener plugin), the topologies booted, and, when present, the Fenrir chaos
+ledgers and Surtr measurements. It's assembled in a process-wide collector across the failsafe fork
+and flushed once at JVM shutdown, so it captures every part regardless of run order. The run is
+`FAILED` if any scenario or Surtr gate failed, else `PASSED`.
+
+The report is the data contract for the standalone Saga report console (a separate viewer, not part
+of this repo): drop the `holmgang-report.json` onto that page to browse scenarios, chaos ledgers,
+and scale measurements — and diff two runs to catch regressions. The writer adds nothing to a plain
+`mvn verify`; it activates only when a validation run actually produces results.
 
 ## Failure forensics
 

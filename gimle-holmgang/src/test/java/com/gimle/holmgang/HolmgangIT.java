@@ -23,6 +23,7 @@ import org.junit.platform.suite.api.Suite;
 @ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "com.gimle.holmgang.steps")
 @ConfigurationParameter(
     key = PLUGIN_PROPERTY_NAME,
-    value = "html:target/holmgang-reports/cucumber.html")
+    value =
+        "html:target/holmgang-reports/cucumber.html, com.gimle.holmgang.saga.SagaCucumberPlugin")
 @ConfigurationParameter(key = PLUGIN_PUBLISH_QUIET_PROPERTY_NAME, value = "true")
 class HolmgangIT {}
