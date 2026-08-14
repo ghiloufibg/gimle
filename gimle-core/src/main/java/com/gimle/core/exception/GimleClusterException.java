@@ -29,4 +29,14 @@ public class GimleClusterException extends RuntimeException {
   public static GimleClusterException noExportingMember(String interfaceName) {
     return new GimleClusterException("no member anywhere in the cluster exports " + interfaceName);
   }
+
+  /**
+   * A cluster-internal HTTP call answered with a non-success status -- surfaced with the status and
+   * body verbatim, so a denial reads as the denial it is rather than as a JSON parse failure over
+   * its plain-text error body.
+   */
+  public static GimleClusterException unexpectedHttpStatus(
+      String operation, int status, String body) {
+    return new GimleClusterException(operation + " returned " + status + ": " + body);
+  }
 }

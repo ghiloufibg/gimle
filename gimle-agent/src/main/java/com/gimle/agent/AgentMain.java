@@ -2,6 +2,7 @@ package com.gimle.agent;
 
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
+import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
@@ -676,6 +677,12 @@ public final class AgentMain {
         HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId)).GET().build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    // Checked before parsing: an error body is plain text ("forbidden"), and parsing it as JSON
+    // would bury the actual status behind a misleading parse failure.
+    if (response.statusCode() != 200) {
+      throw GimleClusterException.unexpectedHttpStatus(
+          "config fetch for tenant " + tenantId, response.statusCode(), response.body());
+    }
     List<Object> raw = Json.asArray(Json.parse(response.body()));
     List<ConfigValue> result = new ArrayList<>();
     for (Object entry : raw) {
@@ -705,6 +712,11 @@ public final class AgentMain {
         HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId)).GET().build();
     HttpResponse<String> listResponse =
         httpClient.send(listRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    // Same status-before-parse reasoning as fetchConfigForTenant.
+    if (listResponse.statusCode() != 200) {
+      throw GimleClusterException.unexpectedHttpStatus(
+          "secret listing for tenant " + tenantId, listResponse.statusCode(), listResponse.body());
+    }
     Map<String, Object> listBody = Json.asObject(Json.parse(listResponse.body()));
     List<Object> secrets = Json.asArray(listBody.get("secrets"));
     List<ConfigValue> result = new ArrayList<>();
@@ -1274,11 +1286,15 @@ public final class AgentMain {
       Thread.currentThread().interrupt();
       return;
     } catch (RuntimeException e) {
+      // No early return: secret delivery below is deliberately independent of the control
+      // plane's own /config surface (see this method's javadoc), so a denied or failed plain
+      // config fetch must never take the tenant's secrets down with it. Under mTLS a node
+      // principal is not authorized for /config at all, making this the normal path, not an
+      // edge case.
       log.warn(
-          "failed to fetch config for tenant {}: {}; instance will start without it",
+          "failed to fetch plain config for tenant {}: {}; continuing to secret delivery",
           tenantId.get(),
           e.getMessage());
-      return;
     }
     if (fafnirBaseUrl != null) {
       try {
