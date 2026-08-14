@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Node topology
 
-Six Java process roles run across a cluster — no other runtime, no containers, no sidecars:
+Seven Java process roles run across a cluster — no other runtime, no containers, no sidecars:
 
 ```mermaid
 graph TD
@@ -19,12 +19,14 @@ graph TD
     Store["Store<br/>(gimle-mimir, M replicas, Raft-replicated)"]
     Fafnir["Fafnir<br/>(gimle-fafnir, K replicas)"]
     Muninn["Muninn<br/>(gimle-muninn, logs/metrics/traces sink)"]
+    Andvari["Andvari<br/>(gimle-andvari, module artifact registry)"]
     Agent -->|reports capacity/state, executes placement| CP
     Agent -->|fetches secret values directly, mTLS| Fafnir
     CP <-->|StoreRpc, TCP| Store
     CP -->|proxies /secrets/*, encrypt/decrypt/rotate-key, mTLS| Fafnir
     Fafnir <-->|StoreRpc, TCP| Store
     Muninn <-->|StoreRpc, TCP, read-only| Store
+    Andvari <-->|StoreRpc, TCP| Store
     Worker1 -.->|health/metrics over a local control channel| Agent
     Worker2 -.->|health/metrics over a local control channel| Agent
     Agent -.->|ships own logs + relays supervised workers' logs/metrics/traces| Muninn
@@ -39,7 +41,9 @@ one — the same split Kubernetes draws between `kube-apiserver` and `etcd`, ext
 further for secret material specifically (see [Control plane](./control-plane.md)); `N`, `M`, and
 `K` above need not match. Muninn (below) is a fourth, similarly independent process kind — a
 unified sink every other process ships logs/metrics/traces to, rather than each owning its own
-export path.
+export path. Andvari (below) is a fifth: the module artifact registry, the one place module jars
+are pushed to and pulled from rather than every node needing them pre-placed on its own
+filesystem.
 
 ## Node Agent
 
@@ -118,6 +122,29 @@ history, never served directly by the process itself the way logs can be. Muninn
 distinct certificate identity minted at cluster-bootstrap time, the same reasoning Fafnir's own
 identity has: every ingest/read decision it makes is attributable to its own certificate Subject,
 not a borrowed one.
+
+## Andvari
+
+One or more stateless JVMs (`gimle-andvari`) — the module artifact registry: an immutable,
+content-addressed store of module jars behind a push/pull/list HTTP API (`/artifacts/*`). A pushed
+coordinate (`moduleId` + `version`) can never be overwritten — an identical re-push is an
+idempotent no-op, a differing one is refused outright, so the changed jar must ship as a new
+version. That immutability is what makes downstream caching sound: anything that has verified a
+coordinate once can trust it by presence alone, because the bytes behind it can never change.
+Every stored jar carries its SHA-256 checksum, computed server-side as the upload streams to disk
+and returned on every pull (`X-Gimle-Artifact-Sha256`), so a consumer can verify integrity
+end-to-end.
+
+Andvari holds its own `StoreClient` against the same `gimle-mimir` cluster and re-runs its own
+independent `Authorizer.authorize(...)` check on every push and delete — the same defense-in-depth
+posture Fafnir and Muninn established — and records each such decision in the durable audit log. A
+node's certificate identity (`gimle:nodes`) may only ever pull, never push or delete: placing
+executable jars in the registry is a supply-chain-level grant reserved for real RBAC-authorized
+principals. Andvari gets its own distinct certificate identity minted at cluster-bootstrap time,
+for the same attributability reason Fafnir's and Muninn's identities exist. The deployment path
+(node agents resolving a missing artifact from Andvari instead of requiring it pre-placed on the
+local filesystem) consumes this surface; today's `/artifacts/*` API is deliberately shaped for
+that pull-through-cache flow — presence check by digest (`HEAD`) first, download only on a miss.
 
 ## Multi-machine deployment
 

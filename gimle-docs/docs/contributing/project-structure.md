@@ -33,6 +33,17 @@ graph LR
     agent --> pki
     mimir[gimle-mimir] --> core
     mimir --> pki
+    fafnir[gimle-fafnir] --> core
+    fafnir --> mimir
+    fafnir --> pki
+    fafnir --> observability
+    fafnir --> fafnirconsole[gimle-fafnir-console]
+    muninn[gimle-muninn] --> core
+    muninn --> mimir
+    muninn --> pki
+    andvari[gimle-andvari] --> core
+    andvari --> mimir
+    andvari --> pki
     controlplane[gimle-controlplane] --> core
     controlplane --> module
     controlplane --> console[gimle-console]
@@ -75,6 +86,10 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-worker` | Hosts module instances inside `ModuleLayer`s, runs the bounded virtual-thread scheduler and probe loop, reports health/metrics to its agent. |
 | `gimle-agent` | One per machine: supervises worker JVM processes (`WorkerProcessSupervisor`), assigns resource limits, reports capacity, executes placement directives. Never runs user code. |
 | `gimle-mimir` | The Raft-replicated state store as its own process (the etcd equivalent) — `StateStore`, `RaftNode`, and the client-facing `StoreRpc`/`StoreClient` protocol `gimle-controlplane` talks over the network. See [Control plane](../architecture/control-plane.md). |
+| `gimle-fafnir` | The secrets vault as its own process: the encryption key ring, every encrypt/decrypt/rotate-key operation, the versioned `/secrets/*` API, and its own independent RBAC re-check on every request. See [Node topology](../architecture/node-topology.md). |
+| `gimle-fafnir-console` | Fafnir's own web console SPA — same no-Java Bun/Vite pattern as `gimle-console`, embedded into `gimle-fafnir`'s jar and served from there. |
+| `gimle-muninn` | The observability sink as its own process: day-bucketed logs/metrics/traces ingest and read APIs, retention sweep, and its own independent RBAC re-check on reads. See [Node topology](../architecture/node-topology.md). |
+| `gimle-andvari` | The module artifact registry as its own process: an immutable, content-addressed store of module jars behind a push/pull/list HTTP API (`/artifacts/*`), with its own independent RBAC re-check on pushes and deletes. See [Node topology](../architecture/node-topology.md). |
 | `gimle-controlplane` | API server, scheduler, reconcilers — talks to a `gimle-mimir` store cluster via `StoreClient` rather than embedding a state store. Serves the bundled web console. See [Control plane](../architecture/control-plane.md). |
 | `gimle-fabric` | Service registry, same-worker/same-machine/cross-machine invocation, load balancing, circuit breaking, and the SWIM-style gossip membership protocol between node agents. See [Service fabric](../architecture/service-fabric.md). |
 | `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |

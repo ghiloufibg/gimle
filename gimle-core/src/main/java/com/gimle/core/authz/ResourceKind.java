@@ -35,5 +35,10 @@ public enum ResourceKind {
   ROLE,
   ROLE_BINDING,
   ACCOUNT,
-  AUDIT
+  AUDIT,
+  // Guards the Andvari artifact registry: pushing or deleting a module jar is a supply-chain-
+  // adjacent grant, meaningfully more consequential than an ordinary deployment submission, so it
+  // gets its own independently withholdable kind rather than being folded into DEPLOYMENT -- the
+  // same reasoning DAEMONSET/STATEFULSET already established.
+  ARTIFACT
 }

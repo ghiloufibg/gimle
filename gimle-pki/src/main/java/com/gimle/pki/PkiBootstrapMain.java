@@ -70,6 +70,11 @@ public final class PkiBootstrapMain {
     // ApiServer's forwarded-principal claim as proof by itself, and that defense-in-depth check
     // needs to be attributable to Muninn's own certificate Subject, not a borrowed one.
     issueLeaf(outputDir, ca, "muninn", "CN=" + hostname, List.of(hostname, "localhost"));
+    // Andvari gets its own distinct identity for the same reason Fafnir and Muninn do: it re-runs
+    // its own independent Authorizer.authorize(...) check on artifact pushes/deletes rather than
+    // trusting a forwarded claim, and pushing executable module jars is supply-chain-adjacent --
+    // every such decision must be attributable to Andvari's own certificate Subject.
+    issueLeaf(outputDir, ca, "andvari", "CN=" + hostname, List.of(hostname, "localhost"));
     issueLeaf(
         outputDir,
         ca,
@@ -79,7 +84,8 @@ public final class PkiBootstrapMain {
     String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     System.out.println(
-        "wrote cluster CA, control-plane, fafnir, muninn, and initial-operator material to "
+        "wrote cluster CA, control-plane, fafnir, muninn, andvari, and initial-operator material"
+            + " to "
             + outputDir);
     System.out.println();
     System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);
