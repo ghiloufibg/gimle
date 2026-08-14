@@ -31,8 +31,6 @@ public final class SagaCucumberPlugin implements ConcurrentEventListener {
   private static final Pattern FEATURE_LINE = Pattern.compile("(?m)^\\s*Feature:\\s*(.+)$");
   private static final Pattern TOPOLOGY_IN_TOPOLOGY = Pattern.compile("topology \"([^\"]+)\"");
   private static final Pattern TOPOLOGY_IN_CLUSTER = Pattern.compile("\"([^\"]+)\" cluster");
-  private static final Pattern FORENSIC_PATH = Pattern.compile("([\\w./-]*forensic-report\\.txt)");
-  private static final int MAX_MESSAGE_CHARS = 4000;
 
   private final Map<URI, String> featureNames = new ConcurrentHashMap<>();
   private final Map<TestCase, List<Map<String, Object>>> steps = new ConcurrentHashMap<>();
@@ -76,7 +74,7 @@ public final class SagaCucumberPlugin implements ConcurrentEventListener {
     scenario.put("topology", topologies.getOrDefault(testCase, ""));
     scenario.put("tags", new ArrayList<>(testCase.getTags()));
     scenario.put("steps", steps.getOrDefault(testCase, new ArrayList<>()));
-    scenario.put("failure", failure(event));
+    scenario.put("failure", SagaCollector.failureFrom(event.getResult().getError()));
 
     final URI uri = testCase.getUri();
     final String file = fileName(uri);
@@ -85,26 +83,6 @@ public final class SagaCucumberPlugin implements ConcurrentEventListener {
 
     steps.remove(testCase);
     topologies.remove(testCase);
-  }
-
-  private static Map<String, Object> failure(final TestCaseFinished event) {
-    final Throwable error = event.getResult().getError();
-    if (error == null) {
-      return null;
-    }
-    String message = error.getMessage();
-    if (message == null) {
-      message = error.getClass().getSimpleName();
-    }
-    final Matcher pathMatcher = FORENSIC_PATH.matcher(message);
-    final String forensicPath = pathMatcher.find() ? pathMatcher.group(1) : null;
-    if (message.length() > MAX_MESSAGE_CHARS) {
-      message = message.substring(0, MAX_MESSAGE_CHARS) + "\n… (truncated)";
-    }
-    final Map<String, Object> failure = new LinkedHashMap<>();
-    failure.put("message", message);
-    failure.put("forensicReportPath", forensicPath);
-    return failure;
   }
 
   private static String extractTopology(final String stepText) {

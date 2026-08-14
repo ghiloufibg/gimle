@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The one process-wide sink a validation run's report is assembled in: scenario results fed by the
@@ -27,6 +29,8 @@ public final class SagaCollector {
 
   private static final DateTimeFormatter STAMP =
       DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
+  private static final Pattern FORENSIC_PATH = Pattern.compile("([\\w./-]*forensic-report\\.txt)");
+  private static final int MAX_MESSAGE_CHARS = 4000;
 
   private static volatile SagaCollector instance;
 
@@ -81,6 +85,30 @@ public final class SagaCollector {
         .computeIfAbsent(featureFile, k -> new Feature(featureName, featureFile))
         .scenarios
         .add(scenarioJson);
+  }
+
+  /**
+   * The report's {@code failure} shape for a throwable: its message (truncated), and a forensic
+   * report path lifted from that message when one is named. Shared by the Cucumber plugin and the
+   * JUnit listener so both represent a failure identically.
+   */
+  public static Map<String, Object> failureFrom(final Throwable error) {
+    if (error == null) {
+      return null;
+    }
+    String message = error.getMessage();
+    if (message == null) {
+      message = error.getClass().getSimpleName();
+    }
+    final Matcher pathMatcher = FORENSIC_PATH.matcher(message);
+    final String forensicPath = pathMatcher.find() ? pathMatcher.group(1) : null;
+    if (message.length() > MAX_MESSAGE_CHARS) {
+      message = message.substring(0, MAX_MESSAGE_CHARS) + "\n… (truncated)";
+    }
+    final Map<String, Object> failure = new LinkedHashMap<>();
+    failure.put("message", message);
+    failure.put("forensicReportPath", forensicPath);
+    return failure;
   }
 
   /** Folds one Fenrir soak's ledger into the report. */

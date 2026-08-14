@@ -108,4 +108,25 @@ final class SagaWriterTest {
     final Map<String, Object> report = SagaWriter.report(c);
     assertEquals("PASSED", ((Map<String, Object>) report.get("run")).get("outcome"));
   }
+
+  @Test
+  void failure_extraction_lifts_the_forensic_path_and_truncates() {
+    assertEquals(null, SagaCollector.failureFrom(null));
+
+    final Map<String, Object> withPath =
+        SagaCollector.failureFrom(
+            new RuntimeException(
+                "condition not met; see target/holmgang/ha-20260814/forensic-report.txt"));
+    assertEquals(
+        "target/holmgang/ha-20260814/forensic-report.txt", withPath.get("forensicReportPath"));
+
+    final Map<String, Object> noPath =
+        SagaCollector.failureFrom(new RuntimeException("plain boom"));
+    assertEquals(null, noPath.get("forensicReportPath"));
+    assertEquals("plain boom", noPath.get("message"));
+
+    final Map<String, Object> huge =
+        SagaCollector.failureFrom(new RuntimeException("x".repeat(9000)));
+    assertTrue(String.valueOf(huge.get("message")).contains("truncated"));
+  }
 }
