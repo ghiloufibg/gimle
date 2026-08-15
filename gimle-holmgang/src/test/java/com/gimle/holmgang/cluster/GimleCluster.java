@@ -61,16 +61,15 @@ public final class GimleCluster implements AutoCloseable {
   private final Map<Integer, ClusterApi> apis = new LinkedHashMap<>();
   private final List<Integer> storeRaftPorts = new ArrayList<>();
   private final List<Integer> storeClientPorts = new ArrayList<>();
+  private final List<ManagedProcess> andvaris = new ArrayList<>();
   private Heimdall heimdall;
   private ManagedProcess muninn;
-  private ManagedProcess andvari;
   private Path tlsDir;
   private HttpClient operatorClient;
   private Loki loki;
   private String javaExecutablePath;
   private String classpath;
   private int muninnPort = -1;
-  private int andvariPort = -1;
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
     this.spec = spec;
@@ -126,11 +125,21 @@ public final class GimleCluster implements AutoCloseable {
     return muninn;
   }
 
+  /** The first Andvari replica -- the common case for a topology with just one. */
   public GimleProcess andvari() {
-    if (andvari == null) {
+    return andvari(0);
+  }
+
+  public GimleProcess andvari(final int index) {
+    if (andvaris.isEmpty()) {
       throw new HolmgangException("topology " + spec.name() + " does not enable Andvari");
     }
-    return andvari;
+    return andvaris.get(index);
+  }
+
+  /** How many Andvari replicas this topology booted -- zero when Andvari isn't enabled. */
+  public int andvariCount() {
+    return andvaris.size();
   }
 
   public GimleProcess agent(final String nodeId) {
@@ -445,7 +454,6 @@ public final class GimleCluster implements AutoCloseable {
 
     final PortPlan ports = PortPlan.allocate(spec, host());
     this.muninnPort = ports.muninnPort();
-    this.andvariPort = ports.andvariPort();
     try (PortLease lease = ports.lease()) {
       startStores(javaExecutable, classpath, ports, lease);
       startMuninn(javaExecutable, classpath, ports, lease);
@@ -634,29 +642,39 @@ public final class GimleCluster implements AutoCloseable {
 
   private void startAndvari(
       final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    if (!spec.andvariEnabled()) {
+    if (spec.andvariReplicas() == 0) {
       return;
     }
     // Like Muninn, Andvari needs only the store, so it comes up before the control planes and
     // agents that resolve module coordinates through it.
-    final List<String> command = new ArrayList<>();
-    command.add(java);
-    command.addAll(tlsFlags("andvari"));
-    command.addAll(spec.jvmFlags(ProcessRole.ANDVARI));
-    command.addAll(List.of("-cp", classpath, "com.gimle.andvari.AndvariMain"));
-    command.add(String.valueOf(ports.andvariPort));
-    command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-    command.addAll(List.of("--data-root", workDir.resolve("andvari-data").toString()));
-    lease.release(ports.andvariPort);
-    andvari =
-        new ManagedProcess(
-            ProcessRole.ANDVARI,
-            "andvari",
-            command,
-            workDir.resolve("andvari.log"),
-            host() + ":" + ports.andvariPort);
-    spawnOrder.add(andvari);
-    Polls.awaitPortOpen(host(), ports.andvariPort, STAGE_TIMEOUT);
+    for (int i = 0; i < spec.andvariReplicas(); i++) {
+      final int port = ports.andvariPorts.get(i);
+      final List<String> command = new ArrayList<>();
+      command.add(java);
+      command.addAll(tlsFlags("andvari"));
+      command.addAll(spec.jvmFlags(ProcessRole.ANDVARI));
+      command.addAll(List.of("-cp", classpath, "com.gimle.andvari.AndvariMain"));
+      command.add(String.valueOf(port));
+      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
+      command.addAll(List.of("--data-root", workDir.resolve("andvari-data-" + i).toString()));
+      final String peers = ports.andvariPeersSpecExcluding(i);
+      if (!peers.isBlank()) {
+        command.addAll(List.of("--peer-endpoints", peers));
+      }
+      lease.release(port);
+      final ManagedProcess andvari =
+          new ManagedProcess(
+              ProcessRole.ANDVARI,
+              "andvari-" + i,
+              command,
+              workDir.resolve("andvari-" + i + ".log"),
+              host() + ":" + port);
+      spawnOrder.add(andvari);
+      andvaris.add(andvari);
+    }
+    for (final int port : ports.andvariPorts) {
+      Polls.awaitPortOpen(host(), port, STAGE_TIMEOUT);
+    }
   }
 
   private void startFafnirs(
@@ -730,8 +748,8 @@ public final class GimleCluster implements AutoCloseable {
       if (spec.muninnEnabled()) {
         command.addAll(List.of("--muninn-endpoint", host() + ":" + ports.muninnPort));
       }
-      if (spec.andvariEnabled()) {
-        command.addAll(List.of("--andvari-endpoint", host() + ":" + ports.andvariPort));
+      if (spec.andvariReplicas() > 0) {
+        command.addAll(List.of("--andvari-endpoint", ports.andvariEndpointsSpec()));
       }
       lease.release(port);
       final ManagedProcess controlPlane =
@@ -790,8 +808,8 @@ public final class GimleCluster implements AutoCloseable {
       if (spec.muninnEnabled()) {
         command.add("-Dgimle.agent.muninnEndpoint=" + host() + ":" + ports.muninnPort);
       }
-      if (spec.andvariEnabled()) {
-        command.add("-Dgimle.agent.andvariEndpoint=" + host() + ":" + ports.andvariPort);
+      if (spec.andvariReplicas() > 0) {
+        command.add("-Dgimle.agent.andvariEndpoint=" + ports.andvariEndpointsSpec());
       }
       // Per-node, not shared: a second agent would otherwise write its agent-platform.log to the
       // exact same file as the first, interleaving both processes' JSON output.
@@ -871,7 +889,7 @@ public final class GimleCluster implements AutoCloseable {
       List<Integer> controlPlanePorts,
       List<Integer> gossipPorts,
       int muninnPort,
-      int andvariPort,
+      List<Integer> andvariPorts,
       PortLease leased) {
 
     static PortPlan allocate(final ClusterSpec spec, final String host) {
@@ -881,7 +899,7 @@ public final class GimleCluster implements AutoCloseable {
               + spec.controlPlaneReplicas()
               + spec.nodes().size()
               + (spec.muninnEnabled() ? 1 : 0)
-              + (spec.andvariEnabled() ? 1 : 0);
+              + spec.andvariReplicas();
       final PortLease lease = PortLease.reserve(count);
       final List<Integer> ports = lease.ports();
       int next = 0;
@@ -904,13 +922,32 @@ public final class GimleCluster implements AutoCloseable {
         gossip.add(ports.get(next++));
       }
       final int muninn = spec.muninnEnabled() ? ports.get(next++) : -1;
-      final int andvari = spec.andvariEnabled() ? ports.get(next++) : -1;
+      final List<Integer> andvari = new ArrayList<>();
+      for (int i = 0; i < spec.andvariReplicas(); i++) {
+        andvari.add(ports.get(next++));
+      }
       return new PortPlan(
           host, storeRaft, storeClient, fafnir, controlPlane, gossip, muninn, andvari, lease);
     }
 
     PortLease lease() {
       return leased;
+    }
+
+    /** Every configured Andvari replica's own {@code host:port}, comma-joined. */
+    String andvariEndpointsSpec() {
+      return endpointsSpecOf(host, andvariPorts);
+    }
+
+    /** Every *other* Andvari replica's {@code host:port}, for one replica's own peer-sync list. */
+    String andvariPeersSpecExcluding(final int excludeIndex) {
+      final List<String> peers = new ArrayList<>();
+      for (int i = 0; i < andvariPorts.size(); i++) {
+        if (i != excludeIndex) {
+          peers.add(host + ":" + andvariPorts.get(i));
+        }
+      }
+      return String.join(",", peers);
     }
 
     String storeEndpointsSpec() {

@@ -27,6 +27,7 @@ public final class ClusterTopology {
     private int fafnirReplicas = 1;
     private boolean muninnEnabled;
     private boolean andvariEnabled;
+    private int andvariReplicas = 1;
     private final List<NodeSpec> nodes = new ArrayList<>();
     private boolean faultsProxied;
     private final Map<ProcessRole, List<String>> extraJvmFlags = new EnumMap<>(ProcessRole.class);
@@ -64,6 +65,13 @@ public final class ClusterTopology {
 
     public Builder andvari() {
       this.andvariEnabled = true;
+      return this;
+    }
+
+    /** Enables Andvari with {@code replicas} peer-syncing instances instead of just one. */
+    public Builder andvari(final int replicas) {
+      this.andvariEnabled = true;
+      this.andvariReplicas = replicas;
       return this;
     }
 
@@ -109,6 +117,7 @@ public final class ClusterTopology {
           fafnirReplicas,
           muninnEnabled,
           andvariEnabled,
+          andvariReplicas,
           nodes,
           faultsProxied,
           extraJvmFlags,

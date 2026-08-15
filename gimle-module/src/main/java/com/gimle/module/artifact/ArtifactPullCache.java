@@ -15,6 +15,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -61,11 +62,41 @@ public final class ArtifactPullCache {
    * retry here, since the enclosing reconcile loop already re-runs level-triggered.
    */
   public Path resolve(HttpClient httpClient, URI andvariBaseUrl, ModuleId moduleId) {
+    return resolve(httpClient, List.of(andvariBaseUrl), moduleId);
+  }
+
+  /**
+   * Multi-endpoint form: tries each configured registry endpoint in order, moving to the next only
+   * once one fails (unreachable, coordinate not found there, or a bad digest), so a replica that
+   * hasn't yet caught up on a peer-sync tick -- or is simply down -- doesn't fail a resolution that
+   * a different configured replica could have answered. Andvari has no leader to route writes
+   * through the way {@code gimle-mimir}'s store does, so every configured endpoint is equally
+   * eligible to answer a pull; this is the read-side counterpart to {@code AndvariClient}'s own
+   * failover for the same reason.
+   */
+  public Path resolve(HttpClient httpClient, List<URI> andvariBaseUrls, ModuleId moduleId) {
     Optional<Path> cached = cachedJar(moduleId);
     if (cached.isPresent()) {
       return cached.get();
     }
-    return download(httpClient, andvariBaseUrl, moduleId);
+    if (andvariBaseUrls.isEmpty()) {
+      throw new GimleManifestException(
+          "no artifact registry endpoint configured to resolve " + coordinate(moduleId));
+    }
+    GimleManifestException lastFailure = null;
+    for (URI andvariBaseUrl : andvariBaseUrls) {
+      try {
+        return download(httpClient, andvariBaseUrl, moduleId);
+      } catch (GimleManifestException e) {
+        lastFailure = e;
+        log.warn(
+            "failed to pull {} from {}, trying the next configured endpoint: {}",
+            coordinate(moduleId),
+            andvariBaseUrl,
+            e.getMessage());
+      }
+    }
+    throw lastFailure;
   }
 
   private Path download(HttpClient httpClient, URI andvariBaseUrl, ModuleId moduleId) {

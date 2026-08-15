@@ -3,6 +3,7 @@ package com.gimle.andvari;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -52,7 +54,8 @@ public final class AndvariMain {
     if (args.length < 1) {
       System.err.println(
           "usage: AndvariMain <port> --store-endpoints host1:clientPort1,... --data-root <path> "
-              + "[--host <hostname>] [--csr-endpoint <host:port>]");
+              + "[--host <hostname>] [--csr-endpoint <host:port>]"
+              + " [--peer-endpoints host1:port1,host2:port2,...]");
       System.exit(2);
       return;
     }
@@ -61,6 +64,7 @@ public final class AndvariMain {
     List<SocketAddress> storeEndpoints = List.of();
     Path dataRoot = null;
     URI csrEndpoint = null;
+    List<String> peerEndpoints = List.of();
     for (int i = 1; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
@@ -70,6 +74,8 @@ public final class AndvariMain {
         dataRoot = Path.of(args[++i]);
       } else if ("--csr-endpoint".equals(args[i]) && i + 1 < args.length) {
         csrEndpoint = URI.create("https://" + args[++i] + "/bootstrap/csr");
+      } else if ("--peer-endpoints".equals(args[i]) && i + 1 < args.length) {
+        peerEndpoints = parsePeerEndpoints(args[++i]);
       }
     }
     if (storeEndpoints.isEmpty()) {
@@ -226,8 +232,35 @@ public final class AndvariMain {
       log.info("version retention disabled (set -Dgimle.andvari.retention.enabled=true to enable)");
     }
 
+    // Present only in a multi-replica deployment (see --peer-endpoints above); a single-replica
+    // topology configures none and this stays null, exactly the "one process, one disk" shape
+    // this process has always had. peerEndpoints never includes this replica's own address --
+    // GimleCluster and any other launcher pass every *other* configured replica here.
+    AndvariPeerSync peerSync = null;
+    if (!peerEndpoints.isEmpty()) {
+      List<URI> peerUris = new ArrayList<>();
+      String scheme = TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT ? "http" : "https";
+      for (String peerEndpoint : peerEndpoints) {
+        peerUris.add(URI.create(scheme + "://" + peerEndpoint));
+      }
+      HttpClient.Builder peerClientBuilder = HttpClient.newBuilder();
+      if (TransportProtocol.fromConfig() != TransportProtocol.PLAINTEXT) {
+        peerClientBuilder.sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()));
+      }
+      Duration peerSyncInterval =
+          Duration.ofSeconds(Long.getLong("gimle.andvari.peerSync.intervalSeconds", 30L));
+      peerSync =
+          new AndvariPeerSync(
+              andvariServer.artifactStore(), peerUris, peerClientBuilder.build(), peerSyncInterval);
+      log.info(
+          "peer sync enabled against {} peer(s), running every {}", peerUris, peerSyncInterval);
+    } else {
+      log.info("peer sync disabled (no --peer-endpoints configured; this is a single replica)");
+    }
+
     IntegrityScrubber finalIntegrityScrubber = integrityScrubber;
     ArtifactRetentionSweeper finalRetentionSweeper = retentionSweeper;
+    AndvariPeerSync finalPeerSync = peerSync;
     Runtime.getRuntime()
         .addShutdownHook(
             Thread.ofPlatform()
@@ -240,6 +273,9 @@ public final class AndvariMain {
                       }
                       if (finalRetentionSweeper != null) {
                         finalRetentionSweeper.close();
+                      }
+                      if (finalPeerSync != null) {
+                        finalPeerSync.close();
                       }
                       if (metricsShipper != null) {
                         metricsShipper.close();
@@ -265,6 +301,17 @@ public final class AndvariMain {
             muninnEndpoint,
             "/ingest/" + kind + "/ANDVARI/" + selfHost + ":" + port,
             MUNINN_SHIP_INTERVAL);
+  }
+
+  /**
+   * {@code host:port} entries for {@link AndvariPeerSync}, kept as strings since they resolve to
+   * HTTP base URIs (not socket addresses) once the transport scheme is known.
+   */
+  private static List<String> parsePeerEndpoints(String spec) {
+    if (spec == null || spec.isBlank()) {
+      return List.of();
+    }
+    return List.of(spec.split(","));
   }
 
   private static List<SocketAddress> parseStoreEndpoints(String spec) {
