@@ -11,6 +11,10 @@ claudedocs/
 # not under target/, and contains non-.log files the blanket *.log rule above doesn't catch.
 gimle-bootstrap/
 
+# Claude Code's own worktree-isolation bookkeeping for parallel background agents -- ephemeral
+# harness state, not authored content.
+.claude/
+
 # gimle-console (npm/Vite-family project, outside the Maven reactor) build artifacts
 gimle-console/node_modules/
 gimle-console/dist/
