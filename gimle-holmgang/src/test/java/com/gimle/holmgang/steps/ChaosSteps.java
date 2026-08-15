@@ -33,6 +33,31 @@ public final class ChaosSteps {
 
   @When("Fenrir is unleashed for {int} seconds striking every {int} seconds")
   public void fenrirIsUnleashed(final int soakSeconds, final int gapSeconds) {
+    unleash(basePlan(soakSeconds, gapSeconds), soakSeconds);
+  }
+
+  /**
+   * The compound-fault variant: strikes keep firing on the gap cadence even when the previous one's
+   * own recovery gate hasn't cleared, instead of the soak halting on the first missed gate (see
+   * {@link FenrirPlan.Builder#convergeBetweenFaults}). A tightened recovery gate makes this
+   * realistic within a short soak window -- a gate shorter than the platform's own reconcile
+   * interval-driven recovery time means a still-recovering victim can genuinely be caught mid-
+   * recovery by the next scheduled strike.
+   */
+  @When(
+      "Fenrir is unleashed in compound-fault mode for {int} seconds striking every {int} seconds"
+          + " with a {int}-second recovery gate")
+  public void fenrirIsUnleashedInCompoundFaultMode(
+      final int soakSeconds, final int gapSeconds, final int gateSeconds) {
+    unleash(
+        basePlan(soakSeconds, gapSeconds)
+            .gateTimeout(Duration.ofSeconds(gateSeconds))
+            .convergeBetweenFaults(false),
+        soakSeconds);
+  }
+
+  /** The pools and eligibility every soak mode shares; each caller layers its own mode knobs on. */
+  private FenrirPlan.Builder basePlan(final int soakSeconds, final int gapSeconds) {
     if (!world.isDestructive()) {
       throw new HolmgangException(
           "a Fenrir soak must run on a @destructive scenario -- it needs a fresh, owned cluster");
@@ -44,10 +69,15 @@ public final class ChaosSteps {
             .strikeEvery(Duration.ofSeconds(gapSeconds))
             .pool(Pools.storeBounces())
             .pool(Pools.leaderBounces())
-            .pool(Pools.controlPlaneBounces());
+            .pool(Pools.controlPlaneBounces())
+            .pool(Pools.fafnirBounces());
     if (eligible.length > 0) {
       plan.eligibleDeployments(eligible).pool(Pools.workerKills().weight(2));
     }
+    return plan;
+  }
+
+  private void unleash(final FenrirPlan.Builder plan, final int soakSeconds) {
     final ChaosLedger ledger = Fenrir.unleash(world.cluster(), plan.build());
     world.chaosLedger = ledger;
     com.gimle.holmgang.saga.SagaCollector.instance()
