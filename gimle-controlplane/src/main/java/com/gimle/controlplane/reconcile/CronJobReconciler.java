@@ -2,6 +2,7 @@ package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.cron.CronSchedule;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.JobSpec;
@@ -158,7 +159,10 @@ public final class CronJobReconciler {
     }
 
     Optional<String> artifactSha256 =
-        readArtifactSha256(spec.jobTemplate().artifactPath(), spec.jobTemplate().moduleId());
+        readArtifactSha256(
+            spec.jobTemplate().artifactPath(),
+            spec.jobTemplate().moduleId(),
+            spec.jobTemplate().vessel());
     String jobName = spec.name() + "-" + firingTime.getEpochSecond();
     JobSpec job =
         new JobSpec(
@@ -169,23 +173,25 @@ public final class CronJobReconciler {
             spec.jobTemplate().activeDeadline(),
             spec.jobTemplate().backoffLimit(),
             spec.tenantId(),
-            artifactSha256);
+            artifactSha256,
+            spec.jobTemplate().vessel());
     mutations.propose(new StateMutation.PutJobSpec(job));
     return Optional.of(jobName);
   }
 
   /**
-   * Never trusted from the manifest (there is no such field on {@link
-   * com.gimle.mimir.manifest.JobTemplate} to trust in the first place) -- recomputed at firing time
-   * the same way {@code ApiServer}'s own {@code handlePutJob} recomputes it at admission. An
-   * unreadable artifact does not block the firing (unlike a directly-submitted Job, nothing has
-   * accepted a client's request that must be answered synchronously here) -- {@code
-   * JobReconciler}'s own {@code placeAttempt} will simply find the artifact unreadable and retry
-   * next tick, the same outcome a missing hash-check would produce anyway.
+   * The digest is never trusted from the manifest -- recomputed at firing time the same way {@code
+   * ApiServer}'s own {@code handlePutJob} recomputes it at admission. An unreadable artifact does
+   * not block the firing (unlike a directly-submitted Job, nothing has accepted a client's request
+   * that must be answered synchronously here) -- {@code JobReconciler}'s own {@code placeAttempt}
+   * will simply find the artifact unreadable and retry next tick, the same outcome a missing
+   * hash-check would produce anyway. {@code vessel} is threaded through so a vessel-hosted
+   * jobTemplate reads its jar the same vessel-aware way every other reconciler does.
    */
-  private Optional<String> readArtifactSha256(String artifactPath, ModuleId moduleId) {
+  private Optional<String> readArtifactSha256(
+      String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
     try {
-      return Optional.of(artifactResolver.resolve(artifactPath, moduleId).sha256());
+      return Optional.of(artifactResolver.resolve(artifactPath, moduleId, vessel).sha256());
     } catch (RuntimeException e) {
       return Optional.empty();
     }

@@ -52,6 +52,11 @@ import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.vessel.VesselArtifacts;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselFileMount;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
@@ -109,6 +114,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
@@ -322,6 +328,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/daemonsets", instrument("daemonsets", this::handleDaemonSetsList));
     target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
     target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
+    target.createContext("/endpoints/", instrument("endpoints", this::handleEndpoints));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -714,7 +721,7 @@ public final class ApiServer implements AutoCloseable {
     // untenanted deployments already had before this field existed -- DeploymentReconciler still
     // catches an unreadable artifact every tick regardless.
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -733,9 +740,13 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private static Optional<ModuleArtifact> readArtifactIfPossible(String artifactPath) {
+  private static Optional<ModuleArtifact> readArtifactIfPossible(
+      String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
     try {
-      return Optional.of(ModuleArtifactReader.read(Path.of(artifactPath)));
+      return Optional.of(
+          vessel.isPresent()
+              ? VesselArtifacts.readVesselArtifact(Path.of(artifactPath), moduleId, vessel.get())
+              : ModuleArtifactReader.read(Path.of(artifactPath)));
     } catch (RuntimeException e) {
       return Optional.empty();
     }
@@ -752,9 +763,16 @@ public final class ApiServer implements AutoCloseable {
    * best-effort pulling the jar through the local cache so the tenant-quota plugin still gets a
    * descriptor to charge against.
    */
-  private AdmissionArtifact admissionArtifact(String artifactPath, ModuleId moduleId) {
+  /**
+   * {@code vessel}, when present, routes the local-path/registry-coordinate read through {@link
+   * VesselArtifacts} instead of {@link ModuleArtifactReader} -- see {@link
+   * ArtifactResolver#resolve(String, ModuleId, Optional)}'s own javadoc for why this is the one
+   * place every admission path needs to know a spec is vessel-hosted, and nowhere else does.
+   */
+  private AdmissionArtifact admissionArtifact(
+      String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
     if (ArtifactReference.isLocalPath(artifactPath)) {
-      Optional<ModuleArtifact> artifact = readArtifactIfPossible(artifactPath);
+      Optional<ModuleArtifact> artifact = readArtifactIfPossible(artifactPath, moduleId, vessel);
       return new AdmissionArtifact(
           Optional.empty(), artifact, artifact.map(ModuleArtifact::sha256));
     }
@@ -788,7 +806,7 @@ public final class ApiServer implements AutoCloseable {
       case AndvariClient.HeadOutcome.Found found ->
           new AdmissionArtifact(
               Optional.empty(),
-              artifactResolver.resolveIfPossible(artifactPath, moduleId),
+              artifactResolver.resolveIfPossible(artifactPath, moduleId, vessel),
               Optional.of(found.sha256()));
     };
   }
@@ -814,7 +832,8 @@ public final class ApiServer implements AutoCloseable {
         spec.autoscale(),
         spec.tenantId(),
         sha256,
-        spec.disruption());
+        spec.disruption(),
+        spec.vessel());
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
@@ -884,7 +903,7 @@ public final class ApiServer implements AutoCloseable {
     // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -908,7 +927,8 @@ public final class ApiServer implements AutoCloseable {
         spec.activeDeadline(),
         spec.backoffLimit(),
         spec.tenantId(),
-        sha256);
+        sha256,
+        spec.vessel());
   }
 
   private void handleGetJob(HttpExchange exchange, String name) throws IOException {
@@ -952,6 +972,7 @@ public final class ApiServer implements AutoCloseable {
     spec.activeDeadline().ifPresent(d -> specMap.put("activeDeadlineSeconds", d.toSeconds()));
     specMap.put("backoffLimit", spec.backoffLimit());
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+    spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
@@ -1116,6 +1137,7 @@ public final class ApiServer implements AutoCloseable {
     spec.jobTemplate()
         .activeDeadline()
         .ifPresent(d -> template.put("activeDeadlineSeconds", d.toSeconds()));
+    spec.jobTemplate().vessel().ifPresent(v -> template.put("vessel", vesselToJson(v)));
     specMap.put("jobTemplate", template);
     spec.startingDeadline().ifPresent(d -> specMap.put("startingDeadlineSeconds", d.toSeconds()));
     specMap.put("concurrencyPolicy", spec.concurrencyPolicy().name());
@@ -1161,7 +1183,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -1182,7 +1204,8 @@ public final class ApiServer implements AutoCloseable {
         spec.placement(),
         spec.tenantId(),
         sha256,
-        spec.disruption());
+        spec.disruption(),
+        spec.vessel());
   }
 
   private void handleGetDaemonSet(HttpExchange exchange, String name) throws IOException {
@@ -1232,6 +1255,7 @@ public final class ApiServer implements AutoCloseable {
         .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
     specMap.put("placement", placement);
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+    spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignmentsFor(spec.name())) {
@@ -1287,7 +1311,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId());
+        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -1310,7 +1334,8 @@ public final class ApiServer implements AutoCloseable {
         spec.replicas(),
         spec.placement(),
         spec.tenantId(),
-        sha256);
+        sha256,
+        spec.vessel());
   }
 
   private void handleGetStatefulSet(HttpExchange exchange, String name) throws IOException {
@@ -1363,6 +1388,7 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+    spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (StatefulSetAssignment assignment :
@@ -1400,6 +1426,7 @@ public final class ApiServer implements AutoCloseable {
     spec.autoscale().ifPresent(policy -> specMap.put("autoscale", autoscaleToJson(policy)));
     spec.disruption().ifPresent(budget -> specMap.put("disruption", disruptionToJson(budget)));
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+    spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.name())) {
@@ -1449,6 +1476,119 @@ public final class ApiServer implements AutoCloseable {
     map.put("maxUnavailable", budget.maxUnavailable());
     map.put("maxSurge", budget.maxSurge());
     return map;
+  }
+
+  /** Serializes a {@link VesselSpec} onto the wire for the console/CLI to render. */
+  private static Map<String, Object> vesselToJson(VesselSpec vessel) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("args", vessel.args());
+    map.put("jvmFlags", vessel.jvmFlags());
+    Map<String, Object> env = new LinkedHashMap<>();
+    for (var entry : vessel.env().entrySet()) {
+      env.put(entry.getKey(), vesselEnvValueToJson(entry.getValue()));
+    }
+    map.put("env", env);
+    List<Map<String, Object>> files = new ArrayList<>();
+    for (VesselFileMount file : vessel.files()) {
+      files.add(Map.of("path", file.path(), "config", file.configKey()));
+    }
+    map.put("files", files);
+    Map<String, Object> probes = new LinkedHashMap<>();
+    vessel.probes().liveness().ifPresent(p -> probes.put("liveness", vesselProbeToJson(p)));
+    vessel.probes().readiness().ifPresent(p -> probes.put("readiness", vesselProbeToJson(p)));
+    map.put("probes", probes);
+    Map<String, Object> resources = new LinkedHashMap<>();
+    resources.put(
+        "request",
+        Map.of("memory", vessel.resourceRequest().memory(), "cpu", vessel.resourceRequest().cpu()));
+    resources.put(
+        "limit",
+        Map.of("memory", vessel.resourceLimit().memory(), "cpu", vessel.resourceLimit().cpu()));
+    map.put("resources", resources);
+    return map;
+  }
+
+  private static Map<String, Object> vesselEnvValueToJson(VesselEnvValue value) {
+    return switch (value) {
+      case VesselEnvValue.Literal literal -> Map.of("value", literal.value());
+      case VesselEnvValue.SecretRef secretRef -> Map.of("secret", secretRef.key());
+      case VesselEnvValue.PortAllocation portAllocation ->
+          portAllocation.fixedPort().isPresent()
+              ? Map.of("port", portAllocation.fixedPort().getAsInt())
+              : Map.of("port", "dynamic");
+    };
+  }
+
+  private static Map<String, Object> vesselProbeToJson(VesselProbeSpec probe) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("initialDelaySeconds", probe.initialDelaySeconds());
+    switch (probe) {
+      case VesselProbeSpec.Tcp ignored -> map.put("tcp", true);
+      case VesselProbeSpec.Http http -> map.put("http", http.path());
+    }
+    return map;
+  }
+
+  // ---- /endpoints/{deployment} ----
+
+  /**
+   * Read-only view over where a deployment's live instances are actually reachable: for each
+   * assigned instance, its node id, the host that node registered at startup, and whichever ports a
+   * vessel instance declared (name -> allocated/fixed number) -- joined from the latest heartbeat
+   * the same way {@link #findObservation} already joins an {@link InstanceAssignment} against one,
+   * plus the node's own {@link NodeRegistration#apiAddress()} for the host half. No gateway, no
+   * proxying -- purely "list where things are," for an external client to dial itself. Scoped to
+   * {@code /endpoints/{deployment}} only for now: a module workload declaring a port is out of
+   * scope, and extending this route to Job/CronJob/DaemonSet/StatefulSet as well is a
+   * straightforward follow-up (each already exposes the same assignment-plus-heartbeat shape this
+   * method reads) rather than something this route's own logic would need to change to support.
+   */
+  private void handleEndpoints(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String name = pathSegmentAfter(exchange, "/endpoints/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing deployment name");
+        return;
+      }
+      Optional<DeploymentSpec> spec = storeClient.getDeployment(name);
+      if (spec.isEmpty()) {
+        respond(exchange, 404, "no such deployment: " + name);
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, spec.get().tenantId())) {
+        return;
+      }
+      List<Map<String, Object>> endpoints = new ArrayList<>();
+      for (InstanceAssignment assignment : storeClient.listAssignmentsFor(name)) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("instanceIndex", assignment.instanceIndex());
+        entry.put("nodeId", assignment.nodeId());
+        storeClient
+            .getNodeRegistration(assignment.nodeId())
+            .ifPresent(
+                reg -> {
+                  reg.apiAddress().ifPresent(address -> entry.put("host", hostOnly(address)));
+                });
+        findObservation(assignment).ifPresent(obs -> entry.put("ports", obs.ports()));
+        endpoints.add(entry);
+      }
+      respondJson(exchange, 200, endpoints);
+    } catch (IOException | RuntimeException e) {
+      log.warn("endpoints request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /** Strips a trailing {@code :port} off a registered {@code host:port} node address. */
+  private static String hostOnly(String hostPort) {
+    int at = hostPort.lastIndexOf(':');
+    return at < 0 ? hostPort : hostPort.substring(0, at);
   }
 
   /**
@@ -1648,7 +1788,8 @@ public final class ApiServer implements AutoCloseable {
               moduleId,
               artifactPath,
               spec.get().tenantId(),
-              assignment.renamedFromInstanceIndex());
+              assignment.renamedFromInstanceIndex(),
+              spec.get().vessel());
       assigned.add(assignedInstanceToJson(instance));
     }
     // Job runs reuse this exact same AssignedInstance wire shape --
@@ -1671,7 +1812,9 @@ public final class ApiServer implements AutoCloseable {
               run.attempt(),
               run.moduleId(),
               run.artifactPath(),
-              jobSpec.get().tenantId());
+              jobSpec.get().tenantId(),
+              OptionalInt.empty(),
+              jobSpec.get().vessel());
       assigned.add(assignedInstanceToJson(instance));
     }
     // DaemonSet assignments reuse the same AssignedInstance wire shape
@@ -1693,7 +1836,9 @@ public final class ApiServer implements AutoCloseable {
               0,
               assignment.moduleId(),
               assignment.artifactPath(),
-              daemonSetSpec.get().tenantId());
+              daemonSetSpec.get().tenantId(),
+              OptionalInt.empty(),
+              daemonSetSpec.get().vessel());
       assigned.add(assignedInstanceToJson(instance));
     }
     // StatefulSet assignments reuse the same AssignedInstance wire
@@ -1719,7 +1864,9 @@ public final class ApiServer implements AutoCloseable {
               assignment.instanceIndex(),
               assignment.moduleId(),
               assignment.artifactPath(),
-              statefulSetSpec.get().tenantId());
+              statefulSetSpec.get().tenantId(),
+              OptionalInt.empty(),
+              statefulSetSpec.get().vessel());
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);
@@ -1994,6 +2141,9 @@ public final class ApiServer implements AutoCloseable {
     map.put("queueDepth", obs.queueDepth());
     map.put("cpuMillicoresUsed", obs.cpuMillicoresUsed());
     map.put("memoryBytesUsed", obs.memoryBytesUsed());
+    if (!obs.ports().isEmpty()) {
+      map.put("ports", obs.ports());
+    }
     return map;
   }
 

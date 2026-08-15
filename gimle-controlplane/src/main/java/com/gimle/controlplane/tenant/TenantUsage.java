@@ -2,6 +2,7 @@ package com.gimle.controlplane.tenant;
 
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.vessel.VesselArtifacts;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.store.StoreReader;
 import com.gimle.module.artifact.ModuleArtifactReader;
@@ -67,7 +68,16 @@ public final class TenantUsage {
   public static Usage contributionOf(StoreReader store, DeploymentSpec spec) {
     ModuleDescriptor descriptor;
     try {
-      descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
+      // A vessel-hosted deployment has no gimle-module.yaml to read -- ArtifactResolver's own
+      // synthetic-descriptor path (VesselArtifacts) is what DeploymentReconciler already uses for
+      // this exact spec, so quota accounting must charge the same resource request that reconciler
+      // actually schedules against, not silently read zero because a plain jar has no descriptor.
+      descriptor =
+          spec.vessel().isPresent()
+              ? VesselArtifacts.readVesselArtifact(
+                      Path.of(spec.artifactPath()), spec.moduleId(), spec.vessel().get())
+                  .descriptor()
+              : ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
     } catch (RuntimeException e) {
       return new Usage(0, 0, 0);
     }
