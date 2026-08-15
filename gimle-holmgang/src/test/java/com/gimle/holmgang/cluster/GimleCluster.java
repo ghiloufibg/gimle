@@ -19,7 +19,10 @@ import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,14 +65,14 @@ public final class GimleCluster implements AutoCloseable {
   private final List<Integer> storeRaftPorts = new ArrayList<>();
   private final List<Integer> storeClientPorts = new ArrayList<>();
   private final List<ManagedProcess> andvaris = new ArrayList<>();
+  private final List<ManagedProcess> muninns = new ArrayList<>();
   private Heimdall heimdall;
-  private ManagedProcess muninn;
   private Path tlsDir;
   private HttpClient operatorClient;
   private Loki loki;
   private String javaExecutablePath;
   private String classpath;
-  private int muninnPort = -1;
+  private String muninnEndpointsSpec = "";
 
   private GimleCluster(final ClusterSpec spec, final Path workDir) {
     this.spec = spec;
@@ -118,11 +121,53 @@ public final class GimleCluster implements AutoCloseable {
     return fafnirs.size();
   }
 
+  /** The first Muninn replica -- the common case for a topology with just one. */
   public GimleProcess muninn() {
-    if (muninn == null) {
+    return muninn(0);
+  }
+
+  public GimleProcess muninn(final int index) {
+    if (muninns.isEmpty()) {
       throw new HolmgangException("topology " + spec.name() + " does not enable Muninn");
     }
-    return muninn;
+    return muninns.get(index);
+  }
+
+  /** How many Muninn replicas this topology booted -- zero when Muninn isn't enabled. */
+  public int muninnCount() {
+    return muninns.size();
+  }
+
+  /**
+   * True once the given Muninn replica's own {@code /status} route answers -- a direct-port
+   * liveness/readiness signal, since {@code /status} needs no store or auth round trip. Unlike a
+   * control-plane replica there is no proxy hop to route this through, so it hits the replica's own
+   * leased port directly.
+   */
+  public boolean muninnServing(final int index) {
+    return httpStatusOk(scheme() + "://" + muninns.get(index).endpoint() + "/status");
+  }
+
+  /**
+   * The same direct-port {@code /status} liveness signal as {@link #muninnServing}, for Andvari.
+   */
+  public boolean andvariServing(final int index) {
+    return httpStatusOk(scheme() + "://" + andvaris.get(index).endpoint() + "/status");
+  }
+
+  private boolean httpStatusOk(final String url) {
+    try {
+      final HttpResponse<Void> response =
+          operatorClient.send(
+              HttpRequest.newBuilder(URI.create(url)).GET().build(),
+              HttpResponse.BodyHandlers.discarding());
+      return response.statusCode() < 500;
+    } catch (final IOException e) {
+      return false;
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
   }
 
   /** The first Andvari replica -- the common case for a topology with just one. */
@@ -238,7 +283,7 @@ public final class GimleCluster implements AutoCloseable {
       command.addAll(tlsFlags("controlplane"));
       command.addAll(spec.jvmFlags(ProcessRole.STORE));
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.store.muninnEndpoint=" + host() + ":" + muninnPort);
+        command.add("-Dgimle.store.muninnEndpoint=" + muninnEndpointsSpec);
       }
       command.addAll(List.of("-cp", classpath, "com.gimle.mimir.StoreMain"));
       command.add(workDir.resolve("store-state-" + index).toString());
@@ -453,7 +498,7 @@ public final class GimleCluster implements AutoCloseable {
     }
 
     final PortPlan ports = PortPlan.allocate(spec, host());
-    this.muninnPort = ports.muninnPort();
+    this.muninnEndpointsSpec = ports.muninnEndpointsSpec();
     try (PortLease lease = ports.lease()) {
       startStores(javaExecutable, classpath, ports, lease);
       startMuninn(javaExecutable, classpath, ports, lease);
@@ -583,7 +628,7 @@ public final class GimleCluster implements AutoCloseable {
       command.addAll(tlsFlags("controlplane"));
       command.addAll(spec.jvmFlags(ProcessRole.STORE));
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.store.muninnEndpoint=" + host() + ":" + ports.muninnPort);
+        command.add("-Dgimle.store.muninnEndpoint=" + ports.muninnEndpointsSpec());
       }
       command.addAll(List.of("-cp", classpath, "com.gimle.mimir.StoreMain"));
       command.add(workDir.resolve("store-state-" + i).toString());
@@ -619,25 +664,32 @@ public final class GimleCluster implements AutoCloseable {
     }
     // Before Fafnir/control planes, not after: Muninn only needs the store, and bringing it up
     // this early means it is already reachable to receive shipped data from every process started
-    // after it.
-    final List<String> command = new ArrayList<>();
-    command.add(java);
-    command.addAll(tlsFlags("muninn"));
-    command.addAll(spec.jvmFlags(ProcessRole.MUNINN));
-    command.addAll(List.of("-cp", classpath, "com.gimle.muninn.MuninnMain"));
-    command.add(String.valueOf(ports.muninnPort));
-    command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-    command.addAll(List.of("--data-root", workDir.resolve("muninn-data").toString()));
-    lease.release(ports.muninnPort);
-    muninn =
-        new ManagedProcess(
-            ProcessRole.MUNINN,
-            "muninn",
-            command,
-            workDir.resolve("muninn.log"),
-            host() + ":" + ports.muninnPort);
-    spawnOrder.add(muninn);
-    Polls.awaitPortOpen(host(), ports.muninnPort, STAGE_TIMEOUT);
+    // after it. Each replica is independent, unlike Andvari's peer-synced ones -- shipping already
+    // fans a batch out to every configured endpoint, so no replica needs to know about its peers.
+    for (int i = 0; i < spec.muninnReplicas(); i++) {
+      final int port = ports.muninnPorts.get(i);
+      final List<String> command = new ArrayList<>();
+      command.add(java);
+      command.addAll(tlsFlags("muninn"));
+      command.addAll(spec.jvmFlags(ProcessRole.MUNINN));
+      command.addAll(List.of("-cp", classpath, "com.gimle.muninn.MuninnMain"));
+      command.add(String.valueOf(port));
+      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
+      command.addAll(List.of("--data-root", workDir.resolve("muninn-data-" + i).toString()));
+      lease.release(port);
+      final ManagedProcess muninnProcess =
+          new ManagedProcess(
+              ProcessRole.MUNINN,
+              "muninn-" + i,
+              command,
+              workDir.resolve("muninn-" + i + ".log"),
+              host() + ":" + port);
+      spawnOrder.add(muninnProcess);
+      muninns.add(muninnProcess);
+    }
+    for (final int port : ports.muninnPorts) {
+      Polls.awaitPortOpen(host(), port, STAGE_TIMEOUT);
+    }
   }
 
   private void startAndvari(
@@ -689,7 +741,7 @@ public final class GimleCluster implements AutoCloseable {
       command.addAll(tlsFlags("fafnir"));
       command.addAll(spec.jvmFlags(ProcessRole.FAFNIR));
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.fafnir.muninnEndpoint=" + host() + ":" + ports.muninnPort);
+        command.add("-Dgimle.fafnir.muninnEndpoint=" + ports.muninnEndpointsSpec());
       }
       command.addAll(List.of("-cp", classpath, "com.gimle.fafnir.FafnirMain"));
       command.add(String.valueOf(port));
@@ -746,7 +798,7 @@ public final class GimleCluster implements AutoCloseable {
       command.addAll(List.of("--store-endpoints", storeEndpoints));
       command.addAll(List.of("--fafnir-endpoint", host() + ":" + fafnirPort));
       if (spec.muninnEnabled()) {
-        command.addAll(List.of("--muninn-endpoint", host() + ":" + ports.muninnPort));
+        command.addAll(List.of("--muninn-endpoint", ports.muninnEndpointsSpec()));
       }
       if (spec.andvariReplicas() > 0) {
         command.addAll(List.of("--andvari-endpoint", ports.andvariEndpointsSpec()));
@@ -806,7 +858,7 @@ public final class GimleCluster implements AutoCloseable {
       command.addAll(spec.jvmFlags(ProcessRole.AGENT));
       command.add("-Dgimle.agent.fafnirEndpoint=" + host() + ":" + fafnirPort);
       if (spec.muninnEnabled()) {
-        command.add("-Dgimle.agent.muninnEndpoint=" + host() + ":" + ports.muninnPort);
+        command.add("-Dgimle.agent.muninnEndpoint=" + ports.muninnEndpointsSpec());
       }
       if (spec.andvariReplicas() > 0) {
         command.add("-Dgimle.agent.andvariEndpoint=" + ports.andvariEndpointsSpec());
@@ -888,7 +940,7 @@ public final class GimleCluster implements AutoCloseable {
       List<Integer> fafnirPorts,
       List<Integer> controlPlanePorts,
       List<Integer> gossipPorts,
-      int muninnPort,
+      List<Integer> muninnPorts,
       List<Integer> andvariPorts,
       PortLease leased) {
 
@@ -898,7 +950,7 @@ public final class GimleCluster implements AutoCloseable {
               + spec.fafnirReplicas()
               + spec.controlPlaneReplicas()
               + spec.nodes().size()
-              + (spec.muninnEnabled() ? 1 : 0)
+              + spec.muninnReplicas()
               + spec.andvariReplicas();
       final PortLease lease = PortLease.reserve(count);
       final List<Integer> ports = lease.ports();
@@ -921,7 +973,10 @@ public final class GimleCluster implements AutoCloseable {
       for (int i = 0; i < spec.nodes().size(); i++) {
         gossip.add(ports.get(next++));
       }
-      final int muninn = spec.muninnEnabled() ? ports.get(next++) : -1;
+      final List<Integer> muninn = new ArrayList<>();
+      for (int i = 0; i < spec.muninnReplicas(); i++) {
+        muninn.add(ports.get(next++));
+      }
       final List<Integer> andvari = new ArrayList<>();
       for (int i = 0; i < spec.andvariReplicas(); i++) {
         andvari.add(ports.get(next++));
@@ -932,6 +987,11 @@ public final class GimleCluster implements AutoCloseable {
 
     PortLease lease() {
       return leased;
+    }
+
+    /** Every configured Muninn replica's own {@code host:port}, comma-joined. */
+    String muninnEndpointsSpec() {
+      return endpointsSpecOf(host, muninnPorts);
     }
 
     /** Every configured Andvari replica's own {@code host:port}, comma-joined. */

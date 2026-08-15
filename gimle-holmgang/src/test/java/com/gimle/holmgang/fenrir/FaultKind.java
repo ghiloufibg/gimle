@@ -5,9 +5,12 @@ package com.gimle.holmgang.fenrir;
  * The kill/bounce distinction is deliberate: {@link #WORKER_KILL} is a true kill with no
  * harness-side restart, because the platform's own supervisor is what must bring the worker back --
  * if it doesn't, that is the finding. Every other kind is a bounce (kill, dwell, harness {@code
- * restart()}) because nothing in the platform restarts a store, control plane, or Fafnir, so the
- * property being validated is tolerance during the outage and rejoin after it, not a restart the
- * platform never claimed to do.
+ * restart()}) because nothing in the platform restarts a store, control plane, Fafnir, Muninn, or
+ * Andvari replica, so the property being validated is tolerance during the outage and rejoin after
+ * it, not a restart the platform never claimed to do. {@link #MUNINN_BOUNCE} and {@link
+ * #ANDVARI_BOUNCE} only ever pick a victim when their own process is running with more than one
+ * replica -- bouncing the last one would just be an ordinary kill-the-instance test, not the
+ * failover/fan-out property multi-replica topologies actually exist to prove.
  */
 public enum FaultKind {
   WORKER_KILL,
@@ -15,5 +18,7 @@ public enum FaultKind {
   LEADER_BOUNCE,
   CONTROL_PLANE_BOUNCE,
   LINK_CUT,
-  FAFNIR_BOUNCE
+  FAFNIR_BOUNCE,
+  MUNINN_BOUNCE,
+  ANDVARI_BOUNCE
 }

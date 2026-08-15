@@ -26,6 +26,7 @@ public final class ClusterTopology {
     private int controlPlaneReplicas = 1;
     private int fafnirReplicas = 1;
     private boolean muninnEnabled;
+    private int muninnReplicas = 1;
     private boolean andvariEnabled;
     private int andvariReplicas = 1;
     private final List<NodeSpec> nodes = new ArrayList<>();
@@ -60,6 +61,13 @@ public final class ClusterTopology {
 
     public Builder muninn() {
       this.muninnEnabled = true;
+      return this;
+    }
+
+    /** Enables Muninn with {@code replicas} fan-out-shipped-to instances instead of just one. */
+    public Builder muninn(final int replicas) {
+      this.muninnEnabled = true;
+      this.muninnReplicas = replicas;
       return this;
     }
 
@@ -116,6 +124,7 @@ public final class ClusterTopology {
           controlPlaneReplicas,
           fafnirReplicas,
           muninnEnabled,
+          muninnReplicas,
           andvariEnabled,
           andvariReplicas,
           nodes,

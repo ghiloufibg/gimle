@@ -367,6 +367,21 @@ public final class ClusterApi {
         && response.get().body().contains(text);
   }
 
+  /**
+   * True once {@code GET /metrics-history/{processKind}/{processId}} answers 200 and its body
+   * contains {@code text} -- the control plane's read-only proxy to Muninn's own shipped-metrics
+   * history, which (unlike {@code /logs/*}) has no live-process fallback, so a hit here can only
+   * come from Muninn itself.
+   */
+  public boolean metricsHistoryContains(
+      final String processKind, final String processId, final String text) {
+    final Optional<HttpResponse<String>> response =
+        tryGet("/metrics-history/" + processKind + "/" + processId);
+    return response.isPresent()
+        && response.get().statusCode() == 200
+        && response.get().body().contains(text);
+  }
+
   public boolean isServing() {
     final Optional<HttpResponse<String>> response = tryGet("/deployments");
     return response.isPresent() && response.get().statusCode() < 500;

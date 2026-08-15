@@ -43,4 +43,22 @@ public final class Pools {
   public static Pool fafnirBounces() {
     return new Pool(FaultKind.FAFNIR_BOUNCE, 1, DEFAULT_DWELL);
   }
+
+  /**
+   * Bounces a Muninn replica, validating shipping's fan-out tolerates one endpoint going dark. Only
+   * meaningful -- and only ever drawn -- on a topology with more than one replica; see {@link
+   * FaultKind#MUNINN_BOUNCE}.
+   */
+  public static Pool muninnBounces() {
+    return new Pool(FaultKind.MUNINN_BOUNCE, 1, DEFAULT_DWELL);
+  }
+
+  /**
+   * Bounces an Andvari replica, validating the registry's peer-sync failover. Only meaningful --
+   * and only ever drawn -- on a topology with more than one replica; see {@link
+   * FaultKind#ANDVARI_BOUNCE}.
+   */
+  public static Pool andvariBounces() {
+    return new Pool(FaultKind.ANDVARI_BOUNCE, 1, DEFAULT_DWELL);
+  }
 }
