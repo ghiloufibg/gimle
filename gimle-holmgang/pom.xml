@@ -177,6 +177,26 @@
       <version>3.13.5</version>
       <scope>test</scope>
     </dependency>
+    <!--
+      Utgard (com.gimle.holmgang.utgard): drives real hilmir CLI invocations inside real Docker
+      containers via Testcontainers, validating multi-machine deployment behavior GimleCluster's
+      single-machine, loopback-addressed topologies structurally cannot exercise (genuine
+      cross-host readiness waiting, machine loss, network partition, real-hostname mTLS).
+      Version-pinned locally rather than via a root-pom property: this dependency is specific to
+      this one suite, not shared platform-wide.
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <version>1.20.4</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>1.20.4</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
