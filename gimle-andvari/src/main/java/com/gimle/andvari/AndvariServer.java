@@ -370,11 +370,51 @@ public final class AndvariServer implements AutoCloseable {
     exchange.getResponseHeaders().add(SHA256_HEADER, meta.get().sha256());
     exchange.getResponseHeaders().add("Content-Type", "application/java-archive");
     exchange.sendResponseHeaders(200, meta.get().sizeBytes());
+    String actualSha256;
     // Streamed straight from disk to the socket -- a jar is never buffered whole in memory on
-    // either the push or the pull side of this process.
+    // either the push or the pull side of this process -- but digested on the way through (see
+    // ArtifactStore#copyAndDigest) so on-disk bit rot is actually caught, not just trusted from
+    // meta.json's own recorded value. By the time a mismatch is known below, the response has
+    // already committed: HTTP has no way to recall bytes already sent, so this can only detect
+    // and react (log loudly, quarantine so the same corrupted bytes are never served again),
+    // never prevent this one caller from having received them.
     try (OutputStream out = exchange.getResponseBody()) {
-      Files.copy(jar.get(), out);
+      actualSha256 = ArtifactStore.copyAndDigest(jar.get(), out);
     }
+    if (!actualSha256.equals(meta.get().sha256())) {
+      reportIntegrityFailure(moduleId, version, meta.get().sha256(), actualSha256);
+    }
+  }
+
+  /**
+   * The single place a corrupted coordinate (its on-disk bytes no longer hashing to what {@link
+   * ArtifactStore#meta} recorded) gets handled -- shared by {@link #handleDownload}'s per-request
+   * re-check and, via {@link IntegrityScrubber.FindingHandler}, a periodic full-store scrub (see
+   * {@code AndvariMain}'s own {@code -Dgimle.andvari.scrub.enabled} wiring). Logged loudly, durably
+   * audited under a synthetic system principal (there is no human or node identity to attribute
+   * this to -- the store itself detected it, nobody requested it), and quarantined via {@link
+   * ArtifactStore#quarantine} so the same corrupted bytes are never served again without an
+   * operator re-pushing the coordinate.
+   */
+  void reportIntegrityFailure(
+      String moduleId, String version, String expectedSha256, String actualSha256) {
+    String target = moduleId + ":" + version;
+    log.error(
+        "integrity check failed for {} -- on-disk bytes hash to {} but meta.json records {};"
+            + " quarantining",
+        target,
+        actualSha256,
+        expectedSha256);
+    boolean quarantined = artifactStore.quarantine(moduleId, version);
+    recordAudit(
+        new Principal("andvari:integrity-check", Set.of()), Verb.DELETE, target, quarantined);
+  }
+
+  /**
+   * Package-visible so {@code AndvariMain} can wire an optional {@link IntegrityScrubber} to it.
+   */
+  ArtifactStore artifactStore() {
+    return artifactStore;
   }
 
   private void handleUpload(HttpExchange exchange, String moduleId, String version)

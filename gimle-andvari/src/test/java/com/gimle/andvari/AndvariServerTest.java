@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -93,6 +94,65 @@ class AndvariServerTest {
     assertArrayEquals(jar, downloaded.body());
     assertEquals(
         expectedSha, downloaded.headers().firstValue("X-Gimle-Artifact-Sha256").orElseThrow());
+  }
+
+  @Test
+  // Longer than every other test in this class: awaitStatus polls for reportIntegrityFailure's
+  // quarantine + durable audit write to land on a *different* virtual thread than the one the
+  // test already awaited, which can take meaningfully longer than a single request under this
+  // class's own concurrent-test-class parallelism (see junit.jupiter.execution.parallel.mode
+  // .classes.default=concurrent in the root pom) even though it's sub-second in isolation.
+  @Timeout(30)
+  void a_get_against_bytes_corrupted_on_disk_still_serves_them_but_quarantines_the_coordinate()
+      throws Exception {
+    byte[] jar = "pretend-jar-bytes".getBytes(StandardCharsets.UTF_8);
+    send(put("/artifacts/com.example.app/1.0.0", jar));
+    // Simulate bit rot / a corrupted filesystem underneath the store's own atomic-rename
+    // discipline: flip a byte in place on disk, bypassing put() entirely, so meta.json still
+    // records the original (now-stale) sha256. Same length as the original -- handleDownload
+    // declares Content-Length from meta's own (unchanged) sizeBytes, so a corruption that also
+    // changed the length would desync the response framing itself, a different failure mode than
+    // the digest mismatch this test means to exercise.
+    byte[] corrupted = jar.clone();
+    corrupted[0] ^= 0xFF;
+    Path jarFile =
+        tempDir
+            .resolve("data")
+            .resolve("artifacts")
+            .resolve("com.example.app")
+            .resolve("1.0.0")
+            .resolve("artifact.jar");
+    Files.write(jarFile, corrupted);
+
+    // HTTP has no way to recall bytes already sent, so the one request racing the corruption is
+    // still served whatever is actually on disk at read time...
+    HttpResponse<byte[]> response =
+        client.send(
+            HttpRequest.newBuilder(uri("/artifacts/com.example.app/1.0.0")).GET().build(),
+            HttpResponse.BodyHandlers.ofByteArray());
+    assertEquals(200, response.statusCode());
+    assertArrayEquals(corrupted, response.body());
+
+    // ...but the mismatch it just detected quarantines the coordinate, so every subsequent
+    // request eventually finds nothing servable there instead of silently repeating the same
+    // corruption. Each exchange runs on its own virtual thread (see AndvariServer's own
+    // Executors.newVirtualThreadPerTaskExecutor()), so reportIntegrityFailure's quarantine +
+    // durable audit write can still be in flight after the client has already finished reading
+    // the (already-corrupted) response body -- poll rather than assert immediately.
+    awaitStatus("/artifacts/com.example.app/1.0.0", 404);
+    awaitStatus("/artifacts/com.example.app", 404);
+  }
+
+  /**
+   * Polls {@code path} until it answers {@code expectedStatus} or the enclosing {@code @Timeout}
+   * fires -- for asserting on work (like {@link AndvariServer#reportIntegrityFailure}'s quarantine)
+   * that happens on a different virtual thread than the response the test already awaited, with no
+   * other signal the test can synchronize on.
+   */
+  private void awaitStatus(String path, int expectedStatus) throws Exception {
+    while (send(get(path)).statusCode() != expectedStatus) {
+      Thread.sleep(50);
+    }
   }
 
   @Test

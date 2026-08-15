@@ -4,6 +4,7 @@ import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,12 +74,15 @@ public final class ArtifactStore {
 
   private final Path artifactsRoot;
   private final Path tmpRoot;
+  private final Path quarantineRoot;
 
   public ArtifactStore(Path dataRoot) throws IOException {
     this.artifactsRoot = dataRoot.resolve("artifacts");
     this.tmpRoot = dataRoot.resolve("tmp");
+    this.quarantineRoot = dataRoot.resolve("quarantine");
     Files.createDirectories(artifactsRoot);
     Files.createDirectories(tmpRoot);
+    Files.createDirectories(quarantineRoot);
     sweepOrphanedTempFiles(tmpRoot);
   }
 
@@ -195,6 +199,25 @@ public final class ArtifactStore {
   }
 
   /**
+   * Copies {@code source}'s bytes to {@code out} while digesting them, returning the streamed
+   * bytes' own hex sha256 -- the read-time counterpart to {@link #put}'s digest-while-streaming
+   * discipline (same {@link DigestInputStream} idiom, same never-buffer-the-whole-file-in-memory
+   * constraint). Used both by {@code AndvariServer#handleDownload}'s per-request integrity re-check
+   * (streaming to the response body) and by a periodic full-store scrub (streaming to {@link
+   * OutputStream#nullOutputStream()}, discarding the bytes and keeping only the digest). This
+   * method only ever reports what was actually read; the caller decides what "expected" means and
+   * what to do about a mismatch against {@link StoredArtifact#sha256}.
+   */
+  public static String copyAndDigest(Path source, OutputStream out) throws IOException {
+    MessageDigest digest = sha256Digest();
+    try (DigestInputStream digesting =
+        new DigestInputStream(Files.newInputStream(source), digest)) {
+      digesting.transferTo(out);
+    }
+    return HexFormat.of().formatHex(digest.digest());
+  }
+
+  /**
    * Stores an opaque sidecar file beside a version's jar -- a Maven {@code .pom} or a
    * client-computed checksum upload (the Maven-2 repository surface's own PUTs, never anything
    * Andvari parses or trusts). Unlike {@link #put}, this has no immutability check: a re-uploaded
@@ -305,6 +328,47 @@ public final class ArtifactStore {
       Files.deleteIfExists(moduleDir);
     }
     return true;
+  }
+
+  /**
+   * Moves a stored version's entire versionDir (jar, meta.json, and any sidecars) out of the live
+   * store and into {@code {dataRoot}/quarantine/{moduleId}/{version}-{epochMillis}/} -- called when
+   * a digest re-check (on a GET, or during a periodic full-store scrub; see {@code
+   * AndvariServer#reportIntegrityFailure}) finds the on-disk bytes no longer hash to what {@link
+   * #meta} recorded, which can only mean bit rot or a partial write this store's own atomic-rename
+   * discipline should have prevented but a corrupted filesystem can still produce underneath it.
+   * Quarantining rather than deleting outright preserves the corrupted bytes for forensic
+   * inspection; the coordinate itself disappears from {@link #versions}/{@link #moduleIds} exactly
+   * like a real {@link #delete}, so a re-push is required before it's servable again. Best-effort:
+   * a failure to move is logged, not thrown -- a quarantine that couldn't complete leaves the
+   * corrupted version still discoverable, which is a strictly worse but not a newly-broken state
+   * relative to not attempting quarantine at all.
+   */
+  public boolean quarantine(String moduleId, String version) {
+    requireValidSegment(moduleId, "moduleId");
+    requireValidSegment(version, "version");
+    Path versionDir = versionDir(moduleId, version);
+    if (!Files.isDirectory(versionDir)) {
+      return false;
+    }
+    try {
+      Path destination =
+          quarantineRoot.resolve(moduleId).resolve(version + "-" + System.currentTimeMillis());
+      Path destinationParent = destination.getParent();
+      if (destinationParent != null) {
+        Files.createDirectories(destinationParent);
+      }
+      Files.move(versionDir, destination);
+      Path moduleDir = versionDir.getParent();
+      if (moduleDir != null && listDirectoryNames(moduleDir).isEmpty()) {
+        Files.deleteIfExists(moduleDir);
+      }
+      log.warn("quarantined {}:{} to {}", moduleId, version, destination);
+      return true;
+    } catch (IOException e) {
+      log.warn("failed to quarantine {}:{}: {}", moduleId, version, e.getMessage());
+      return false;
+    }
   }
 
   private Path versionDir(String moduleId, String version) {

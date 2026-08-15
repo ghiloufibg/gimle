@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.andvari.ArtifactStore.PutOutcome;
 import com.gimle.andvari.ArtifactStore.PutResult;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -191,6 +192,50 @@ class ArtifactStoreTest {
     assertEquals(PutOutcome.CREATED, result.outcome());
     assertEquals(sha256Of(jar), result.stored().sha256());
     assertEquals(jar.length, result.stored().sizeBytes());
+  }
+
+  @Test
+  void copy_and_digest_streams_the_bytes_and_returns_their_sha256() throws Exception {
+    byte[] jar = "pretend-jar-bytes".getBytes(StandardCharsets.UTF_8);
+    store.put("com.example.app", "1.0.0", new ByteArrayInputStream(jar), "ana");
+    Path stored = store.jarPath("com.example.app", "1.0.0").orElseThrow();
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+    String digest = ArtifactStore.copyAndDigest(stored, out);
+
+    assertEquals(sha256Of(jar), digest);
+    assertArrayEquals(jar, out.toByteArray());
+  }
+
+  @Test
+  void quarantine_removes_the_version_from_the_live_catalog_and_empties_the_module_dir()
+      throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    assertTrue(store.quarantine("com.example.app", "1.0.0"));
+
+    assertTrue(store.meta("com.example.app", "1.0.0").isEmpty());
+    assertTrue(store.jarPath("com.example.app", "1.0.0").isEmpty());
+    assertEquals(List.of(), store.moduleIds());
+    assertFalse(Files.exists(tempDir.resolve("artifacts").resolve("com.example.app")));
+  }
+
+  @Test
+  void quarantine_preserves_the_corrupted_bytes_for_forensic_inspection() throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    assertTrue(store.quarantine("com.example.app", "1.0.0"));
+
+    Path quarantineDir = tempDir.resolve("quarantine").resolve("com.example.app");
+    assertTrue(Files.isDirectory(quarantineDir));
+    try (var entries = Files.newDirectoryStream(quarantineDir)) {
+      assertTrue(entries.iterator().hasNext(), "expected a quarantined version directory");
+    }
+  }
+
+  @Test
+  void quarantine_returns_false_when_nothing_is_stored_at_the_coordinate() {
+    assertFalse(store.quarantine("com.example.ghost", "1.0.0"));
   }
 
   private static ByteArrayInputStream bytes(String content) {

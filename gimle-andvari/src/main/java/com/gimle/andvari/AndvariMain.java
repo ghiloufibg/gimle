@@ -150,6 +150,24 @@ public final class AndvariMain {
       log.info("no bundled web console found on the classpath; /console disabled");
     }
 
+    // Off by default -- a full-store digest walk is real, if modest, disk/CPU cost, and
+    // handleDownload's own per-request re-check already covers every coordinate that actually
+    // gets pulled. Opt in with -Dgimle.andvari.scrub.enabled=true on a node where catching bit
+    // rot on rarely-downloaded versions is worth paying that cost proactively rather than only
+    // discovering it the next time someone happens to GET the corrupted one.
+    IntegrityScrubber integrityScrubber = null;
+    if (Boolean.getBoolean("gimle.andvari.scrub.enabled")) {
+      Duration scrubInterval =
+          Duration.ofSeconds(Long.getLong("gimle.andvari.scrub.intervalSeconds", 86_400L));
+      integrityScrubber =
+          new IntegrityScrubber(
+              andvariServer.artifactStore(), andvariServer::reportIntegrityFailure, scrubInterval);
+      log.info("integrity scrub enabled, running every {}", scrubInterval);
+    } else {
+      log.info("integrity scrub disabled (set -Dgimle.andvari.scrub.enabled=true to enable)");
+    }
+
+    IntegrityScrubber finalIntegrityScrubber = integrityScrubber;
     Runtime.getRuntime()
         .addShutdownHook(
             Thread.ofPlatform()
@@ -157,6 +175,9 @@ public final class AndvariMain {
                     () -> {
                       andvariServer.close();
                       ticker.shutdownNow();
+                      if (finalIntegrityScrubber != null) {
+                        finalIntegrityScrubber.close();
+                      }
                       storeClient.close();
                     }));
   }
