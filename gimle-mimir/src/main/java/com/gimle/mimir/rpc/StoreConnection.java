@@ -25,6 +25,28 @@ import javax.net.SocketFactory;
  */
 public final class StoreConnection implements AutoCloseable {
 
+  /**
+   * Overridable via {@code -Dgimle.store.connectTimeoutMillis} -- the same
+   * system-property-with-a-safe-default pattern {@code RaftNode}'s own {@code
+   * gimle.raft.proposeTimeoutSeconds} already uses. Without this, a store endpoint that's reachable
+   * but never completes the TCP handshake would block {@link #connectionLocked} forever instead of
+   * failing over.
+   */
+  private static final int CONNECT_TIMEOUT_MILLIS =
+      Integer.getInteger("gimle.store.connectTimeoutMillis", 3_000);
+
+  /**
+   * Overridable via {@code -Dgimle.store.readTimeoutMillis} -- bounds every blocking read on an
+   * already-open connection, including the TLS handshake (which happens lazily on first I/O, not
+   * inside {@link #connectionLocked} itself). A peer that accepts the connection but then goes
+   * silent -- a gray failure, not a clean refusal -- surfaces as an ordinary {@link
+   * java.net.SocketTimeoutException} instead of pinning the calling thread forever; {@link #call}
+   * treats it exactly like any other {@link IOException}, so {@code StoreClient}'s failover logic
+   * needs no special case for it.
+   */
+  private static final int READ_TIMEOUT_MILLIS =
+      Integer.getInteger("gimle.store.readTimeoutMillis", 5_000);
+
   private final SocketAddress address;
   private final ReentrantLock lock = new ReentrantLock();
   private Socket socket;
@@ -61,7 +83,8 @@ public final class StoreConnection implements AutoCloseable {
   private Socket connectionLocked() throws IOException {
     if (socket == null || socket.isClosed()) {
       socket = socketFactory().createSocket();
-      socket.connect(address);
+      socket.connect(address, CONNECT_TIMEOUT_MILLIS);
+      socket.setSoTimeout(READ_TIMEOUT_MILLIS);
       // Strict request/response over a long-lived connection: Nagle has nothing useful to batch
       // here, and left on it adds a delayed-ACK stall to every single call.
       socket.setTcpNoDelay(true);
