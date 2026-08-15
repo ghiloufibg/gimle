@@ -1,6 +1,12 @@
 package com.gimle.fafnir.secret;
 
+import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import javax.crypto.SecretKey;
 
 /**
@@ -25,5 +31,31 @@ public record KeyRing(byte activeKeyId, Map<Byte, SecretKey> keysById) {
 
   public SecretKey activeKey() {
     return keysById.get(activeKeyId);
+  }
+
+  /**
+   * A SHA-256 digest over every key id and its key material, sorted by id so load/map-iteration
+   * order never affects the result -- two replicas holding identical key material always compute
+   * the identical fingerprint, and a single differing key id or byte anywhere in the ring flips it.
+   * Safe to log or return over an unauthenticated status surface: unlike the key material itself, a
+   * fingerprint alone gives a reader no way to reconstruct or narrow down a key. This is the
+   * operator-facing signal for the drift {@link KeyFileManager}'s own javadoc calls out as an
+   * operational precondition it doesn't enforce itself -- every replica is expected to be
+   * provisioned with identical key files, and a differing fingerprint across replicas means that
+   * precondition silently stopped holding (e.g. a rotation landed on one replica's key files but
+   * never made it to another's).
+   */
+  public String fingerprint() {
+    SortedMap<Byte, SecretKey> sorted = new TreeMap<>(keysById);
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      for (Map.Entry<Byte, SecretKey> entry : sorted.entrySet()) {
+        digest.update(ByteBuffer.allocate(1).put(entry.getKey()).array());
+        digest.update(entry.getValue().getEncoded());
+      }
+      return HexFormat.of().formatHex(digest.digest());
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 unavailable", e);
+    }
   }
 }

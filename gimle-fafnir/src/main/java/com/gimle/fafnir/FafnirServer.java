@@ -712,6 +712,10 @@ public final class FafnirServer implements AutoCloseable {
       Map<String, Object> status = new LinkedHashMap<>();
       status.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
       status.put("activeKeyId", Byte.toUnsignedInt(crypto.activeKeyId()));
+      // Never the key material itself, only its fingerprint -- with no peer-discovery mechanism
+      // of its own to compare this automatically across replicas, this is what lets an operator
+      // manually diff /status output across every replica and notice a silently drifted key ring.
+      status.put("secretsKeyRingFingerprint", crypto.keyRingFingerprint());
       status.put("transportProtocol", TransportProtocol.fromConfig().name());
       status.put(
           "tenants", crypto.storeClient().listTenants().stream().map(Tenant::id).sorted().toList());
