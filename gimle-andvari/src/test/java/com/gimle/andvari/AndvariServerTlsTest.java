@@ -5,6 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.gimle.andvari.testsupport.InProcessStore;
 import com.gimle.andvari.testsupport.TlsTestFixtures;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.tls.SslContexts;
@@ -23,6 +28,7 @@ import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -125,6 +131,59 @@ class AndvariServerTlsTest {
         403,
         send(node, HttpRequest.newBuilder(uri("com.example.app", "1.0.0")).DELETE().build())
             .statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_module_scoped_permission_grants_access_to_only_that_module() throws Exception {
+    HttpClient scopedPusher = tls.clientWithLeaf(ca, "scoped-pusher");
+    grantRole(
+        "app-pusher",
+        Set.of(
+            Permission.scoped(ResourceKind.ARTIFACT, Verb.WRITE, "com.example.app"),
+            Permission.scoped(ResourceKind.ARTIFACT, Verb.READ, "com.example.app")),
+        "scoped-pusher");
+
+    assertEquals(200, send(scopedPusher, push("com.example.app", "1.0.0")).statusCode());
+    assertEquals(200, send(scopedPusher, pull("com.example.app", "1.0.0")).statusCode());
+    // Scoped to exactly one module -- a different module is refused despite the same grant.
+    assertEquals(403, send(scopedPusher, push("com.other.app", "1.0.0")).statusCode());
+    assertEquals(403, send(scopedPusher, pull("com.other.app", "1.0.0")).statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_module_scoped_permission_cannot_list_the_full_catalog() throws Exception {
+    HttpClient operator =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "admin-operator");
+    assertEquals(200, send(operator, push("com.example.app", "1.0.0")).statusCode());
+
+    HttpClient scopedReader = tls.clientWithLeaf(ca, "scoped-reader");
+    grantRole(
+        "app-reader",
+        Set.of(Permission.scoped(ResourceKind.ARTIFACT, Verb.READ, "com.example.app")),
+        "scoped-reader");
+
+    // The scoped grant covers pulling the one module it names...
+    assertEquals(200, send(scopedReader, pull("com.example.app", "1.0.0")).statusCode());
+    // ...but not the store-wide catalog, which addresses no single module and so only ever
+    // matches an unscoped grant.
+    assertEquals(
+        403,
+        send(
+                scopedReader,
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/artifacts")).GET().build())
+            .statusCode());
+  }
+
+  private void grantRole(String roleName, Set<Permission> permissions, String principalName) {
+    store.client().propose(new StateMutation.PutRole(new Role(roleName, permissions)));
+    store
+        .client()
+        .propose(
+            new StateMutation.PutRoleBinding(
+                new RoleBinding(
+                    "binding-" + roleName, RoleBinding.userSubject(principalName), roleName)));
   }
 
   @Test

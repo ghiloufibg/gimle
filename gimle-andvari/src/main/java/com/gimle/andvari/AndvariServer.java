@@ -88,7 +88,10 @@ import org.slf4j.LoggerFactory;
  * ApiServer}'s proxy) wins over the peer certificate, and this process re-runs its own independent
  * {@link Authorizer#authorize} regardless -- never trusting "arrived already-forwarded" as proof by
  * itself. A {@code gimle:nodes} principal may only ever pull -- never push or delete -- and only a
- * coordinate its node currently holds an assignment for (see {@link #nodeHasAssignmentFor}).
+ * coordinate its node currently holds an assignment for (see {@link #nodeHasAssignmentFor}). A
+ * {@link com.gimle.core.authz.Permission} may additionally be scoped to a single {@code moduleId}
+ * (Andvari's own stand-in for {@code FafnirServer}'s tenant scope, since it has no separate tenant
+ * dimension of its own) -- see {@link #authorizeArtifacts}'s own javadoc.
  *
  * <p>Also carries its own console session story ({@code /auth/login}/{@code /auth/logout}/{@code
  * /auth/session}) and an optional bundled-SPA static serving surface ({@link #serveConsole}), both
@@ -314,7 +317,7 @@ public final class AndvariServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId, null, null)) {
+    if (!authorizeArtifacts(exchange, Verb.READ, moduleId, moduleId, null)) {
       return;
     }
     List<StoredArtifact> versions = artifactStore.versions(moduleId);
@@ -621,7 +624,8 @@ public final class AndvariServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    if (!authorizeArtifacts(exchange, Verb.READ, metadataFile.moduleId(), null, null)) {
+    if (!authorizeArtifacts(
+        exchange, Verb.READ, metadataFile.moduleId(), metadataFile.moduleId(), null)) {
       return;
     }
     List<StoredArtifact> versions = artifactStore.versions(metadataFile.moduleId());
@@ -691,10 +695,22 @@ public final class AndvariServer implements AutoCloseable {
    * nodeId) may only {@link Verb#READ}, and only a full coordinate its node currently holds an
    * assignment for -- never a push or delete, and never the catalog/version listings, which the
    * pull path has no use for -- while everything else goes through this process's own independent
-   * {@link Authorizer} check against RBAC state it reads itself. Push/delete decisions are audited
-   * both ways ({@code FafnirServer}'s dual-audit shape); reads are deliberately not durably audited
-   * -- pulls are the high-volume path, and a pull discloses only what a deployment manifest already
-   * references.
+   * {@link Authorizer} check against RBAC state it reads itself.
+   *
+   * <p>{@code moduleId}, when present, is threaded through as {@link Authorizer#authorize}'s own
+   * {@code tenant} scope -- exactly the mechanism {@code FafnirServer} already uses for a real
+   * tenant id, reused here since Andvari has no separate tenant dimension of its own and a module
+   * coordinate is the natural unit an operator would want to scope a grant to (e.g. a CI service
+   * account that may only push one team's module, not the whole store). An unscoped {@link
+   * com.gimle.core.authz.Permission} (the common case -- {@code cluster-admin}, or any role an
+   * operator never bothered to narrow) still matches every module exactly as before; only a {@link
+   * com.gimle.core.authz.Permission#scoped} grant is now actually restrictive. A {@code null}
+   * moduleId (the full catalog listing, which addresses no single module) only ever matches an
+   * unscoped grant -- a module-scoped principal cannot enumerate the whole store.
+   *
+   * <p>Push/delete decisions are audited both ways ({@code FafnirServer}'s dual-audit shape); reads
+   * are deliberately not durably audited -- pulls are the high-volume path, and a pull discloses
+   * only what a deployment manifest already references.
    */
   private boolean authorizeArtifacts(
       HttpExchange exchange, Verb verb, String target, String moduleId, String version)
@@ -715,7 +731,11 @@ public final class AndvariServer implements AutoCloseable {
                 && version != null
                 && nodeHasAssignmentFor(principal.name(), moduleId, version)
             : authorizer.authorize(
-                principal, ResourceKind.ARTIFACT, verb, Optional.empty(), Optional.empty());
+                principal,
+                ResourceKind.ARTIFACT,
+                verb,
+                Optional.ofNullable(moduleId),
+                Optional.empty());
     if (verb != Verb.READ) {
       recordAudit(principal, verb, target, allowed);
     }
