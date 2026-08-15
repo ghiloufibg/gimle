@@ -9,7 +9,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLContext;
 
 /**
@@ -21,21 +24,39 @@ import javax.net.ssl.SSLContext;
  * configured simply never gets the {@code /logs/*} fallback for a gone node/instance, the exact
  * same "optional, degrade gracefully" posture {@code gimle-agent}'s own {@code muninnEndpoint}
  * already has.
+ *
+ * <p>Holds a list of configured Muninn replicas rather than one, and rotates across them on
+ * transport failure -- the same round-robin-with-failover shape {@code gimle-mimir}'s own {@code
+ * StoreClient#sendRead} uses for its reads: no endpoint is "primary," a request just tries every
+ * configured replica in rotation (starting from a shared cursor, so repeated calls spread across
+ * the pool) until one answers or all of them are unreachable.
  */
 public final class MuninnClient implements AutoCloseable {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
-  private final URI baseUri;
+  private final List<URI> baseUris;
   private final HttpClient httpClient;
+  private final AtomicInteger readCursor = new AtomicInteger();
 
   public MuninnClient(String muninnAddress) {
-    this(muninnAddress, defaultSslContext());
+    this(List.of(muninnAddress), defaultSslContext());
   }
 
-  MuninnClient(String muninnAddress, Optional<SSLContext> sslContext) {
+  public MuninnClient(List<String> muninnAddresses) {
+    this(muninnAddresses, defaultSslContext());
+  }
+
+  MuninnClient(List<String> muninnAddresses, Optional<SSLContext> sslContext) {
+    if (muninnAddresses.isEmpty()) {
+      throw new IllegalArgumentException("MuninnClient requires at least one Muninn endpoint");
+    }
     String scheme = sslContext.isPresent() ? "https" : "http";
-    this.baseUri = URI.create(scheme + "://" + muninnAddress);
+    List<URI> uris = new ArrayList<>();
+    for (String address : muninnAddresses) {
+      uris.add(URI.create(scheme + "://" + address));
+    }
+    this.baseUris = List.copyOf(uris);
     HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT);
     sslContext.ifPresent(builder::sslContext);
     this.httpClient = builder.build();
@@ -51,26 +72,38 @@ public final class MuninnClient implements AutoCloseable {
   /**
    * Relays Muninn's response verbatim -- {@code ApiServer} doesn't need typed handling here, only a
    * byte-for-byte proxy hop, the same "pure network relay" shape {@code FafnirClient#forward}
-   * already uses for {@code /secrets/*}. Throws {@link IOException} on any network-level failure
-   * (unreachable, timeout); the caller decides what that means (typically: fall back to a plain
-   * 404, since neither the live agent nor Muninn had anything).
+   * already uses for {@code /secrets/*}. Tries every configured endpoint in rotation, failing over
+   * to the next on a transport-level failure (unreachable, timeout) -- an actual HTTP response from
+   * Muninn, including a 404, is returned as-is rather than treated as a reason to try another
+   * replica. Throws {@link IOException} only once every configured endpoint has failed; the caller
+   * decides what that means (typically: fall back to a plain 404, since neither the live agent nor
+   * any Muninn replica had anything).
    */
   public RawResponse get(String pathAndQuery) throws IOException {
-    try {
-      HttpResponse<byte[]> response =
-          httpClient.send(
-              HttpRequest.newBuilder(baseUri.resolve(pathAndQuery))
-                  .timeout(REQUEST_TIMEOUT)
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofByteArray());
-      String contentType =
-          response.headers().firstValue("Content-Type").orElse("application/octet-stream");
-      return new RawResponse(response.statusCode(), contentType, response.body());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IOException("interrupted while reaching muninn", e);
+    int start = readCursor.getAndUpdate(i -> (i + 1) % baseUris.size());
+    IOException lastFailure = null;
+    for (int i = 0; i < baseUris.size(); i++) {
+      URI baseUri = baseUris.get((start + i) % baseUris.size());
+      try {
+        HttpResponse<byte[]> response =
+            httpClient.send(
+                HttpRequest.newBuilder(baseUri.resolve(pathAndQuery))
+                    .timeout(REQUEST_TIMEOUT)
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        String contentType =
+            response.headers().firstValue("Content-Type").orElse("application/octet-stream");
+        return new RawResponse(response.statusCode(), contentType, response.body());
+      } catch (IOException e) {
+        // this endpoint is unreachable this attempt; the next configured replica may still answer.
+        lastFailure = e;
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("interrupted while reaching muninn", e);
+      }
     }
+    throw lastFailure;
   }
 
   /** A raw HTTP response relayed verbatim back to the original caller by {@code ApiServer}. */

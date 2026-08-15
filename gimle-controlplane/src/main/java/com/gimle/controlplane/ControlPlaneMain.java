@@ -92,7 +92,7 @@ public final class ControlPlaneMain {
       System.err.println(
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
               + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
-              + " [--host <hostname>] [--muninn-endpoint host:port]"
+              + " [--host <hostname>] [--muninn-endpoint host1:port1,host2:port2,...]"
               + " [--andvari-endpoint host:port]");
       System.exit(2);
       return;
@@ -146,9 +146,13 @@ public final class ControlPlaneMain {
 
     StoreClient storeClient = new StoreClient(storeEndpoints);
     FafnirClient fafnirClient = new FafnirClient(fafnirEndpoint);
+    // --muninn-endpoint accepts a comma-separated list of Muninn replicas as well as a single
+    // endpoint; both muninnClient below and metricsShipper/tracesShipper further down fail over
+    // across every configured replica rather than depending on any one of them.
+    List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
     // Optional, unlike fafnirClient above -- a cluster with no Muninn endpoint configured simply
     // never gets the /logs/* fallback for a gone node/instance (see MuninnClient's own javadoc).
-    MuninnClient muninnClient = muninnEndpoint == null ? null : new MuninnClient(muninnEndpoint);
+    MuninnClient muninnClient = muninnEndpoint == null ? null : new MuninnClient(muninnEndpoints);
     // Optional, same posture as muninnClient: a cluster with no Andvari endpoint keeps working
     // on local artifactPath manifests unchanged, and only registry-coordinate manifests need it.
     AndvariClient andvariClient =
@@ -236,7 +240,7 @@ public final class ControlPlaneMain {
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint,
+                muninnEndpoints,
                 "/ingest/metrics/CONTROLPLANE/" + selfApiAddress,
                 MUNINN_SHIP_INTERVAL);
     if (metricsShipper != null) {
@@ -250,7 +254,7 @@ public final class ControlPlaneMain {
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint,
+                muninnEndpoints,
                 "/ingest/traces/CONTROLPLANE/" + selfApiAddress,
                 MUNINN_SHIP_INTERVAL);
     if (tracesShipper != null) {

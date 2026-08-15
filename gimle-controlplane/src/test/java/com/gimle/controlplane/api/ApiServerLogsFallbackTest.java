@@ -179,6 +179,23 @@ class ApiServerLogsFallbackTest {
   }
 
   @Test
+  void a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable()
+      throws Exception {
+    muninnStub = startStub("/logs", muninnReceivedPaths, 200);
+    // 127.0.0.1:1 is a privileged, never-listening port -- connection refused every time, a
+    // deterministic stand-in for "this Muninn replica is down" (the same trick the agent's own
+    // unreachable-node test above uses).
+    startApiServer(
+        new MuninnClient(List.of("127.0.0.1:1", "127.0.0.1:" + muninnStub.getAddress().getPort())));
+
+    HttpResponse<String> response = send("/logs/nodes/ghost");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, muninnReceivedPaths.size());
+    assertTrue(muninnReceivedPaths.get(0).startsWith("/logs/nodes/ghost/PLATFORM"));
+  }
+
+  @Test
   void a_node_with_no_registration_returns_plain_404_when_no_muninn_configured() throws Exception {
     startApiServer(null);
 

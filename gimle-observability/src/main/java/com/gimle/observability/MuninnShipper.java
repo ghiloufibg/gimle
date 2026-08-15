@@ -14,6 +14,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,11 +29,18 @@ import org.slf4j.LoggerFactory;
 /**
  * The shared batch-POST-with-retry class every shipping process (an agent, or a standalone
  * control-plane/Fafnir/mimir replica) instantiates to send logs, metrics, or trace batches to
- * Muninn -- one instance per shipped stream, bound at construction to Muninn's address and the one
- * ingest path it ships to (the caller bakes {@code processKind}/{@code processId} or {@code
+ * Muninn -- one instance per shipped stream, bound at construction to Muninn's address(es) and the
+ * one ingest path it ships to (the caller bakes {@code processKind}/{@code processId} or {@code
  * nodeId}/category into that path itself, e.g. {@code /ingest/metrics/FAFNIR/127.0.0.1:9092}), so a
  * process with several streams to ship (an agent shipping its own logs plus every supervised
  * worker's) simply constructs several instances.
+ *
+ * <p>Fans a batch out to every configured Muninn replica independently -- best-effort per endpoint,
+ * so one unreachable replica never blocks delivery to the others: Muninn has no read-modify-write
+ * on the write path at all, so a batch landing on a subset of replicas is exactly as durable as
+ * landing on all of them, just narrower in how many places it survived a lost replica. A tick is
+ * considered successful (and a log-shipping cursor advances) if *any* configured endpoint accepted
+ * the batch.
  *
  * <p>Runs its periodic tick on its own virtual thread ({@code Thread.ofVirtual()}), the same
  * lightweight-background-work idiom {@code AgentMain}'s own instance-starter thread already uses --
@@ -49,7 +58,7 @@ public final class MuninnShipper implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(MuninnShipper.class);
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
-  private final URI baseUri;
+  private final List<URI> baseUris;
   private final String ingestPath;
   private final Duration tickInterval;
   private final HttpClient httpClient;
@@ -65,28 +74,43 @@ public final class MuninnShipper implements AutoCloseable {
    */
   private final ScheduledExecutorService injectedTicker;
 
+  /**
+   * Convenience for the common single-endpoint case; see {@link #MuninnShipper(List, String,
+   * Duration)}.
+   */
   public MuninnShipper(String muninnBaseAddress, String ingestPath, Duration tickInterval) {
-    this(muninnBaseAddress, ingestPath, tickInterval, defaultSslContext());
+    this(List.of(muninnBaseAddress), ingestPath, tickInterval);
+  }
+
+  public MuninnShipper(List<String> muninnBaseAddresses, String ingestPath, Duration tickInterval) {
+    this(muninnBaseAddresses, ingestPath, tickInterval, defaultSslContext());
   }
 
   MuninnShipper(
-      String muninnBaseAddress,
+      List<String> muninnBaseAddresses,
       String ingestPath,
       Duration tickInterval,
       Optional<SSLContext> sslContext) {
-    this(muninnBaseAddress, ingestPath, tickInterval, sslContext, null);
+    this(muninnBaseAddresses, ingestPath, tickInterval, sslContext, null);
   }
 
   /** See {@link #injectedTicker}. */
   MuninnShipper(
-      String muninnBaseAddress,
+      List<String> muninnBaseAddresses,
       String ingestPath,
       Duration tickInterval,
       Optional<SSLContext> sslContext,
       ScheduledExecutorService injectedTicker) {
+    if (muninnBaseAddresses.isEmpty()) {
+      throw new IllegalArgumentException("MuninnShipper requires at least one Muninn endpoint");
+    }
     this.injectedTicker = injectedTicker;
     String scheme = sslContext.isPresent() ? "https" : "http";
-    this.baseUri = URI.create(scheme + "://" + muninnBaseAddress);
+    List<URI> uris = new ArrayList<>();
+    for (String address : muninnBaseAddresses) {
+      uris.add(URI.create(scheme + "://" + address));
+    }
+    this.baseUris = List.copyOf(uris);
     this.ingestPath = ingestPath;
     this.tickInterval = tickInterval;
     HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT);
@@ -99,6 +123,22 @@ public final class MuninnShipper implements AutoCloseable {
       return Optional.empty();
     }
     return Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
+  }
+
+  /**
+   * Splits a system property value such as {@code -Dgimle.agent.muninnEndpoint} into its individual
+   * {@code host:port} endpoints -- blank/absent yields an empty list, a bare single address yields
+   * a one-element list (so every existing single-endpoint config keeps working unchanged), and a
+   * comma-separated value yields one entry per address, trimmed, blanks dropped.
+   */
+  public static List<String> parseEndpoints(String commaSeparatedAddresses) {
+    if (commaSeparatedAddresses == null || commaSeparatedAddresses.isBlank()) {
+      return List.of();
+    }
+    return Arrays.stream(commaSeparatedAddresses.split(","))
+        .map(String::trim)
+        .filter(address -> !address.isEmpty())
+        .toList();
   }
 
   /**
@@ -185,15 +225,30 @@ public final class MuninnShipper implements AutoCloseable {
     }
   }
 
-  /**
-   * Returns {@code true} iff the batch was accepted (2xx) -- the caller decides what that means.
-   */
+  /** Serializes {@code lines} to NDJSON and hands it to {@link #postNdjsonBody}. */
   private boolean postNdjson(List<Map<String, Object>> lines) {
     return postNdjsonBody(Json.writeNdjson(lines, line -> line));
   }
 
-  /** The actual POST, shared by every caller regardless of how {@code body} was assembled. */
+  /**
+   * Ships {@code body}, shared by every caller regardless of how it was assembled, to every
+   * configured endpoint independently and returns {@code true} iff at least one accepted it (2xx)
+   * -- the caller decides what "accepted" means (for log shipping, whether the cursor may
+   * advance). One endpoint's failure never stops the attempt against the others: each POST is
+   * wrapped in its own try/catch rather than short-circuiting on the first failure.
+   */
   private boolean postNdjsonBody(String body) {
+    boolean anyAccepted = false;
+    for (URI baseUri : baseUris) {
+      if (postToOne(baseUri, body)) {
+        anyAccepted = true;
+      }
+    }
+    return anyAccepted;
+  }
+
+  /** One best-effort POST to a single configured endpoint; never throws. */
+  private boolean postToOne(URI baseUri, String body) {
     try {
       HttpResponse<String> response =
           httpClient.send(
@@ -206,11 +261,14 @@ public final class MuninnShipper implements AutoCloseable {
       boolean accepted = response.statusCode() >= 200 && response.statusCode() < 300;
       if (!accepted) {
         log.debug(
-            "muninn ingest {} rejected batch with status {}", ingestPath, response.statusCode());
+            "muninn ingest {} at {} rejected batch with status {}",
+            ingestPath,
+            baseUri,
+            response.statusCode());
       }
       return accepted;
     } catch (IOException e) {
-      log.debug("failed to ship batch to muninn at {}: {}", ingestPath, e.getMessage());
+      log.debug("failed to ship batch to muninn at {}{}: {}", baseUri, ingestPath, e.getMessage());
       return false;
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();

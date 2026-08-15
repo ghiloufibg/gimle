@@ -1,0 +1,473 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build xsi:schemaLocation="http://maven.apache.org/BUILD-CACHE-BUILD/1.3.0 https://maven.apache.org/xsd/build-cache-build-1.3.0.xsd"
+    xmlns="http://maven.apache.org/BUILD-CACHE-BUILD/1.3.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <cacheImplementationVersion>v1.1</cacheImplementationVersion>
+  <final>false</final>
+  <hashFunction>SHA-256</hashFunction>
+  <buildTime>2026-08-15T13:36:54.229</buildTime>
+  <buildServer>localhost</buildServer>
+  <scm>
+    <sourceBranch>refs/heads/claude/gimle-ha-review-aqbxsy</sourceBranch>
+    <revision>f67487fa107ac20d4ba0a690e677e3838acff96f</revision>
+  </scm>
+  <goals>
+    <goal>test</goal>
+  </goals>
+  <artifact>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle-mimir</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <type>jar</type>
+    <fileName>gimle-mimir.jar</fileName>
+    <filePath>target/classes</filePath>
+    <isDirectory>true</isDirectory>
+  </artifact>
+  <executions>
+    <execution>
+      <executionKey>default-resources:resources:process-resources:maven-resources-plugin:org.apache.maven.plugins</executionKey>
+      <mojoClassName>org.apache.maven.plugins.resources.ResourcesMojo</mojoClassName>
+    </execution>
+    <execution>
+      <executionKey>default-compile:compile:compile:maven-compiler-plugin:org.apache.maven.plugins</executionKey>
+      <mojoClassName>org.apache.maven.plugin.compiler.CompilerMojo</mojoClassName>
+    </execution>
+    <execution>
+      <executionKey>default-testResources:testResources:process-test-resources:maven-resources-plugin:org.apache.maven.plugins</executionKey>
+      <mojoClassName>org.apache.maven.plugins.resources.TestResourcesMojo</mojoClassName>
+    </execution>
+    <execution>
+      <executionKey>default-testCompile:testCompile:test-compile:maven-compiler-plugin:org.apache.maven.plugins</executionKey>
+      <mojoClassName>org.apache.maven.plugin.compiler.TestCompilerMojo</mojoClassName>
+    </execution>
+    <execution>
+      <executionKey>default-test:test:test:maven-surefire-plugin:org.apache.maven.plugins</executionKey>
+      <mojoClassName>org.apache.maven.plugin.surefire.SurefireMojo</mojoClassName>
+    </execution>
+  </executions>
+  <projectsInputInfo>
+    <checksum>2bf3c1add68d3f620565b1c8e1b49996518f17082c237d09cca25f38b7aaad03</checksum>
+    <items>
+      <item type="pom" hash="e298d1ec9ec5fefcadc7b4ad0a5e3ad3612eb8ed047ba936df8fb32cff12bc21">&lt;?xml version="1.0" encoding="UTF-8"?>
+&lt;project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  &lt;groupId>com.gimle&lt;/groupId>
+  &lt;artifactId>gimle-mimir&lt;/artifactId>
+  &lt;version>cache-extension-version&lt;/version>
+  &lt;dependencies>
+    &lt;dependency>
+      &lt;groupId>com.gimle&lt;/groupId>
+      &lt;artifactId>gimle-core&lt;/artifactId>
+      &lt;version>0.1.0-SNAPSHOT&lt;/version>
+      &lt;scope>compile&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>com.gimle&lt;/groupId>
+      &lt;artifactId>gimle-core&lt;/artifactId>
+      &lt;version>0.1.0-SNAPSHOT&lt;/version>
+      &lt;type>test-jar&lt;/type>
+      &lt;scope>test&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>com.gimle&lt;/groupId>
+      &lt;artifactId>gimle-observability&lt;/artifactId>
+      &lt;version>0.1.0-SNAPSHOT&lt;/version>
+      &lt;scope>compile&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>com.gimle&lt;/groupId>
+      &lt;artifactId>gimle-pki&lt;/artifactId>
+      &lt;version>0.1.0-SNAPSHOT&lt;/version>
+      &lt;scope>compile&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>org.junit.jupiter&lt;/groupId>
+      &lt;artifactId>junit-jupiter&lt;/artifactId>
+      &lt;version>5.11.4&lt;/version>
+      &lt;scope>test&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>org.junit.platform&lt;/groupId>
+      &lt;artifactId>junit-platform-launcher&lt;/artifactId>
+      &lt;version>1.11.4&lt;/version>
+      &lt;scope>test&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>org.slf4j&lt;/groupId>
+      &lt;artifactId>slf4j-api&lt;/artifactId>
+      &lt;version>2.0.17&lt;/version>
+      &lt;scope>compile&lt;/scope>
+    &lt;/dependency>
+    &lt;dependency>
+      &lt;groupId>org.yaml&lt;/groupId>
+      &lt;artifactId>snakeyaml&lt;/artifactId>
+      &lt;version>2.3&lt;/version>
+      &lt;scope>compile&lt;/scope>
+    &lt;/dependency>
+  &lt;/dependencies>
+  &lt;build>
+    &lt;plugins>
+      &lt;plugin>
+        &lt;artifactId>maven-compiler-plugin&lt;/artifactId>
+        &lt;version>3.13.0&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-compile&lt;/id>
+            &lt;phase>compile&lt;/phase>
+            &lt;goals>
+              &lt;goal>compile&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+          &lt;execution>
+            &lt;id>default-testCompile&lt;/id>
+            &lt;phase>test-compile&lt;/phase>
+            &lt;goals>
+              &lt;goal>testCompile&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-surefire-plugin&lt;/artifactId>
+        &lt;version>3.5.2&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-test&lt;/id>
+            &lt;phase>test&lt;/phase>
+            &lt;goals>
+              &lt;goal>test&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;forkCount>1&lt;/forkCount>
+              &lt;reuseForks>true&lt;/reuseForks>
+              &lt;useModulePath>false&lt;/useModulePath>
+              &lt;redirectTestOutputToFile>true&lt;/redirectTestOutputToFile>
+              &lt;rerunFailingTestsCount>1&lt;/rerunFailingTestsCount>
+              &lt;properties>
+                &lt;configurationParameters>junit.jupiter.execution.parallel.enabled=true
+                junit.jupiter.execution.parallel.mode.default=same_thread
+                junit.jupiter.execution.parallel.mode.classes.default=concurrent
+                junit.jupiter.execution.parallel.config.strategy=dynamic
+                junit.jupiter.execution.parallel.config.dynamic.factor=1.0
+                junit.jupiter.extensions.autodetection.enabled=true&lt;/configurationParameters>
+              &lt;/properties>
+            &lt;/configuration>
+          &lt;/execution>
+        &lt;/executions>
+        &lt;configuration>
+          &lt;forkCount>1&lt;/forkCount>
+          &lt;reuseForks>true&lt;/reuseForks>
+          &lt;useModulePath>false&lt;/useModulePath>
+          &lt;redirectTestOutputToFile>true&lt;/redirectTestOutputToFile>
+          &lt;rerunFailingTestsCount>1&lt;/rerunFailingTestsCount>
+          &lt;properties>
+            &lt;configurationParameters>junit.jupiter.execution.parallel.enabled=true
+                junit.jupiter.execution.parallel.mode.default=same_thread
+                junit.jupiter.execution.parallel.mode.classes.default=concurrent
+                junit.jupiter.execution.parallel.config.strategy=dynamic
+                junit.jupiter.execution.parallel.config.dynamic.factor=1.0
+                junit.jupiter.extensions.autodetection.enabled=true&lt;/configurationParameters>
+          &lt;/properties>
+        &lt;/configuration>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;groupId>com.spotify.fmt&lt;/groupId>
+        &lt;artifactId>fmt-maven-plugin&lt;/artifactId>
+        &lt;version>2.29&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;goals>
+              &lt;goal>check&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;style>google&lt;/style>
+            &lt;/configuration>
+          &lt;/execution>
+        &lt;/executions>
+        &lt;configuration>
+          &lt;style>google&lt;/style>
+        &lt;/configuration>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-checkstyle-plugin&lt;/artifactId>
+        &lt;version>3.6.0&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;goals>
+              &lt;goal>check&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;configLocation>/home/user/gimle/checkstyle.xml&lt;/configLocation>
+              &lt;propertyExpansion>config_loc=/home/user/gimle&lt;/propertyExpansion>
+              &lt;consoleOutput>true&lt;/consoleOutput>
+              &lt;failOnViolation>true&lt;/failOnViolation>
+              &lt;violationSeverity>warning&lt;/violationSeverity>
+              &lt;includeTestSourceDirectory>true&lt;/includeTestSourceDirectory>
+              &lt;excludes>**/module-info.java&lt;/excludes>
+            &lt;/configuration>
+          &lt;/execution>
+        &lt;/executions>
+        &lt;configuration>
+          &lt;configLocation>/home/user/gimle/checkstyle.xml&lt;/configLocation>
+          &lt;propertyExpansion>config_loc=/home/user/gimle&lt;/propertyExpansion>
+          &lt;consoleOutput>true&lt;/consoleOutput>
+          &lt;failOnViolation>true&lt;/failOnViolation>
+          &lt;violationSeverity>warning&lt;/violationSeverity>
+          &lt;includeTestSourceDirectory>true&lt;/includeTestSourceDirectory>
+          &lt;excludes>**/module-info.java&lt;/excludes>
+        &lt;/configuration>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;groupId>com.github.spotbugs&lt;/groupId>
+        &lt;artifactId>spotbugs-maven-plugin&lt;/artifactId>
+        &lt;version>4.10.3.0&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;goals>
+              &lt;goal>check&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;effort>Max&lt;/effort>
+              &lt;threshold>Medium&lt;/threshold>
+              &lt;excludeFilterFile>/home/user/gimle/spotbugs-exclude.xml&lt;/excludeFilterFile>
+              &lt;failOnError>true&lt;/failOnError>
+            &lt;/configuration>
+          &lt;/execution>
+        &lt;/executions>
+        &lt;configuration>
+          &lt;effort>Max&lt;/effort>
+          &lt;threshold>Medium&lt;/threshold>
+          &lt;excludeFilterFile>/home/user/gimle/spotbugs-exclude.xml&lt;/excludeFilterFile>
+          &lt;failOnError>true&lt;/failOnError>
+        &lt;/configuration>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;groupId>org.cyclonedx&lt;/groupId>
+        &lt;artifactId>cyclonedx-maven-plugin&lt;/artifactId>
+        &lt;version>2.9.3&lt;/version>
+        &lt;configuration>
+          &lt;outputFormat>json&lt;/outputFormat>
+          &lt;schemaVersion>1.5&lt;/schemaVersion>
+          &lt;outputName>bom&lt;/outputName>
+        &lt;/configuration>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-clean-plugin&lt;/artifactId>
+        &lt;version>3.2.0&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-clean&lt;/id>
+            &lt;phase>clean&lt;/phase>
+            &lt;goals>
+              &lt;goal>clean&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-resources-plugin&lt;/artifactId>
+        &lt;version>3.3.1&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-testResources&lt;/id>
+            &lt;phase>process-test-resources&lt;/phase>
+            &lt;goals>
+              &lt;goal>testResources&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+          &lt;execution>
+            &lt;id>default-resources&lt;/id>
+            &lt;phase>process-resources&lt;/phase>
+            &lt;goals>
+              &lt;goal>resources&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-jar-plugin&lt;/artifactId>
+        &lt;version>3.4.1&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-jar&lt;/id>
+            &lt;phase>package&lt;/phase>
+            &lt;goals>
+              &lt;goal>jar&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-install-plugin&lt;/artifactId>
+        &lt;version>3.1.2&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-install&lt;/id>
+            &lt;phase>install&lt;/phase>
+            &lt;goals>
+              &lt;goal>install&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-deploy-plugin&lt;/artifactId>
+        &lt;version>3.1.2&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-deploy&lt;/id>
+            &lt;phase>deploy&lt;/phase>
+            &lt;goals>
+              &lt;goal>deploy&lt;/goal>
+            &lt;/goals>
+          &lt;/execution>
+        &lt;/executions>
+      &lt;/plugin>
+      &lt;plugin>
+        &lt;artifactId>maven-site-plugin&lt;/artifactId>
+        &lt;version>3.12.1&lt;/version>
+        &lt;executions>
+          &lt;execution>
+            &lt;id>default-site&lt;/id>
+            &lt;phase>site&lt;/phase>
+            &lt;goals>
+              &lt;goal>site&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;outputDirectory>/target/site&lt;/outputDirectory>
+              &lt;reportPlugins>
+                &lt;reportPlugin>
+                  &lt;groupId>org.apache.maven.plugins&lt;/groupId>
+                  &lt;artifactId>maven-project-info-reports-plugin&lt;/artifactId>
+                &lt;/reportPlugin>
+              &lt;/reportPlugins>
+            &lt;/configuration>
+          &lt;/execution>
+          &lt;execution>
+            &lt;id>default-deploy&lt;/id>
+            &lt;phase>site-deploy&lt;/phase>
+            &lt;goals>
+              &lt;goal>deploy&lt;/goal>
+            &lt;/goals>
+            &lt;configuration>
+              &lt;outputDirectory>/target/site&lt;/outputDirectory>
+              &lt;reportPlugins>
+                &lt;reportPlugin>
+                  &lt;groupId>org.apache.maven.plugins&lt;/groupId>
+                  &lt;artifactId>maven-project-info-reports-plugin&lt;/artifactId>
+                &lt;/reportPlugin>
+              &lt;/reportPlugins>
+            &lt;/configuration>
+          &lt;/execution>
+        &lt;/executions>
+        &lt;configuration>
+          &lt;outputDirectory>/target/site&lt;/outputDirectory>
+          &lt;reportPlugins>
+            &lt;reportPlugin>
+              &lt;groupId>org.apache.maven.plugins&lt;/groupId>
+              &lt;artifactId>maven-project-info-reports-plugin&lt;/artifactId>
+            &lt;/reportPlugin>
+          &lt;/reportPlugins>
+        &lt;/configuration>
+      &lt;/plugin>
+    &lt;/plugins>
+  &lt;/build>
+&lt;/project>
+</item>
+      <item type="file" hash="edb80560742caa0af07de316a3e41b228674ca1b28f74cb1ba4d2c31bc21cff4" content="application/xml" isText="yes" charset="UTF-8" eol="LF">../checkstyle.xml</item>
+      <item type="file" hash="5047d0b3a3c7c8f4ed65620b8f68c315895fa42a4901b5a543470fb08ca23863" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/authz/Authorizer.java</item>
+      <item type="file" hash="b4176fe821e143d9b69cc14dac711b537c302c7f413d01e88b2b4a9faf14b55e" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/codec/DomainCodec.java</item>
+      <item type="file" hash="e2d2a1c7e69aa00e094852f950af92ba2034e082869bde7570953f090282ab4b" content="text/x-java" isText="yes" charset="UTF-8" eol="LF">src/main/java/com/gimle/mimir/cron/CronSchedule.java</item>
+      <item type="file" hash="aac3ae553e8e2da1853fffb4dd364659ab9dbea9ca9d6fc01942a6e557d7d6fa" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/AutoscalePolicy.java</item>
+      <item type="file" hash="006956688c66d863e78b6fa5b638303d95ca0fb452601ff7b1732d182cda6455" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/ConcurrencyPolicy.java</item>
+      <item type="file" hash="fd456034c7df41e265eb82ecd363c3a5d18dafa6aa9d2a7c357bfe1eb785356d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/CronJobManifestParser.java</item>
+      <item type="file" hash="5f02ff13720cd6bd1f2d9c5f3732aaccb8ab685a23e2a1b3d1783bba9d109a6b" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/CronJobSpec.java</item>
+      <item type="file" hash="a179e1e5bcc1bf7190582c242f231d9793f4a4549cca1c1104dbed6041e39432" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java</item>
+      <item type="file" hash="51a5643ab945da0b3c435bf90c2b575344bcf7fe391ffb163580b2f2f679772c" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java</item>
+      <item type="file" hash="8695e1ff91e63c00a98a7851eb1b8502a91ce40e323639f1cbe392f34d5e545c" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/DeploymentManifestParser.java</item>
+      <item type="file" hash="17cad0be56220a560470affae24fbfbb68c9744dbcebd460f7ecee39de5cce07" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java</item>
+      <item type="file" hash="d63fa22d0de2d5f290d59d07bd2860c19a2d05560020cf091059a02aa672a096" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/DisruptionBudget.java</item>
+      <item type="file" hash="5f84f3b2194bda737f580f626b610939301441bd04d836f9ca90373088a5add7" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/JobManifestParser.java</item>
+      <item type="file" hash="742a0add7ea33c6d7462ee41ced61033b3ec79a963eb93feed51bd9328e762ef" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/JobSpec.java</item>
+      <item type="file" hash="cba25cb7058e0af2e2ac457172dd9787ba1d5aa796a7e8c3cd2a759e188b615a" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/JobTemplate.java</item>
+      <item type="file" hash="e4cc57d825755ec42532c0eacb8366ff52fcabcfda33850705822370562732e6" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/ManifestFields.java</item>
+      <item type="file" hash="9bfbfdfe4c58ccaca58a6b5723e932690860e826f131d42be6cfea7371e0dfd6" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/ManifestParser.java</item>
+      <item type="file" hash="39408f5f716f207a2676247f41bf8a628de390e74e28df81292eeb6123410ae3" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/PlacementConstraints.java</item>
+      <item type="file" hash="639ad5ddc994d74ab6417b8ab9ea272503f1088cae3e1e67de6c4501e00b8791" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/StatefulSetManifestParser.java</item>
+      <item type="file" hash="e72324da9b0e04e45ad95cb909aae2c6d74094d4a1a7fb54a75295f21f8c523d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/StatefulSetSpec.java</item>
+      <item type="file" hash="66efaba58d396c81c9d699ea82458b1ab5ab4f4a13e0ba2e5f334a539d85d991" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/manifest/WorkloadSpec.java</item>
+      <item type="file" hash="cd02ac4746c5228473072714072c16dcdf1ba5a197d9f8feb3e8215052ed4261" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/AppendEntries.java</item>
+      <item type="file" hash="79f5e5ac176dd31e6e1bf23223a3c923be51f2d039407c42d4570907875969e1" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/AppendEntriesResponse.java</item>
+      <item type="file" hash="7b55c506bc34bd074fa09693c8351f18106830760afec400e3b758810ff66df5" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/InstallSnapshot.java</item>
+      <item type="file" hash="28efc6fa19c004e5edd0375e1527dfea2e91e634709142be0b82f8c6d0ec08a1" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/InstallSnapshotResponse.java</item>
+      <item type="file" hash="a1ddebb889eb155c65b581327c7b706f2aeb4d429bea1ffcde1ef6a0d9f428b2" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/LogEntry.java</item>
+      <item type="file" hash="f098c3bed97fadaab412bc8c09e16a9a3a12127936147f2d675fd3f155bf3006" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/MembershipChange.java</item>
+      <item type="file" hash="34b540f0e59206e6861b210ac68f3cc95532add377623ff69d7e1d4a84e23053" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/MutationSink.java</item>
+      <item type="file" hash="8c1c4675189d6bc7d71027a2c1d513de73513204f877ce72c00525bc4d92626b" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/PeerAddress.java</item>
+      <item type="file" hash="c9094df6f21d65378952c4707d373b07956d154b06d31bcddd1a4878bead0c38" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/PeerConnection.java</item>
+      <item type="file" hash="1fcb1a8d28327a2a6b8169986d8e4a5c3d930b4e748f6e87bb778bf4b4ca1227" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftCodec.java</item>
+      <item type="file" hash="62c5cd194d5bc72ee3bebcf9a643390cf1dca9f12985b7fb9699ad915a686d48" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftLog.java</item>
+      <item type="file" hash="ff962b63a739b6317e4277615e18b4afd691c3d512ccb68fa1a079a96e11197d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftLogPayload.java</item>
+      <item type="file" hash="a22a7d17187c3c6e39b8d15c8c16fce8a7122aaf0224ce153dfece723b8bccd5" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftNode.java</item>
+      <item type="file" hash="8b5b55f76414387afe578ce1796d4e83b5c0f0936698ebc2d0ffd157f5e7c9f9" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftPeerClient.java</item>
+      <item type="file" hash="d0ed8ca1eab4832eb7825425c7d7da79632fc9a4e8521d5d8a9bf1235a208ec6" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftPeerClientFactory.java</item>
+      <item type="file" hash="cd8ccd4cf0bccbaea3422420093d5881b45f9e10a1031dab93a9b6c9214e4962" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftRpc.java</item>
+      <item type="file" hash="dd01be26a76b1d2221722db99b05a70d95079a08c4afd1c034b769fab44ad724" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftRpcHandler.java</item>
+      <item type="file" hash="ee20a567be091b90616606fcea0f4702bf72fb642470bc7ad0c8faeef1975078" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RaftTransport.java</item>
+      <item type="file" hash="9113298e846c015f41b525688459512a7cc6501d35df50551e97d27cf3ac3144" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RequestVote.java</item>
+      <item type="file" hash="75f242e91877703de26f1b3e28cea57403428e92dfb532c824b46834cd11d8ea" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/RequestVoteResponse.java</item>
+      <item type="file" hash="2817dc32f58b329fd1668316bdf4a6094cc51830244c374c2fe0e529e9397d86" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/Role.java</item>
+      <item type="file" hash="95aaab8f7077c7ccb7101c3367cd19e1df4eac7b5dbe93d93213277b8749805b" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/raft/StateMutation.java</item>
+      <item type="file" hash="87ef227b77ef53bc22827e414744248a9caa50815496f9e378ff37802eb29350" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreClient.java</item>
+      <item type="file" hash="a0e79ae6a47feea78430006206177cd5e3d69597d68b67cc723715df2b472d7d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreCodec.java</item>
+      <item type="file" hash="cd39609b868b45a9d48812e893bb890659eb151433cbc6a0ffdeb9c5aacc9b39" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreConnection.java</item>
+      <item type="file" hash="07632d9f8c2ee94804d12a60a4f331ea0227f32bc9bd767711fe197e66d0a562" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreNode.java</item>
+      <item type="file" hash="b8cd4aa610ac6fd1c85e11652a840bd4396e4f688cbd72aaca92ee232e846ce0" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreRpc.java</item>
+      <item type="file" hash="8eb83ea40a7399f522ac4bd1f3424ba9ec606125be7247cf8b26a6306578bf04" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreRpcHandler.java</item>
+      <item type="file" hash="a09d9ceac97c4d3285f4d3ae085857095bd491fd0492aa9f8ffd91561d32b5dc" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/rpc/StoreTransport.java</item>
+      <item type="file" hash="fb903535fbcce5d9f33bd13e03389503390ab2215f239c3c7fcdd9661484a9d3" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/AtomicFiles.java</item>
+      <item type="file" hash="eb052e385f8944d87672ac93a9f150533fb4c67df606d39e0099e19710e76568" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/DaemonSetAssignment.java</item>
+      <item type="file" hash="8e7ba2c72be5a6b6b90c82c4e5b82cc559aad620602db856e0ebaa0bf00d2d7c" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/InstanceAssignment.java</item>
+      <item type="file" hash="b936f880bc8e8d4f463ce41c5383a35656e8b93db09a7067fa6bad394cdaf35d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/JobPhase.java</item>
+      <item type="file" hash="25b74ebef6442abba57126c41c0721ead7ca18a287370c077881851636c5c722" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/JobRun.java</item>
+      <item type="file" hash="c8352bbe5d625abaa2e442f6893f45b8021942b38578c5ef56d6e9f8c0a716f8" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/LeaseGrant.java</item>
+      <item type="file" hash="3be7c6e84978ac5231ed28da369a51eaff46a41c70abd0d694f00a24028689a4" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/ObservedHeartbeat.java</item>
+      <item type="file" hash="a22d8aec5754c875a5b57e0227d3e0ff760978461abc73d51265032d8c9516d3" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java</item>
+      <item type="file" hash="b95ee855cd5e78c65d324823d2a09792c6e03f0dc37cadd8a9c30f38b3cff0d8" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/StatefulSetAssignment.java</item>
+      <item type="file" hash="7eb353b116fa873913c213abad39c1df2539617be2cbc766be24f9908f07f965" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/StateSnapshot.java</item>
+      <item type="file" hash="d423607d7389e121368e26fb88b8cfc90c2bd8857436ab5569a0ec374e060d27" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/StateStore.java</item>
+      <item type="file" hash="7e8dc466276dc72a28d25b2acf725d51409f8ec832c88d2e698c86aaa6101ed5" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/com/gimle/mimir/store/StoreReader.java</item>
+      <item type="file" hash="2cb7ee6682df6398a3fce02f8055d7ef3e79be1c8672ff5ac4598445b602c5c7" content="text/x-java" isText="yes" charset="UTF-8" eol="LF">src/main/java/com/gimle/mimir/StoreMain.java</item>
+      <item type="file" hash="c9c990ed8ec7b396dc13ffa0376c368e0dc8952efa97ed5aafe11e627e18d71f" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/main/java/module-info.java</item>
+      <item type="file" hash="e45cf6b7bc02534e190361c6828028a37fece490fbbfe921f4b3feaef2f41f9d" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/authz/AuthorizerTest.java</item>
+      <item type="file" hash="8b6089d778c7f002cbc5d0675c0e3a8c5b729315ecd081af5da8ccb7790ba377" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/cron/CronScheduleTest.java</item>
+      <item type="file" hash="40308d918614a241687587cf5d7d482682b81f74d2d6f65d30e3a0306e62d79b" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/AutoscalePolicyTest.java</item>
+      <item type="file" hash="c8d4ea28e43d57d624982bc25c1b5fe214ded19ee0eef45497bdab99bd55bd3b" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/CronJobManifestParserTest.java</item>
+      <item type="file" hash="d2208a85796789785c2da7fa0ac33ef7bc36ee9eaea2f403037f3fb60f4dfb31" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/DaemonSetManifestParserTest.java</item>
+      <item type="file" hash="1733afbafb9dcda7c8e19468fad3541e675e7d4afb8057e37215c1d3e58d39c5" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/DeploymentManifestParserTest.java</item>
+      <item type="file" hash="9a2af1cf4c4d2b4ba25447491f81c5641518471c6c4b913588d20b1f9206f95a" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/DeploymentSpecTest.java</item>
+      <item type="file" hash="63c0f31619a22363f1e68da13983eb9d64ec647e69fc615c48948d025d27e068" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/DisruptionBudgetTest.java</item>
+      <item type="file" hash="699cfb428aa58b5468c6191dcacc1f210c80b5dfb1a3509966ade8c0ae02e726" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/JobManifestParserTest.java</item>
+      <item type="file" hash="6df93315b60aca3c515b2369ed2217618208d5c64e5a0d28016e21d1704a6bf1" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/ManifestParserTest.java</item>
+      <item type="file" hash="7c12a0e6831fe2b8d9ea92681c55e39ddabc9357be2d0af502603e97d6f403da" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/manifest/StatefulSetManifestParserTest.java</item>
+      <item type="file" hash="838c0c1af02f8284fba9075ea756f2d462f7c454705ab2d2233bda44f8b63ec8" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftClusterTest.java</item>
+      <item type="file" hash="c11f333ac9cb178d78cc4483dede50bfcd621c9462f368e2ee7aed67777acc98" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftClusterTlsTest.java</item>
+      <item type="file" hash="a347e8c5e07d2dae6ee5ee7b7c6ad2ad68e03b7b4801dbc72379b49a72ecf5fe" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftCodecTest.java</item>
+      <item type="file" hash="41f2eaba85ece2fb35d0c2079852d69ae4d1050b55895a2b7ab8265be268b2fa" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftLogTest.java</item>
+      <item type="file" hash="c47acd972a5b71b5a95b50c135753f5096024443ea717da051d73cee2a7ac94f" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftMembershipChangeTest.java</item>
+      <item type="file" hash="90c09b888ba06b81ff43612981e71d5faedda9305f2b9131879cea0d01a3f8e5" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/raft/RaftNodeSafetyMechanicsTest.java</item>
+      <item type="file" hash="a6778ba4c43c2ad7faabe22fd7c5245352b85546808d3e044aafced72ba2567e" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/rpc/StoreClientClusterTest.java</item>
+      <item type="file" hash="d47f2c97b8aaa7eb8d18dff021feec0928d7554513de9972d81ec3395b7812a3" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/rpc/StoreCodecTest.java</item>
+      <item type="file" hash="3c073574bd1b28f1354ce181b55cdf0713e1e7069a8257ffb78e3f556143f722" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/rpc/StoreConnectionTimeoutTest.java</item>
+      <item type="file" hash="6c97476fcc90b911ff3c9d1da4a8f0338d84f500c0ed49e43e2a2249c88efb1f" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/rpc/StoreNodeTest.java</item>
+      <item type="file" hash="c72438c4390aad3d1fc6f4af302a16bfb4d7abb08f78cf1e5af00725215dfaa4" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/rpc/StoreRpcLatencyTest.java</item>
+      <item type="file" hash="36584d2c88a31ca382325d27baea40fc1723fdc84b6aa126b2dc8d2f5a4ce4c6" content="text/x-java" isText="yes" charset="UTF-8" eol="LF">src/test/java/com/gimle/mimir/store/AtomicFilesTest.java</item>
+      <item type="file" hash="e79040a85b4c2330087666ca24f7c358c2bae18f5865ff76861600ff0ec0a49f" content="text/x-java" isText="yes" charset="US-ASCII" eol="LF">src/test/java/com/gimle/mimir/store/StateStoreTest.java</item>
+      <item type="file" hash="b9c46cebf5e37248f52944d9a8875dc0aaa6bdaf19e8227125bf197ca5856df3" content="application/xml" isText="yes" charset="US-ASCII" eol="LF">../spotbugs-exclude.xml</item>
+      <item type="dependency" hash="5f59a6d258769f05bc206760f6d2748cd17e0dd7c90c8e3fae01fee5d0bb2e44">com.gimle:gimle-core:jar</item>
+      <item type="dependency" hash="dafb159fac3f13889fb5b5fff76d069d1be6b1899dc3223ea4bdb3ec7e18b887">com.gimle:gimle-core:test-jar:tests</item>
+      <item type="dependency" hash="0ea15a63a2848790d1e3fdd948d57acc7813911fd56bc53066ecb67035ac0b3b">com.gimle:gimle-observability:jar</item>
+      <item type="dependency" hash="7ebaa9a82fb7f5bedb9bc5a8c2904ea732dfdfa929d01fe49bbffd0536ee4d5c">com.gimle:gimle-pki:jar</item>
+    </items>
+  </projectsInputInfo>
+</build>

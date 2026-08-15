@@ -99,10 +99,11 @@ public final class FafnirMain {
     fafnirServer.start();
 
     // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern --
-    // null means "ship nowhere," this replica's own request metrics simply aren't shipped anywhere.
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped
+    // anywhere. Accepts a comma-separated list of Muninn replicas as well as a single endpoint.
     String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
-    MuninnShipper metricsShipper =
-        shipperFor(muninnEndpoint, "metrics", selfHost, fafnirServer.port());
+    List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
+    MuninnShipper metricsShipper = shipperFor(muninnEndpoints, "metrics", selfHost, fafnirServer.port());
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(fafnirServer.metrics().registry());
     }
@@ -111,8 +112,7 @@ public final class FafnirMain {
     // a pure supervisor. Shipped to Muninn when
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
-    MuninnShipper tracesShipper =
-        shipperFor(muninnEndpoint, "traces", selfHost, fafnirServer.port());
+    MuninnShipper tracesShipper = shipperFor(muninnEndpoints, "traces", selfHost, fafnirServer.port());
     if (tracesShipper != null) {
       GimleTracing.installWithMuninnShipping(tracesShipper);
     } else {
@@ -184,16 +184,17 @@ public final class FafnirMain {
   }
 
   /**
-   * A {@link MuninnShipper} targeting {@code /ingest/{kind}/FAFNIR/{selfHost}:{port}}, or {@code
-   * null} when {@code muninnEndpoint} is unconfigured -- the shared shape behind both the metrics
-   * and traces shippers above, which differ only in the ingest path's {@code kind} segment.
+   * A {@link MuninnShipper} targeting {@code /ingest/{kind}/FAFNIR/{selfHost}:{port}}, shipping to
+   * every configured Muninn replica, or {@code null} when none are configured -- the shared shape
+   * behind both the metrics and traces shippers above, which differ only in the ingest path's
+   * {@code kind} segment.
    */
   private static MuninnShipper shipperFor(
-      String muninnEndpoint, String kind, String selfHost, int port) {
-    return muninnEndpoint == null
+      List<String> muninnEndpoints, String kind, String selfHost, int port) {
+    return muninnEndpoints.isEmpty()
         ? null
         : new MuninnShipper(
-            muninnEndpoint,
+            muninnEndpoints,
             "/ingest/" + kind + "/FAFNIR/" + selfHost + ":" + port,
             MUNINN_SHIP_INTERVAL);
   }

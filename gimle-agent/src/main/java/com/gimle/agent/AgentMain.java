@@ -160,6 +160,9 @@ public final class AgentMain {
         fafnirEndpoint == null ? null : URI.create((baseUrl.getScheme()) + "://" + fafnirEndpoint);
     // Same optional-system-property posture as gimle.agent.fafnirEndpoint above: null means "ship
     // nowhere," and local-only tailing via AgentLogServer keeps working entirely unchanged.
+    // Accepts a comma-separated list of Muninn replicas (each shipped to independently, see
+    // MuninnShipper) as well as the original single-endpoint form, so an existing single-address
+    // config keeps working unchanged.
     String muninnEndpoint = System.getProperty("gimle.agent.muninnEndpoint");
     // Same optional posture again: null is a legitimate state -- an agent whose assignments all
     // carry an explicit artifactPath never needs the artifact registry at all.
@@ -185,15 +188,16 @@ public final class AgentMain {
     AgentMetrics agentMetrics = new AgentMetrics();
 
     if (muninnEndpoint != null) {
+      List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
       // This agent's own platform log has no per-instance scoping -- ships once, for the whole
       // process lifetime, under this node's own identity (the same node-scoped ingest shape
       // MuninnServer registers alongside the instance-scoped one).
       MuninnShipper ownLogShipper =
           new MuninnShipper(
-              muninnEndpoint, "/ingest/logs/nodes/" + nodeId + "/PLATFORM", MUNINN_SHIP_INTERVAL);
+              muninnEndpoints, "/ingest/logs/nodes/" + nodeId + "/PLATFORM", MUNINN_SHIP_INTERVAL);
       ownLogShipper.startShippingLogFile(
           logRoot.resolve("agent-platform.log"), LogFileReader.configuredMaxFiles());
-      new MuninnShipper(muninnEndpoint, "/ingest/metrics/AGENT/" + nodeId, MUNINN_SHIP_INTERVAL)
+      new MuninnShipper(muninnEndpoints, "/ingest/metrics/AGENT/" + nodeId, MUNINN_SHIP_INTERVAL)
           .startShippingMetrics(agentMetrics.registry());
     }
 
@@ -1721,18 +1725,19 @@ public final class AgentMain {
     if (muninnEndpoint == null) {
       return;
     }
+    List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
     String instancePathPrefix =
         "/ingest/logs/instances/" + assigned.deploymentName() + "/" + assigned.instanceIndex();
 
     MuninnShipper platformShipper =
-        new MuninnShipper(muninnEndpoint, instancePathPrefix + "/PLATFORM", MUNINN_SHIP_INTERVAL);
+        new MuninnShipper(muninnEndpoints, instancePathPrefix + "/PLATFORM", MUNINN_SHIP_INTERVAL);
     platformShipper.startShippingLogFile(
         workerLogRoot.resolve("worker-platform.log"), LogFileReader.configuredMaxFiles());
 
     MuninnShipper applicationShipper =
         new MuninnShipper(
-            muninnEndpoint, instancePathPrefix + "/APPLICATION", MUNINN_SHIP_INTERVAL);
+            muninnEndpoints, instancePathPrefix + "/APPLICATION", MUNINN_SHIP_INTERVAL);
     applicationShipper.startShippingLogFile(
         workerLogRoot
             .resolve("instances")
