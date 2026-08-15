@@ -2,6 +2,8 @@ package com.gimle.holmgang.loki;
 
 import com.gimle.holmgang.HolmgangException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -10,18 +12,25 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * One interposed TCP link: listens on its own loopback port and relays byte-for-byte to the real
- * upstream, one virtual thread per direction per connection. {@link #cut()} severs the link --
- * every live connection is closed and new ones are refused on accept -- and {@link #heal()}
- * restores it. First-party and in-JVM deliberately: no external fault-injection binary, matching
- * the platform's own no-non-Java-runtime stance even in test tooling.
+ * upstream, one virtual thread per direction per connection. Two distinct fault shapes, both
+ * restored by {@link #heal()}: {@link #cut()} severs the link -- every live connection is closed
+ * and new ones are refused on accept, surfacing to either side as an immediate error -- while
+ * {@link #blackhole()} is a genuine silent partition -- accepted connections (new or already live)
+ * stay open but every byte crossing them is dropped instead of relayed, so neither side sees
+ * anything wrong until its own connect/read timeout fires. First-party and in-JVM deliberately: no
+ * external fault-injection binary, matching the platform's own no-non-Java-runtime stance even in
+ * test tooling.
  */
 final class LokiProxy implements AutoCloseable {
+
+  private static final int PUMP_BUFFER_BYTES = 8192;
 
   private final ServerSocket server;
   private final String upstreamHost;
   private final int upstreamPort;
   private final Set<Socket> liveSockets = ConcurrentHashMap.newKeySet();
   private volatile boolean cut;
+  private volatile boolean blackholed;
   private volatile boolean closed;
 
   static LokiProxy start(final String upstreamHost, final int upstreamPort) {
@@ -51,8 +60,18 @@ final class LokiProxy implements AutoCloseable {
     closeAllLive();
   }
 
+  /**
+   * Unlike {@link #cut()}, deliberately does not touch {@link #liveSockets}: a real network
+   * partition doesn't tear down existing TCP connections, it just stops carrying their bytes --
+   * {@link #pump} is what actually goes quiet, once it next checks this flag.
+   */
+  void blackhole() {
+    blackholed = true;
+  }
+
   void heal() {
     cut = false;
+    blackholed = false;
   }
 
   @Override
@@ -98,7 +117,19 @@ final class LokiProxy implements AutoCloseable {
 
   private void pump(final Socket from, final Socket to) {
     try {
-      from.getInputStream().transferTo(to.getOutputStream());
+      final InputStream in = from.getInputStream();
+      final OutputStream out = to.getOutputStream();
+      final byte[] buffer = new byte[PUMP_BUFFER_BYTES];
+      int read;
+      while ((read = in.read(buffer)) != -1) {
+        if (blackholed) {
+          // Keep draining `from` so its sender never blocks on a full socket buffer, but never
+          // write anything to `to` -- the silent packet loss a real network partition produces,
+          // as opposed to `cut`'s immediate close.
+          continue;
+        }
+        out.write(buffer, 0, read);
+      }
     } catch (final IOException e) {
       // A cut, a closed peer, or plain EOF -- all end the relay the same way.
     } finally {

@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * The one mutable state shared by every step class within a scenario (constructor-injected by
@@ -40,6 +41,14 @@ public final class ScenarioWorld {
   RecordingWorkload workload;
   ChaosLedger chaosLedger;
   String scenarioName = "scenario";
+
+  /** A write submitted on a background thread, so a step can bound its wait instead of hanging. */
+  CompletableFuture<Integer> pendingWrite;
+
+  /**
+   * Which store index a partition step isolated, remembered since the cluster's leader moves on.
+   */
+  Integer isolatedStoreIndex;
 
   private GimleCluster cluster;
   private boolean destructive;

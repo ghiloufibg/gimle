@@ -16,6 +16,7 @@ import com.gimle.holmgang.topology.TenantSeed;
 import com.gimle.holmgang.topology.Transport;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.rpc.StoreRpc;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -230,15 +231,35 @@ public final class GimleCluster implements AutoCloseable {
    * gate on the cluster accepting writes first.
    */
   public GimleProcess storeLeader() {
+    return stores.get(storeLeaderIndex());
+  }
+
+  /** The array index (see {@link #store(int)}) of the currently-leading store. */
+  public int storeLeaderIndex() {
     final String leaderId =
         storeLeaderId()
             .orElseThrow(() -> new HolmgangException("no store leader is currently known"));
     for (int i = 0; i < stores.size(); i++) {
       if (leaderId.equals(storeRaftId(i))) {
-        return stores.get(i);
+        return i;
       }
     }
     throw new HolmgangException("store leader " + leaderId + " matches no known store process");
+  }
+
+  /**
+   * One store's own self-reported status, read directly off its real client port -- deliberately
+   * bypassing every Loki proxy (including {@link #withStoreClient}'s own interposed-endpoint
+   * choices), so it stays truthful about that replica's own view even while every one of its raft
+   * peer links is cut. This is what lets a scenario observe a leader's own check-quorum
+   * self-demotion happening from the inside, rather than inferring it from what the rest of the
+   * cluster reports.
+   */
+  public StoreRpc.StatusResult storeStatus(final int index) {
+    final SocketAddress address = new InetSocketAddress(host(), storeClientPorts.get(index));
+    try (StoreClient client = new StoreClient(List.of(address))) {
+      return client.status();
+    }
   }
 
   /** The leading store's Raft id, empty while no answering member currently names one. */
@@ -618,6 +639,24 @@ public final class GimleCluster implements AutoCloseable {
 
   private void startStores(
       final String java, final String classpath, final PortPlan ports, final PortLease lease) {
+    // Under fault proxying, every store dials every other through its own private set of Loki raft
+    // proxies rather than the real ports -- registered upfront (before any store spawns) since each
+    // store's own --peers argument is fixed at spawn time. A proxy per (store, peer) pair, not one
+    // shared per target: check-quorum tracks a leader's own *outbound* replication responses, so
+    // isolating a store must cut its own outbound view of every peer as well as every peer's
+    // inbound view of it -- see Loki#cutStoreFromPeers.
+    final Map<Integer, Map<Integer, Integer>> raftDialPorts = new LinkedHashMap<>();
+    if (loki != null) {
+      for (int i = 0; i < spec.storeReplicas(); i++) {
+        final Map<Integer, Integer> peerRaftPorts = new LinkedHashMap<>();
+        for (int j = 0; j < spec.storeReplicas(); j++) {
+          if (j != i) {
+            peerRaftPorts.put(j, ports.storeRaftPorts.get(j));
+          }
+        }
+        raftDialPorts.put(i, loki.interposeStoreToStores(i, host(), peerRaftPorts));
+      }
+    }
     for (int i = 0; i < spec.storeReplicas(); i++) {
       final int raftPort = ports.storeRaftPorts.get(i);
       final int clientPort = ports.storeClientPorts.get(i);
@@ -634,7 +673,7 @@ public final class GimleCluster implements AutoCloseable {
       command.add(workDir.resolve("store-state-" + i).toString());
       command.add(String.valueOf(raftPort));
       command.add(String.valueOf(clientPort));
-      final String peers = ports.storePeersSpecExcluding(i);
+      final String peers = storePeersSpecExcluding(i, ports, raftDialPorts.get(i));
       if (!peers.isBlank()) {
         command.addAll(List.of("--peers", peers));
       }
@@ -655,6 +694,34 @@ public final class GimleCluster implements AutoCloseable {
     for (final int clientPort : ports.storeClientPorts) {
       Polls.awaitPortOpen(host(), clientPort, STAGE_TIMEOUT);
     }
+  }
+
+  /**
+   * Every other store's own raft peer address for store {@code excludeIndex}'s {@code --peers}
+   * argument: dialed through {@code dialPortsByPeerIndex} (that store's own interposed raft
+   * proxies, keyed by peer index) under fault proxying, the real raft ports otherwise. The raft id
+   * every store computes for a peer (used only for that store's own local bookkeeping --
+   * vote/commit counting never compares it against anything the peer itself asserts) is free to be
+   * proxy-based without breaking consensus; the one known cost is that a leader's client-redirect
+   * hint, which a follower resolves through its own peer-address-derived map, can miss under
+   * proxying and fall back to {@code StoreClient}'s plain round-robin -- slower, never incorrect,
+   * and irrelevant to a caller like this one that reads leadership straight from {@code
+   * StatusResult} instead.
+   */
+  private String storePeersSpecExcluding(
+      final int excludeIndex,
+      final PortPlan ports,
+      final Map<Integer, Integer> dialPortsByPeerIndex) {
+    final List<String> peers = new ArrayList<>();
+    for (int j = 0; j < ports.storeRaftPorts.size(); j++) {
+      if (j == excludeIndex) {
+        continue;
+      }
+      final int dialPort =
+          dialPortsByPeerIndex != null ? dialPortsByPeerIndex.get(j) : ports.storeRaftPorts.get(j);
+      peers.add(host() + ":" + dialPort + ":" + ports.storeClientPorts.get(j));
+    }
+    return String.join(",", peers);
   }
 
   private void startMuninn(
@@ -1012,17 +1079,6 @@ public final class GimleCluster implements AutoCloseable {
 
     String storeEndpointsSpec() {
       return endpointsSpecOf(host, storeClientPorts);
-    }
-
-    String storePeersSpecExcluding(final int excludeIndex) {
-      final List<String> peers = new ArrayList<>();
-      for (int i = 0; i < storeRaftPorts.size(); i++) {
-        if (i == excludeIndex) {
-          continue;
-        }
-        peers.add(host + ":" + storeRaftPorts.get(i) + ":" + storeClientPorts.get(i));
-      }
-      return String.join(",", peers);
     }
   }
 }

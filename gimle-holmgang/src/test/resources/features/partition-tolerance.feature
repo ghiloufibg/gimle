@@ -13,3 +13,12 @@ Feature: Partition tolerance
     And within 60s deployment "partition-greeter" is ACTIVE observed via control-plane replica 0
     When the partition heals
     Then within 60s deployment "partition-greeter" is ACTIVE observed via control-plane replica 1
+
+  Scenario: A store leader silently partitioned from its peers steps down and writes stay bounded
+    Given a running cluster from topology "ha-proxied"
+    When the store leader is partitioned from its peers
+    Then within 10s the isolated store leader steps down
+    When a tenant write is submitted against the cluster
+    Then the submitted write completes within 30s instead of hanging
+    When the partition heals
+    Then within 60s the cluster accepts writes again

@@ -10,7 +10,9 @@ package com.gimle.holmgang.fenrir;
  * it, not a restart the platform never claimed to do. {@link #MUNINN_BOUNCE} and {@link
  * #ANDVARI_BOUNCE} only ever pick a victim when their own process is running with more than one
  * replica -- bouncing the last one would just be an ordinary kill-the-instance test, not the
- * failover/fan-out property multi-replica topologies actually exist to prove.
+ * failover/fan-out property multi-replica topologies actually exist to prove. {@link #LINK_CUT} and
+ * {@link #STORE_PARTITION} are neither kill nor bounce -- the victim process stays alive the whole
+ * time, only its network reachability changes.
  */
 public enum FaultKind {
   WORKER_KILL,
@@ -18,6 +20,7 @@ public enum FaultKind {
   LEADER_BOUNCE,
   CONTROL_PLANE_BOUNCE,
   LINK_CUT,
+  STORE_PARTITION,
   FAFNIR_BOUNCE,
   MUNINN_BOUNCE,
   ANDVARI_BOUNCE
