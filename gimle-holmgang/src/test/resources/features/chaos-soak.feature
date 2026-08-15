@@ -18,3 +18,14 @@ Feature: Randomized fault soak
     And within 30s the cluster accepts writes again
     And within 30s the writer has acknowledged at least 20 writes
     And every acknowledged tenant write is readable
+
+  Scenario: The cluster survives a compound-fault soak with overlapping faults and no lost writes
+    Given a running cluster from topology "ha-plaintext"
+    And module "greeter-provider" version "1.0.0" deployed with 1 replica as "chaos-greeter"
+    And a background writer creating tenants every 200ms
+    Then within 15s the writer has acknowledged at least 5 writes
+    When Fenrir is unleashed in compound-fault mode for 60 seconds striking every 8 seconds with a 5-second recovery gate
+    Then the chaos ledger shows at least 4 executed faults
+    And within 30s the cluster accepts writes again
+    And within 30s the writer has acknowledged at least 20 writes
+    And every acknowledged tenant write is readable

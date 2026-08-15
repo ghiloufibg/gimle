@@ -278,6 +278,62 @@ class CronJobReconcilerTest {
   }
 
   @Test
+  void an_arbitrary_starting_snapshot_with_two_stray_non_terminal_runs_converges_under_replace() {
+    // Simulates a control-plane restart landing mid-way through materializeFiring's own REPLACE
+    // branch (see CronJobReconciler#materializeFiring): cronJobLastSchedule was already advanced
+    // for a prior firing, but the removal of the still-non-terminal Job(s) that firing was meant
+    // to replace never completed, and a second stray firing also survived from before that -- two
+    // non-terminal generated Jobs on record for one REPLACE cronjob at once, a state a from-scratch
+    // reconcile would never itself produce. A tick with a fresh firing due must still enforce
+    // REPLACE's own invariant -- exactly one non-terminal Job survives -- using nothing but this
+    // snapshot.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(tempDir.resolve("store-arbitrary-replace"), clock);
+    Path jar = buildFixtureJar();
+    CronJobSpec spec = cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE);
+    store.putCronJobSpec(spec);
+    store.putCronJobLastSchedule("nightly-cleanup", clock.instant());
+    JobSpec stray1 =
+        new JobSpec(
+            "nightly-cleanup-1",
+            spec.jobTemplate().moduleId(),
+            spec.jobTemplate().artifactPath(),
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            6,
+            Optional.empty(),
+            Optional.empty());
+    JobSpec stray2 =
+        new JobSpec(
+            "nightly-cleanup-2",
+            spec.jobTemplate().moduleId(),
+            spec.jobTemplate().artifactPath(),
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            6,
+            Optional.empty(),
+            Optional.empty());
+    store.putJobSpec(stray1);
+    store.putJobSpec(stray2);
+
+    clock.advance(Duration.ofMinutes(1));
+    new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock).reconcileOnce();
+
+    List<JobSpec> generated = generatedJobsFor(store, "nightly-cleanup");
+    assertEquals(
+        1, generated.size(), "REPLACE must converge to exactly one non-terminal Job, not two");
+    assertTrue(
+        store.getJobSpec("nightly-cleanup-1").isEmpty(),
+        "the first stray firing must be cleaned up");
+    assertTrue(
+        store.getJobSpec("nightly-cleanup-2").isEmpty(),
+        "the second stray firing must be cleaned up");
+    assertEquals(
+        Instant.parse("2026-01-01T00:01:00Z"),
+        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow());
+  }
+
+  @Test
   void trigger_now_respects_forbid_against_a_still_running_previous_firing() {
     TestClock clock = new TestClock();
     StateStore store = new StateStore(tempDir.resolve("store-trigger-forbid"), clock);
