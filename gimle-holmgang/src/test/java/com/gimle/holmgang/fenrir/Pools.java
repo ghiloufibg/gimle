@@ -39,6 +39,16 @@ public final class Pools {
     return new Pool(FaultKind.LINK_CUT, 1, DEFAULT_DWELL);
   }
 
+  /**
+   * Silently partitions one store replica from the rest of the raft cluster's peer traffic, then
+   * heals -- proxied topologies only. Unlike {@link #linkCuts}'s immediate reset, this is a genuine
+   * silent drop, validating check-quorum self-demotion and the store transport's connect/read
+   * timeouts against a real gray failure rather than a clean refusal.
+   */
+  public static Pool storePartitions() {
+    return new Pool(FaultKind.STORE_PARTITION, 1, DEFAULT_DWELL);
+  }
+
   /** Bounces a Fafnir replica, validating secrets-path degradation and recovery. */
   public static Pool fafnirBounces() {
     return new Pool(FaultKind.FAFNIR_BOUNCE, 1, DEFAULT_DWELL);

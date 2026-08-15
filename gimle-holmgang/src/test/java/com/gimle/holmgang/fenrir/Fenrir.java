@@ -86,6 +86,7 @@ public final class Fenrir {
       case LEADER_BOUNCE -> leaderBounce(pool, index, offset);
       case CONTROL_PLANE_BOUNCE -> controlPlaneBounce(pool, index, offset);
       case LINK_CUT -> linkCut(pool, index, offset);
+      case STORE_PARTITION -> storePartition(pool, index, offset);
       case FAFNIR_BOUNCE -> fafnirBounce(pool, index, offset);
     };
   }
@@ -238,6 +239,39 @@ public final class Fenrir {
                     "control-plane replica #" + victimIndex + " serves again after heal",
                     () -> cluster.api(victimIndex).isServing())
                 .await(plan.gateTimeout()));
+  }
+
+  private StrikeResult storePartition(final Pool pool, final int index, final long offset) {
+    final Loki loki;
+    try {
+      loki = cluster.faults();
+    } catch (final HolmgangException e) {
+      return skipped(index, pool, offset, "topology is not fault-proxied");
+    }
+    final Optional<String> quorumSkip = quorumGuard();
+    if (quorumSkip.isPresent()) {
+      return skipped(index, pool, offset, quorumSkip.get());
+    }
+    final List<Integer> candidates = new ArrayList<>();
+    for (int i = 0; i < cluster.storeCount(); i++) {
+      if (cluster.store(i).isAlive()) {
+        candidates.add(i);
+      }
+    }
+    if (candidates.isEmpty()) {
+      return skipped(index, pool, offset, "no live store to partition");
+    }
+    final int victimIndex = candidates.get(victimRng.nextInt(candidates.size()));
+    final int members = cluster.storeMemberIds().size();
+    final Loki.Partition partition = loki.cutStoreFromPeers(victimIndex);
+    sleep(pool.dwell().toMillis());
+    partition.heal();
+    return gated(
+        index,
+        pool,
+        offset,
+        "store-" + victimIndex + " (partition)",
+        () -> awaitStoreHealthy(members));
   }
 
   private StrikeResult fafnirBounce(final Pool pool, final int index, final long offset) {
