@@ -1,6 +1,9 @@
 package com.gimle.hilmir;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.hilmir.launch.MachineLauncher;
+import com.gimle.hilmir.launch.PkiInit;
+import com.gimle.hilmir.launch.RunRecord;
 import com.gimle.hilmir.plan.ClusterPlan;
 import com.gimle.hilmir.plan.LaunchPlanner;
 import com.gimle.hilmir.plan.MachinePlan;
@@ -28,13 +31,15 @@ import java.util.Optional;
  *   hilmir validate -f &lt;topology.yaml&gt;
  *   hilmir plan -f &lt;topology.yaml&gt; [--machine &lt;name&gt;]
  *   hilmir up -f &lt;topology.yaml&gt; --machine &lt;name&gt;
- *   hilmir down --machine &lt;name&gt;
- *   hilmir status --machine &lt;name&gt;
+ *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
  *   hilmir pki init -f &lt;topology.yaml&gt;
  * </pre>
  *
- * {@code up}/{@code down}/{@code status}/{@code pki init} spawn nothing yet -- they print a plain
- * "not yet implemented" and exit 2, ahead of an actual machine launcher.
+ * {@code down}/{@code status} take {@code --data-root} rather than {@code -f}: the run ledger
+ * {@code up} writes lives under a resolved runtime's own data root, and neither verb needs the
+ * topology document again to find it (it defaults the same way {@link ResolvedRuntime#resolve}'s
+ * own default does when omitted).
  */
 public final class HilmirMain {
 
@@ -66,9 +71,9 @@ public final class HilmirMain {
     return switch (verb) {
       case "validate" -> runValidate(rest, out);
       case "plan" -> runPlan(rest, out);
-      case "up" -> stub("hilmir up", out);
-      case "down" -> stub("hilmir down", out);
-      case "status" -> stub("hilmir status", out);
+      case "up" -> runUp(rest, out);
+      case "down" -> runDown(rest, out);
+      case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
       default -> throw new HilmirException(usage());
     };
@@ -88,14 +93,35 @@ public final class HilmirMain {
       printFindings(findings, out);
       return 1;
     }
-    final ResolvedRuntime runtime =
-        ResolvedRuntime.resolve(
-            topology.runtime(),
-            "java",
-            System.getProperty("java.class.path"),
-            Path.of("gimle-data"));
+    final ResolvedRuntime runtime = resolveRuntime(topology);
     final ClusterPlan plan = LaunchPlanner.plan(topology, runtime);
     printPlan(plan, machineFlag(args), out);
+    return 0;
+  }
+
+  private static int runUp(final List<String> args, final PrintStream out) {
+    final Topology topology = parseFile(requireFileFlag(args));
+    final List<Finding> findings = TopologyValidator.validate(topology);
+    if (hasError(findings)) {
+      printFindings(findings, out);
+      return 1;
+    }
+    final String machine = requireMachineFlag(args);
+    final ResolvedRuntime runtime = resolveRuntime(topology);
+    final List<RunRecord> records = MachineLauncher.up(topology, machine, runtime, out);
+    out.println("started " + records.size() + " process(es) on machine " + machine);
+    return 0;
+  }
+
+  private static int runDown(final List<String> args, final PrintStream out) {
+    requireMachineFlag(args);
+    MachineLauncher.down(dataRootFlag(args), out);
+    return 0;
+  }
+
+  private static int runStatus(final List<String> args, final PrintStream out) {
+    requireMachineFlag(args);
+    MachineLauncher.status(dataRootFlag(args), out);
     return 0;
   }
 
@@ -103,13 +129,16 @@ public final class HilmirMain {
     if (args.isEmpty() || !args.get(0).equals("init")) {
       throw new HilmirException("usage: hilmir pki init -f <topology.yaml>");
     }
-    requireFileFlag(args.subList(1, args.size()));
-    return stub("hilmir pki init", out);
+    final List<String> initArgs = args.subList(1, args.size());
+    final Topology topology = parseFile(requireFileFlag(initArgs));
+    final ResolvedRuntime runtime = resolveRuntime(topology);
+    PkiInit.run(topology, runtime, out);
+    return 0;
   }
 
-  private static int stub(final String command, final PrintStream out) {
-    out.println(command + ": not yet implemented");
-    return 2;
+  private static ResolvedRuntime resolveRuntime(final Topology topology) {
+    return ResolvedRuntime.resolve(
+        topology.runtime(), "java", System.getProperty("java.class.path"), Path.of("gimle-data"));
   }
 
   private static boolean hasError(final List<Finding> findings) {
@@ -168,6 +197,20 @@ public final class HilmirMain {
     return Optional.empty();
   }
 
+  private static String requireMachineFlag(final List<String> args) {
+    return machineFlag(args)
+        .orElseThrow(() -> new HilmirException("missing required flag: --machine <name>"));
+  }
+
+  private static Path dataRootFlag(final List<String> args) {
+    for (int i = 0; i < args.size(); i++) {
+      if (args.get(i).equals("--data-root") && i + 1 < args.size()) {
+        return Path.of(args.get(i + 1));
+      }
+    }
+    return Path.of("gimle-data");
+  }
+
   private static String usage() {
     return """
         usage: hilmir <verb> [args]
@@ -176,8 +219,8 @@ public final class HilmirMain {
           validate -f <topology.yaml>
           plan -f <topology.yaml> [--machine <name>]
           up -f <topology.yaml> --machine <name>
-          down --machine <name>
-          status --machine <name>
+          down --machine <name> [--data-root <path>]
+          status --machine <name> [--data-root <path>]
           pki init -f <topology.yaml>""";
   }
 }

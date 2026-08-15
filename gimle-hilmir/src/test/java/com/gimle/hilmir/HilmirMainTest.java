@@ -147,12 +147,50 @@ class HilmirMainTest {
   }
 
   @Test
-  void up_down_status_and_pki_init_are_stubbed_and_exit_two() throws IOException {
+  void up_requires_the_machine_flag() throws IOException {
     final Path file = writeTopology(HEALTHY_TOPOLOGY);
-    assertEquals(2, run("up", "-f", file.toString(), "--machine", "m1").exitCode());
-    assertEquals(2, run("down", "--machine", "m1").exitCode());
-    assertEquals(2, run("status", "--machine", "m1").exitCode());
-    assertEquals(2, run("pki", "init", "-f", file.toString()).exitCode());
+    final Result result = run("up", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--machine"));
+  }
+
+  @Test
+  void up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error()
+      throws IOException {
+    final Path file = writeTopology("name: broken\n");
+    final Result result = run("up", "-f", file.toString(), "--machine", "m1");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.out().contains("[ERROR] NO_MACHINES"));
+  }
+
+  @Test
+  void down_requires_the_machine_flag() {
+    final Result result = run("down");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--machine"));
+  }
+
+  @Test
+  void down_reports_a_clean_error_when_no_run_is_recorded_at_the_data_root() {
+    final Result result =
+        run("down", "--machine", "m1", "--data-root", tempDir.resolve("empty").toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no run recorded"));
+  }
+
+  @Test
+  void status_requires_the_machine_flag() {
+    final Result result = run("status");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--machine"));
+  }
+
+  @Test
+  void status_reports_a_clean_error_when_no_run_is_recorded_at_the_data_root() {
+    final Result result =
+        run("status", "--machine", "m1", "--data-root", tempDir.resolve("empty").toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no run recorded"));
   }
 
   @Test
@@ -160,5 +198,20 @@ class HilmirMainTest {
     final Result result = run("pki", "status");
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("pki init"));
+  }
+
+  @Test
+  void pki_init_requires_the_file_flag() {
+    final Result result = run("pki", "init");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("-f"));
+  }
+
+  @Test
+  void pki_init_refuses_a_topology_with_no_tls_material_dir() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result result = run("pki", "init", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("tls.materialDir"));
   }
 }

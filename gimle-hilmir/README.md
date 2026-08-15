@@ -105,17 +105,36 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
 
 ## CLI verbs
 
-Implemented:
-
 - `hilmir validate -f <topology.yaml>` -- parses and validates a topology, printing every finding
   (errors first). Exits non-zero only if an `ERROR`-severity finding exists.
 - `hilmir plan -f <topology.yaml> [--machine <name>]` -- validates (aborting with the same findings
   output on any error), then prints the fully resolved per-machine process commands. `--machine`
   filters to one machine; omitted prints every machine.
+- `hilmir up -f <topology.yaml> --machine <name>` -- validates, then spawns every process the named
+  machine hosts, in the plan's own boot order (store, then Muninn, then Andvari, then Fafnir, then
+  control plane, then agent). Before spawning a command, waits for every command anywhere in the
+  cluster that must be up first and lives on a different machine (a same-machine prerequisite is
+  already running by the time its own turn comes) -- run `hilmir up` once per machine, in any order
+  that respects that dependency, and each invocation blocks until its own machine's own processes
+  are reachable. Writes a run ledger (`hilmir-run.json`) under the resolved runtime's data root
+  (`runtime.dataRoot`, `gimle-data` by default) so a later `down`/`status` on the same machine can
+  find these processes again. For an mtls topology, an agent's own bootstrap token is minted
+  automatically via a one-shot `gimle cert token create` call against the already-running control
+  plane.
+- `hilmir down --machine <name> [--data-root <path>]` -- reads the run ledger at `--data-root`
+  (`gimle-data` by default) and stops every process it recorded, in reverse of the order `up`
+  started them, then removes the ledger. A pid no longer running is reported and skipped, not
+  treated as an error.
+- `hilmir status --machine <name> [--data-root <path>]` -- reads the run ledger at `--data-root` and
+  reports each recorded process's pid liveness and (best-effort) whether its own readiness address
+  is currently reachable.
+- `hilmir pki init -f <topology.yaml>` -- generates a brand-new mtls topology's cluster CA and
+  per-role leaf certificates under `tls.materialDir` by spawning the platform's own
+  `PkiBootstrapMain` once. Only applies to a topology with `transport: mtls` and a configured
+  `tls.materialDir`. Since the platform's PKI mints DNS-only, single-hostname server SANs today (see
+  `MTLS_SINGLE_HOSTNAME_PKI` below), a multi-machine topology gets material for one machine's
+  hostname only -- printed as a note -- and every other machine's server processes need
+  manually-issued material.
 
-Not yet implemented (each prints "not yet implemented" and exits 2):
-
-- `hilmir up -f <topology.yaml> --machine <name>`
-- `hilmir down --machine <name>`
-- `hilmir status --machine <name>`
-- `hilmir pki init -f <topology.yaml>`
+`down`/`status` deliberately take `--data-root` rather than `-f`: the run ledger lives under a
+resolved runtime's own data root, and neither verb needs the topology document again to find it.
