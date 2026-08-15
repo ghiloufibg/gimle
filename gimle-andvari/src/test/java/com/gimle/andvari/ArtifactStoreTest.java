@@ -166,6 +166,22 @@ class ArtifactStoreTest {
   }
 
   @Test
+  void construction_sweeps_orphaned_temp_files_left_by_a_previous_run() throws Exception {
+    // A file already sitting in tmp/ before the store is even constructed can only be an orphan
+    // from a crashed prior process (put/putSidecar's own finally-block cleanup never runs for a
+    // hard kill mid-upload) -- never a live upload, since this JVM hasn't issued one yet.
+    Path standaloneRoot = tempDir.resolve("standalone");
+    Path tmpDir = standaloneRoot.resolve("tmp");
+    Files.createDirectories(tmpDir);
+    Path orphan = tmpDir.resolve("upload-orphaned.jar");
+    Files.writeString(orphan, "leftover from a killed upload");
+
+    new ArtifactStore(standaloneRoot);
+
+    assertFalse(Files.exists(orphan));
+  }
+
+  @Test
   void a_multi_megabyte_body_streams_through_with_a_correct_digest() throws Exception {
     byte[] jar = new byte[3 * 1024 * 1024];
     new Random(42).nextBytes(jar);

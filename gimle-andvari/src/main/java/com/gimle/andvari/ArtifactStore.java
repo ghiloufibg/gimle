@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The immutable, content-addressed jar store behind Andvari's HTTP surface. One version is one
@@ -36,6 +38,8 @@ import java.util.regex.Pattern;
  * {@code ModuleArtifactReader}, and duplicating it here would be parallel-path drift.
  */
 public final class ArtifactStore {
+
+  private static final Logger log = LoggerFactory.getLogger(ArtifactStore.class);
 
   /**
    * Allow-list for the {@code moduleId} and {@code version} path segments -- same traversal defense
@@ -75,6 +79,43 @@ public final class ArtifactStore {
     this.tmpRoot = dataRoot.resolve("tmp");
     Files.createDirectories(artifactsRoot);
     Files.createDirectories(tmpRoot);
+    sweepOrphanedTempFiles(tmpRoot);
+  }
+
+  /**
+   * Deletes everything already sitting in {@code tmpRoot} at construction time. {@link #put} and
+   * {@link #putSidecar} both stream into a temp file there before an atomic rename into place,
+   * cleaning up their own temp file in a {@code finally} block -- but a hard process kill (OOM,
+   * SIGKILL, host crash) mid-upload skips that {@code finally} entirely and leaves the partial file
+   * behind forever, since nothing else ever revisits {@code tmpRoot} on its own. This constructor
+   * runs once per process before any upload can possibly be in flight, so anything already there is
+   * provably an orphan from a previous run, never a live upload racing this sweep. Best-effort: a
+   * failure here is logged, not thrown -- an unswept orphan wastes disk but never corrupts the
+   * store (it sits outside every {@code (moduleId, version)} directory {@link #meta}/{@link
+   * #jarPath} ever read from), so it must not block startup.
+   */
+  private static void sweepOrphanedTempFiles(Path tmpRoot) {
+    int swept = 0;
+    try (DirectoryStream<Path> entries = Files.newDirectoryStream(tmpRoot)) {
+      for (Path entry : entries) {
+        try {
+          if (Files.deleteIfExists(entry)) {
+            swept++;
+          }
+        } catch (IOException e) {
+          log.warn("failed to sweep orphaned temp file {}: {}", entry, e.getMessage());
+        }
+      }
+    } catch (IOException e) {
+      log.warn("failed to list temp directory {} for orphan sweep: {}", tmpRoot, e.getMessage());
+      return;
+    }
+    if (swept > 0) {
+      log.info(
+          "swept {} orphaned temp upload(s) left behind by a previous run under {}",
+          swept,
+          tmpRoot);
+    }
   }
 
   /**
