@@ -9,9 +9,9 @@
 
   Caching is enabled below, global default on. gimle-smoke-tests (never cache this slow suite:
   its cacheable behavior depends on whether -Psmoke is active, which the input hash can't see)
-  and the three Bun/Vite modules, gimle-console, gimle-fafnir-console, gimle-docs (their real
-  inputs are *.ts/*.tsx/package.json/bun.lock, invisible to the *.java/*.xml/*.yaml/*.properties
-  glob below), opt back out individually via their own pom.xml's
+  and the four Bun/Vite modules, gimle-console, gimle-fafnir-console, gimle-andvari-console,
+  gimle-docs (their real inputs are *.ts/*.tsx/package.json/bun.lock, invisible to the
+  *.java/*.xml/*.yaml/*.properties glob below), opt back out individually via their own pom.xml's
   maven.build.cache.enabled=false property, which overrides this file's global default
   per-project (confirmed against the extension's own project-property override mechanism: a
   project-level property of the same name always wins over the global config here). That

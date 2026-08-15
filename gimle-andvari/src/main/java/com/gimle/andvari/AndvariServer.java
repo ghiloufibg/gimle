@@ -3,16 +3,22 @@ package com.gimle.andvari;
 import com.gimle.andvari.ArtifactStore.PutOutcome;
 import com.gimle.andvari.ArtifactStore.PutResult;
 import com.gimle.andvari.ArtifactStore.StoredArtifact;
+import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.session.SessionKeyFileManager;
+import com.gimle.core.session.SessionTokens;
+import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.StateMutation;
@@ -29,6 +35,7 @@ import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +59,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
@@ -81,6 +89,13 @@ import org.slf4j.LoggerFactory;
  * {@link Authorizer#authorize} regardless -- never trusting "arrived already-forwarded" as proof by
  * itself. A {@code gimle:nodes} principal may only ever pull -- never push or delete -- and only a
  * coordinate its node currently holds an assignment for (see {@link #nodeHasAssignmentFor}).
+ *
+ * <p>Also carries its own console session story ({@code /auth/login}/{@code /auth/logout}/{@code
+ * /auth/session}) and an optional bundled-SPA static serving surface ({@link #serveConsole}), both
+ * lifted verbatim from {@code FafnirServer} -- a human operator reaching this port directly (no
+ * proxy, no node certificate) authenticates the same way against the same store-held {@code
+ * Account} records, and a genuine session cookie is one more path {@link #resolvePrincipal} falls
+ * back to after a forwarded header and a peer certificate.
  */
 public final class AndvariServer implements AutoCloseable {
 
@@ -94,10 +109,26 @@ public final class AndvariServer implements AutoCloseable {
   private static final DateTimeFormatter MAVEN_TIMESTAMP =
       DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
 
+  // Andvari's own console session cookie -- a distinct name from both ApiServer's
+  // "gimle_session" and FafnirServer's "gimle_fafnir_session", the same "tell consoles apart in
+  // devtools at a glance" reasoning FafnirServer's own field javadoc gives.
+  private static final String SESSION_COOKIE_NAME = "gimle_andvari_session";
+  private static final Duration SESSION_TTL = Duration.ofHours(12);
+
   private final StoreClient storeClient;
   private final Authorizer authorizer;
   private final ArtifactStore artifactStore;
   private final Instant startedAt = Instant.now();
+  // Signs/verifies this console's own session cookies -- deliberately never shared with
+  // ApiServer's or FafnirServer's own signing key (see SessionKeyFileManager's javadoc): each
+  // console's session is its own. Co-located under the artifact data root rather than a secret
+  // key ring file, since Andvari (unlike Fafnir) has no key ring of its own.
+  private final SecretKey sessionSigningKey;
+  // Keyed by username/remote address, the same split FafnirServer's own loginThrottle uses.
+  private final LoginThrottle loginThrottle = new LoginThrottle();
+  // Remembered so a TLS-reload rebuild (see #reloadTlsMaterial) re-registers the console context
+  // too, exactly like FafnirServer's own consoleStaticRoot field.
+  private volatile Optional<Path> consoleStaticRoot = Optional.empty();
   // Not final: a TLS rotation rebuilds this the same way FafnirServer's own #server field does --
   // see that class's field javadoc for why a rebuild, not a hot-swap, is the only supported path.
   private volatile HttpServer server;
@@ -107,6 +138,7 @@ public final class AndvariServer implements AutoCloseable {
     this.storeClient = storeClient;
     this.authorizer = new Authorizer(storeClient);
     this.artifactStore = new ArtifactStore(dataRoot);
+    this.sessionSigningKey = SessionKeyFileManager.loadOrCreate(dataRoot.resolve("session.key"));
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
@@ -134,7 +166,7 @@ public final class AndvariServer implements AutoCloseable {
     return httpsServer;
   }
 
-  private void registerContexts(HttpServer target) {
+  private void registerContexts(HttpServer target) throws IOException {
     target.createContext("/status", this::handleStatus);
     // One context dispatching on the parsed tail rather than separate "/artifacts" and
     // "/artifacts/" registrations: the JDK server matches contexts by bare prefix, so a single
@@ -142,6 +174,29 @@ public final class AndvariServer implements AutoCloseable {
     target.createContext("/artifacts", this::handleArtifacts);
     // The Maven-2-shaped interop view over the same store -- see handleRepository's own javadoc.
     target.createContext("/repository", this::handleRepository);
+    target.createContext("/auth/login", this::handleAuthLogin);
+    target.createContext("/auth/logout", this::handleAuthLogout);
+    target.createContext("/auth/session", this::handleAuthSession);
+    if (consoleStaticRoot.isPresent()) {
+      registerConsole(target, consoleStaticRoot.get());
+    }
+  }
+
+  /**
+   * Registers a static-file context at {@code /console} serving Andvari's own bundled web console
+   * (see {@code gimle-andvari-console}'s {@code pom.xml}) -- the same opt-in, remembered-for-later-
+   * re-registration shape {@code FafnirServer.serveConsole} already established, sharing its {@link
+   * SpaStaticHandler} rather than carrying yet another copy.
+   */
+  public void serveConsole(Path staticRoot) throws IOException {
+    consoleStaticRoot = Optional.of(staticRoot);
+    registerConsole(server, staticRoot);
+  }
+
+  private static void registerConsole(HttpServer target, Path staticRoot) throws IOException {
+    String shellFileName =
+        Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
+    target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
   }
 
   public void start() {
@@ -665,8 +720,10 @@ public final class AndvariServer implements AutoCloseable {
    * A forwarded principal (set only by {@code ApiServer}'s proxy) wins over the connection's own
    * peer certificate, since a proxied request's peer certificate identifies the control-plane
    * replica making the call, not the operator who originated it; falls back to the peer certificate
-   * for a direct caller (a node agent's own pull, the CLI talking straight to this port). No
-   * session-cookie fallback -- Andvari has no console login of its own.
+   * for a direct caller (a node agent's own pull, the CLI talking straight to this port); finally
+   * falls back to this console's own session cookie -- a human operator signed in through {@link
+   * #handleAuthLogin} directly, the one caller shape with neither a forwarded header nor a client
+   * certificate of its own. Mirrors {@code FafnirServer}'s own three-tier fallback exactly.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
@@ -674,7 +731,201 @@ public final class AndvariServer implements AutoCloseable {
       Set<String> groups = new LinkedHashSet<>(splitHeader(exchange, FORWARDED_GROUPS_HEADER));
       return Optional.of(new Principal(forwardedName.get(), groups));
     }
-    return peerCertificate(exchange).map(Subjects::principalFrom);
+    Optional<Principal> certificatePrincipal =
+        peerCertificate(exchange).map(Subjects::principalFrom);
+    if (certificatePrincipal.isPresent()) {
+      return certificatePrincipal;
+    }
+    return sessionCookie(exchange)
+        .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+        .map(username -> new Principal(username, Set.of()));
+  }
+
+  // ---- /auth/login, /auth/logout, /auth/session ----
+
+  /**
+   * No {@link #authorizeArtifacts}-style check here, deliberately: {@code /auth/login} and {@code
+   * /auth/session} must both be reachable with no identity yet -- that's the whole point of a login
+   * endpoint -- and {@code /auth/logout} only ever clears whatever cookie is presented,
+   * authenticated or not. Same plaintext-mode posture as {@link #authorizeArtifacts}: a login only
+   * ever produces a cookie {@link #resolvePrincipal} would check, and that check is itself a no-op
+   * outside TLS, so accepting credentials in plaintext mode too costs nothing beyond what's already
+   * true of the whole process. Lifted verbatim from {@code FafnirServer#handleAuthLogin}.
+   */
+  private void handleAuthLogin(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String addressKey = "addr:" + remoteAddressKey(exchange);
+      Optional<Instant> addressThrottled = loginThrottle.throttledUntil(addressKey);
+      if (addressThrottled.isPresent()) {
+        respondThrottled(exchange, addressThrottled.get());
+        return;
+      }
+
+      Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+      String username = (String) body.get("username");
+      String password = (String) body.get("password");
+      // Deliberately keyed even for a blank/absent username, rather than skipped -- an attacker
+      // probing with no username at all still consumes this key's own backoff, same as a real one.
+      String usernameKey = "user:" + (username == null ? "" : username);
+      Optional<Instant> usernameThrottled = loginThrottle.throttledUntil(usernameKey);
+      if (usernameThrottled.isPresent()) {
+        respondThrottled(exchange, usernameThrottled.get());
+        return;
+      }
+
+      Optional<Account> account =
+          username == null ? Optional.empty() : storeClient.getAccount(username);
+      if (account.isEmpty()
+          || password == null
+          || !PasswordHashes.verify(password.toCharArray(), account.get().passwordHash())) {
+        loginThrottle.recordFailure(usernameKey);
+        loginThrottle.recordFailure(addressKey);
+        // Deliberately the same message either way -- distinguishing "unknown username" from
+        // "wrong password" would let this endpoint enumerate valid usernames.
+        respondQuietly(exchange, 401, "invalid username or password");
+        return;
+      }
+      loginThrottle.recordSuccess(usernameKey);
+      loginThrottle.recordSuccess(addressKey);
+      String token = SessionTokens.issue(username, sessionSigningKey, SESSION_TTL);
+      exchange
+          .getResponseHeaders()
+          .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
+      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of())));
+    } catch (IOException | RuntimeException e) {
+      log.warn("login request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleAuthLogout(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      exchange.getResponseHeaders().add("Set-Cookie", sessionCookieHeader("", 0));
+      respond(exchange, 200, "ok");
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Polled by the console on load to tell "already logged in" apart from "show the login page".
+   *
+   * <p>Needs the same plaintext carve-out {@link #authorizeArtifacts} already has, but as a
+   * fallback behind {@link #resolvePrincipal} rather than ahead of it: a genuine session cookie
+   * must still resolve to its real principal regardless of transport, so only the true "nobody's
+   * logged in" case gets the plaintext carve-out. Without it, a bare 401 there -- indistinguishable
+   * from "on TLS and not logged in" -- would send the console straight to a login form no
+   * credential could ever satisfy (plaintext bootstrap never seeds an account), locking the
+   * operator out entirely rather than leaving the registry open the way every other endpoint
+   * already is in this mode.
+   */
+  private void handleAuthSession(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Optional<Principal> principal = resolvePrincipal(exchange);
+      if (principal.isPresent()) {
+        respondJson(exchange, 200, principalToJson(principal.get()));
+        return;
+      }
+      if (!(exchange instanceof HttpsExchange)) {
+        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of())));
+        return;
+      }
+      respondQuietly(exchange, 401, "not authenticated");
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static Map<String, Object> principalToJson(Principal principal) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("username", principal.name());
+    map.put("groups", List.copyOf(principal.groups()));
+    return map;
+  }
+
+  /**
+   * The connection's own remote address, never a client-supplied header like {@code
+   * X-Forwarded-For} -- this class has no configured notion of a trusted reverse proxy, so honoring
+   * a client-set header here would let an attacker defeat the address-keyed throttle entirely by
+   * sending a different forged value on every request. Falls back to a fixed placeholder if
+   * unavailable (never null, so it's always safe to use as a map key), which under-differentiates
+   * callers in that rare case rather than throwing.
+   */
+  private static String remoteAddressKey(HttpExchange exchange) {
+    InetSocketAddress remote = exchange.getRemoteAddress();
+    return remote == null ? "unknown" : remote.getAddress().getHostAddress();
+  }
+
+  private static Optional<String> sessionCookie(HttpExchange exchange) {
+    List<String> cookieHeaders = exchange.getRequestHeaders().get("Cookie");
+    if (cookieHeaders == null) {
+      return Optional.empty();
+    }
+    String prefix = SESSION_COOKIE_NAME + "=";
+    for (String header : cookieHeaders) {
+      for (String part : header.split(";")) {
+        String trimmed = part.trim();
+        if (trimmed.startsWith(prefix)) {
+          return Optional.of(trimmed.substring(prefix.length()));
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * {@code HttpOnly} (never readable by the console's own JS), {@code SameSite=Strict} (never
+   * attached to a request originating from another site), {@code Secure} only in TLS mode. {@code
+   * maxAgeSeconds} of {@code 0} is how {@link #handleAuthLogout} clears it. Mirrors {@code
+   * FafnirServer#sessionCookieHeader} exactly.
+   */
+  private static String sessionCookieHeader(String token, long maxAgeSeconds) {
+    StringBuilder header =
+        new StringBuilder(SESSION_COOKIE_NAME)
+            .append('=')
+            .append(token)
+            .append("; Path=/; HttpOnly; SameSite=Strict; Max-Age=")
+            .append(maxAgeSeconds);
+    if (TransportProtocol.fromConfig() == TransportProtocol.TLS) {
+      header.append("; Secure");
+    }
+    return header.toString();
+  }
+
+  private static String readBody(HttpExchange exchange) throws IOException {
+    try (InputStream body = exchange.getRequestBody()) {
+      return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  /**
+   * {@code 429} with a standard {@code Retry-After} header (seconds) -- the same shape {@code
+   * FafnirServer#respondThrottled} already uses for its own {@link LoginThrottle}-backed login
+   * throttling.
+   */
+  private static void respondThrottled(HttpExchange exchange, Instant nextAllowedAttempt) {
+    long retryAfterSeconds =
+        Math.max(1, Duration.between(Instant.now(), nextAllowedAttempt).toSeconds());
+    exchange.getResponseHeaders().add("Retry-After", String.valueOf(retryAfterSeconds));
+    respondQuietly(exchange, 429, "too many attempts; try again later");
   }
 
   private static Optional<String> firstHeader(HttpExchange exchange, String name) {

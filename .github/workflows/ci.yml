@@ -33,7 +33,7 @@ jobs:
 
       # The maven-build-cache-extension's own local cache (.mvn/extensions.xml,
       # .mvn/maven-build-cache-config.xml -- enabled repo-wide, opted out per-module for
-      # gimle-smoke-tests/gimle-console/gimle-fafnir-console/gimle-docs, see those poms' own
+      # gimle-smoke-tests/gimle-console/gimle-fafnir-console/gimle-andvari-console/gimle-docs, see those poms' own
       # maven.build.cache.enabled overrides). Keying on github.sha means every run always writes
       # a fresh entry (no same-key overwrite races); restore-keys falls back branch-first, then
       # to any branch, so a PR with only one module's diff restores every other module's already-
@@ -47,14 +47,15 @@ jobs:
             ${{ runner.os }}-buildcache-${{ github.event.pull_request.base.ref || github.ref_name }}-
             ${{ runner.os }}-buildcache-
 
-      # gimle-console/gimle-fafnir-console/gimle-docs each shell out to `bun install
-      # --frozen-lockfile` (exec-maven-plugin); this warms Bun's own global module cache so that
-      # resolves from disk instead of refetching every package from the registry on every run.
+      # gimle-console/gimle-fafnir-console/gimle-andvari-console/gimle-docs each shell out to
+      # `bun install --frozen-lockfile` (exec-maven-plugin); this warms Bun's own global module
+      # cache so that resolves from disk instead of refetching every package from the registry on
+      # every run.
       - name: Cache Bun install cache
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('gimle-console/bun.lock', 'gimle-fafnir-console/bun.lock', 'gimle-docs/bun.lock') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('gimle-console/bun.lock', 'gimle-fafnir-console/bun.lock', 'gimle-andvari-console/bun.lock', 'gimle-docs/bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
 

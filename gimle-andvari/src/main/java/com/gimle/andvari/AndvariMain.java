@@ -5,6 +5,7 @@ import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -138,6 +140,15 @@ public final class AndvariMain {
         andvariServer.port(),
         dataRoot,
         storeEndpoints);
+
+    Optional<Path> consoleRoot =
+        BundledSpa.resolve(AndvariMain.class.getClassLoader(), "andvari-console/index.html");
+    if (consoleRoot.isPresent()) {
+      andvariServer.serveConsole(consoleRoot.get());
+      log.info("serving bundled web console at /console");
+    } else {
+      log.info("no bundled web console found on the classpath; /console disabled");
+    }
 
     Runtime.getRuntime()
         .addShutdownHook(

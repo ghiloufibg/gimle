@@ -1,0 +1,164 @@
+import { useRef, useState } from "react";
+import { UploadCloud } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { formatBytes } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { useArtifactsStore } from "@/stores/artifactsStore";
+
+export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?: string }) {
+  const [open, setOpen] = useState(false);
+  const [moduleId, setModuleId] = useState(defaultModuleId);
+  const [version, setVersion] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const push = useArtifactsStore((s) => s.push);
+  const pending = useArtifactsStore((s) => s.pushPending);
+  const error = useArtifactsStore((s) => s.pushError);
+  const conflict = useArtifactsStore((s) => s.pushConflict);
+  const resetPushState = useArtifactsStore((s) => s.resetPushState);
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      resetPushState();
+      setVersion("");
+      setFile(null);
+      setModuleId(defaultModuleId);
+    }
+  };
+
+  const submit = async () => {
+    if (!moduleId || !version || !file) {
+      toast.error("moduleId, version and a jar file are required");
+      return;
+    }
+    const result = await push(moduleId, version, file);
+    if (result) {
+      toast.success(`Pushed ${result.moduleId}:${result.version}`, {
+        description: `sha256 ${result.sha256}`,
+      });
+      onOpenChange(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="rounded-sm">
+          <UploadCloud className="mr-1.5 h-4 w-4" />
+          Push artifact
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="rounded-sm sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Push artifact</DialogTitle>
+          <DialogDescription>
+            Uploads are immutable — a stored version can never be overwritten.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error ? (
+          <p
+            className={cn(
+              "rounded-sm border px-3 py-2 text-xs",
+              conflict
+                ? "border-status-warn/30 bg-status-warn-bg text-status-warn"
+                : "border-status-bad/30 bg-status-bad-bg text-status-bad",
+            )}
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="moduleId" className="hud-label">
+              module id
+            </Label>
+            <Input
+              id="moduleId"
+              value={moduleId}
+              placeholder="com.example.greeter-provider"
+              onChange={(e) => setModuleId(e.target.value)}
+              className="rounded-sm font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="version" className="hud-label">
+              version
+            </Label>
+            <Input
+              id="version"
+              value={version}
+              placeholder="1.0.0"
+              onChange={(e) => setVersion(e.target.value)}
+              className="rounded-sm font-mono text-xs"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="hud-label">jar file</p>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const dropped = e.dataTransfer.files[0];
+                if (dropped) setFile(dropped);
+              }}
+              className={cn(
+                "flex w-full flex-col items-center gap-1.5 rounded-sm border border-dashed px-4 py-6 text-center transition-colors",
+                dragging ? "border-primary bg-accent/40" : "border-border hover:border-primary/60",
+              )}
+            >
+              <UploadCloud className="h-5 w-5 text-muted-foreground" />
+              <span className="font-mono text-xs">
+                {file
+                  ? `${file.name} · ${formatBytes(file.size)}`
+                  : "drop a .jar or click to browse"}
+              </span>
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".jar,application/java-archive"
+              className="hidden"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={() => void submit()}
+            disabled={pending}
+            className="w-full rounded-sm sm:w-auto"
+          >
+            {pending ? "Uploading…" : "Upload"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

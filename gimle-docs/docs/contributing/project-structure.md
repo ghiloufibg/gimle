@@ -44,6 +44,7 @@ graph LR
     andvari[gimle-andvari] --> core
     andvari --> mimir
     andvari --> pki
+    andvari --> andvariconsole[gimle-andvari-console]
     controlplane[gimle-controlplane] --> core
     controlplane --> module
     controlplane --> console[gimle-console]
@@ -90,6 +91,7 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-fafnir-console` | Fafnir's own web console SPA — same no-Java Bun/Vite pattern as `gimle-console`, embedded into `gimle-fafnir`'s jar and served from there. |
 | `gimle-muninn` | The observability sink as its own process: day-bucketed logs/metrics/traces ingest and read APIs, retention sweep, and its own independent RBAC re-check on reads. See [Node topology](../architecture/node-topology.md). |
 | `gimle-andvari` | The module artifact registry as its own process: an immutable, content-addressed store of module jars behind a push/pull/list HTTP API (`/artifacts/*`), with its own independent RBAC re-check on pushes and deletes. See [Node topology](../architecture/node-topology.md). |
+| `gimle-andvari-console` | Andvari's own web console SPA — same no-Java Bun/Vite pattern as `gimle-console`/`gimle-fafnir-console`, embedded into `gimle-andvari`'s jar and served from there. |
 | `gimle-controlplane` | API server, scheduler, reconcilers — talks to a `gimle-mimir` store cluster via `StoreClient` rather than embedding a state store. Serves the bundled web console. See [Control plane](../architecture/control-plane.md). |
 | `gimle-fabric` | Service registry, same-worker/same-machine/cross-machine invocation, load balancing, circuit breaking, and the SWIM-style gossip membership protocol between node agents. See [Service fabric](../architecture/service-fabric.md). |
 | `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |
