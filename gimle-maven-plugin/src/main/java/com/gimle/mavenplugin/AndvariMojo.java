@@ -39,9 +39,9 @@ public final class AndvariMojo extends AbstractGimleMojo {
   private String csrEndpoint;
 
   /**
-   * {@code host:port,...} of every *other* Andvari replica this one peer-syncs its catalog
-   * against -- unset (the default) is a single-replica registry with no peer sync at all, exactly
-   * this Mojo's previous behavior.
+   * {@code host:port,...} of every *other* Andvari replica this one peer-syncs its catalog against
+   * -- unset (the default) is a single-replica registry with no peer sync at all, exactly this
+   * Mojo's previous behavior.
    */
   @Parameter(property = "gimle.andvari.peerEndpoints")
   private String peerEndpoints;

@@ -38,11 +38,11 @@ import javax.net.ssl.SSLContext;
  * carries a request body that can only be read once, so it is never retried against a second
  * endpoint after a failure -- it goes to exactly one endpoint, picked by the same rotation cursor,
  * and this replica's own periodic peer-sync tick is what eventually propagates it to every other
- * configured replica. That tradeoff (a push briefly visible on only one replica until the next
- * sync tick, rather than a slower and more failure-prone direct fan-out to all of them) is the
- * simplest option that stays correct: a fan-out risks a push landing on some endpoints and not
- * others with no way to roll it back, while a single-endpoint push plus eventual peer sync can
- * never end up in that half-committed state.
+ * configured replica. That tradeoff (a push briefly visible on only one replica until the next sync
+ * tick, rather than a slower and more failure-prone direct fan-out to all of them) is the simplest
+ * option that stays correct: a fan-out risks a push landing on some endpoints and not others with
+ * no way to roll it back, while a single-endpoint push plus eventual peer sync can never end up in
+ * that half-committed state.
  */
 public final class AndvariClient implements AutoCloseable {
 

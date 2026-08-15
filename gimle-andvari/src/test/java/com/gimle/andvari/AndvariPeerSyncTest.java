@@ -21,10 +21,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Exercises {@link AndvariPeerSync#sync()} directly against two real {@link AndvariServer}
- * replicas over real loopback sockets, the same "call the scheduled method directly rather than
- * wait on its own interval" posture {@code IntegrityScrubberTest}/{@code
- * ArtifactRetentionSweeperTest} already take toward their own schedulers.
+ * Exercises {@link AndvariPeerSync#sync()} directly against two real {@link AndvariServer} replicas
+ * over real loopback sockets, the same "call the scheduled method directly rather than wait on its
+ * own interval" posture {@code IntegrityScrubberTest}/{@code ArtifactRetentionSweeperTest} already
+ * take toward their own schedulers.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-andvari-server-http")
@@ -43,9 +43,7 @@ class AndvariPeerSyncTest {
         AndvariServer replicaB = new AndvariServer(storeB.client(), 0, tempDir.resolve("data-b"))) {
       replicaA.start();
       replicaB.start();
-      replicaA
-          .artifactStore()
-          .put("com.example.app", "1.0.0", bytes("peer-sync-bytes"), "ana");
+      replicaA.artifactStore().put("com.example.app", "1.0.0", bytes("peer-sync-bytes"), "ana");
       assertTrue(replicaB.artifactStore().meta("com.example.app", "1.0.0").isEmpty());
 
       // A long interval, not zero: the constructor's own initial (delay-0) scheduled run and this
@@ -120,8 +118,7 @@ class AndvariPeerSyncTest {
     }
   }
 
-  private void push(URI baseUri, String moduleId, String version, String content)
-      throws Exception {
+  private void push(URI baseUri, String moduleId, String version, String content) throws Exception {
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(baseUri.resolve("/artifacts/" + moduleId + "/" + version))

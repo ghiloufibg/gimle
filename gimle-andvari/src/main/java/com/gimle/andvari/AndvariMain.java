@@ -239,7 +239,8 @@ public final class AndvariMain {
     AndvariPeerSync peerSync = null;
     if (!peerEndpoints.isEmpty()) {
       List<URI> peerUris = new ArrayList<>();
-      String scheme = TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT ? "http" : "https";
+      String scheme =
+          TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT ? "http" : "https";
       for (String peerEndpoint : peerEndpoints) {
         peerUris.add(URI.create(scheme + "://" + peerEndpoint));
       }

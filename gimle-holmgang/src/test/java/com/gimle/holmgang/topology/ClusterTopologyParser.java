@@ -113,7 +113,9 @@ public final class ClusterTopologyParser {
     return requireBoolean(map, "enabled", "andvari.");
   }
 
-  /** An absent {@code andvari.replicas} means one replica -- unset stays a single-instance topology. */
+  /**
+   * An absent {@code andvari.replicas} means one replica -- unset stays a single-instance topology.
+   */
   private static int andvariReplicas(final Map<?, ?> root) {
     final Object value = root.get("andvari");
     if (!(value instanceof Map<?, ?> map)) {

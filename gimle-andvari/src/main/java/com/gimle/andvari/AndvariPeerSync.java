@@ -20,19 +20,19 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Periodically replicates every other configured peer's catalog into this replica's own {@link
- * ArtifactStore} -- the mechanism that turns a list of independently-pushable Andvari replicas
- * (see {@code AndvariMain}'s own {@code --peer-endpoints}) into an actual highly-available
- * registry instead of just several unrelated single points of failure. No consensus protocol is
- * needed for this: {@link ArtifactStore#put} is already idempotent on identical bytes and
- * hard-conflicts on differing ones for the same {@code (moduleId, version)} coordinate, so any
- * replica can accept a push independently and every other replica can safely pull it whenever it
- * next notices the coordinate is missing locally.
+ * ArtifactStore} -- the mechanism that turns a list of independently-pushable Andvari replicas (see
+ * {@code AndvariMain}'s own {@code --peer-endpoints}) into an actual highly-available registry
+ * instead of just several unrelated single points of failure. No consensus protocol is needed for
+ * this: {@link ArtifactStore#put} is already idempotent on identical bytes and hard-conflicts on
+ * differing ones for the same {@code (moduleId, version)} coordinate, so any replica can accept a
+ * push independently and every other replica can safely pull it whenever it next notices the
+ * coordinate is missing locally.
  *
  * <p>Each tick walks every peer's catalog ({@code GET /artifacts}, then {@code GET
  * /artifacts/{moduleId}} for each module's versions), skips every coordinate already present
- * locally (an {@link ArtifactStore#meta} hit -- no network call needed to confirm a coordinate
- * this replica already committed), and pulls the rest through the same streamed download this
- * store's own commit path already trusts: the peer's jar bytes are handed straight to {@link
+ * locally (an {@link ArtifactStore#meta} hit -- no network call needed to confirm a coordinate this
+ * replica already committed), and pulls the rest through the same streamed download this store's
+ * own commit path already trusts: the peer's jar bytes are handed straight to {@link
  * ArtifactStore#put}, which digests them itself while streaming to disk and commits atomically --
  * the identical mechanism a client's own {@code PUT} already goes through, so there is no second
  * digest-verification implementation to keep in sync with the first. The peer's own catalog entry
@@ -77,8 +77,8 @@ final class AndvariPeerSync implements AutoCloseable {
   }
 
   /**
-   * Package-visible for direct testing without waiting on the scheduler's own interval. Returns
-   * the number of coordinates newly pulled from any peer this pass.
+   * Package-visible for direct testing without waiting on the scheduler's own interval. Returns the
+   * number of coordinates newly pulled from any peer this pass.
    */
   int sync() {
     int pulled = 0;
@@ -120,10 +120,14 @@ final class AndvariPeerSync implements AutoCloseable {
   private List<Object> fetchCatalog(URI peer) throws IOException, InterruptedException {
     HttpResponse<String> response =
         httpClient.send(
-            HttpRequest.newBuilder(peer.resolve("/artifacts")).timeout(REQUEST_TIMEOUT).GET().build(),
+            HttpRequest.newBuilder(peer.resolve("/artifacts"))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build(),
             HttpResponse.BodyHandlers.ofString());
     if (response.statusCode() != 200) {
-      throw new IOException("peer " + peer + " answered " + response.statusCode() + " for /artifacts");
+      throw new IOException(
+          "peer " + peer + " answered " + response.statusCode() + " for /artifacts");
     }
     return Json.asArray(Json.parse(response.body()));
   }

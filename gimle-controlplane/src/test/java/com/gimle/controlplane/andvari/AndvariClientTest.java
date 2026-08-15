@@ -18,9 +18,9 @@ import org.junit.jupiter.api.Timeout;
 /**
  * {@link AndvariClient}'s multi-endpoint rotation/failover: with more than one {@code host:port}
  * configured, a real HTTP round trip against an unreachable first endpoint falls through to a
- * reachable second one instead of failing outright -- the same posture {@code
- * StoreClient#sendRead} already proves for {@code gimle-mimir}'s own reads, exercised here for
- * Andvari's leaderless "any replica can answer" equivalent.
+ * reachable second one instead of failing outright -- the same posture {@code StoreClient#sendRead}
+ * already proves for {@code gimle-mimir}'s own reads, exercised here for Andvari's leaderless "any
+ * replica can answer" equivalent.
  */
 class AndvariClientTest {
 
@@ -54,7 +54,8 @@ class AndvariClientTest {
       AndvariClient.HeadOutcome outcome =
           client.head(new ModuleId("com.example.app", Version.parse("1.0.0")));
 
-      AndvariClient.HeadOutcome.Found found = assertInstanceOf(AndvariClient.HeadOutcome.Found.class, outcome);
+      AndvariClient.HeadOutcome.Found found =
+          assertInstanceOf(AndvariClient.HeadOutcome.Found.class, outcome);
       assertEquals("deadbeef", found.sha256());
     }
   }
