@@ -197,6 +197,7 @@ public final class ControlPlaneMain {
             scheduler,
             storeClient,
             NODE_DARK_TIMEOUT,
+            NODE_DARK_TIMEOUT,
             Clock.systemUTC(),
             artifactResolver);
     // A thin generator writing ordinary JobSpecs, never touching
@@ -211,6 +212,7 @@ public final class ControlPlaneMain {
             storeClient,
             scheduler,
             storeClient,
+            NODE_DARK_TIMEOUT,
             NODE_DARK_TIMEOUT,
             Clock.systemUTC(),
             artifactResolver);

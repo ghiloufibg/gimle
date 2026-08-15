@@ -197,6 +197,7 @@ class JobReconcilerTest {
             scheduler,
             mutation -> mutation.applyTo(store),
             JobReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            JobReconciler.DEFAULT_NODE_DARK_TIMEOUT,
             clock);
     reconciler.reconcileOnce();
     assertEquals(1, store.listJobRunsFor("nightly-cleanup").size());
@@ -287,6 +288,77 @@ class JobReconcilerTest {
     new JobReconciler(store, scheduler).reconcileOnce();
 
     assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+  }
+
+  @Test
+  void a_run_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
+    StateStore store = new StateStore(tempDir.resolve("store-dark-grace"), clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    JobReconciler reconciler =
+        new JobReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    reportRunState(store, attempt0, "ACTIVE");
+
+    // node-a stops heartbeating (a partition, not a real failure): past nodeDarkTimeout, so it's
+    // no longer a placement candidate, but still well within the combined grace window.
+    clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
+    reconciler.reconcileOnce();
+
+    List<JobRun> stillWithinGrace = store.listJobRunsFor("nightly-cleanup");
+    assertEquals(
+        1, stillWithinGrace.size(), "a merely-dark node's run must not be abandoned or retried");
+    assertEquals(0, stillWithinGrace.get(0).attempt());
+    assertEquals("node-a", stillWithinGrace.get(0).nodeId());
+    assertFalse(store.getJobPhase("nightly-cleanup").isPresent());
+  }
+
+  @Test
+  void a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_elapses(TestClock clock) {
+    StateStore store = new StateStore(tempDir.resolve("store-genuinely-gone"), clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
+    // Only node-a exists at placement time, so attempt 0 is guaranteed to land there.
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    JobReconciler reconciler =
+        new JobReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    assertEquals("node-a", attempt0.nodeId());
+    reportRunState(store, attempt0, "ACTIVE");
+
+    clock.advance(nodeDarkTimeout.plus(placementGracePeriod).plusSeconds(1));
+    // node-b's own heartbeat is refreshed right before this tick -- it stays eligible throughout,
+    // so it's the node the retry lands on once node-a is given up on, proving genuine loss still
+    // finds its way back to a healthy node rather than getting stuck forever.
+    registerNode(store, "node-b", 500L * 1024 * 1024, 4000);
+    reconciler.reconcileOnce();
+
+    List<JobRun> afterGracePeriod = store.listJobRunsFor("nightly-cleanup");
+    assertEquals(1, afterGracePeriod.size(), "a lost run is retried, never left duplicated");
+    assertEquals(1, afterGracePeriod.get(0).attempt());
+    assertEquals("node-b", afterGracePeriod.get(0).nodeId());
+    assertFalse(store.getJobPhase("nightly-cleanup").isPresent(), "still within backoffLimit");
   }
 
   @Test
