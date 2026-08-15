@@ -114,9 +114,11 @@ public final class StoreMain {
 
     RaftPeerClientFactory peerClientFactory =
         address -> new PeerConnection(new InetSocketAddress(address.host(), address.raftPort()));
+    PeerAddress selfAddress = new PeerAddress(selfHost, raftPort, clientPort);
     RaftNode raftNode =
         new RaftNode(
             selfRaftId,
+            selfAddress,
             raftPeers,
             peerClientFactory,
             raftLog,

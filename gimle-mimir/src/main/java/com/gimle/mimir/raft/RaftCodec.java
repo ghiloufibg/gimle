@@ -259,6 +259,10 @@ public final class RaftCodec {
       out.writeInt(address.raftPort());
       out.writeInt(address.clientPort());
     }
+    out.writeInt(change.learners().size());
+    for (String learnerId : change.learners()) {
+      out.writeUTF(learnerId);
+    }
   }
 
   private static MembershipChange readMembershipChange(DataInputStream in) throws IOException {
@@ -271,7 +275,12 @@ public final class RaftCodec {
       int clientPort = in.readInt();
       peers.put(id, new PeerAddress(host, raftPort, clientPort));
     }
-    return new MembershipChange(peers);
+    int learnerCount = in.readInt();
+    Set<String> learners = new LinkedHashSet<>();
+    for (int i = 0; i < learnerCount; i++) {
+      learners.add(in.readUTF());
+    }
+    return new MembershipChange(peers, learners);
   }
 
   /** Encodes a single {@link LogEntry} standalone -- what {@code RaftLog} persists per index. */

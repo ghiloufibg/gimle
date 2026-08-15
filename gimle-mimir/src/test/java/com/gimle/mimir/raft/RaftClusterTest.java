@@ -180,7 +180,15 @@ class RaftClusterTest {
     Path dir = tempDir.resolve("cluster-" + (clusterCounter++) + "-" + id);
     StateStore store = new StateStore(dir.resolve("store"));
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
-    RaftNode node = new RaftNode(id, initialPeers, factoryFor(id), raftLog, store, ignored -> {});
+    RaftNode node =
+        new RaftNode(
+            id,
+            peerAddressOf(address),
+            initialPeers,
+            factoryFor(id),
+            raftLog,
+            store,
+            ignored -> {});
     ref.delegate = node;
     nodes.add(node);
     return new ClusterNode(id, node, transport, address, store, raftLog);
@@ -237,16 +245,32 @@ class RaftClusterTest {
    * checks {@code running}), so it still correctly catches up once the leader begins replicating to
    * it; it simply never arms its own election timer, which every test using this helper is fine
    * with.
+   *
+   * <p>Retried on {@link GimleRaftException}: a prior call's newly-joined learner can be
+   * auto-promoted to a full voting member moments after that call returns (its own separate
+   * membership change, appended by the replication loop's background thread, not this one) --
+   * calling this again while that promotion is itself still uncommitted is exactly the transient,
+   * expected rejection {@link GimleRaftException#membershipChangeInFlight} documents, not a bug.
    */
-  private ClusterNode addNewNode(ClusterNode leader) throws IOException {
+  private ClusterNode addNewNode(ClusterNode leader) throws IOException, InterruptedException {
     String id = "node-" + (nodeIdCounter++);
     InetSocketAddress address = reserveAddress();
     PeerAddress peerAddress = peerAddressOf(address);
     addressToId.put(peerAddress, id);
     ClusterNode node = buildNode(id, address, Map.of());
     node.transport().listen(node.address());
-    leader.raftNode().addServer(id, peerAddress);
-    return node;
+    long deadlineNanos = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+    while (true) {
+      try {
+        leader.raftNode().addServer(id, peerAddress);
+        return node;
+      } catch (GimleRaftException e) {
+        if (System.nanoTime() >= deadlineNanos) {
+          throw e;
+        }
+        Thread.sleep(20);
+      }
+    }
   }
 
   private void partition(String nodeIdA, String nodeIdB) {
@@ -267,7 +291,12 @@ class RaftClusterTest {
   }
 
   private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
-    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
+    return awaitLeader(cluster, Duration.ofSeconds(5));
+  }
+
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster, Duration timeout)
+      throws InterruptedException {
+    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), timeout);
     return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
   }
 
@@ -347,6 +376,49 @@ class RaftClusterTest {
                 .propose(
                     new StateMutation.PutTenant(new Tenant("t4", new ResourceQuota(1, 1, 1)))));
     assertTrue(isolated.store().getTenant("t4").isEmpty());
+  }
+
+  // ---- MIM-1: check-quorum self-demotion ----
+
+  @Test
+  @Timeout(15)
+  void a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode isolated = awaitLeader(cluster);
+    List<ClusterNode> majority = cluster.stream().filter(c -> c != isolated).toList();
+
+    partition(isolated.id(), majority.get(0).id());
+    partition(isolated.id(), majority.get(1).id());
+
+    // No write is ever attempted here -- proves the isolated node's own isLeader() flips to false
+    // purely from check-quorum's periodic self-assessment (it never observes a higher term: every
+    // peer is unreachable, so nothing could ever carry one back), not as a side effect of a
+    // proposal timing out the way a_partitioned_minority_cannot_elect_a_leader_or_commit_writes
+    // above already covers.
+    awaitTrue(() -> !isolated.raftNode().isLeader(), Duration.ofSeconds(2));
+
+    // The majority side elects its own new leader independently, unaffected by the isolated
+    // node's own self-demotion.
+    ClusterNode newLeader = awaitLeader(majority);
+    assertNotEquals(isolated.id(), newLeader.id());
+  }
+
+  @Test
+  @Timeout(15)
+  void a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum() throws Exception {
+    // A negative-space companion to the test above: a *healthy* leader (every peer reachable, no
+    // partition at all) must never trip check-quorum on its own -- if it did, this codebase's
+    // own reconciler-leader lease (StateStore#tryAcquireOrRenewLease), gated purely on isLeader(),
+    // would spuriously churn even absent any real network problem.
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode leader = awaitLeader(cluster);
+
+    // Comfortably longer than CHECK_QUORUM_WINDOW (300ms) so at least one real self-assessment
+    // tick has definitely run and found a healthy majority.
+    Thread.sleep(800);
+
+    assertTrue(leader.raftNode().isLeader());
   }
 
   @Test
