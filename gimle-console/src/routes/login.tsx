@@ -27,21 +27,34 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const navigate = useNavigate();
   const status = useAuthStore((s) => s.status);
+  const principal = useAuthStore((s) => s.principal);
   const error = useAuthStore((s) => s.error);
   const login = useAuthStore((s) => s.login);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
 
+  // Deliberately not just `status === "authenticated"`: in plaintext mode, /auth/session already
+  // reports a synthetic anonymous principal before any real login (see ApiServer#handleAuthSession
+  // and the Principal.anonymous field), so status alone can't distinguish "there's a free pass, no
+  // real identity" from "an operator actually signed in" -- only principal.anonymous can. Depending
+  // on `principal` itself, not just `status`, also matters mechanically: without it, a real login
+  // right after that free-pass would leave status at the same "authenticated" string value it
+  // already had, so this effect would never re-run at all.
   useEffect(() => {
-    if (status === "authenticated") navigate({ to: "/", replace: true });
-  }, [status, navigate]);
+    if (status === "authenticated" && principal && !principal.anonymous) {
+      navigate({ to: "/", replace: true });
+    }
+  }, [status, principal, navigate]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setPending(true);
-    await login(username, password);
+    const ok = await login(username, password);
     setPending(false);
+    // Belt-and-suspenders alongside the effect above: navigating here directly, right after a
+    // successful submit, doesn't depend on React ever re-running that effect at all.
+    if (ok) navigate({ to: "/", replace: true });
   }
 
   return (

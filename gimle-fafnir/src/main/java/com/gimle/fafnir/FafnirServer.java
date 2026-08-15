@@ -663,7 +663,7 @@ public final class FafnirServer implements AutoCloseable {
       exchange
           .getResponseHeaders()
           .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
-      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of())));
+      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of()), false));
     } catch (IOException | RuntimeException e) {
       log.warn("login request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -698,6 +698,12 @@ public final class FafnirServer implements AutoCloseable {
    * logged in" -- would send the console straight to a login form no credential could ever satisfy
    * (plaintext bootstrap never seeds a bootstrap account), locking the operator out entirely rather
    * than leaving the cluster open the way every other endpoint already is in this mode.
+   *
+   * <p>The synthetic fallback principal is marked {@code anonymous: true} in its JSON, deliberately
+   * distinct from a real login's response: the console's login page uses that flag to tell "there's
+   * a free pass, nothing to redirect for" apart from "an operator is actually signed in" -- without
+   * it, the console treated the free pass itself as a completed login and would redirect away from
+   * {@code /login} the instant the page loaded, before a real login ever had a chance to happen.
    */
   private void handleAuthSession(HttpExchange exchange) {
     try {
@@ -707,7 +713,7 @@ public final class FafnirServer implements AutoCloseable {
       }
       Optional<Principal> principal = resolvePrincipal(exchange);
       if (principal.isPresent()) {
-        respondJson(exchange, 200, principalToJson(principal.get()));
+        respondJson(exchange, 200, principalToJson(principal.get(), false));
         return;
       }
       if (!(exchange instanceof HttpsExchange)) {
@@ -716,7 +722,7 @@ public final class FafnirServer implements AutoCloseable {
         // console doesn't force a login screen that, with no bootstrap account seeded in plaintext
         // mode, may not be satisfiable by any credential at all. A genuine login (see the branch
         // above) still takes priority whenever a valid cookie is actually presented.
-        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of())));
+        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of()), true));
         return;
       }
       respondQuietly(exchange, 401, "not authenticated");
@@ -755,10 +761,11 @@ public final class FafnirServer implements AutoCloseable {
     }
   }
 
-  private static Map<String, Object> principalToJson(Principal principal) {
+  private static Map<String, Object> principalToJson(Principal principal, boolean anonymous) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("username", principal.name());
     map.put("groups", List.copyOf(principal.groups()));
+    map.put("anonymous", anonymous);
     return map;
   }
 

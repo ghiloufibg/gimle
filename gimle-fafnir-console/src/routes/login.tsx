@@ -42,8 +42,12 @@ function LoginPage() {
     if (!bootstrapped) void checkSession();
   }, [bootstrapped, checkSession]);
 
+  // Deliberately not just `if (principal)`: in plaintext mode, /auth/session already reports a
+  // synthetic anonymous principal before any real login (see FafnirServer#handleAuthSession and
+  // the Principal.anonymous field), so a bare non-null check can't distinguish "there's a free
+  // pass, no real identity" from "an operator actually signed in" -- only principal.anonymous can.
   useEffect(() => {
-    if (principal) void navigate({ to: "/" });
+    if (principal && !principal.anonymous) void navigate({ to: "/" });
   }, [principal, navigate]);
 
   const onSubmit = async (event: FormEvent) => {

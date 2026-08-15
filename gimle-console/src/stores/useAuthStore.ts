@@ -9,7 +9,7 @@ interface AuthState {
   error: string | null;
   initialized: boolean;
   init(): Promise<void>;
-  login(username: string, password: string): Promise<void>;
+  login(username: string, password: string): Promise<boolean>;
   logout(): Promise<void>;
   handleUnauthorized(): void;
 }
@@ -33,12 +33,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const principal = await authRepo.login(username, password);
       set({ principal, status: "authenticated", error: null });
+      return true;
     } catch {
       set({
         principal: null,
         status: "unauthenticated",
         error: "invalid username or password",
       });
+      return false;
     }
   },
   async logout() {

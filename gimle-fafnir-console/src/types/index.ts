@@ -1,6 +1,10 @@
 export interface Principal {
   username: string;
   groups: string[];
+  // True only for the synthetic plaintext-mode free-pass /auth/session hands back when nobody's
+  // actually logged in (see FafnirServer#handleAuthSession) -- lets the login page tell "there's
+  // nothing to redirect for" apart from "an operator is actually signed in".
+  anonymous?: boolean;
 }
 
 export interface VaultStatus {
