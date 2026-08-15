@@ -566,7 +566,7 @@ public final class AndvariServer implements AutoCloseable {
    * {@code maven-metadata.xml} is always generated fresh from {@link ArtifactStore#versions} --
    * never stored as an uploaded file -- so a stale or hand-edited version list can never hide a
    * real version from a resolving Maven client; the one place a dumb store must not be dumb.
-   * Versions are listed in {@link ArtifactStore#versions}'s own (lexicographic) order, matching
+   * Versions are listed in {@link ArtifactStore#versions}'s own (semver-aware) order, matching
    * every other version listing this process serves rather than inventing a second ordering here.
    */
   private static String generateMavenMetadataXml(

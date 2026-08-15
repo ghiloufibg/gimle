@@ -1,5 +1,6 @@
 package com.gimle.andvari;
 
+import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.io.InputStream;
@@ -192,7 +193,12 @@ public final class ArtifactStore {
         : Optional.empty();
   }
 
-  /** Every stored version of one module, sorted by version string; empty for an unknown module. */
+  /**
+   * Every stored version of one module, sorted oldest-to-newest by {@link #compareVersions}
+   * (semver-aware, not lexicographic); empty for an unknown module. {@link
+   * AndvariServer#generateMavenMetadataXml} relies on this ascending order to read the last element
+   * as the actual latest/release version.
+   */
   public List<StoredArtifact> versions(String moduleId) {
     requireValidSegment(moduleId, "moduleId");
     Path moduleDir = artifactsRoot.resolve(moduleId);
@@ -200,8 +206,27 @@ public final class ArtifactStore {
     for (String version : listDirectoryNames(moduleDir)) {
       meta(moduleId, version).ifPresent(result::add);
     }
-    result.sort(Comparator.comparing(StoredArtifact::version));
+    result.sort(Comparator.comparing(StoredArtifact::version, ArtifactStore::compareVersions));
     return result;
+  }
+
+  /**
+   * Semver-aware version comparison via {@link Version#parse}/{@link Version#compareTo} -- plain
+   * {@link String#compareTo} would sort {@code "1.10.0"} before {@code "1.2.0"} lexicographically,
+   * silently naming the wrong version as "latest" in {@link AndvariServer#generateMavenMetadataXml}
+   * the moment any module reaches a double-digit major/minor/patch segment. Falls back to a plain
+   * string comparison when either side isn't {@code major.minor.patch[-qualifier]}-shaped, rather
+   * than throwing: {@code version} is only path-segment-validated at push time (see {@link
+   * #SEGMENT}), not semver-validated, so a non-semver coordinate (e.g. a bare build number) must
+   * still sort deterministically instead of failing every catalog/versions/repository request for
+   * that module.
+   */
+  private static int compareVersions(String a, String b) {
+    try {
+      return Version.parse(a).compareTo(Version.parse(b));
+    } catch (IllegalArgumentException e) {
+      return a.compareTo(b);
+    }
   }
 
   /** Every module id with at least one stored version, sorted. */

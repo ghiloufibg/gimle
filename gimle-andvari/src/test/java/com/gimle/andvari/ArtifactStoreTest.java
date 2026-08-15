@@ -92,6 +92,36 @@ class ArtifactStoreTest {
   }
 
   @Test
+  void versions_sort_semver_aware_not_lexicographically() throws Exception {
+    // Plain string order would put "1.10.0" before "1.2.0" (character '1' < '2'), which would
+    // silently misreport "1.2.0" as the latest/release version in the generated Maven metadata.
+    store.put("com.example.app", "1.2.0", bytes("v1.2.0"), "ana");
+    store.put("com.example.app", "1.10.0", bytes("v1.10.0"), "ana");
+    store.put("com.example.app", "1.9.0", bytes("v1.9.0"), "ana");
+
+    assertEquals(
+        List.of("1.2.0", "1.9.0", "1.10.0"),
+        store.versions("com.example.app").stream()
+            .map(ArtifactStore.StoredArtifact::version)
+            .toList());
+  }
+
+  @Test
+  void a_non_semver_version_string_still_sorts_deterministically() throws Exception {
+    // requireValidSegment allow-lists path-safe characters, not semver shape (see ArtifactStore's
+    // own SEGMENT pattern) -- a coordinate like a bare build number must not throw or hide other
+    // versions just because Version.parse rejects it.
+    store.put("com.example.app", "build-42", bytes("b42"), "ci");
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ci");
+
+    assertEquals(
+        List.of("1.0.0", "build-42"),
+        store.versions("com.example.app").stream()
+            .map(ArtifactStore.StoredArtifact::version)
+            .toList());
+  }
+
+  @Test
   void delete_removes_the_version_and_an_emptied_module_leaves_the_catalog() throws Exception {
     store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
 
