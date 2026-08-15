@@ -58,11 +58,11 @@ function ModuleDetailPage() {
 
   const sorted = [...(versions ?? [])].sort((a, b) => b.pushedAtEpochMilli - a.pushedAtEpochMilli);
 
-  const onDownload = async (version: string) => {
+  const onDownload = async (version: string, sha256: string) => {
     try {
-      await download(moduleId, version);
-    } catch {
-      toast.error("Download failed");
+      await download(moduleId, version, sha256);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Download failed");
     }
   };
 
@@ -153,7 +153,7 @@ function ModuleDetailPage() {
                         size="icon"
                         aria-label="Download jar"
                         className="h-7 w-7 rounded-sm"
-                        onClick={() => void onDownload(entry.version)}
+                        onClick={() => void onDownload(entry.version, entry.sha256)}
                       >
                         <Download className="h-3.5 w-3.5" />
                       </Button>

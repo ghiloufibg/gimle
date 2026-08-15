@@ -62,4 +62,20 @@ describe("useArtifactsStore", () => {
 
     expect(useArtifactsStore.getState().moduleError).toContain("unknown module");
   });
+
+  it("download refuses to save when the fetched bytes don't match the expected sha256", async () => {
+    // Deliberately never reaches the DOM-saving branch (anchor.click() etc.) -- a real mismatch
+    // must throw before that point, which this also proves: the store runs under Vitest's `node`
+    // environment with no `document` global, so if verification didn't short-circuit first, this
+    // would fail with a ReferenceError instead of the sha256 message asserted below.
+    const bytes = new TextEncoder().encode("real jar bytes");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(bytes, { status: 200 })),
+    );
+
+    await expect(
+      useArtifactsStore.getState().download("com.example.app", "1.0.0", "0".repeat(64)),
+    ).rejects.toThrow(/sha256 verification/);
+  });
 });

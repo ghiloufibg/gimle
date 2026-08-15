@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { verifySha256 } from "@/lib/hash";
 import { ApiError, artifactsRepo } from "@/repositories";
 import type { ArtifactPushResult, ArtifactVersion } from "@/types";
 
@@ -18,7 +19,7 @@ interface ArtifactsState {
   loadAll: () => Promise<void>;
   push: (moduleId: string, version: string, file: File) => Promise<ArtifactPushResult | null>;
   remove: (moduleId: string, version: string) => Promise<boolean>;
-  download: (moduleId: string, version: string) => Promise<void>;
+  download: (moduleId: string, version: string, expectedSha256: string) => Promise<void>;
   resetPushState: () => void;
 }
 
@@ -109,8 +110,19 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
     }
   },
 
-  download: async (moduleId, version) => {
+  download: async (moduleId, version, expectedSha256) => {
     const blob = await artifactsRepo.download(moduleId, version);
+    // Verify before ever touching the DOM: a mismatch must never reach anchor.click(), which is
+    // the point where the (possibly corrupted or tampered) bytes become a file on the operator's
+    // own disk that they may reasonably trust because it came from this console.
+    const matches = await verifySha256(await blob.arrayBuffer(), expectedSha256);
+    if (!matches) {
+      throw new Error(
+        `downloaded ${moduleId}:${version} failed sha256 verification -- the bytes received ` +
+          "don't match what the registry reported; refusing to save a possibly corrupted or " +
+          "tampered jar",
+      );
+    }
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
