@@ -194,11 +194,12 @@ public final class ControlPlaneMain {
       GimleTracing.installDefault();
     }
 
-    ScheduledExecutorService ticker =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> Thread.ofVirtual().name("gimle-controlplane-reconcile-tick").unstarted(r));
     AtomicBoolean isReconcilerLeader = new AtomicBoolean(false);
-    ticker.scheduleAtFixedRate(
+
+    // Owns the reconciler-leader lease and the lease-gated bootstrap seeding -- both are cheap
+    // store calls, kept together and off the reconcile tick's own thread so a stuck tick can
+    // never cause this replica to lose (or fail to notice it lost) the lease.
+    Runnable leaseTick =
         () -> {
           try {
             LeaseGrant grant =
@@ -209,6 +210,16 @@ public final class ControlPlaneMain {
             isReconcilerLeader.set(false);
             log.warn("reconciler-leader lease attempt failed: {}", e.getMessage());
           }
+          // seedBootstrapAccountIfNeeded needs storeClient.propose, which throws if no store
+          // leader is reachable -- a no-op the instant an Account already exists, so safe to
+          // keep checking every tick forever after, the same level-triggered posture every
+          // reconciler here already has.
+          if (isReconcilerLeader.get()) {
+            apiServer.seedBootstrapAccountIfNeeded();
+          }
+        };
+    Runnable reconcileTickRunnable =
+        () -> {
           if (isReconcilerLeader.get()) {
             reconcileTick(
                 replicaCountReconciler,
@@ -217,32 +228,16 @@ public final class ControlPlaneMain {
                 quotaReconciler,
                 deploymentReconciler);
           }
-        },
-        0,
-        RECONCILE_INTERVAL.toMillis(),
-        TimeUnit.MILLISECONDS);
+        };
+    // Unconditional -- not lease-gated like the reconcile tick above: this replica's own
+    // certificate needs to stay fresh regardless of whether it currently holds the
+    // reconciler-leader lease, per claudedocs/tls-transport-security-design.md §4b. No-op in
+    // plaintext mode.
+    Runnable certRotationTick = apiServer::checkAndRotateOwnCertificateIfDue;
 
-    // Unconditional -- not lease-gated like reconcileTick above: this replica's own certificate
-    // needs to stay fresh regardless of whether it currently holds the reconciler-leader lease,
-    // per claudedocs/tls-transport-security-design.md §4b. No-op in plaintext mode.
-    ticker.scheduleAtFixedRate(
-        apiServer::checkAndRotateOwnCertificateIfDue,
-        RECONCILE_INTERVAL.toMillis(),
-        RECONCILE_INTERVAL.toMillis(),
-        TimeUnit.MILLISECONDS);
-    // Lease-gated like reconcileTick above (seedBootstrapAccountIfNeeded needs storeClient.propose,
-    // which throws if no store leader is reachable) -- a no-op the instant an Account already
-    // exists, so safe to keep checking every tick forever after, the same level-triggered posture
-    // every reconciler here already has.
-    ticker.scheduleAtFixedRate(
-        () -> {
-          if (isReconcilerLeader.get()) {
-            apiServer.seedBootstrapAccountIfNeeded();
-          }
-        },
-        0,
-        RECONCILE_INTERVAL.toMillis(),
-        TimeUnit.MILLISECONDS);
+    List<ScheduledExecutorService> tickers =
+        scheduleIndependentTickers(
+            leaseTick, reconcileTickRunnable, certRotationTick, RECONCILE_INTERVAL);
     log.info(
         "control plane listening on port {} (self: {}, store endpoints: {}, fafnir: {}, muninn:"
             + " {})",
@@ -267,7 +262,7 @@ public final class ControlPlaneMain {
                 .unstarted(
                     () -> {
                       apiServer.close();
-                      ticker.shutdownNow();
+                      tickers.forEach(ScheduledExecutorService::shutdownNow);
                       storeClient.close();
                       fafnirClient.close();
                       if (muninnClient != null) {
@@ -280,6 +275,42 @@ public final class ControlPlaneMain {
                         tracesShipper.close();
                       }
                     }));
+  }
+
+  /**
+   * Schedules {@code leaseTick}, {@code reconcileTick}, and {@code certRotationTick} at a fixed
+   * rate, each on its own dedicated single-thread executor -- not one shared ticker. A reconcile
+   * tick can block (a hung store connection -- {@code StoreConnection}'s own connect/read timeouts
+   * bound this today, but a slow failover sweep across every configured endpoint can still take
+   * several seconds) or simply run long, and a single shared thread would let that one stuck tick
+   * starve this replica's own certificate rotation and its reconciler-leader lease renewal right
+   * along with it. Package-private and separated out of {@link #main} purely so a test can drive it
+   * directly with a deliberately blocking/throwing reconcile task, proving the other two keep
+   * running without needing a whole control plane process to observe it.
+   *
+   * <p>Returns the three executors so the caller can shut them down; {@code certRotationTick}'s
+   * first run is deliberately delayed by one {@code interval} (matching the other two ticks'
+   * steady-state cadence) rather than firing immediately alongside them.
+   */
+  static List<ScheduledExecutorService> scheduleIndependentTickers(
+      Runnable leaseTick, Runnable reconcileTick, Runnable certRotationTick, Duration interval) {
+    ScheduledExecutorService leaseExecutor =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-controlplane-lease-renew").unstarted(r));
+    ScheduledExecutorService reconcileExecutor =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-controlplane-reconcile-tick").unstarted(r));
+    ScheduledExecutorService certRotationExecutor =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-controlplane-cert-rotate").unstarted(r));
+
+    leaseExecutor.scheduleAtFixedRate(leaseTick, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
+    reconcileExecutor.scheduleAtFixedRate(
+        reconcileTick, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
+    certRotationExecutor.scheduleAtFixedRate(
+        certRotationTick, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
+
+    return List.of(leaseExecutor, reconcileExecutor, certRotationExecutor);
   }
 
   private static List<SocketAddress> parseStoreEndpoints(String spec) {

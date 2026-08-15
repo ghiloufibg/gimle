@@ -266,6 +266,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         return connectionFor(address).call(request);
       } catch (UncheckedIOException e) {
         // this endpoint is unreachable this attempt; the next one in rotation may still answer.
+        // A gray failure (reachable but silent) surfaces here the same way as a clean refusal --
+        // StoreConnection's own connect/read timeouts turn it into a SocketTimeoutException,
+        // which is still an IOException, so it needs no special case beyond this one.
       }
     }
     throw GimleRaftException.storeUnreachable(request.getClass().getSimpleName());
