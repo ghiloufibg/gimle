@@ -233,6 +233,9 @@ public final class AgentMain {
     GossipMember gossipMember = new GossipMember(self, GossipConfig.defaults());
     ServiceCatalog catalog = new ServiceCatalog();
     gossipMember.attachCatalog(catalog);
+    // React to SWIM's own DEAD/ALIVE convergence directly, rather than leaving every caller to
+    // rediscover a dead node's unreachability independently through its own circuit breaker.
+    gossipMember.onMembershipChange(catalog::onMembershipChange);
     catalog.onDelta(delta -> relayCatalogDelta(delta, supervised));
     gossipMember.start();
     gossipMember.join(seeds);
