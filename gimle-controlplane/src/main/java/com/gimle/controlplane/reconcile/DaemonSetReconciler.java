@@ -45,6 +45,19 @@ import org.slf4j.LoggerFactory;
  * {@link JobReconciler} already establish: every tick re-derives the full desired set from the
  * current snapshot rather than reacting to what changed since last tick.
  *
+ * <p><b>Placement safety</b>: a node whose only reason for falling out of {@code eligibleNodeIds}
+ * is a stale heartbeat (past {@code nodeDarkTimeout}, the same darkness {@link #buildCandidates}
+ * already excludes from placement) keeps its existing assignment until that darkness has lasted
+ * {@code nodeDarkTimeout + placementGracePeriod} -- see {@link #isMerelyDarkWithinGracePeriod}.
+ * Without this, an ordinary bidirectional network partition would have this reconciler tear down a
+ * perfectly healthy node's assignment the instant the heartbeat goes stale, even though the node's
+ * own agent (unaware of the control plane's view) keeps supervising that same worker the whole time
+ * -- the assignment is simply gone from the control plane's own bookkeeping by the time the
+ * partition heals, and the agent tears down a worker that never needed to move. Any other
+ * ineligibility reason (cordon, relabeling, a tier/label mismatch) still evicts immediately,
+ * exactly as before this grace period existed -- those are deliberate operator actions, not an
+ * ambiguous "is the node even still there" signal, so there's nothing to wait out.
+ *
  * <p>Rolling updates are a direct duplicate of {@link DeploymentReconciler#handleRollingUpdate}'s
  * state machine, keyed by {@code nodeId} instead of {@code instanceIndex} via {@link
  * StateStore#addRollingDaemonSetNode}/{@code removeRollingDaemonSetNode}/{@code
@@ -66,6 +79,7 @@ public final class DaemonSetReconciler {
   private final Scheduler scheduler;
   private final MutationSink mutations;
   private final Duration nodeDarkTimeout;
+  private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
 
@@ -75,7 +89,13 @@ public final class DaemonSetReconciler {
   }
 
   public DaemonSetReconciler(StoreReader store, Scheduler scheduler, MutationSink mutations) {
-    this(store, scheduler, mutations, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
+    this(
+        store,
+        scheduler,
+        mutations,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        Clock.systemUTC());
   }
 
   /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
@@ -84,8 +104,16 @@ public final class DaemonSetReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock) {
-    this(store, scheduler, mutations, nodeDarkTimeout, clock, ArtifactResolver.localOnly());
+    this(
+        store,
+        scheduler,
+        mutations,
+        nodeDarkTimeout,
+        placementGracePeriod,
+        clock,
+        ArtifactResolver.localOnly());
   }
 
   public DaemonSetReconciler(
@@ -93,12 +121,14 @@ public final class DaemonSetReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock,
       ArtifactResolver artifactResolver) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;
     this.nodeDarkTimeout = nodeDarkTimeout;
+    this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
   }
@@ -166,12 +196,19 @@ public final class DaemonSetReconciler {
     // Scale-down: an assignment on a node that fell out of eligibility (cordoned, removed,
     // relabeled) is removed immediately -- a desired-state edit only, mirroring
     // DeploymentReconciler's own scale-down pass exactly. The agent's own stop()/StopModule drain
-    // timing owns teardown, not this reconciler.
+    // timing owns teardown, not this reconciler. The one exception is a node that fell out of
+    // eligibility purely because it's dark: see isMerelyDarkWithinGracePeriod and the class
+    // javadoc's own "Placement safety" note for why that case waits instead.
+    Instant now = clock.instant();
     for (DaemonSetAssignment assignment : store.listDaemonSetAssignmentsFor(spec.name())) {
-      if (!eligibleNodeIds.contains(assignment.nodeId())) {
-        mutations.propose(
-            new StateMutation.RemoveDaemonSetAssignment(spec.name(), assignment.nodeId()));
+      if (eligibleNodeIds.contains(assignment.nodeId())) {
+        continue;
       }
+      if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
+        continue;
+      }
+      mutations.propose(
+          new StateMutation.RemoveDaemonSetAssignment(spec.name(), assignment.nodeId()));
     }
 
     handleRollingUpdate(spec, descriptor, eligibleNodeIds);
@@ -329,5 +366,28 @@ public final class DaemonSetReconciler {
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
     return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
+  }
+
+  /**
+   * True when {@code nodeId} is currently dark (excluded from {@code eligibleNodeIds} by {@link
+   * #hasGoneDark} alone) but hasn't been dark long enough yet to count as genuinely gone -- see the
+   * class javadoc's "Placement safety" note. A node with no heartbeat on record at all returns
+   * {@code false} here (never merely dark, so never grace-gated): the only way a {@link
+   * DaemonSetAssignment} exists for a node in the first place is that node having heartbeated at
+   * placement time, so a heartbeat missing outright, rather than merely stale, means something more
+   * unusual happened (e.g. a leader failover this replica's own leader-local heartbeat map hasn't
+   * recovered from yet) that this reconciler doesn't try to distinguish from genuine loss --
+   * matching the immediate-removal behavior every non-darkness ineligibility reason already gets.
+   */
+  private boolean isMerelyDarkWithinGracePeriod(String nodeId, Instant now) {
+    return store
+        .getNodeHeartbeat(nodeId)
+        .filter(observed -> hasGoneDark(observed, now))
+        .filter(
+            observed ->
+                Duration.between(observed.receivedAt(), now)
+                        .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
+                    <= 0)
+        .isPresent();
   }
 }

@@ -54,6 +54,20 @@ import org.slf4j.LoggerFactory;
  * care which kind actually placed an assignment; only this reconciler and {@code WorkerRuntime}'s
  * {@code jobHooksClass()} check are Job-kind-aware at all.
  *
+ * <p><b>Placement safety</b>: unlike {@link DeploymentReconciler} (whose dark-node cleanup lives in
+ * the separate {@code ReplicaCountReconciler}, gated on its own {@code placementGracePeriod}) or
+ * {@link StatefulSetReconciler} (which never relocates a sticky index off a node at all), this
+ * reconciler's own {@link #reconcileCurrentRun} treats a run's node going dark as a distinct case
+ * from an ordinary observed lifecycle state: while the node is merely dark (stale heartbeat, but
+ * not yet dark past {@code nodeDarkTimeout + placementGracePeriod}), the run is left alone even if
+ * its last-known observation is stuck mid-lifecycle -- the same "don't relocate off a merely-dark
+ * node" safety property {@code DaemonSetReconciler} now also has. Once the node has been dark that
+ * long, though, {@link #isGenuinelyGone} treats the run as lost -- retried if {@code backoffLimit}
+ * allows, permanently failed otherwise -- via the same {@link #retryOrFail} path a {@code FAILED}
+ * observation already takes. Without this, a run whose node vanished for good (not merely
+ * partitioned) would sit forever in whatever non-terminal state its last heartbeat reported, with
+ * no path back to health at all.
+ *
  * <p><b>Known, documented gap, not an oversight</b>: {@link #buildCandidates} folds ordinary
  * deployment replicas' tenant occupancy into its own Tier 2/3 isolation check (a Job must not land
  * on a node already running a different tenant's deployment replica), but the reverse does not hold
@@ -79,6 +93,7 @@ public final class JobReconciler {
   private final Scheduler scheduler;
   private final MutationSink mutations;
   private final Duration nodeDarkTimeout;
+  private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
 
@@ -88,7 +103,13 @@ public final class JobReconciler {
   }
 
   public JobReconciler(StoreReader store, Scheduler scheduler, MutationSink mutations) {
-    this(store, scheduler, mutations, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
+    this(
+        store,
+        scheduler,
+        mutations,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        Clock.systemUTC());
   }
 
   /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
@@ -97,8 +118,16 @@ public final class JobReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock) {
-    this(store, scheduler, mutations, nodeDarkTimeout, clock, ArtifactResolver.localOnly());
+    this(
+        store,
+        scheduler,
+        mutations,
+        nodeDarkTimeout,
+        placementGracePeriod,
+        clock,
+        ArtifactResolver.localOnly());
   }
 
   public JobReconciler(
@@ -106,12 +135,14 @@ public final class JobReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock,
       ArtifactResolver artifactResolver) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;
     this.nodeDarkTimeout = nodeDarkTimeout;
+    this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
   }
@@ -173,6 +204,23 @@ public final class JobReconciler {
       return;
     }
 
+    // A node genuinely gone (dark well past the ordinary nodeDarkTimeout -- see isGenuinelyGone)
+    // is treated as a lost attempt outright, in preference to whatever lifecycle state its last
+    // heartbeat happened to freeze at -- see the class javadoc's own "Placement safety" note. A
+    // node that is merely dark (or hasn't heartbeated at all, e.g. right after a leader failover)
+    // falls through to the observationFor check below, which waits rather than acts, the same
+    // safety property DaemonSetReconciler now also has.
+    if (isGenuinelyGone(run.nodeId(), clock.instant())) {
+      log.warn(
+          "job {} attempt {} was running on node {}, which has been unreachable for longer than"
+              + " the placement grace period; treating the attempt as lost",
+          spec.name(),
+          run.attempt(),
+          run.nodeId());
+      retryOrFail(spec, run);
+      return;
+    }
+
     Optional<InstanceObservation> observation = observationFor(run);
     if (observation.isEmpty()) {
       return; // not yet placed/heartbeated from the run's own node; wait for the next tick
@@ -186,7 +234,15 @@ public final class JobReconciler {
     if (!"FAILED".equals(state)) {
       return; // still installing/resolving/starting/active/stopping -- nothing to do this tick
     }
+    retryOrFail(spec, run);
+  }
 
+  /**
+   * Shared by a {@code FAILED} observation and a genuinely-gone node (see {@link
+   * #reconcileCurrentRun}): retries with a fresh attempt if {@code backoffLimit} allows, otherwise
+   * marks the job permanently failed. Either way {@code run}'s own entry is removed.
+   */
+  private void retryOrFail(JobSpec spec, JobRun run) {
     int nextAttempt = run.attempt() + 1;
     if (nextAttempt >= spec.backoffLimit()) {
       log.warn(
@@ -340,5 +396,27 @@ public final class JobReconciler {
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
     return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
+  }
+
+  /**
+   * True once {@code nodeId}'s own heartbeat has been stale for longer than {@code nodeDarkTimeout
+   * + placementGracePeriod} -- a materially longer bar than {@link #hasGoneDark}'s own {@code
+   * nodeDarkTimeout}, which only ever governs placement-candidate eligibility for a *new* run, not
+   * whether an *existing* one should be given up on. A node with no heartbeat on record at all
+   * returns {@code false}: this run could only have been placed on a node that had heartbeated at
+   * the time, so an outright-missing heartbeat here means something other than ordinary darkness
+   * (most likely a leader failover this replica's own leader-local heartbeat map hasn't recovered
+   * from yet), which this reconciler doesn't try to distinguish from genuine loss -- it simply
+   * waits, the same as it already does for "not yet heartbeated since placement".
+   */
+  private boolean isGenuinelyGone(String nodeId, Instant now) {
+    return store
+        .getNodeHeartbeat(nodeId)
+        .map(
+            observed ->
+                Duration.between(observed.receivedAt(), now)
+                        .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
+                    > 0)
+        .orElse(false);
   }
 }

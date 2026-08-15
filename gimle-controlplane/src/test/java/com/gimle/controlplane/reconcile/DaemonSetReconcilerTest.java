@@ -12,12 +12,14 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -265,5 +267,84 @@ class DaemonSetReconcilerTest {
     List<DaemonSetAssignment> done = store.listDaemonSetAssignmentsFor("node-exporter");
     assertEquals(2, done.size());
     assertTrue(done.stream().allMatch(a -> a.moduleId().equals(v2.moduleId())));
+  }
+
+  @Test
+  void a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
+    StateStore store = new StateStore(tempDir.resolve("store-dark-grace"), clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    DaemonSetSpec spec = daemonSet("node-exporter", jar, PlacementConstraints.NONE);
+    store.putDaemonSetSpec(spec);
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    assertEquals(2, store.listDaemonSetAssignmentsFor("node-exporter").size());
+
+    // node-a stops heartbeating (a partition, not a real failure): past nodeDarkTimeout, so it's
+    // no longer a placement candidate, but still well within the combined grace window.
+    clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
+    reconciler.reconcileOnce();
+
+    List<DaemonSetAssignment> stillWithinGrace = store.listDaemonSetAssignmentsFor("node-exporter");
+    assertEquals(
+        2,
+        stillWithinGrace.size(),
+        "a merely-dark node must keep its assignment during the placement grace period");
+    assertTrue(stillWithinGrace.stream().anyMatch(a -> a.nodeId().equals("node-a")));
+
+    // Now past nodeDarkTimeout + placementGracePeriod: node-a counts as genuinely gone. node-b's
+    // own heartbeat is refreshed right before this tick so it stays eligible throughout -- the
+    // point of this assertion is specifically that node-a's assignment is the one reclaimed, not
+    // that every node happens to go dark at once.
+    clock.advance(placementGracePeriod);
+    registerNode(store, "node-b");
+    reconciler.reconcileOnce();
+
+    List<DaemonSetAssignment> afterGracePeriod = store.listDaemonSetAssignmentsFor("node-exporter");
+    assertEquals(1, afterGracePeriod.size());
+    assertEquals("node-b", afterGracePeriod.get(0).nodeId());
+  }
+
+  @Test
+  void cordoning_a_dark_node_still_removes_its_assignment_immediately(TestClock clock) {
+    // A cordon is a deliberate operator action, not an ambiguous "is the node still there"
+    // signal -- it must not wait out the darkness grace period even when the node also happens to
+    // be unreachable.
+    StateStore store = new StateStore(tempDir.resolve("store-cordon-dark"), clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    assertEquals(2, store.listDaemonSetAssignmentsFor("node-exporter").size());
+
+    store.putNodeCordon("node-a", true);
+    reconciler.reconcileOnce();
+
+    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("node-exporter");
+    assertEquals(1, assignments.size());
+    assertEquals("node-b", assignments.get(0).nodeId());
   }
 }
