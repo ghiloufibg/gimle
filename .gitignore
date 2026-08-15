@@ -15,6 +15,11 @@ gimle-bootstrap/
 # harness state, not authored content.
 .claude/
 
+# maven-build-cache-extension writing to a literal, unexpanded "${user.home}" directory instead of
+# resolving .mvn/maven-build-cache-config.xml's ${user.home} placeholder -- a sandbox-specific
+# property-resolution quirk, not a repo config bug; ignored defensively so it can't land in a commit.
+${user.home}/
+
 # gimle-console (npm/Vite-family project, outside the Maven reactor) build artifacts
 gimle-console/node_modules/
 gimle-console/dist/
