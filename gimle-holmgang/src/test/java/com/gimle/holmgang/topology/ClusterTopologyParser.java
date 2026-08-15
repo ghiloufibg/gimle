@@ -58,6 +58,7 @@ public final class ClusterTopologyParser {
     final int controlPlaneReplicas = replicasOf(root, "controlPlane");
     final int fafnirReplicas = replicasOf(root, "fafnir");
     final boolean muninnEnabled = muninnEnabled(root);
+    final int muninnReplicas = muninnReplicas(root);
     final boolean andvariEnabled = andvariEnabled(root);
     final int andvariReplicas = andvariReplicas(root);
     final List<NodeSpec> nodes = parseNodes(root);
@@ -71,6 +72,7 @@ public final class ClusterTopologyParser {
         controlPlaneReplicas,
         fafnirReplicas,
         muninnEnabled,
+        muninnReplicas,
         andvariEnabled,
         andvariReplicas,
         nodes,
@@ -100,6 +102,18 @@ public final class ClusterTopologyParser {
       throw new GimleManifestException("'muninn' must be a mapping");
     }
     return requireBoolean(map, "enabled", "muninn.");
+  }
+
+  /**
+   * An absent {@code muninn.replicas} means one replica -- unset stays a single-instance topology.
+   */
+  private static int muninnReplicas(final Map<?, ?> root) {
+    final Object value = root.get("muninn");
+    if (!(value instanceof Map<?, ?> map)) {
+      return 1;
+    }
+    final Object replicas = map.get("replicas");
+    return replicas == null ? 1 : requireInt(map, "replicas", "muninn.");
   }
 
   private static boolean andvariEnabled(final Map<?, ?> root) {

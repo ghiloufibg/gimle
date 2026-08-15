@@ -1,0 +1,18 @@
+name: registry-observability-ha
+transport: plaintext
+
+store:
+  replicas: 1
+controlPlane:
+  replicas: 1
+fafnir:
+  replicas: 1
+muninn:
+  enabled: true
+  replicas: 2
+andvari:
+  enabled: true
+  replicas: 2
+
+nodes:
+  count: 1

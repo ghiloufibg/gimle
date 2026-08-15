@@ -24,6 +24,7 @@ public record ClusterSpec(
     int controlPlaneReplicas,
     int fafnirReplicas,
     boolean muninnEnabled,
+    int muninnReplicas,
     boolean andvariEnabled,
     int andvariReplicas,
     List<NodeSpec> nodes,
@@ -32,9 +33,17 @@ public record ClusterSpec(
     SeedSpec seed) {
 
   public ClusterSpec {
-    // andvariReplicas is the actual replica count behind andvariEnabled -- normalized here so
-    // every other reader (GimleCluster's own port planning/process spawning) can trust it alone
-    // rather than re-deriving "how many" from the older enabled flag on every use.
+    // muninnReplicas/andvariReplicas are the actual replica counts behind their own *Enabled
+    // flags -- normalized here so every other reader (GimleCluster's own port planning/process
+    // spawning) can trust the count alone rather than re-deriving "how many" from the enabled
+    // flag on every use.
+    if (muninnEnabled && muninnReplicas < 1) {
+      throw new GimleManifestException(
+          "muninn.replicas must be >= 1 when muninn is enabled, got " + muninnReplicas);
+    }
+    if (!muninnEnabled) {
+      muninnReplicas = 0;
+    }
     if (andvariEnabled && andvariReplicas < 1) {
       throw new GimleManifestException(
           "andvari.replicas must be >= 1 when andvari is enabled, got " + andvariReplicas);

@@ -56,12 +56,30 @@ public final class ChaosSteps {
         soakSeconds);
   }
 
+  /**
+   * The narrow variant exercising only the two replica-fan-out/peer-sync bounces, for a topology
+   * built specifically with multiple Muninn and Andvari replicas -- mixing these in with the full
+   * {@link #basePlan}'s store/leader/control-plane/Fafnir/worker-kill palette would dilute a soak
+   * meant to prove those two faults specifically recover, not the whole palette at once.
+   */
+  @When(
+      "Fenrir is unleashed striking only muninn and andvari bounces for {int} seconds every"
+          + " {int} seconds")
+  public void fenrirIsUnleashedStrikingOnlyMuninnAndAndvariBounces(
+      final int soakSeconds, final int gapSeconds) {
+    requireDestructive();
+    unleash(
+        FenrirPlan.seeded(DEFAULT_SEED)
+            .soakFor(Duration.ofSeconds(soakSeconds))
+            .strikeEvery(Duration.ofSeconds(gapSeconds))
+            .pool(Pools.muninnBounces())
+            .pool(Pools.andvariBounces()),
+        soakSeconds);
+  }
+
   /** The pools and eligibility every soak mode shares; each caller layers its own mode knobs on. */
   private FenrirPlan.Builder basePlan(final int soakSeconds, final int gapSeconds) {
-    if (!world.isDestructive()) {
-      throw new HolmgangException(
-          "a Fenrir soak must run on a @destructive scenario -- it needs a fresh, owned cluster");
-    }
+    requireDestructive();
     final String[] eligible = world.deployments.keySet().toArray(new String[0]);
     final FenrirPlan.Builder plan =
         FenrirPlan.seeded(DEFAULT_SEED)
@@ -74,7 +92,23 @@ public final class ChaosSteps {
     if (eligible.length > 0) {
       plan.eligibleDeployments(eligible).pool(Pools.workerKills().weight(2));
     }
+    // Only meaningful -- and only ever drawn from, per Fenrir's own replica floor -- on a topology
+    // that actually requested more than one replica; a plain single-replica topology leaves these
+    // pools out entirely rather than building one that could only ever skip.
+    if (world.cluster().muninnCount() > 1) {
+      plan.pool(Pools.muninnBounces());
+    }
+    if (world.cluster().andvariCount() > 1) {
+      plan.pool(Pools.andvariBounces());
+    }
     return plan;
+  }
+
+  private void requireDestructive() {
+    if (!world.isDestructive()) {
+      throw new HolmgangException(
+          "a Fenrir soak must run on a @destructive scenario -- it needs a fresh, owned cluster");
+    }
   }
 
   private void unleash(final FenrirPlan.Builder plan, final int soakSeconds) {

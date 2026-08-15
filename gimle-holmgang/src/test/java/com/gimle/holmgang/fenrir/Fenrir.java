@@ -87,6 +87,8 @@ public final class Fenrir {
       case CONTROL_PLANE_BOUNCE -> controlPlaneBounce(pool, index, offset);
       case LINK_CUT -> linkCut(pool, index, offset);
       case FAFNIR_BOUNCE -> fafnirBounce(pool, index, offset);
+      case MUNINN_BOUNCE -> muninnBounce(pool, index, offset);
+      case ANDVARI_BOUNCE -> andvariBounce(pool, index, offset);
     };
   }
 
@@ -270,6 +272,74 @@ public final class Fenrir {
                       }
                     })
                 .await(plan.gateTimeout()));
+  }
+
+  private StrikeResult muninnBounce(final Pool pool, final int index, final long offset) {
+    final int total = cluster.muninnCount();
+    final List<Integer> aliveIndices = new ArrayList<>();
+    for (int i = 0; i < total; i++) {
+      if (cluster.muninn(i).isAlive()) {
+        aliveIndices.add(i);
+      }
+    }
+    final Optional<String> floorSkip = replicaFloorGuard("muninn", aliveIndices.size(), total);
+    if (floorSkip.isPresent()) {
+      return skipped(index, pool, offset, floorSkip.get());
+    }
+    final int victimIndex = aliveIndices.get(victimRng.nextInt(aliveIndices.size()));
+    bounce(cluster.muninn(victimIndex), pool.dwell());
+    return gated(
+        index,
+        pool,
+        offset,
+        cluster.muninn(victimIndex).id(),
+        () ->
+            probe(
+                    "muninn replica #" + victimIndex + " serves again",
+                    () -> cluster.muninnServing(victimIndex))
+                .await(plan.gateTimeout()));
+  }
+
+  private StrikeResult andvariBounce(final Pool pool, final int index, final long offset) {
+    final int total = cluster.andvariCount();
+    final List<Integer> aliveIndices = new ArrayList<>();
+    for (int i = 0; i < total; i++) {
+      if (cluster.andvari(i).isAlive()) {
+        aliveIndices.add(i);
+      }
+    }
+    final Optional<String> floorSkip = replicaFloorGuard("andvari", aliveIndices.size(), total);
+    if (floorSkip.isPresent()) {
+      return skipped(index, pool, offset, floorSkip.get());
+    }
+    final int victimIndex = aliveIndices.get(victimRng.nextInt(aliveIndices.size()));
+    bounce(cluster.andvari(victimIndex), pool.dwell());
+    return gated(
+        index,
+        pool,
+        offset,
+        cluster.andvari(victimIndex).id(),
+        () ->
+            probe(
+                    "andvari replica #" + victimIndex + " serves again",
+                    () -> cluster.andvariServing(victimIndex))
+                .await(plan.gateTimeout()));
+  }
+
+  /**
+   * Skips a Muninn/Andvari bounce when at most one replica of that process is currently alive --
+   * bouncing the last one would just be an ordinary "kill the one instance" test, not the
+   * failover/fan-out property multi-replica topologies exist to exercise. Unlike {@link
+   * #quorumGuard}, this is a plain "more than one left" floor, not a majority computation: neither
+   * process runs Raft, so there is no quorum to protect, only a peer to fail over to.
+   */
+  private Optional<String> replicaFloorGuard(
+      final String processLabel, final int aliveCount, final int totalCount) {
+    if (aliveCount <= 1) {
+      return Optional.of(
+          processLabel + " floor: only " + aliveCount + " of " + totalCount + " replicas live");
+    }
+    return Optional.empty();
   }
 
   /** Runs a recovery gate, turning a missed deadline into a FAILED entry rather than a throw. */
