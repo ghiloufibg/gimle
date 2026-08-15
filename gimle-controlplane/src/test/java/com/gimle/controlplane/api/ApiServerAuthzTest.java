@@ -14,13 +14,18 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.module.testsupport.TestModuleBuilder;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
@@ -655,6 +660,221 @@ class ApiServerAuthzTest {
       assertEquals("value-before", byKey.get("before"));
       assertEquals("value-after", byKey.get("after"));
     }
+  }
+
+  /**
+   * Closes the tenant-scope gap {@link ApiServer#dispatchResourceRequest}'s own javadoc used to
+   * document as a known, deliberate omission: a {@code DEPLOYMENT:WRITE} permission scoped to one
+   * tenant now actually authorizes that tenant's own deployment writes -- and only that tenant's,
+   * never another tenant's or an untenanted one -- rather than being permanently unusable for every
+   * workload route (a scoped tenant parameter can only ever match a permission's own identical
+   * scope, and every workload route hardcoded {@code Optional.empty()} before this fix, which only
+   * an unscoped permission ever matches).
+   */
+  @Test
+  void a_tenant_scoped_write_permission_authorizes_only_that_tenants_deployments()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putTenant(new Tenant("other", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putAccount(new Account("acme-writer", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "acme-deployment-writer",
+            java.util.Set.of(Permission.scoped(ResourceKind.DEPLOYMENT, Verb.WRITE, "acme"))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("acme-writer"), "acme-deployment-writer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "acme-writer", "pw");
+
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.acme");
+      assertEquals(
+          200, putDeployment(client, baseUrl, cookie, "acme-dep", jar, Optional.of("acme")));
+      assertEquals(
+          403, putDeployment(client, baseUrl, cookie, "other-dep", jar, Optional.of("other")));
+      assertEquals(
+          403, putDeployment(client, baseUrl, cookie, "untenanted-dep", jar, Optional.empty()));
+    }
+  }
+
+  /**
+   * The GET/DELETE half of the same fix: authorized against the resource's own currently stored
+   * {@code tenantId}, resolved by {@link ApiServer#dispatchResourceRequest} before dispatching --
+   * not the submitter's own choice of tenant, since there is no submitted manifest to read one from
+   * on these two verbs.
+   */
+  @Test
+  void tenant_scoped_read_and_delete_are_bounded_by_the_deployments_own_stored_tenant()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putDeployment(deployment("acme-dep", Optional.of("acme")));
+    store.putDeployment(deployment("other-dep", Optional.of("other")));
+    store.putAccount(new Account("acme-reader", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "acme-deployment-reader",
+            java.util.Set.of(
+                Permission.scoped(ResourceKind.DEPLOYMENT, Verb.READ, "acme"),
+                Permission.scoped(ResourceKind.DEPLOYMENT, Verb.DELETE, "acme"))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("acme-reader"), "acme-deployment-reader"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "acme-reader", "pw");
+
+      assertEquals(200, getDeployment(client, baseUrl, cookie, "acme-dep").statusCode());
+      assertEquals(403, getDeployment(client, baseUrl, cookie, "other-dep").statusCode());
+      // A nonexistent name resolves to Optional.empty(), which only an unscoped permission
+      // covers -- a scoped-only caller is forbidden, not told 404, so it can't distinguish
+      // "doesn't exist" from "exists under a tenant I can't see" by probing names.
+      assertEquals(403, getDeployment(client, baseUrl, cookie, "does-not-exist").statusCode());
+
+      assertEquals(403, deleteDeployment(client, baseUrl, cookie, "other-dep").statusCode());
+      assertEquals(200, deleteDeployment(client, baseUrl, cookie, "acme-dep").statusCode());
+    }
+  }
+
+  /**
+   * The re-tenanting guard: a PUT that would move an existing resource into a different tenant
+   * needs write access under both the tenant it is being moved into <em>and</em> the tenant it
+   * currently belongs to -- otherwise a permission scoped to one tenant could reach across the
+   * boundary and claim a resource out of another tenant it was never granted any access to.
+   */
+  @Test
+  void a_write_permission_scoped_to_one_tenant_cannot_reclaim_another_tenants_deployment()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putDeployment(deployment("shared", Optional.of("beta")));
+    store.putAccount(new Account("acme-writer", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "acme-deployment-writer",
+            java.util.Set.of(Permission.scoped(ResourceKind.DEPLOYMENT, Verb.WRITE, "acme"))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("acme-writer"), "acme-deployment-writer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "acme-writer", "pw");
+
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaim");
+      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- resubmitting "shared" under
+      // acme must not succeed just because the *new* tenant is one it's authorized for.
+      assertEquals(403, putDeployment(client, baseUrl, cookie, "shared", jar, Optional.of("acme")));
+      assertEquals(
+          Optional.of("beta"), store.getDeployment("shared").flatMap(DeploymentSpec::tenantId));
+    }
+  }
+
+  private DeploymentSpec deployment(String name, Optional<String> tenantId) {
+    return new DeploymentSpec(
+        name,
+        new ModuleId(name, Version.parse("1.0.0")),
+        tempDir.resolve(name + ".jar").toAbsolutePath().toString(),
+        1,
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        tenantId,
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private Path buildFixtureJar(String uniqueName) {
+    return TestModuleBuilder.module("module " + uniqueName + " {\n}\n")
+        .withDescriptor(TestModuleBuilder.minimalDescriptor(uniqueName, "1.0.0"))
+        .build(tempDir, uniqueName + ".jar");
+  }
+
+  private static int putDeployment(
+      HttpClient client,
+      String baseUrl,
+      String cookie,
+      String name,
+      Path jar,
+      Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    String yaml =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        %s"""
+            .formatted(name, name, jar.toAbsolutePath(), tenantLine);
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
+            .header("Cookie", cookie)
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static HttpResponse<String> getDeployment(
+      HttpClient client, String baseUrl, String cookie, String name)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
+            .header("Cookie", cookie)
+            .GET()
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> deleteDeployment(
+      HttpClient client, String baseUrl, String cookie, String name)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
+            .header("Cookie", cookie)
+            .DELETE()
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
   private static String login(HttpClient client, String baseUrl, String username, String password)

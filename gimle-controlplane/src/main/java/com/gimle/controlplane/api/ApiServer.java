@@ -548,11 +548,12 @@ public final class ApiServer implements AutoCloseable {
   // ---- /deployments/{name} ----
 
   /**
-   * Unscoped ({@code Optional.empty()} tenant) for every verb here -- tenant-scoped deployment
-   * permissions would need this handler to resolve an existing deployment's own tenantId (or a
-   * PUT's requested one) before authorizing, real additional plumbing not built this round; a
-   * known, deliberate gap, not a silent omission. Every {@code handle{Deployment,Job,CronJob,
-   * DaemonSet,StatefulSet}} singleton-resource handler shares this same posture.
+   * Tenant-scoped for every verb here, resolved by {@link #dispatchResourceRequest} rather than
+   * hardcoded {@code Optional.empty()}: GET/DELETE authorize against the resource's own currently
+   * stored {@code tenantId} (via {@code existingTenant}), and PUT authorizes against the submitted
+   * manifest's own {@code tenantId} -- so a permission scoped to one tenant now actually authorizes
+   * that tenant's workloads, not just cluster-wide grants. Every {@code handle{Deployment,Job,
+   * CronJob,DaemonSet,StatefulSet}} singleton-resource handler shares this same posture.
    */
   private void handleDeployment(HttpExchange exchange) {
     dispatchResourceRequest(
@@ -561,6 +562,7 @@ public final class ApiServer implements AutoCloseable {
         "missing deployment name",
         "deployment",
         ex -> Optional.of(pathSegmentAfter(ex, "/deployments/")),
+        name -> storeClient.getDeployment(name).map(DeploymentSpec::tenantId),
         this::handlePutDeployment,
         this::handleGetDeployment,
         this::handleDeleteDeployment);
@@ -570,6 +572,29 @@ public final class ApiServer implements AutoCloseable {
   @FunctionalInterface
   private interface ResourceAction {
     void run(HttpExchange exchange, String name) throws IOException;
+  }
+
+  /**
+   * A PUT action that receives the manifest {@link #dispatchResourceRequest} already parsed --
+   * once, to resolve the tenant to authorize the write against -- rather than re-reading {@code
+   * exchange}'s own request body itself, which can only be consumed once.
+   */
+  @FunctionalInterface
+  private interface PutResourceAction {
+    void run(HttpExchange exchange, String name, WorkloadSpec submitted) throws IOException;
+  }
+
+  /**
+   * Resolves an existing resource's own {@code tenantId} by name -- {@code Optional.empty()} only
+   * when no such resource currently exists at all, {@code Optional.of(Optional.empty())} when it
+   * exists but is untenanted. Distinguishing those two is exactly what lets a PUT's re-tenanting
+   * guard (see {@link #dispatchResourceRequest}) apply only when there is an actual existing tenant
+   * assignment to protect -- never to a brand-new resource being created for the first time, which
+   * has no "existing tenant" to check at all.
+   */
+  @FunctionalInterface
+  private interface TenantLookup {
+    Optional<Optional<String>> lookup(String name);
   }
 
   /**
@@ -590,6 +615,16 @@ public final class ApiServer implements AutoCloseable {
    * itself fully handle the request -- the {@code /cronjobs/{name}/trigger} sub-route is not a
    * plain PUT/GET/DELETE-by-name at all -- in which case it returns {@code Optional.empty()} to
    * signal "already handled, skip the switch below" rather than a resolved (possibly blank) name.
+   *
+   * <p>PUT parses the submitted manifest here, before authorizing -- the only way to know which
+   * tenant to check a write against is to look at what the write itself declares, the same
+   * body-before-authorize order {@code handleConfigEntry}'s PUT already uses for its own {@code
+   * encrypted}-flag-dependent resource kind. Authorization is then two checks, not one, when a PUT
+   * would change an existing resource's tenant: the caller needs write access under the *submitted*
+   * tenant (creation, or an update keeping the same tenant) and, only if that differs from what is
+   * currently stored, write access under the *existing* tenant too -- otherwise a grant scoped to
+   * one tenant could silently steal a resource out of another tenant it has no write access to, or
+   * abandon one into a tenant it has no write access to place it in.
    */
   private void dispatchResourceRequest(
       HttpExchange exchange,
@@ -597,7 +632,8 @@ public final class ApiServer implements AutoCloseable {
       String missingNameMessage,
       String requestNoun,
       ResourceNameResolver nameResolver,
-      ResourceAction put,
+      TenantLookup existingTenant,
+      PutResourceAction put,
       ResourceAction get,
       ResourceAction delete) {
     try {
@@ -612,17 +648,26 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, kind, Verb.WRITE, Optional.empty())) {
-            put.run(exchange, name);
+          WorkloadSpec submitted = ManifestParser.parse(exchange.getRequestBody());
+          Optional<String> submittedTenant = submitted.tenantId();
+          Optional<Optional<String>> existing = existingTenant.lookup(name);
+          boolean authorized = requireAuthorized(exchange, kind, Verb.WRITE, submittedTenant);
+          if (authorized && existing.isPresent() && !existing.get().equals(submittedTenant)) {
+            authorized = requireAuthorized(exchange, kind, Verb.WRITE, existing.get());
+          }
+          if (authorized) {
+            put.run(exchange, name, submitted);
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, kind, Verb.READ, Optional.empty())) {
+          Optional<String> tenant = existingTenant.lookup(name).orElse(Optional.empty());
+          if (requireAuthorized(exchange, kind, Verb.READ, tenant)) {
             get.run(exchange, name);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, kind, Verb.DELETE, Optional.empty())) {
+          Optional<String> tenant = existingTenant.lookup(name).orElse(Optional.empty());
+          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)) {
             delete.run(exchange, name);
           }
         }
@@ -640,12 +685,13 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private void handlePutDeployment(HttpExchange exchange, String name) throws IOException {
-    // Every manifest now requires kind: -- ManifestParser is what
-    // enforces that at this, the real operator-facing admission surface; DeploymentManifestParser
-    // itself stays kind-agnostic (see its own updated javadoc), still used directly only by
-    // StateStore's own reload-on-restart path and this class's parser-shape unit tests.
-    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+  private void handlePutDeployment(HttpExchange exchange, String name, WorkloadSpec parsed)
+      throws IOException {
+    // Parsed and kind-checked at the real operator-facing admission surface by ManifestParser,
+    // already done once by dispatchResourceRequest to resolve the tenant to authorize against;
+    // DeploymentManifestParser itself stays kind-agnostic (see its own updated javadoc), still used
+    // directly only by StateStore's own reload-on-restart path and this class's parser-shape unit
+    // tests.
     if (!(parsed instanceof DeploymentSpec parsedSpec)) {
       respond(
           exchange,
@@ -816,13 +862,14 @@ public final class ApiServer implements AutoCloseable {
         "missing job name",
         "job",
         ex -> Optional.of(pathSegmentAfter(ex, "/jobs/")),
+        name -> storeClient.getJobSpec(name).map(JobSpec::tenantId),
         this::handlePutJob,
         this::handleGetJob,
         this::handleDeleteJob);
   }
 
-  private void handlePutJob(HttpExchange exchange, String name) throws IOException {
-    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+  private void handlePutJob(HttpExchange exchange, String name, WorkloadSpec parsed)
+      throws IOException {
     if (!(parsed instanceof JobSpec parsedSpec)) {
       respond(exchange, 400, "manifest kind does not match /jobs route (expected kind: Job)");
       return;
@@ -941,9 +988,14 @@ public final class ApiServer implements AutoCloseable {
         "missing cronjob name",
         "cronjob",
         this::resolveCronJobNameOrHandleSubRoute,
+        this::cronJobTenant,
         this::handlePutCronJob,
         this::handleGetCronJob,
         this::handleDeleteCronJob);
+  }
+
+  private Optional<Optional<String>> cronJobTenant(String name) {
+    return storeClient.getCronJobSpec(name).map(CronJobSpec::tenantId);
   }
 
   /**
@@ -969,14 +1021,15 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 404, "unknown cronjob endpoint: " + action);
       return Optional.empty();
     }
-    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, Optional.empty())) {
+    if (requireAuthorized(
+        exchange, ResourceKind.JOB, Verb.WRITE, cronJobTenant(name).orElse(Optional.empty()))) {
       handleCronJobTrigger(exchange, name);
     }
     return Optional.empty();
   }
 
-  private void handlePutCronJob(HttpExchange exchange, String name) throws IOException {
-    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+  private void handlePutCronJob(HttpExchange exchange, String name, WorkloadSpec parsed)
+      throws IOException {
     if (!(parsed instanceof CronJobSpec spec)) {
       respond(
           exchange, 400, "manifest kind does not match /cronjobs route (expected kind: CronJob)");
@@ -1085,13 +1138,14 @@ public final class ApiServer implements AutoCloseable {
         "missing daemonset name",
         "daemonset",
         ex -> Optional.of(pathSegmentAfter(ex, "/daemonsets/")),
+        name -> storeClient.getDaemonSetSpec(name).map(DaemonSetSpec::tenantId),
         this::handlePutDaemonSet,
         this::handleGetDaemonSet,
         this::handleDeleteDaemonSet);
   }
 
-  private void handlePutDaemonSet(HttpExchange exchange, String name) throws IOException {
-    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+  private void handlePutDaemonSet(HttpExchange exchange, String name, WorkloadSpec parsed)
+      throws IOException {
     if (!(parsed instanceof DaemonSetSpec parsedSpec)) {
       respond(
           exchange,
@@ -1210,13 +1264,14 @@ public final class ApiServer implements AutoCloseable {
         "missing statefulset name",
         "statefulset",
         ex -> Optional.of(pathSegmentAfter(ex, "/statefulsets/")),
+        name -> storeClient.getStatefulSetSpec(name).map(StatefulSetSpec::tenantId),
         this::handlePutStatefulSet,
         this::handleGetStatefulSet,
         this::handleDeleteStatefulSet);
   }
 
-  private void handlePutStatefulSet(HttpExchange exchange, String name) throws IOException {
-    WorkloadSpec parsed = ManifestParser.parse(exchange.getRequestBody());
+  private void handlePutStatefulSet(HttpExchange exchange, String name, WorkloadSpec parsed)
+      throws IOException {
     if (!(parsed instanceof StatefulSetSpec parsedSpec)) {
       respond(
           exchange,
