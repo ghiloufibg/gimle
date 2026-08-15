@@ -715,6 +715,13 @@ public final class GimleCluster implements AutoCloseable {
         command.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
       }
       command.addAll(spec.jvmFlags(ProcessRole.CONTROL_PLANE));
+      // Per-replica, not left at ControlPlaneMain's own cwd-relative "gimle-data" default: that
+      // default is exactly what startAgents already avoids below via its own gimle.data.root, and
+      // for the same reason -- a control plane resolving registry-coordinate artifacts through
+      // ArtifactPullCache persistently caches jars by presence alone, so an unscoped path would
+      // survive this run's own workDir and silently poison the next run against a stale jar
+      // cached under a coordinate the next run's fresh Andvari instance re-pushes with new bytes.
+      command.add("-Dgimle.data.root=" + workDir.resolve("controlplane-data-" + i));
       command.addAll(List.of("-cp", classpath, "com.gimle.controlplane.ControlPlaneMain"));
       command.add(String.valueOf(port));
       command.add(workDir.resolve("controlplane-secret-" + i + ".key").toString());
