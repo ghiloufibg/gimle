@@ -9,6 +9,8 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import java.nio.file.Path;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fafnir's crypto boundary: the only object in the whole process (and the only object in the whole
@@ -18,6 +20,8 @@ import java.util.List;
  * without spinning up a socket.
  */
 public final class FafnirCrypto {
+
+  private static final Logger log = LoggerFactory.getLogger(FafnirCrypto.class);
 
   private final StoreClient storeClient;
   private final Path secretKeyFilePath;
@@ -29,6 +33,12 @@ public final class FafnirCrypto {
     this.storeClient = storeClient;
     this.secretKeyFilePath = secretKeyFilePath;
     this.keyRing = KeyFileManager.loadAllOrCreate(secretKeyFilePath);
+    // Every Fafnir replica is provisioned with identical key files by an out-of-band operator
+    // process this codebase doesn't control or verify (see KeyFileManager's own javadoc) --
+    // Fafnir replicas today have no peer-discovery mechanism of their own to compare this
+    // automatically, so the fingerprint is logged loudly at startup for an operator to diff by
+    // hand across replicas, the cheapest available signal that provisioning silently drifted.
+    log.info("secrets key ring loaded, fingerprint={}", keyRing.fingerprint());
   }
 
   /**
@@ -52,6 +62,16 @@ public final class FafnirCrypto {
   /** The console status endpoint's own view of "which key is currently active." */
   public byte activeKeyId() {
     return keyRing.activeKeyId();
+  }
+
+  /**
+   * The console/{@code /status} endpoint's own view of "which key material is this replica actually
+   * running" -- an operator comparing this value across replicas by hand is today's only available
+   * way to notice one replica's key files silently drifted from another's (see the constructor's
+   * own log line and {@link #rotate}'s).
+   */
+  public String keyRingFingerprint() {
+    return keyRing.fingerprint();
   }
 
   public byte[] encrypt(byte[] plaintext) {
@@ -82,6 +102,10 @@ public final class FafnirCrypto {
   public byte rotate() {
     KeyRing newRing = KeyFileManager.rotate(secretKeyFilePath, keyRing);
     keyRing = newRing; // every future encryption already uses the new active key from here on
+    // Same rationale as the constructor's own log line -- this is the moment a replica's key
+    // ring content changes, exactly when a peer that never received this rotation would start
+    // computing a different fingerprint from this one.
+    log.info("secrets key ring rotated, new fingerprint={}", newRing.fingerprint());
     for (Tenant tenant : storeClient.listTenants()) {
       for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
         if (!entry.encrypted()) {
