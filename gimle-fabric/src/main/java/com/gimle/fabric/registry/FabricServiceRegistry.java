@@ -337,6 +337,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   /**
+   * Sentinel {@link #effectiveLoad} for an endpoint whose circuit breaker currently excludes it --
+   * larger than any real outstanding-request count could ever be, so an open breaker always loses a
+   * load comparison against a merely-busy endpoint, and a same-machine tier that's entirely open
+   * breakers never wins the tier comparison in {@link #localityAwareCandidates} by default.
+   */
+  private static final int EXCLUDED_LOAD_SENTINEL = Integer.MAX_VALUE;
+
+  /**
    * Prefers same-machine endpoints (this class's existing locality tier), but spills into the
    * remote tier once every same-machine candidate is already busier than the least-loaded remote
    * one -- otherwise a single lightly-loaded same-machine replica would absorb 100% of traffic
@@ -346,6 +354,17 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * factor across the full candidate set; this is a much smaller, single-signal version of the same
    * idea, reusing the outstanding-request counts {@link #selector} already tracks for {@link
    * LeastOutstandingRequestsSelector#select} rather than a new capacity model.
+   *
+   * <p>{@link #effectiveLoad}, not raw outstanding-request count, drives the comparison: an
+   * endpoint whose circuit breaker is open fails fast, so its outstanding count sits near zero and
+   * raw counts alone make it look like the least-loaded candidate in its tier -- exactly backwards,
+   * since it's actually the least *usable* one. Scoring it at {@link #EXCLUDED_LOAD_SENTINEL}
+   * instead means an all-open same-machine tier can never out-rank a remote tier that has even one
+   * candidate whose breaker still allows requests, so this step routes those lookups into the
+   * spilled (same-machine + remote) list, where {@link #selectAllowedCandidate} then does the real
+   * per-endpoint breaker filtering. Without this, such a lookup would stay pinned to a same-machine
+   * tier that never actually gets used, only reaching a remote endpoint once the panic-mode
+   * ejection floor forces every candidate back in regardless of tier.
    */
   private List<ServiceEndpoint> localityAwareCandidates(
       List<ServiceEndpoint> sameMachine, List<ServiceEndpoint> remote) {
@@ -353,16 +372,22 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       return sameMachine.isEmpty() ? remote : sameMachine;
     }
     int leastLoadedSameMachine =
-        sameMachine.stream().mapToInt(selector::outstandingCount).min().orElseThrow();
-    int leastLoadedRemote =
-        remote.stream().mapToInt(selector::outstandingCount).min().orElseThrow();
-    if (leastLoadedSameMachine <= leastLoadedRemote) {
+        sameMachine.stream().mapToInt(this::effectiveLoad).min().orElseThrow();
+    int leastLoadedRemote = remote.stream().mapToInt(this::effectiveLoad).min().orElseThrow();
+    if (leastLoadedSameMachine <= leastLoadedRemote
+        && leastLoadedSameMachine < EXCLUDED_LOAD_SENTINEL) {
       return sameMachine;
     }
     List<ServiceEndpoint> spilled = new ArrayList<>(sameMachine.size() + remote.size());
     spilled.addAll(sameMachine);
     spilled.addAll(remote);
     return spilled;
+  }
+
+  private int effectiveLoad(ServiceEndpoint endpoint) {
+    return breakerFor(endpoint).isExcluded()
+        ? EXCLUDED_LOAD_SENTINEL
+        : selector.outstandingCount(endpoint);
   }
 
   private ServiceEndpoint selectAllowedCandidate(List<ServiceEndpoint> candidates) {

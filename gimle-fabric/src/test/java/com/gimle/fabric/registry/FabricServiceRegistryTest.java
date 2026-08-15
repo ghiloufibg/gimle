@@ -266,6 +266,47 @@ class FabricServiceRegistryTest {
 
   @Test
   @Timeout(15)
+  void an_open_breaker_on_every_same_machine_endpoint_spills_over_to_a_healthy_remote_endpoint()
+      throws Exception {
+    // A same-machine endpoint nothing listens on: raw outstanding-request count alone makes it
+    // look like the least-loaded same-machine candidate (every call fails instantly, so its
+    // outstanding count is always back near zero) -- exactly the failure mode this test guards
+    // against, since a healthy remote endpoint sits idle the whole time.
+    InetSocketAddress deadSameMachineAddress = new InetSocketAddress("127.0.0.1", 1);
+    InetSocketAddress healthyRemoteAddress = startBackend(name -> "remote:" + name);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-dead", OWNER, GREETER_EXPORT, Optional.empty(), deadSameMachineAddress);
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        healthyRemoteAddress);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // The sole same-machine candidate is preferred over the sole remote one while both look
+    // idle, so every one of these calls lands on (and fails against) the dead endpoint --
+    // deterministically driving its breaker open (windowSize=4, errorRateThreshold=0.5, all
+    // failures) without ever touching the remote tier yet.
+    for (int i = 0; i < 4; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertThrows(RuntimeException.class, () -> greeter.greet("x"));
+    }
+
+    // With the dead endpoint's breaker now open, every further lookup must spill over to the
+    // healthy remote endpoint -- never back to the dead same-machine one, and never left routing
+    // nowhere waiting for the panic-mode ejection floor.
+    for (int i = 0; i < 10; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertEquals("remote:x", greeter.greet("x"));
+    }
+  }
+
+  @Test
+  @Timeout(15)
   void an_endpoint_whose_method_throws_an_application_exception_does_not_open_its_breaker()
       throws Exception {
     // The sole endpoint's own implementation always throws -- a real answer from a reachable

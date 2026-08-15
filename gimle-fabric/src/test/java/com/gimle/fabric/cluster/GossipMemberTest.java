@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
+import com.gimle.core.module.Version;
+import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.testsupport.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -12,6 +16,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -129,6 +134,54 @@ class GossipMemberTest {
             a.memberState("node-c").map(s -> s.status() == MemberStatus.DEAD).orElse(false)
                 && b.memberState("node-c").map(s -> s.status() == MemberStatus.DEAD).orElse(false),
         Duration.ofSeconds(15));
+  }
+
+  @Test
+  @Timeout(30)
+  void a_node_marked_dead_via_gossip_has_its_catalog_entries_evicted_without_a_breaker_trip()
+      throws Exception {
+    ServiceExport export = new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"));
+    ModuleId module = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+
+    GossipMember a = newMember("node-a");
+    GossipMember b = newMember("node-b");
+    GossipMember c = newMember("node-c");
+
+    // Only node-a's catalog is under test -- wired to its own GossipMember's membership
+    // transitions exactly as production code (AgentMain) wires it, so this exercises the real
+    // integration rather than calling ServiceCatalog.onMembershipChange directly.
+    ServiceCatalog catalogOnA = new ServiceCatalog();
+    a.attachCatalog(catalogOnA);
+    a.onMembershipChange(catalogOnA::onMembershipChange);
+
+    ServiceCatalog catalogOnC = new ServiceCatalog();
+    c.attachCatalog(catalogOnC);
+    catalogOnC.localRegister(
+        c.self(), "worker-c", module, export, Optional.empty(), new InetSocketAddress(9000));
+
+    a.start();
+    b.start();
+    c.start();
+    b.join(List.of(a.self().gossipAddress()));
+    c.join(List.of(a.self().gossipAddress()));
+
+    // node-c's own registration must first ride gossip's piggyback channel to node-a before this
+    // test can meaningfully assert on its eviction.
+    Await.until(() -> !catalogOnA.endpointsFor(export).isEmpty(), Duration.ofSeconds(10));
+
+    // "kill" node-c the same way a_killed_member_converges_to_dead_across_the_rest does -- no
+    // graceful unregister, purely the SWIM failure detector converging to DEAD.
+    c.close();
+
+    Await.until(
+        () -> a.memberState("node-c").map(s -> s.status() == MemberStatus.DEAD).orElse(false),
+        Duration.ofSeconds(15));
+
+    // The catalog eviction is driven directly by the membership transition above, not by any
+    // caller ever attempting (and failing) a call against node-c's endpoint -- nothing in this
+    // test ever exercises a circuit breaker.
+    Await.until(() -> catalogOnA.endpointsFor(export).isEmpty(), Duration.ofSeconds(5));
+    assertTrue(catalogOnA.endpointsForInterface(export.interfaceName()).isEmpty());
   }
 
   @Test

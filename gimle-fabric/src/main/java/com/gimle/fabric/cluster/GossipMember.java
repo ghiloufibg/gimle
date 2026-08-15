@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -31,6 +32,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
 import org.slf4j.Logger;
@@ -48,7 +50,11 @@ import org.slf4j.LoggerFactory;
  * does that automatically the moment it observes a piggyback entry naming itself as anything other
  * than {@code ALIVE}. Every message this node sends piggybacks its own current {@link MemberState}
  * plus a bounded number of the most-recently-changed other members' states -- the same slot the
- * service catalog rides on.
+ * service catalog rides on. Every local status transition, whether detected directly or learned
+ * secondhand, also fans out synchronously to any {@link #onMembershipChange} listener, so a
+ * component such as the service catalog can react to a member going {@code DEAD} the moment this
+ * node's own gossip view says so, rather than only discovering it once its own circuit breaker
+ * happens to trip against that member's endpoints.
  *
  * <p><b>{@code gimle.transport.protocol=tls}</b>: gossip is UDP, so mTLS here means DTLS (see
  * {@code claudedocs/tls-transport-security-design.md} §2), driven per-peer through {@link
@@ -104,6 +110,8 @@ public final class GossipMember implements AutoCloseable {
    */
   private static final int MAX_LOCAL_HEALTH_MULTIPLIER = 8;
 
+  private final List<Consumer<MemberState>> membershipListeners = new CopyOnWriteArrayList<>();
+
   private volatile boolean running;
   private volatile PiggybackExtension catalogExtension = PiggybackExtension.NONE;
 
@@ -140,6 +148,21 @@ public final class GossipMember implements AutoCloseable {
    */
   public void attachCatalog(PiggybackExtension extension) {
     this.catalogExtension = extension;
+  }
+
+  /**
+   * Registers a callback invoked with a member's resulting {@link MemberState} every time this
+   * node's own local view of that member's status actually changes -- {@code ALIVE -> SUSPECT},
+   * {@code SUSPECT -> DEAD}, a fresh {@code ALIVE} addition/rejoin, or the same transitions learned
+   * secondhand via gossip/anti-entropy rather than this node's own probe. Never fired for a
+   * no-op merge (an unchanged status at an unchanged incarnation). {@code
+   * com.gimle.fabric.catalog.ServiceCatalog} is the intended consumer: SWIM already detects a dead
+   * node cluster-wide in a few seconds, so the catalog subscribes here to evict that node's
+   * endpoints proactively instead of waiting for every independent caller to rediscover the same
+   * fact through its own circuit breaker.
+   */
+  public void onMembershipChange(Consumer<MemberState> listener) {
+    membershipListeners.add(listener);
   }
 
   /** Starts the receive loop and the protocol-period ticker. Idempotent-unsafe: call once. */
@@ -708,10 +731,11 @@ public final class GossipMember implements AutoCloseable {
       return;
     }
     long incarnationToKeep = current == null ? 0 : current.incarnation();
-    members.put(id.nodeId(), new MemberState(id, MemberStatus.ALIVE, incarnationToKeep));
+    MemberState updated = new MemberState(id, MemberStatus.ALIVE, incarnationToKeep);
+    members.put(id.nodeId(), updated);
     suspectedSince.remove(id.nodeId());
     deadSince.remove(id.nodeId());
-    markChanged(id.nodeId());
+    markChanged(updated);
   }
 
   private void markSuspect(MemberId id) {
@@ -719,9 +743,10 @@ public final class GossipMember implements AutoCloseable {
     if (current == null || current.status() != MemberStatus.ALIVE) {
       return;
     }
-    members.put(id.nodeId(), new MemberState(id, MemberStatus.SUSPECT, current.incarnation()));
+    MemberState updated = new MemberState(id, MemberStatus.SUSPECT, current.incarnation());
+    members.put(id.nodeId(), updated);
     suspectedSince.put(id.nodeId(), Instant.now());
-    markChanged(id.nodeId());
+    markChanged(updated);
     log.info("{}: member {} is now SUSPECT", self.nodeId(), id.nodeId());
   }
 
@@ -730,10 +755,11 @@ public final class GossipMember implements AutoCloseable {
     if (current == null || current.status() == MemberStatus.DEAD) {
       return;
     }
-    members.put(nodeId, new MemberState(current.id(), MemberStatus.DEAD, current.incarnation()));
+    MemberState updated = new MemberState(current.id(), MemberStatus.DEAD, current.incarnation());
+    members.put(nodeId, updated);
     suspectedSince.remove(nodeId);
     deadSince.putIfAbsent(nodeId, Instant.now());
-    markChanged(nodeId);
+    markChanged(updated);
     log.info("{}: member {} is now DEAD", self.nodeId(), nodeId);
   }
 
@@ -774,7 +800,7 @@ public final class GossipMember implements AutoCloseable {
     } else {
       deadSince.remove(incoming.id().nodeId());
     }
-    markChanged(incoming.id().nodeId());
+    markChanged(incoming);
     // Real-cluster QA finding (see GossipFailureDetectionIT / QA_FINDINGS.md): {@link
     // #markSuspect}/{@link #markDead} are the only places that log a status transition, but both
     // fire only for a status *this node itself* locally detected via its own probe timeout --
@@ -803,15 +829,23 @@ public final class GossipMember implements AutoCloseable {
     // self-originated probe timing out, since both suggest this node itself may be running slow.
     bumpLocalHealthMultiplier();
     long bumped = incarnation.updateAndGet(n -> Math.max(n, claimAboutSelf.incarnation()) + 1);
-    members.put(self.nodeId(), new MemberState(self, MemberStatus.ALIVE, bumped));
+    MemberState updated = new MemberState(self, MemberStatus.ALIVE, bumped);
+    members.put(self.nodeId(), updated);
     suspectedSince.remove(self.nodeId());
     deadSince.remove(self.nodeId());
-    markChanged(self.nodeId());
+    markChanged(updated);
     log.info(
         "{}: refuting a suspicion of itself, bumping incarnation to {}", self.nodeId(), bumped);
   }
 
-  private void markChanged(String nodeId) {
+  /**
+   * Records {@code state}'s node as recently changed (for piggyback prioritization) and notifies
+   * every {@link #onMembershipChange} listener with the resulting state -- the single choke point
+   * every status-changing call site below routes through, so a listener never has to be wired into
+   * more than one place to see every transition.
+   */
+  private void markChanged(MemberState state) {
+    String nodeId = state.id().nodeId();
     synchronized (recentChangeOrder) {
       recentChangeOrder.remove(nodeId);
       recentChangeOrder.addFirst(nodeId);
@@ -819,6 +853,7 @@ public final class GossipMember implements AutoCloseable {
         recentChangeOrder.removeLast();
       }
     }
+    membershipListeners.forEach(listener -> listener.accept(state));
   }
 
   private List<MemberState> currentPiggyback() {

@@ -5,12 +5,15 @@ import com.gimle.core.module.ServiceExport;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.cluster.PiggybackExtension;
 import java.net.InetSocketAddress;
+import com.gimle.fabric.cluster.MemberState;
+import com.gimle.fabric.cluster.MemberStatus;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -41,6 +44,18 @@ public final class ServiceCatalog implements PiggybackExtension {
   private final Deque<CatalogDelta> recentDeltas = new ArrayDeque<>();
   private final AtomicLong localVersionCounter = new AtomicLong();
   private final List<Consumer<CatalogDelta>> listeners = new CopyOnWriteArrayList<>();
+
+  /**
+   * Nodes this catalog is currently suppressing from every query result, per {@link
+   * #onMembershipChange} -- a purely local overlay, never itself gossiped or versioned. Deliberately
+   * not implemented as tombstoning every affected entry in {@link #byExport} (which would mean
+   * forging a delta under that node's own version sequence): membership is SWIM's own eventually-
+   * consistent local view, so a node's presence or absence here can flip independently on every
+   * cluster member without needing cluster-wide agreement, and the moment gossip says the node is
+   * {@code ALIVE} again its already-registered entries simply become visible again with no
+   * re-registration needed.
+   */
+  private final Set<String> unavailableNodes = ConcurrentHashMap.newKeySet();
 
   public ServiceCatalog() {
     this(DEFAULT_MAX_PIGGYBACK_DELTAS);
@@ -77,6 +92,33 @@ public final class ServiceCatalog implements PiggybackExtension {
             tcpAddress));
   }
 
+  /**
+   * Subscribes this catalog to a {@code GossipMember}'s membership transitions ({@code
+   * gossipMember.onMembershipChange(catalog::onMembershipChange)} at wiring time) so a member
+   * SWIM has independently converged on {@code DEAD} has its registered endpoints proactively
+   * evicted from every query result -- rather than every caller only discovering the same fact
+   * later, and separately, via its own circuit breaker tripping against that member's endpoints.
+   * {@code SUSPECT} is deliberately not acted on here: it's provisional and frequently self-heals
+   * (a slow probe, not a real failure), so evicting on it would trade a false negative (a caller
+   * briefly not learning of a genuinely dead endpoint) for false positives (needlessly routing away
+   * from a merely-slow-to-answer-one-ping endpoint) far more often than it helps.
+   */
+  public void onMembershipChange(MemberState state) {
+    String nodeId = state.id().nodeId();
+    if (state.status() == MemberStatus.DEAD) {
+      if (unavailableNodes.add(nodeId)) {
+        log.info(
+            "catalog marking node {} unavailable (DEAD via gossip); evicting its endpoints from"
+                + " candidacy",
+            nodeId);
+      }
+    } else if (state.status() == MemberStatus.ALIVE) {
+      if (unavailableNodes.remove(nodeId)) {
+        log.info("catalog marking node {} available again (ALIVE via gossip)", nodeId);
+      }
+    }
+  }
+
   /** Called on {@code ControlMessage.ServiceUnregistered}. */
   public void localUnregister(
       MemberId node, String workerId, ModuleId moduleId, ServiceExport export) {
@@ -94,11 +136,12 @@ public final class ServiceCatalog implements PiggybackExtension {
   }
 
   /**
-   * Every currently-present (non-tombstoned) endpoint advertising {@code export}, across every
-   * node/worker in the cluster this node has learned about. Ordered deterministically by {@code
-   * (nodeId, workerId)} -- callers doing least-outstanding-requests selection over this list rely
-   * on stable ordering for round-robin tie-breaking; the backing map itself is a {@code
-   * ConcurrentHashMap} with no ordering guarantee of its own.
+   * Every currently-present (non-tombstoned), currently-available endpoint advertising {@code
+   * export}, across every node/worker in the cluster this node has learned about -- excluding any
+   * endpoint whose owning node {@link #onMembershipChange} has marked unavailable. Ordered
+   * deterministically by {@code (nodeId, workerId)} -- callers doing least-outstanding-requests
+   * selection over this list rely on stable ordering for round-robin tie-breaking; the backing map
+   * itself is a {@code ConcurrentHashMap} with no ordering guarantee of its own.
    */
   public List<ServiceEndpoint> endpointsFor(ServiceExport export) {
     Map<InstanceKey, VersionedEntry> inner = byExport.get(export);
@@ -108,8 +151,13 @@ public final class ServiceCatalog implements PiggybackExtension {
     return inner.values().stream()
         .filter(VersionedEntry::present)
         .map(VersionedEntry::endpoint)
+        .filter(this::isAvailable)
         .sorted(ENDPOINT_ORDER)
         .toList();
+  }
+
+  private boolean isAvailable(ServiceEndpoint endpoint) {
+    return !unavailableNodes.contains(endpoint.node().nodeId());
   }
 
   public boolean hasAnyKnownExporter(ServiceExport export) {
@@ -167,7 +215,7 @@ public final class ServiceCatalog implements PiggybackExtension {
     for (Map.Entry<ServiceExport, Map<InstanceKey, VersionedEntry>> entry : byExport.entrySet()) {
       if (entry.getKey().interfaceName().equals(interfaceName)) {
         for (VersionedEntry versioned : entry.getValue().values()) {
-          if (versioned.present()) {
+          if (versioned.present() && isAvailable(versioned.endpoint())) {
             result.add(versioned.endpoint());
           }
         }
@@ -190,7 +238,7 @@ public final class ServiceCatalog implements PiggybackExtension {
       for (Map.Entry<InstanceKey, VersionedEntry> instanceEntry :
           exportEntry.getValue().entrySet()) {
         VersionedEntry versioned = instanceEntry.getValue();
-        if (!versioned.present()) {
+        if (!versioned.present() || !isAvailable(versioned.endpoint())) {
           continue;
         }
         InstanceKey key = instanceEntry.getKey();
