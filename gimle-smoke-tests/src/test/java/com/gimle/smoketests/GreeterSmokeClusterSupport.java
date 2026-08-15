@@ -26,6 +26,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -123,6 +124,21 @@ abstract class GreeterSmokeClusterSupport {
 
   final HttpClient httpClient = HttpClient.newHttpClient();
 
+  // Lets the static await() below (called from every concrete *IT class, never with tempDir in
+  // scope -- it's an instance field) report where this test's process logs actually are on a
+  // timeout, its most common failure mode: previously only runPlaywrightSuite's own failure
+  // pointed at a log location at all. A ThreadLocal, not a plain static field, because
+  // junit.jupiter.execution.parallel.mode.classes.default=concurrent (root pom) can run multiple
+  // *IT classes' instances on different threads at once, each needing its own tempDir; JUnit
+  // Jupiter guarantees one test instance's @BeforeEach/test-method/@AfterEach all run on the same
+  // thread, so thread-affinity here is safe.
+  private static final ThreadLocal<Path> CURRENT_TEMP_DIR = new ThreadLocal<>();
+
+  @BeforeEach
+  void rememberTempDirForAwaitFailures() {
+    CURRENT_TEMP_DIR.set(tempDir);
+  }
+
   @AfterEach
   void tearDown() {
     // Reverse of spawn order (store nodes, then control-plane replicas, then the agent), so
@@ -131,6 +147,11 @@ abstract class GreeterSmokeClusterSupport {
     for (int i = processes.size() - 1; i >= 0; i--) {
       killWithDescendants(processes.get(i));
     }
+    // Not strictly required for correctness (the next test on this thread overwrites it in its
+    // own @BeforeEach before any await() could read it), but leaving a dead test's tempDir
+    // reachable from a thread-pool-reused thread is the kind of stale-reference footgun worth
+    // just not having.
+    CURRENT_TEMP_DIR.remove();
   }
 
   static void killWithDescendants(Process process) {
@@ -2276,15 +2297,29 @@ abstract class GreeterSmokeClusterSupport {
     long deadline = System.nanoTime() + timeout.toNanos();
     while (!condition.getAsBoolean()) {
       if (System.nanoTime() > deadline) {
-        throw new AssertionError("condition not met within " + timeout + ": " + description);
+        throw new AssertionError(
+            "condition not met within " + timeout + ": " + description + tempDirSuffix());
       }
       try {
         Thread.sleep(500);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        throw new AssertionError("interrupted while waiting for: " + description, e);
+        throw new AssertionError(
+            "interrupted while waiting for: " + description + tempDirSuffix(), e);
       }
     }
+  }
+
+  /**
+   * {@code " (see <tempDir>)"} when called from a test's own thread, {@code ""} otherwise (a
+   * static-context caller with no current test instance, e.g. {@code @BeforeAll} setup) -- see
+   * {@link #CURRENT_TEMP_DIR}'s own javadoc for why this can't just take {@code tempDir} as a
+   * parameter without changing every existing {@link #await} call site across every {@code *IT}
+   * class.
+   */
+  private static String tempDirSuffix() {
+    Path dir = CURRENT_TEMP_DIR.get();
+    return dir == null ? "" : " (see " + dir + ")";
   }
 
   static Path repoRoot() {
