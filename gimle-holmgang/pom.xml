@@ -110,6 +110,13 @@
       <artifactId>gimle-cli</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- LaunchPlanner/Topology: this class now builds a gimle-hilmir Topology from ClusterSpec and
+         hands it to LaunchPlanner rather than hand-building process commands itself. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hilmir</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!--
       TestModuleBuilder (compiles a real, tiny JPMS module in-process via javax.tools): builds
       genuine chaos/upgrade variants of greeter-provider at scenario run time (a real v1.1.0 for
