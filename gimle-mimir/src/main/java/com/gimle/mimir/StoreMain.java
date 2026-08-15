@@ -85,10 +85,11 @@ public final class StoreMain {
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
-    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
-    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
-    // simply aren't shipped anywhere.
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern --
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped
+    // anywhere. Accepts a comma-separated list of Muninn replicas as well as a single endpoint.
     String muninnEndpoint = System.getProperty("gimle.store.muninnEndpoint");
+    List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
 
     System.setProperty("gimle.process.role", "STORE");
     System.setProperty("gimle.node.id", selfRaftId);
@@ -156,7 +157,7 @@ public final class StoreMain {
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint, "/ingest/metrics/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
+                muninnEndpoints, "/ingest/metrics/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(storeMetrics.registry());
     }
@@ -168,7 +169,7 @@ public final class StoreMain {
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint, "/ingest/traces/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
+                muninnEndpoints, "/ingest/traces/STORE/" + selfRaftId, MUNINN_SHIP_INTERVAL);
     if (tracesShipper != null) {
       GimleTracing.installWithMuninnShipping(tracesShipper);
     } else {

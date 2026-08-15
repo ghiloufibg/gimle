@@ -98,15 +98,16 @@ public final class FafnirMain {
     FafnirServer fafnirServer = new FafnirServer(crypto, port);
     fafnirServer.start();
 
-    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern
-    // (design doc Part B/O-10) -- null means "ship nowhere," this replica's own request metrics
-    // simply aren't shipped anywhere.
+    // Optional system property, matching gimle-agent's own gimle.agent.muninnEndpoint pattern --
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped
+    // anywhere. Accepts a comma-separated list of Muninn replicas as well as a single endpoint.
     String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
+    List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
     MuninnShipper metricsShipper =
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint,
+                muninnEndpoints,
                 "/ingest/metrics/FAFNIR/" + selfHost + ":" + fafnirServer.port(),
                 MUNINN_SHIP_INTERVAL);
     if (metricsShipper != null) {
@@ -120,7 +121,7 @@ public final class FafnirMain {
         muninnEndpoint == null
             ? null
             : new MuninnShipper(
-                muninnEndpoint,
+                muninnEndpoints,
                 "/ingest/traces/FAFNIR/" + selfHost + ":" + fafnirServer.port(),
                 MUNINN_SHIP_INTERVAL);
     if (tracesShipper != null) {

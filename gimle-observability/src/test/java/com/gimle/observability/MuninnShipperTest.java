@@ -84,7 +84,7 @@ class MuninnShipperTest {
    */
   private MuninnShipper shipperOn(TestScheduler scheduler, Duration tickInterval) {
     return new MuninnShipper(
-        "127.0.0.1:" + stub.getAddress().getPort(),
+        List.of("127.0.0.1:" + stub.getAddress().getPort()),
         "/ingest",
         tickInterval,
         Optional.empty(),
@@ -158,6 +158,88 @@ class MuninnShipperTest {
     // And having succeeded, the cursor has advanced: further ticks ship nothing at all.
     scheduler.advance(SHIP_INTERVAL.multipliedBy(2));
     assertEquals(3, receivedBodies.size());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_batch_ships_to_every_configured_endpoint(@TempDir Path tempDir, TestClock clock)
+      throws Exception {
+    List<String> firstReceived = new CopyOnWriteArrayList<>();
+    List<String> secondReceived = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              firstReceived.add(body);
+              return 200;
+            });
+    HttpServer secondStub =
+        startStub(
+            body -> {
+              secondReceived.add(body);
+              return 200;
+            });
+    try {
+      Path logFile = tempDir.resolve("app.log");
+      Files.writeString(logFile, structuredLine("2026-08-10T10:00:00Z", "fan-out") + "\n");
+
+      TestScheduler scheduler = new TestScheduler(clock);
+      shipper =
+          new MuninnShipper(
+              List.of(
+                  "127.0.0.1:" + stub.getAddress().getPort(),
+                  "127.0.0.1:" + secondStub.getAddress().getPort()),
+              "/ingest",
+              SHIP_INTERVAL,
+              Optional.empty(),
+              scheduler);
+      shipper.startShippingLogFile(logFile, 1);
+
+      scheduler.runUntilIdle();
+      assertEquals(1, firstReceived.size());
+      assertEquals(1, secondReceived.size());
+      assertTrue(firstReceived.get(0).contains("\"message\":\"fan-out\""));
+      assertTrue(secondReceived.get(0).contains("\"message\":\"fan-out\""));
+    } finally {
+      secondStub.stop(0);
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_batch_still_lands_on_reachable_endpoints_when_one_configured_endpoint_is_down(
+      @TempDir Path tempDir, TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    Path logFile = tempDir.resolve("app.log");
+    Files.writeString(logFile, structuredLine("2026-08-10T10:00:00Z", "survives") + "\n");
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper =
+        new MuninnShipper(
+            // 127.0.0.1:1 is a privileged, never-listening port -- connection refused every
+            // time, a deterministic stand-in for "this replica is down" (the same trick
+            // MuninnSpanExporterTest already uses for its own unreachable-endpoint case).
+            List.of("127.0.0.1:1", "127.0.0.1:" + stub.getAddress().getPort()),
+            "/ingest",
+            SHIP_INTERVAL,
+            Optional.empty(),
+            scheduler);
+    shipper.startShippingLogFile(logFile, 1);
+
+    scheduler.runUntilIdle();
+    assertEquals(1, receivedBodies.size());
+    assertTrue(receivedBodies.get(0).contains("\"message\":\"survives\""));
+
+    // The cursor advanced despite the down endpoint -- a further tick with no new lines re-ships
+    // nothing, proving the batch was not silently retried forever because of the one failure.
+    scheduler.advance(SHIP_INTERVAL.multipliedBy(3));
+    assertEquals(1, receivedBodies.size());
   }
 
   @Test
