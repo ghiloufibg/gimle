@@ -165,10 +165,12 @@ public final class AgentMain {
     // config keeps working unchanged.
     String muninnEndpoint = System.getProperty("gimle.agent.muninnEndpoint");
     // Same optional posture again: null is a legitimate state -- an agent whose assignments all
-    // carry an explicit artifactPath never needs the artifact registry at all.
+    // carry an explicit artifactPath never needs the artifact registry at all. One or more
+    // comma-separated host:port entries, one per peer-syncing Andvari replica -- ArtifactPullCache
+    // fails over between them itself (see its own javadoc), so an unreachable replica never stalls
+    // a resolution a different configured one could have answered.
     String andvariEndpoint = System.getProperty("gimle.agent.andvariEndpoint");
-    URI andvariBaseUrl =
-        andvariEndpoint == null ? null : URI.create(baseUrl.getScheme() + "://" + andvariEndpoint);
+    List<URI> andvariBaseUrls = parseAndvariEndpoints(andvariEndpoint, baseUrl.getScheme());
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
@@ -256,7 +258,7 @@ public final class AgentMain {
             httpClient,
             baseUrl,
             fafnirBaseUrl,
-            andvariBaseUrl,
+            andvariBaseUrls,
             artifactCache,
             muninnEndpoint,
             nodeId,
@@ -304,6 +306,25 @@ public final class AgentMain {
       seeds.add(parseHostPort(entry));
     }
     return seeds;
+  }
+
+  /**
+   * One or more comma-separated {@code host:port} Andvari replicas, resolved into base URIs under
+   * {@code scheme} -- empty when {@code andvariEndpoint} is {@code null}, the "no registry
+   * configured" state {@link #resolveArtifactReference} already handles.
+   */
+  private static List<URI> parseAndvariEndpoints(String andvariEndpoint, String scheme) {
+    if (andvariEndpoint == null || andvariEndpoint.isBlank()) {
+      return List.of();
+    }
+    List<URI> endpoints = new ArrayList<>();
+    for (String entry : andvariEndpoint.split(",")) {
+      String trimmed = entry.trim();
+      if (!trimmed.isEmpty()) {
+        endpoints.add(URI.create(scheme + "://" + trimmed));
+      }
+    }
+    return endpoints;
   }
 
   /**
@@ -775,7 +796,7 @@ public final class AgentMain {
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
-      URI andvariBaseUrl,
+      List<URI> andvariBaseUrls,
       ArtifactPullCache artifactCache,
       String muninnEndpoint,
       String nodeId,
@@ -802,7 +823,7 @@ public final class AgentMain {
       // assignment as a replacement and restart the instance every tick.
       AssignedInstance assigned;
       try {
-        assigned = resolveArtifactReference(httpClient, andvariBaseUrl, artifactCache, fetched);
+        assigned = resolveArtifactReference(httpClient, andvariBaseUrls, artifactCache, fetched);
       } catch (RuntimeException e) {
         log.error("failed to resolve artifact for instance {}: {}", key, e.getMessage());
         // Surfaced as a durable TRANSITION_FAILED timeline event, not only this replica-local log
@@ -1826,13 +1847,13 @@ public final class AgentMain {
    */
   private static AssignedInstance resolveArtifactReference(
       HttpClient httpClient,
-      URI andvariBaseUrl,
+      List<URI> andvariBaseUrls,
       ArtifactPullCache artifactCache,
       AssignedInstance fetched) {
     if (ArtifactReference.isLocalPath(fetched.artifactPath())) {
       return fetched;
     }
-    if (andvariBaseUrl == null) {
+    if (andvariBaseUrls.isEmpty()) {
       throw new GimleManifestException(
           "assignment "
               + fetched.deploymentName()
@@ -1843,7 +1864,7 @@ public final class AgentMain {
               + " from the artifact registry, but this agent has no"
               + " -Dgimle.agent.andvariEndpoint configured");
     }
-    Path jar = artifactCache.resolve(httpClient, andvariBaseUrl, fetched.moduleId());
+    Path jar = artifactCache.resolve(httpClient, andvariBaseUrls, fetched.moduleId());
     return new AssignedInstance(
         fetched.deploymentName(),
         fetched.instanceIndex(),

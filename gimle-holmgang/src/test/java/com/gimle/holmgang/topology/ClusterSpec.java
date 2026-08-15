@@ -25,12 +25,23 @@ public record ClusterSpec(
     int fafnirReplicas,
     boolean muninnEnabled,
     boolean andvariEnabled,
+    int andvariReplicas,
     List<NodeSpec> nodes,
     boolean faultsProxied,
     Map<ProcessRole, List<String>> extraJvmFlags,
     SeedSpec seed) {
 
   public ClusterSpec {
+    // andvariReplicas is the actual replica count behind andvariEnabled -- normalized here so
+    // every other reader (GimleCluster's own port planning/process spawning) can trust it alone
+    // rather than re-deriving "how many" from the older enabled flag on every use.
+    if (andvariEnabled && andvariReplicas < 1) {
+      throw new GimleManifestException(
+          "andvari.replicas must be >= 1 when andvari is enabled, got " + andvariReplicas);
+    }
+    if (!andvariEnabled) {
+      andvariReplicas = 0;
+    }
     if (name == null || name.isBlank()) {
       throw new GimleManifestException("topology name must be a non-blank string");
     }

@@ -135,6 +135,21 @@ Every stored jar carries its SHA-256 checksum, computed server-side as the uploa
 and returned on every pull (`X-Gimle-Artifact-Sha256`), so a consumer can verify integrity
 end-to-end.
 
+Multiple replicas share the same catalog without any consensus protocol: each replica accepts
+pushes independently, and a periodic peer-sync tick walks every configured peer's catalog, pulling
+in whatever coordinate is missing locally through the identical streamed, digest-verified download
+path a client's own push already goes through. That works only because of the immutability
+guarantee above — an identical push landing on two different replicas converges to the same bytes,
+so there's nothing to reconcile beyond "does this replica have it yet." A replica is started with
+`--peer-endpoints host:port,...` naming its peers; every caller of Andvari (the control plane's
+proxy, and each node agent's own pull-through cache) can likewise be configured with more than one
+`host:port` — `--andvari-endpoint`/`gimle.agent.andvariEndpoint` accept a comma-separated list —
+and rotates through them, failing over to the next configured endpoint on an unreachable one.
+Andvari has no leader the way `gimle-mimir` does, so every replica is equally eligible to answer a
+pull; a push still goes to exactly one endpoint per call (a request body can only be sent once, so
+there is no safe way to retry it against a second endpoint), relying on the next peer-sync tick to
+propagate it to the rest.
+
 Andvari holds its own `StoreClient` against the same `gimle-mimir` cluster and re-runs its own
 independent `Authorizer.authorize(...)` check on every push and delete — the same defense-in-depth
 posture Fafnir and Muninn established — and records each such decision in the durable audit log. A

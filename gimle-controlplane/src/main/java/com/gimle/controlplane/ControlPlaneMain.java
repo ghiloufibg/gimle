@@ -93,7 +93,7 @@ public final class ControlPlaneMain {
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
               + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
               + " [--host <hostname>] [--muninn-endpoint host1:port1,host2:port2,...]"
-              + " [--andvari-endpoint host:port]");
+              + " [--andvari-endpoint host:port[,host:port...]]");
       System.exit(2);
       return;
     }

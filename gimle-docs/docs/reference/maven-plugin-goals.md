@@ -66,6 +66,7 @@ artifact by coordinate instead of a local `artifactPath`.
 | `gimle.andvari.dataRoot` | `${project.build.directory}/gimle-andvari-data` | Where pushed jars persist to disk, content-addressed by `(moduleId, version)`. |
 | `gimle.andvari.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
 | `gimle.andvari.csrEndpoint` | *(unset)* | `host:port` of a reachable `ApiServer` to submit this replica's own certificate-rotation CSRs to — only meaningful in TLS mode. |
+| `gimle.andvari.peerEndpoints` | *(unset)* | `host:port,...` of every *other* Andvari replica to peer-sync against — see [Node topology](../architecture/node-topology.md#andvari). Unset means a single, unreplicated registry. |
 | `gimle.andvari.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 
 ```bash
@@ -103,7 +104,7 @@ itself](../architecture/node-topology.md)). Requires `mvn install` to have alrea
 | `gimle.agent.controlPlaneUrl` | `http://127.0.0.1:8080` | Control plane to register with. |
 | `gimle.agent.gossipAddress` | `127.0.0.1:9090` | This node's own gossip listen address — see [Service fabric](../architecture/service-fabric.md). |
 | `gimle.agent.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
-| `gimle.agent.andvariEndpoint` | *(unset)* | `host:port` of the artifact registry to pull module jars from on a coordinate-only deployment's cache miss — see [Node topology](../architecture/node-topology.md#andvari). An agent whose tenants only ever use a local `artifactPath` never needs this configured. |
+| `gimle.agent.andvariEndpoint` | *(unset)* | `host:port,...` of one or more artifact registry replicas to pull module jars from on a coordinate-only deployment's cache miss, rotating and failing over between them — see [Node topology](../architecture/node-topology.md#andvari). An agent whose tenants only ever use a local `artifactPath` never needs this configured. |
 
 ```bash
 # A second agent alongside the first, on the same machine
