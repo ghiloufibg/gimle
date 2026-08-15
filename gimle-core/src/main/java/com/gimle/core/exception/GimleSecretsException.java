@@ -53,4 +53,15 @@ public class GimleSecretsException extends RuntimeException {
             + attempts
             + " contended attempts");
   }
+
+  /**
+   * A vessel's {@code env:} block named a Fafnir secret key that either doesn't exist for its
+   * tenant or was soft-deleted -- thrown at spawn time, before the process is ever started, rather
+   * than starting it with a missing environment variable and leaving the failure to surface however
+   * that program happens to react to it.
+   */
+  public static GimleSecretsException secretNotFound(String tenantId, String key) {
+    return new GimleSecretsException(
+        "no secret " + key + " found for tenant " + tenantId + " (or it has been deleted)");
+  }
 }

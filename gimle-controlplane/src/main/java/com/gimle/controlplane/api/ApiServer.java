@@ -2122,7 +2122,20 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "queueDepth", 0).intValue(),
         numberField(map, "cpuMillicoresUsed", 0L).longValue(),
         numberField(map, "memoryBytesUsed", 0L).longValue(),
-        numberField(map, "errorRatePerSecond", 0.0).doubleValue());
+        numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
+        portsFromJson(map.get("ports")));
+  }
+
+  /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
+  private static Map<String, Integer> portsFromJson(Object raw) {
+    if (!(raw instanceof Map<?, ?> map)) {
+      return Map.of();
+    }
+    Map<String, Integer> ports = new LinkedHashMap<>();
+    for (Map.Entry<?, ?> entry : map.entrySet()) {
+      ports.put((String) entry.getKey(), ((Number) entry.getValue()).intValue());
+    }
+    return ports;
   }
 
   private static Number numberField(Map<?, ?> map, String key, Number defaultValue) {
