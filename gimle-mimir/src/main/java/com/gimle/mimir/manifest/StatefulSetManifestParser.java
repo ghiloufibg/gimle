@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
@@ -54,10 +55,11 @@ public final class StatefulSetManifestParser {
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
+    Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
 
     try {
       return new StatefulSetSpec(
-          name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256);
+          name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256, vessel);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid statefulset manifest for " + name + ": " + e.getMessage(), e);

@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.util.Optional;
 
 /**
@@ -28,7 +29,8 @@ public record DaemonSetSpec(
     PlacementConstraints placement,
     Optional<String> tenantId,
     Optional<String> artifactSha256,
-    Optional<DisruptionBudget> disruption)
+    Optional<DisruptionBudget> disruption,
+    Optional<VesselSpec> vessel)
     implements WorkloadSpec {
 
   public DaemonSetSpec {
@@ -56,6 +58,29 @@ public record DaemonSetSpec(
     if (disruption == null) {
       throw new IllegalArgumentException("disruption must be Optional.empty(), not null");
     }
+    if (vessel == null) {
+      throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code vessel} to {@code Optional.empty()}. */
+  public DaemonSetSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      PlacementConstraints placement,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256,
+      Optional<DisruptionBudget> disruption) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        placement,
+        tenantId,
+        artifactSha256,
+        disruption,
+        Optional.empty());
   }
 
   /** Back-compat: defaults {@code disruption} to {@code Optional.empty()}. */

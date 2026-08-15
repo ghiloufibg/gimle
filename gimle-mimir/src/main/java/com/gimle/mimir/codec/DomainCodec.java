@@ -9,6 +9,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
@@ -20,6 +21,11 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselFileMount;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselProbes;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
@@ -42,6 +48,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -89,6 +96,7 @@ public final class DomainCodec {
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
     writeOptionalDisruptionBudget(out, spec.disruption());
+    writeOptionalVesselSpec(out, spec.vessel());
   }
 
   public static DeploymentSpec readDeploymentSpec(DataInputStream in) throws IOException {
@@ -101,6 +109,7 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
     Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
+    Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
     return new DeploymentSpec(
         name,
         moduleId,
@@ -110,7 +119,8 @@ public final class DomainCodec {
         autoscale,
         tenantId,
         artifactSha256,
-        disruption);
+        disruption,
+        vessel);
   }
 
   public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {
@@ -122,6 +132,7 @@ public final class DomainCodec {
     out.writeInt(spec.backoffLimit());
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
+    writeOptionalVesselSpec(out, spec.vessel());
   }
 
   public static JobSpec readJobSpec(DataInputStream in) throws IOException {
@@ -133,6 +144,7 @@ public final class DomainCodec {
     int backoffLimit = in.readInt();
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
+    Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
     return new JobSpec(
         name,
         moduleId,
@@ -141,7 +153,8 @@ public final class DomainCodec {
         activeDeadline,
         backoffLimit,
         tenantId,
-        artifactSha256);
+        artifactSha256,
+        vessel);
   }
 
   public static void writeJobRun(DataOutputStream out, JobRun run) throws IOException {
@@ -170,6 +183,7 @@ public final class DomainCodec {
     writePlacementConstraints(out, template.placement());
     writeOptionalDuration(out, template.activeDeadline());
     out.writeInt(template.backoffLimit());
+    writeOptionalVesselSpec(out, template.vessel());
   }
 
   public static JobTemplate readJobTemplate(DataInputStream in) throws IOException {
@@ -178,7 +192,8 @@ public final class DomainCodec {
     PlacementConstraints placement = readPlacementConstraints(in);
     Optional<Duration> activeDeadline = readOptionalDuration(in);
     int backoffLimit = in.readInt();
-    return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit);
+    Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
+    return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit, vessel);
   }
 
   public static void writeCronJobSpec(DataOutputStream out, CronJobSpec spec) throws IOException {
@@ -210,6 +225,7 @@ public final class DomainCodec {
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
     writeOptionalDisruptionBudget(out, spec.disruption());
+    writeOptionalVesselSpec(out, spec.vessel());
   }
 
   public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
@@ -220,8 +236,9 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
     Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
+    Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
     return new DaemonSetSpec(
-        name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption);
+        name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption, vessel);
   }
 
   public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
@@ -249,6 +266,7 @@ public final class DomainCodec {
     writePlacementConstraints(out, spec.placement());
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
+    writeOptionalVesselSpec(out, spec.vessel());
   }
 
   public static StatefulSetSpec readStatefulSetSpec(DataInputStream in) throws IOException {
@@ -259,8 +277,9 @@ public final class DomainCodec {
     PlacementConstraints placement = readPlacementConstraints(in);
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
+    Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
     return new StatefulSetSpec(
-        name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256);
+        name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256, vessel);
   }
 
   public static void writeStatefulSetAssignment(
@@ -396,6 +415,149 @@ public final class DomainCodec {
     int maxUnavailable = in.readInt();
     int maxSurge = in.readInt();
     return Optional.of(new DisruptionBudget(maxUnavailable, maxSurge));
+  }
+
+  /**
+   * {@link VesselSpec}'s own wire shape: every list/map field length-prefixed the same way {@link
+   * #writePlacementConstraints}'s label set already is, the env-value union tagged with a single
+   * leading byte, and the probe ladder's two rungs each a presence flag plus a one-byte kind tag
+   * ({@code 0} = TCP, {@code 1} = HTTP) -- {@code Tcp}/{@code Http} don't need a third {@code
+   * ProcessAlive} tag here, since "absent" already carries that meaning on the wire exactly as it
+   * does in {@link VesselProbes} itself.
+   */
+  public static void writeOptionalVesselSpec(DataOutputStream out, Optional<VesselSpec> vessel)
+      throws IOException {
+    out.writeBoolean(vessel.isPresent());
+    if (vessel.isEmpty()) {
+      return;
+    }
+    VesselSpec v = vessel.get();
+    out.writeInt(v.args().size());
+    for (String arg : v.args()) {
+      out.writeUTF(arg);
+    }
+    out.writeInt(v.jvmFlags().size());
+    for (String flag : v.jvmFlags()) {
+      out.writeUTF(flag);
+    }
+    out.writeInt(v.env().size());
+    for (var entry : v.env().entrySet()) {
+      out.writeUTF(entry.getKey());
+      writeVesselEnvValue(out, entry.getValue());
+    }
+    out.writeInt(v.files().size());
+    for (var file : v.files()) {
+      out.writeUTF(file.path());
+      out.writeUTF(file.configKey());
+    }
+    writeOptionalVesselProbeSpec(out, v.probes().liveness());
+    writeOptionalVesselProbeSpec(out, v.probes().readiness());
+    writeResourceSpec(out, v.resourceRequest());
+    writeResourceSpec(out, v.resourceLimit());
+  }
+
+  public static Optional<VesselSpec> readOptionalVesselSpec(DataInputStream in) throws IOException {
+    if (!in.readBoolean()) {
+      return Optional.empty();
+    }
+    int argCount = in.readInt();
+    List<String> args = new ArrayList<>();
+    for (int i = 0; i < argCount; i++) {
+      args.add(in.readUTF());
+    }
+    int flagCount = in.readInt();
+    List<String> jvmFlags = new ArrayList<>();
+    for (int i = 0; i < flagCount; i++) {
+      jvmFlags.add(in.readUTF());
+    }
+    int envCount = in.readInt();
+    LinkedHashMap<String, VesselEnvValue> env = new LinkedHashMap<>();
+    for (int i = 0; i < envCount; i++) {
+      String key = in.readUTF();
+      env.put(key, readVesselEnvValue(in));
+    }
+    int fileCount = in.readInt();
+    List<VesselFileMount> files = new ArrayList<>();
+    for (int i = 0; i < fileCount; i++) {
+      files.add(new VesselFileMount(in.readUTF(), in.readUTF()));
+    }
+    Optional<VesselProbeSpec> liveness = readOptionalVesselProbeSpec(in);
+    Optional<VesselProbeSpec> readiness = readOptionalVesselProbeSpec(in);
+    VesselProbes probes = new VesselProbes(liveness, readiness);
+    ResourceSpec request = readResourceSpec(in);
+    ResourceSpec limit = readResourceSpec(in);
+    return Optional.of(new VesselSpec(args, jvmFlags, env, files, probes, request, limit));
+  }
+
+  private static void writeVesselEnvValue(DataOutputStream out, VesselEnvValue value)
+      throws IOException {
+    switch (value) {
+      case VesselEnvValue.Literal literal -> {
+        out.writeByte(0);
+        out.writeUTF(literal.value());
+      }
+      case VesselEnvValue.SecretRef secretRef -> {
+        out.writeByte(1);
+        out.writeUTF(secretRef.key());
+      }
+      case VesselEnvValue.PortAllocation portAllocation -> {
+        out.writeByte(2);
+        writeOptionalInt(out, portAllocation.fixedPort());
+      }
+    }
+  }
+
+  private static VesselEnvValue readVesselEnvValue(DataInputStream in) throws IOException {
+    int tag = in.readUnsignedByte();
+    return switch (tag) {
+      case 0 -> new VesselEnvValue.Literal(in.readUTF());
+      case 1 -> new VesselEnvValue.SecretRef(in.readUTF());
+      case 2 -> new VesselEnvValue.PortAllocation(readOptionalInt(in));
+      default -> throw new IllegalStateException("unknown vessel env value tag: " + tag);
+    };
+  }
+
+  private static void writeOptionalVesselProbeSpec(
+      DataOutputStream out, Optional<VesselProbeSpec> probe) throws IOException {
+    out.writeBoolean(probe.isPresent());
+    if (probe.isEmpty()) {
+      return;
+    }
+    switch (probe.get()) {
+      case VesselProbeSpec.Tcp tcp -> {
+        out.writeByte(0);
+        out.writeInt(tcp.initialDelaySeconds());
+      }
+      case VesselProbeSpec.Http http -> {
+        out.writeByte(1);
+        out.writeInt(http.initialDelaySeconds());
+        out.writeUTF(http.path());
+      }
+    }
+  }
+
+  private static Optional<VesselProbeSpec> readOptionalVesselProbeSpec(DataInputStream in)
+      throws IOException {
+    if (!in.readBoolean()) {
+      return Optional.empty();
+    }
+    int tag = in.readUnsignedByte();
+    int initialDelaySeconds = in.readInt();
+    return switch (tag) {
+      case 0 -> Optional.of(new VesselProbeSpec.Tcp(initialDelaySeconds));
+      case 1 -> Optional.of(new VesselProbeSpec.Http(in.readUTF(), initialDelaySeconds));
+      default -> throw new IllegalStateException("unknown vessel probe tag: " + tag);
+    };
+  }
+
+  private static void writeResourceSpec(DataOutputStream out, ResourceSpec spec)
+      throws IOException {
+    out.writeUTF(spec.memory());
+    out.writeUTF(spec.cpu());
+  }
+
+  private static ResourceSpec readResourceSpec(DataInputStream in) throws IOException {
+    return new ResourceSpec(in.readUTF(), in.readUTF());
   }
 
   public static void writeOptionalDouble(DataOutputStream out, OptionalDouble value)
@@ -608,6 +770,11 @@ public final class DomainCodec {
     out.writeLong(obs.cpuMillicoresUsed());
     out.writeLong(obs.memoryBytesUsed());
     out.writeDouble(obs.errorRatePerSecond());
+    out.writeInt(obs.ports().size());
+    for (var entry : obs.ports().entrySet()) {
+      out.writeUTF(entry.getKey());
+      out.writeInt(entry.getValue());
+    }
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -622,6 +789,12 @@ public final class DomainCodec {
     long cpuMillicoresUsed = in.readLong();
     long memoryBytesUsed = in.readLong();
     double errorRatePerSecond = in.readDouble();
+    int portCount = in.readInt();
+    LinkedHashMap<String, Integer> ports = new LinkedHashMap<>();
+    for (int i = 0; i < portCount; i++) {
+      String portName = in.readUTF();
+      ports.put(portName, in.readInt());
+    }
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -633,7 +806,8 @@ public final class DomainCodec {
         queueDepth,
         cpuMillicoresUsed,
         memoryBytesUsed,
-        errorRatePerSecond);
+        errorRatePerSecond,
+        ports);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

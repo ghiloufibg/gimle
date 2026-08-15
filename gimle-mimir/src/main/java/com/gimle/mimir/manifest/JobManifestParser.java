@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.Map;
@@ -57,6 +58,7 @@ public final class JobManifestParser {
     int backoffLimit = parseBackoffLimit(root);
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
+    Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
 
     try {
       return new JobSpec(
@@ -67,7 +69,8 @@ public final class JobManifestParser {
           activeDeadline,
           backoffLimit,
           tenantId,
-          artifactSha256);
+          artifactSha256,
+          vessel);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid job manifest for " + name + ": " + e.getMessage(), e);
