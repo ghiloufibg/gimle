@@ -1,6 +1,7 @@
 package com.gimle.core.protocol;
 
 import com.gimle.core.module.ModuleId;
+import java.util.Map;
 
 /**
  * One node's current view of one deployment instance it's supervising: which module it's running,
@@ -17,6 +18,12 @@ import com.gimle.core.module.ModuleId;
  * metrics. {@code errorRatePerSecond} was added after the other four -- appended last, with the
  * pre-existing ten-argument constructor preserved as an overload, so every call site built against
  * the earlier shape keeps compiling unchanged.
+ *
+ * <p>{@code ports}, keyed by the {@code vessel.env} variable name each was declared under (e.g.
+ * {@code "HTTP_PORT"}), carries a vessel instance's own agent-allocated or fixed port numbers --
+ * empty for every non-vessel instance, and for a vessel that declares none. This is what {@code GET
+ * /endpoints/{deployment}} joins against a node's own registered address to answer "where is this
+ * instance actually reachable."
  */
 public record InstanceObservation(
     String deploymentName,
@@ -29,7 +36,8 @@ public record InstanceObservation(
     int queueDepth,
     long cpuMillicoresUsed,
     long memoryBytesUsed,
-    double errorRatePerSecond) {
+    double errorRatePerSecond,
+    Map<String, Integer> ports) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -44,6 +52,38 @@ public record InstanceObservation(
     if (lifecycleState == null || lifecycleState.isBlank()) {
       throw new IllegalArgumentException("lifecycleState must not be blank");
     }
+    if (ports == null) {
+      throw new IllegalArgumentException("ports must not be null; use Map.of()");
+    }
+    ports = Map.copyOf(ports);
+  }
+
+  /** Back-compat: defaults {@code ports} to an empty map. */
+  public InstanceObservation(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String lifecycleState,
+      boolean alive,
+      boolean ready,
+      double requestRatePerSecond,
+      int queueDepth,
+      long cpuMillicoresUsed,
+      long memoryBytesUsed,
+      double errorRatePerSecond) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        lifecycleState,
+        alive,
+        ready,
+        requestRatePerSecond,
+        queueDepth,
+        cpuMillicoresUsed,
+        memoryBytesUsed,
+        errorRatePerSecond,
+        Map.of());
   }
 
   public InstanceObservation(
