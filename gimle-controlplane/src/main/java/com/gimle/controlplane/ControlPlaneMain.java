@@ -49,12 +49,12 @@ import org.slf4j.LoggerFactory;
  * independent in what they each compute, and each of the lease renewal, reconcile, and certificate
  * rotation ticks now runs on its own dedicated executor rather than one shared ticker thread -- see
  * {@link #scheduleIndependentTickers} for why. Tick order within a single reconcile pass still
- * matters for same-tick convergence, not for
- * correctness across ticks: {@link ReplicaCountReconciler} and {@link HealthReconciler} release
- * assignments that are missing or unhealthy, and {@link DeploymentReconciler} -- run last -- fills
- * every gap that exists by the time it runs, whether that gap is from a prior tick or this one.
- * {@link AutoscaleReconciler} runs just before it, for the identical reason: {@code
- * DeploymentReconciler} reads whatever effective replica count it just computed, same-tick.
+ * matters for same-tick convergence, not for correctness across ticks: {@link
+ * ReplicaCountReconciler} and {@link HealthReconciler} release assignments that are missing or
+ * unhealthy, and {@link DeploymentReconciler} -- run last -- fills every gap that exists by the
+ * time it runs, whether that gap is from a prior tick or this one. {@link AutoscaleReconciler} runs
+ * just before it, for the identical reason: {@code DeploymentReconciler} reads whatever effective
+ * replica count it just computed, same-tick.
  *
  * <p>The tick itself only ever runs on whichever {@code ApiServer} replica currently holds the
  * {@code reconciler-leader} lease -- a lease-based election, needed because {@code ApiServer}

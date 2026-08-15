@@ -233,9 +233,9 @@ public final class MuninnShipper implements AutoCloseable {
   /**
    * Ships {@code body}, shared by every caller regardless of how it was assembled, to every
    * configured endpoint independently and returns {@code true} iff at least one accepted it (2xx)
-   * -- the caller decides what "accepted" means (for log shipping, whether the cursor may
-   * advance). One endpoint's failure never stops the attempt against the others: each POST is
-   * wrapped in its own try/catch rather than short-circuiting on the first failure.
+   * -- the caller decides what "accepted" means (for log shipping, whether the cursor may advance).
+   * One endpoint's failure never stops the attempt against the others: each POST is wrapped in its
+   * own try/catch rather than short-circuiting on the first failure.
    */
   private boolean postNdjsonBody(String body) {
     boolean anyAccepted = false;

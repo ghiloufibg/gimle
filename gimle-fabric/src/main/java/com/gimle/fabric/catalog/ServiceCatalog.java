@@ -3,10 +3,10 @@ package com.gimle.fabric.catalog;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.fabric.cluster.MemberId;
-import com.gimle.fabric.cluster.PiggybackExtension;
-import java.net.InetSocketAddress;
 import com.gimle.fabric.cluster.MemberState;
 import com.gimle.fabric.cluster.MemberStatus;
+import com.gimle.fabric.cluster.PiggybackExtension;
+import java.net.InetSocketAddress;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -48,12 +48,12 @@ public final class ServiceCatalog implements PiggybackExtension {
 
   /**
    * Nodes this catalog is currently suppressing from every query result, per {@link
-   * #onMembershipChange} -- a purely local overlay, never itself gossiped or versioned. Deliberately
-   * not implemented as tombstoning every affected entry in {@link #byExport} (which would mean
-   * forging a delta under that node's own version sequence): membership is SWIM's own eventually-
-   * consistent local view, so a node's presence or absence here can flip independently on every
-   * cluster member without needing cluster-wide agreement, and the moment gossip says the node is
-   * {@code ALIVE} again its already-registered entries simply become visible again with no
+   * #onMembershipChange} -- a purely local overlay, never itself gossiped or versioned.
+   * Deliberately not implemented as tombstoning every affected entry in {@link #byExport} (which
+   * would mean forging a delta under that node's own version sequence): membership is SWIM's own
+   * eventually- consistent local view, so a node's presence or absence here can flip independently
+   * on every cluster member without needing cluster-wide agreement, and the moment gossip says the
+   * node is {@code ALIVE} again its already-registered entries simply become visible again with no
    * re-registration needed.
    */
   private final Set<String> unavailableNodes = ConcurrentHashMap.newKeySet();
@@ -95,14 +95,14 @@ public final class ServiceCatalog implements PiggybackExtension {
 
   /**
    * Subscribes this catalog to a {@code GossipMember}'s membership transitions ({@code
-   * gossipMember.onMembershipChange(catalog::onMembershipChange)} at wiring time) so a member
-   * SWIM has independently converged on {@code DEAD} has its registered endpoints proactively
-   * evicted from every query result -- rather than every caller only discovering the same fact
-   * later, and separately, via its own circuit breaker tripping against that member's endpoints.
-   * {@code SUSPECT} is deliberately not acted on here: it's provisional and frequently self-heals
-   * (a slow probe, not a real failure), so evicting on it would trade a false negative (a caller
-   * briefly not learning of a genuinely dead endpoint) for false positives (needlessly routing away
-   * from a merely-slow-to-answer-one-ping endpoint) far more often than it helps.
+   * gossipMember.onMembershipChange(catalog::onMembershipChange)} at wiring time) so a member SWIM
+   * has independently converged on {@code DEAD} has its registered endpoints proactively evicted
+   * from every query result -- rather than every caller only discovering the same fact later, and
+   * separately, via its own circuit breaker tripping against that member's endpoints. {@code
+   * SUSPECT} is deliberately not acted on here: it's provisional and frequently self-heals (a slow
+   * probe, not a real failure), so evicting on it would trade a false negative (a caller briefly
+   * not learning of a genuinely dead endpoint) for false positives (needlessly routing away from a
+   * merely-slow-to-answer-one-ping endpoint) far more often than it helps.
    */
   public void onMembershipChange(MemberState state) {
     String nodeId = state.id().nodeId();

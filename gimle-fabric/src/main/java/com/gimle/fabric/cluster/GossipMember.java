@@ -155,8 +155,8 @@ public final class GossipMember implements AutoCloseable {
    * Registers a callback invoked with a member's resulting {@link MemberState} every time this
    * node's own local view of that member's status actually changes -- {@code ALIVE -> SUSPECT},
    * {@code SUSPECT -> DEAD}, a fresh {@code ALIVE} addition/rejoin, or the same transitions learned
-   * secondhand via gossip/anti-entropy rather than this node's own probe. Never fired for a
-   * no-op merge (an unchanged status at an unchanged incarnation). {@code
+   * secondhand via gossip/anti-entropy rather than this node's own probe. Never fired for a no-op
+   * merge (an unchanged status at an unchanged incarnation). {@code
    * com.gimle.fabric.catalog.ServiceCatalog} is the intended consumer: SWIM already detects a dead
    * node cluster-wide in a few seconds, so the catalog subscribes here to evict that node's
    * endpoints proactively instead of waiting for every independent caller to rediscover the same

@@ -103,7 +103,8 @@ public final class FafnirMain {
     // anywhere. Accepts a comma-separated list of Muninn replicas as well as a single endpoint.
     String muninnEndpoint = System.getProperty("gimle.fafnir.muninnEndpoint");
     List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
-    MuninnShipper metricsShipper = shipperFor(muninnEndpoints, "metrics", selfHost, fafnirServer.port());
+    MuninnShipper metricsShipper =
+        shipperFor(muninnEndpoints, "metrics", selfHost, fafnirServer.port());
     if (metricsShipper != null) {
       metricsShipper.startShippingMetrics(fafnirServer.metrics().registry());
     }
@@ -112,7 +113,8 @@ public final class FafnirMain {
     // a pure supervisor. Shipped to Muninn when
     // configured, falling back to GimleTracing's existing WorkerMain-established default
     // (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
-    MuninnShipper tracesShipper = shipperFor(muninnEndpoints, "traces", selfHost, fafnirServer.port());
+    MuninnShipper tracesShipper =
+        shipperFor(muninnEndpoints, "traces", selfHost, fafnirServer.port());
     if (tracesShipper != null) {
       GimleTracing.installWithMuninnShipping(tracesShipper);
     } else {
