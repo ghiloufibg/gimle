@@ -31,8 +31,7 @@ import org.junit.jupiter.api.Timeout;
 /**
  * Raft/store-cluster resilience under real process failure: losing one store node mid-deployment, a
  * leader failover under real concurrent writes (no acknowledged write ever lost), and etcd-style
- * live membership change (a 4th node joining and leaving a live cluster -- currently
- * {@code @Disabled}, see that test's own javadoc for the still-open timing finding it's tracking).
+ * live membership change (a 4th node joining and leaving a live cluster).
  */
 @Tag("smoke")
 class RaftResilienceIT extends GreeterSmokeClusterSupport {
@@ -211,23 +210,26 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
    * proves the addServer/removeServer roundtrip itself without also gambling on that untested edge
    * case within the same run.
    *
-   * <p><b>Disabled</b>: this reproduction found and fixed one real bug -- a self-elected phantom
-   * leader that {@link com.gimle.mimir.raft.RaftNode#onAppendEntries}/{@code onInstallSnapshot}
-   * never demoted on an equal-term message, so a stale leader could keep believing it was still in
-   * charge after a legitimate peer at the same term took over. But even with that fix in place, the
-   * cluster's own post-membership-change leader instability window is genuinely variable in this
-   * sandbox's 12-JVM/4-core load -- 85s in some runs, still not recovered after 150s in others. No
-   * timeout this suite picks can both stay honest about a real upper bound and pass reliably here.
-   * Left in place (not deleted) as a deterministic repro for whoever picks up this still-open
-   * timing question next -- either a quieter/dedicated CI runner, or a real Raft-level fix (e.g. a
-   * non-voting learner catch-up phase before a new peer becomes a full voting member, the classic
-   * Raft answer to exactly this instability).
+   * <p>This reproduction previously found and fixed two real bugs before it could pass reliably.
+   * First, a self-elected phantom leader: a standalone store node started with no bootstrap peers
+   * self-elects leader of its own one-node "cluster" immediately (see {@link
+   * com.gimle.mimir.raft.RaftNode#start}'s own javadoc), and {@code onAppendEntries}/{@code
+   * onInstallSnapshot} only ever demoted a {@code CANDIDATE} back to follower on an equal-term
+   * message, not a stray same-term {@code LEADER} -- fixed by {@code demoteToFollowerLocked}
+   * handling any non-follower role, not just candidate (see that method's own javadoc). Second, and
+   * the deeper cause of the multi-minute leader-instability window this test used to observe: a
+   * newly {@code addServer}-ed peer became a full voting member -- and thus part of election/commit
+   * quorum arithmetic -- the instant it joined, before its log had caught up. A lagging log can
+   * never win an election (the log up-to-date check in {@code onRequestVote} forbids it), but
+   * nothing stopped it from *campaigning*: a `RequestVote` at a higher term makes every real voter,
+   * including a perfectly healthy leader, bump its own term and step down before that check is even
+   * consulted, so a slow-to-catch-up new peer that simply times out mid-catch-up could repeatedly
+   * disrupt the whole cluster without ever coming close to winning itself. Fixed by the classic
+   * Raft answer: a new peer now joins as a non-voting learner (excluded from both election and
+   * commit quorum, and forbidden from campaigning itself) until its replicated log catches up, at
+   * which point it is promoted to a full voting member automatically.
    */
   @Test
-  @org.junit.jupiter.api.Disabled(
-      "live membership change's post-change leader-instability window is real but variable"
-          + " (85-180s+) in this sandbox; see the class javadoc above for the fixed bug and the"
-          + " still-open timing finding")
   @Timeout(value = 8, unit = TimeUnit.MINUTES)
   void a_new_store_node_joins_via_live_membership_change_and_is_then_removed() throws Exception {
     Path repoRoot = repoRoot();
@@ -279,12 +281,12 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
     await(
         () -> isActive(baseUrl, "greeter-provider-deployment-2"),
-        // 150s, not the usual 90s this suite's other post-disruption awaits use: a live
-        // membership change genuinely destabilizes leadership for a real, repeatable ~85-95s in
-        // this sandbox's 4-core/12-JVM load, measured by repeated runs of this same test, longer
-        // than a single node loss (that test's own 90s budget) since the new peer must also fully
-        // catch up its log before the expanded quorum stabilizes -- generous headroom here, not a
-        // padded guess.
+        // 150s, not the usual 90s this suite's other post-disruption awaits use: the new peer
+        // joins as a non-voting learner and must fully catch up its log via real AppendEntries/
+        // InstallSnapshot replication before it's promoted to a full voting member -- slower
+        // than a single node loss's own 90s budget, which needs no catch-up at all, so this stays
+        // generous rather than tightened to whatever this fix happens to measure in one sandbox's
+        // own load at any given time.
         Duration.ofSeconds(150),
         "a deployment submitted after a 4th store node joined via live membership change should"
             + " still reach ACTIVE, proving the newly-expanded 4-node cluster kept serving writes");

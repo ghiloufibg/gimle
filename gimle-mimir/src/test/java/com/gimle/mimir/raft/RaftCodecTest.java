@@ -437,11 +437,13 @@ class RaftCodecTest {
         Map.of(
             "node-2", new PeerAddress("10.0.0.2", 7100, 7200),
             "node-3", new PeerAddress("10.0.0.3", 7100, 7200));
-    LogEntry original = logEntry(9L, new MembershipChange(peers));
+    Set<String> learners = Set.of("node-3");
+    LogEntry original = logEntry(9L, new MembershipChange(peers, learners));
 
     LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
 
     assertEquals(original, decoded);
     assertEquals(peers, ((MembershipChange) decoded.payload()).peers());
+    assertEquals(learners, ((MembershipChange) decoded.payload()).learners());
   }
 }

@@ -9,11 +9,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -24,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
-import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,6 +67,32 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final long SNAPSHOT_THRESHOLD = 10_000;
 
   /**
+   * How close a learner's {@link #matchIndex} must be to the leader's own {@link RaftLog#lastIndex}
+   * before {@link #maybePromoteLearnerLocked} promotes it to a full voting member. Not zero: {@link
+   * #sendOnce} builds each {@code AppendEntries} request and processes its response under two
+   * separate lock acquisitions with the real network round trip unlocked in between, so a proposal
+   * from another thread can land in that gap and advance {@link RaftLog#lastIndex} past what this
+   * exact response covers -- an exact-match requirement could keep missing that receding target
+   * under any steady trickle of writes. A handful of entries is close enough that ordinary
+   * replication (running at least every {@link #HEARTBEAT_INTERVAL}) closes the remainder within
+   * one or two more rounds after promotion, same as any other voting follower's normal small lag.
+   */
+  private static final long LEARNER_CATCH_UP_THRESHOLD = 10;
+
+  /**
+   * Check-quorum window (Raft dissertation §6.2/etcd's {@code CheckQuorum}): a leader that hasn't
+   * completed an RPC round trip -- success or reject, either proves the peer is reachable and on a
+   * term this leader still recognizes; only a thrown exception (unreachable this cycle) leaves
+   * {@link #lastContactNanos} untouched -- with a majority of its own voting peers within this
+   * window steps itself down, on its own, without waiting to observe a higher term. Set to {@link
+   * #ELECTION_TIMEOUT_MAX_MS}, the same "one election timeout" upper bound a healthy follower
+   * itself tolerates before concluding its leader is gone; {@link #checkQuorumTick} runs every
+   * {@link #HEARTBEAT_INTERVAL} (far more often than this window), so this is the binding bound in
+   * practice, not the check's own polling granularity.
+   */
+  private static final Duration CHECK_QUORUM_WINDOW = Duration.ofMillis(ELECTION_TIMEOUT_MAX_MS);
+
+  /**
    * {@link InstallSnapshot} chunk size (Raft paper Figure 13). Not tuned against a real network MTU
    * -- this project has no cross-datacenter link to size against -- just kept well under {@link
    * RaftCodec}'s {@code MAX_FRAME_LENGTH} so a chunk is a small fraction of that ceiling, not a
@@ -96,6 +124,34 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    */
   private final Map<String, PeerAddress> bootstrapPeerAddresses;
 
+  /**
+   * This node's own {@code host:raftPort:clientPort}, {@code null} for a legacy-constructed node
+   * (which, per {@link #peerAddresses}'s own javadoc, never calls {@link #addServer}/{@link
+   * #removeServer} anyway). Folded into the full, self-inclusive membership every {@link
+   * MembershipChange} log entry now carries (see {@link #appendMembershipChangeLocked}) -- without
+   * it, a {@link MembershipChange} built from this node's own {@link #peerAddresses} (which, by
+   * that field's own invariant, never lists this node itself) would omit the proposer from every
+   * *other* node's resulting peer set once replicated, since each receiving node applies the exact
+   * same map. Self-inclusion here is what lets {@link #reconfigurePeersLocked} correctly recover
+   * every node's own peer set -- proposer included -- by dropping only its own id.
+   */
+  private final PeerAddress selfAddress;
+
+  /**
+   * The current membership's non-voting learner ids -- guarded by {@link #lock}, kept in sync the
+   * same "effective on append" way {@link #peerAddresses} is (see {@link #reconfigurePeersLocked}).
+   * Unlike {@link #peerAddresses}, deliberately left self-inclusive when this node's own id is a
+   * member of it: a node needs to see its own id here to know it is currently a learner and must
+   * not campaign for election (see {@link #onElectionTimeout}) -- the disruptive-candidate hazard
+   * an immediately-voting new peer otherwise creates: its lagging log means it can never actually
+   * win an election, but Raft's {@code RequestVote} handling still makes every real voter --
+   * including a perfectly healthy leader -- bump its term and step down the instant the request
+   * arrives, before the log up-to-date check is even consulted (see {@link #onRequestVote}). A
+   * newly {@link #addServer}-ed peer starts here; {@link #maybePromoteLearnerLocked} removes it,
+   * via that same log-replicated path, once its {@link #matchIndex} has caught up.
+   */
+  private final Set<String> learners = new HashSet<>();
+
   private final RaftPeerClientFactory peerClientFactory;
   private final Consumer<Map<String, PeerAddress>> membershipListener;
 
@@ -112,6 +168,18 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final Map<String, Long> matchIndex = new HashMap<>();
   private final Map<String, Semaphore> peerWake = new ConcurrentHashMap<>();
   private final Map<String, Thread> peerSenderThreads = new ConcurrentHashMap<>();
+
+  /**
+   * Check-quorum bookkeeping (see {@link #CHECK_QUORUM_WINDOW}): per-peer {@code System.nanoTime()}
+   * of the most recent RPC round trip this leader completed with it, guarded by {@link #lock} like
+   * every other per-peer table here. Cleared on every {@link #becomeLeaderLocked} (a peer's
+   * staleness is only meaningful relative to *this* leadership tenure, not a previous one) and
+   * simply never consulted while not leader -- {@link #checkQuorumTick} is itself only scheduled
+   * for the duration of one.
+   */
+  private final Map<String, Long> lastContactNanos = new HashMap<>();
+
+  private ScheduledFuture<?> checkQuorumFuture;
 
   /**
    * This node's own outstanding self-proposed {@link MembershipChange} log index, if any -- guarded
@@ -160,6 +228,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     this.selfId = selfId;
     this.peers = new HashMap<>(peers);
     this.bootstrapPeerAddresses = Map.of();
+    this.selfAddress = null;
     this.peerClientFactory =
         address -> {
           throw new UnsupportedOperationException(
@@ -178,27 +247,41 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   /**
    * The address-aware constructor: supports live membership changes ({@link #addServer}/{@link
-   * #removeServer}). {@code peerClientFactory} builds a {@link RaftPeerClient} for any peer this
-   * node doesn't already have a connection to -- both the {@code peers} bootstrap set given here
-   * and any peer learned about later, either self-proposed or replicated from the current leader.
-   * {@code membershipListener} is invoked with the complete new peer-address map every time
-   * membership changes, under this node's own internal lock -- it must be fast and non-blocking
-   * (updating a concurrent map, never real I/O); {@code StoreMain} wires this to keep {@code
-   * StoreNode}'s client-redirect address book current.
+   * #removeServer}). {@code selfAddress} is this node's own dialable address, needed only to build
+   * the self-inclusive {@link MembershipChange} entries {@link #appendMembershipChangeLocked}
+   * proposes (see {@link #selfAddress}'s own javadoc) -- a node that never calls {@code
+   * addServer}/{@code removeServer} could in principle pass anything here, but every real caller
+   * has a real address to give. {@code peerClientFactory} builds a {@link RaftPeerClient} for any
+   * peer this node doesn't already have a connection to -- both the {@code peers} bootstrap set
+   * given here and any peer learned about later, either self-proposed or replicated from the
+   * current leader. {@code membershipListener} is invoked with the complete new peer-address map
+   * every time membership changes, under this node's own internal lock -- it must be fast and
+   * non-blocking (updating a concurrent map, never real I/O); {@code StoreMain} wires this to keep
+   * {@code StoreNode}'s client-redirect address book current.
    */
   public RaftNode(
       String selfId,
+      PeerAddress selfAddress,
       Map<String, PeerAddress> peers,
       RaftPeerClientFactory peerClientFactory,
       RaftLog raftLog,
       StateStore store,
       Consumer<Map<String, PeerAddress>> membershipListener) {
-    this(selfId, peers, peerClientFactory, raftLog, store, membershipListener, PROPOSE_TIMEOUT);
+    this(
+        selfId,
+        selfAddress,
+        peers,
+        peerClientFactory,
+        raftLog,
+        store,
+        membershipListener,
+        PROPOSE_TIMEOUT);
   }
 
   /** Test-only short-{@code proposeTimeout} counterpart to the address-aware constructor above. */
   RaftNode(
       String selfId,
+      PeerAddress selfAddress,
       Map<String, PeerAddress> peers,
       RaftPeerClientFactory peerClientFactory,
       RaftLog raftLog,
@@ -206,6 +289,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       Consumer<Map<String, PeerAddress>> membershipListener,
       Duration proposeTimeout) {
     this.selfId = selfId;
+    this.selfAddress = selfAddress;
     this.peerClientFactory = peerClientFactory;
     this.membershipListener = membershipListener;
     this.bootstrapPeerAddresses = Map.copyOf(peers);
@@ -255,6 +339,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     try {
       if (electionTimeoutFuture != null) {
         electionTimeoutFuture.cancel(false);
+      }
+      if (checkQuorumFuture != null) {
+        checkQuorumFuture.cancel(false);
       }
     } finally {
       lock.unlock();
@@ -324,56 +411,27 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   // ---- membership changes: etcd-style, one at a time, not full joint consensus ----
 
   /**
-   * Adds {@code peerId} to the cluster's configuration, blocking until this node has applied the
-   * resulting {@link MembershipChange} entry. Throws {@link GimleRaftException#notLeader} if this
-   * node isn't currently leader, and {@link GimleRaftException#membershipChangeInFlight} if an
-   * earlier {@link #addServer}/{@link #removeServer} on this node hasn't committed yet -- the one
-   * safety rule this reduction needs in place of full joint consensus's dual-majority machinery.
+   * Adds {@code peerId} to the cluster's configuration as a non-voting learner, blocking until this
+   * node has applied the resulting {@link MembershipChange} entry -- not yet a full voting member;
+   * see {@link #learners} and {@link #maybePromoteLearnerLocked} for the automatic promotion once
+   * its log catches up. Throws {@link GimleRaftException#notLeader} if this node isn't currently
+   * leader, and {@link GimleRaftException#membershipChangeInFlight} if an earlier {@link
+   * #addServer}/{@link #removeServer}/promotion on this node hasn't committed yet -- the one safety
+   * rule this reduction needs in place of full joint consensus's dual-majority machinery.
    */
   public void addServer(String peerId, PeerAddress address) {
-    proposeMembershipChange(
-        current -> {
-          if (current.containsKey(peerId) || peerId.equals(selfId)) {
-            throw GimleRaftException.alreadyAMember(selfId, peerId);
-          }
-          Map<String, PeerAddress> updated = new LinkedHashMap<>(current);
-          updated.put(peerId, address);
-          return updated;
-        });
-  }
-
-  /** The symmetric removal counterpart to {@link #addServer}. */
-  public void removeServer(String peerId) {
-    proposeMembershipChange(
-        current -> {
-          if (!current.containsKey(peerId)) {
-            throw GimleRaftException.notAMember(selfId, peerId);
-          }
-          Map<String, PeerAddress> updated = new LinkedHashMap<>(current);
-          updated.remove(peerId);
-          return updated;
-        });
-  }
-
-  private void proposeMembershipChange(UnaryOperator<Map<String, PeerAddress>> transform) {
     long index;
     lock.lock();
     try {
-      if (role != Role.LEADER) {
-        throw GimleRaftException.notLeader(selfId, leaderHint());
+      requireReadyForMembershipChangeLocked();
+      if (peerAddresses.containsKey(peerId) || peerId.equals(selfId)) {
+        throw GimleRaftException.alreadyAMember(selfId, peerId);
       }
-      if (pendingMembershipChangeIndex != null) {
-        throw GimleRaftException.membershipChangeInFlight(selfId);
-      }
-      Map<String, PeerAddress> updated = transform.apply(Map.copyOf(peerAddresses));
-      long term = raftLog.currentTerm();
-      index = raftLog.lastIndex() + 1;
-      raftLog.append(new LogEntry(term, index, new MembershipChange(updated)));
-      // Effective on append, not on commit -- the one genuinely new Raft rule single-server
-      // membership changes require; see RaftLogPayload's own javadoc.
-      reconfigurePeersLocked(updated);
-      pendingMembershipChangeIndex = index;
-      advanceCommitIndexLocked();
+      Map<String, PeerAddress> updatedPeers = new LinkedHashMap<>(peerAddresses);
+      updatedPeers.put(peerId, address);
+      Set<String> updatedLearners = new LinkedHashSet<>(learners);
+      updatedLearners.add(peerId);
+      index = appendMembershipChangeLocked(updatedPeers, updatedLearners);
     } finally {
       lock.unlock();
     }
@@ -381,25 +439,130 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     awaitAppliedThrowing(index);
   }
 
+  /** The symmetric removal counterpart to {@link #addServer}. */
+  public void removeServer(String peerId) {
+    long index;
+    lock.lock();
+    try {
+      requireReadyForMembershipChangeLocked();
+      if (!peerAddresses.containsKey(peerId)) {
+        throw GimleRaftException.notAMember(selfId, peerId);
+      }
+      Map<String, PeerAddress> updatedPeers = new LinkedHashMap<>(peerAddresses);
+      updatedPeers.remove(peerId);
+      Set<String> updatedLearners = new LinkedHashSet<>(learners);
+      updatedLearners.remove(peerId);
+      index = appendMembershipChangeLocked(updatedPeers, updatedLearners);
+    } finally {
+      lock.unlock();
+    }
+    wakePeerSenders();
+    awaitAppliedThrowing(index);
+  }
+
+  private void requireReadyForMembershipChangeLocked() {
+    if (role != Role.LEADER) {
+      throw GimleRaftException.notLeader(selfId, leaderHint());
+    }
+    if (pendingMembershipChangeIndex != null) {
+      throw GimleRaftException.membershipChangeInFlight(selfId);
+    }
+    if (selfAddress == null) {
+      throw new UnsupportedOperationException(
+          "this RaftNode was constructed without a self address (the legacy fixed-peer-map "
+              + "constructor); live membership changes (addServer/removeServer) are unsupported on "
+              + "it");
+    }
+  }
+
+  /**
+   * Appends and locally applies a {@link MembershipChange} -- effective on append, not on commit
+   * (see {@link RaftLogPayload}'s own javadoc) -- shared by {@link #addServer}/{@link
+   * #removeServer} (which then block their own caller on {@link #awaitAppliedThrowing}) and {@link
+   * #maybePromoteLearnerLocked} (which does not: nothing calls it synchronously, so nothing needs
+   * to wait on its result; it will commit on this same replication loop's own next successful round
+   * if not this one). {@code newPeers} is still this leader's own self-exclusive view (the {@link
+   * #peerAddresses} invariant every call site already relies on); the log entry itself carries the
+   * full self-inclusive membership -- {@code newPeers} plus this leader's own {@link #selfAddress}
+   * -- so that every *other* node, applying the identical entry, can recover the leader as one of
+   * its own peers too by dropping only its own id (see {@link #reconfigurePeersLocked}).
+   */
+  private long appendMembershipChangeLocked(
+      Map<String, PeerAddress> newPeers, Set<String> newLearners) {
+    long term = raftLog.currentTerm();
+    long index = raftLog.lastIndex() + 1;
+    Map<String, PeerAddress> replicated = new LinkedHashMap<>(newPeers);
+    replicated.put(selfId, selfAddress);
+    raftLog.append(new LogEntry(term, index, new MembershipChange(replicated, newLearners)));
+    reconfigurePeersLocked(newPeers, newLearners);
+    pendingMembershipChangeIndex = index;
+    advanceCommitIndexLocked();
+    return index;
+  }
+
+  /**
+   * Checked every time this leader records a successful {@code AppendEntries}/{@code
+   * InstallSnapshot} acknowledgment from a peer ({@link #sendOnce}, {@link #sendInstallSnapshot})
+   * -- a learner (see {@link #learners}) whose {@link #matchIndex} has caught up to within {@link
+   * #LEARNER_CATCH_UP_THRESHOLD} of this leader's own {@link RaftLog#lastIndex} is promoted to a
+   * full voting member automatically, via the same log-replicated path {@link #addServer}/{@link
+   * #removeServer} use, so every node -- not just this leader's own local memory -- durably agrees
+   * on the promotion. A no-op if a membership change is already in flight (the same one-at-a-time
+   * rule {@link #addServer}/{@link #removeServer} enforce -- promotion simply retries on this same
+   * peer's next successful round) or if {@code peerId} isn't actually a currently-known learner (an
+   * already-voting peer, or one that raced a concurrent {@link #removeServer}).
+   */
+  private void maybePromoteLearnerLocked(String peerId) {
+    if (role != Role.LEADER
+        || pendingMembershipChangeIndex != null
+        || !learners.contains(peerId)
+        || !peerAddresses.containsKey(peerId)) {
+      return;
+    }
+    long gap = raftLog.lastIndex() - matchIndex.getOrDefault(peerId, 0L);
+    if (gap > LEARNER_CATCH_UP_THRESHOLD) {
+      return;
+    }
+    Set<String> updatedLearners = new LinkedHashSet<>(learners);
+    updatedLearners.remove(peerId);
+    appendMembershipChangeLocked(Map.copyOf(peerAddresses), updatedLearners);
+    wakePeerSenders();
+    log.info(
+        "promoted learner {} to a full voting member (matchIndex within {} of leader's log)",
+        peerId,
+        LEARNER_CATCH_UP_THRESHOLD);
+  }
+
   private void applyIfMembershipChangeLocked(LogEntry entry) {
     if (entry.payload() instanceof MembershipChange change) {
-      reconfigurePeersLocked(change.peers());
+      reconfigurePeersLocked(change.peers(), change.learners());
     }
   }
 
   /**
    * Reconciles every mutable piece of per-peer state ({@link #peers}, {@link #nextIndex}, {@link
-   * #matchIndex}, {@link #peerWake}, {@link #peerSenderThreads}) against {@code newPeerAddresses},
-   * the cluster's new complete configuration -- called the instant a {@link MembershipChange} is
-   * appended (leader, self-proposed) or replicated in (follower), never waiting for it to commit. A
+   * #matchIndex}, {@link #peerWake}, {@link #peerSenderThreads}, {@link #learners}) against {@code
+   * newPeerAddresses}/{@code newLearners}, the cluster's new complete configuration -- called the
+   * instant a {@link MembershipChange} is appended (leader, self-proposed) or replicated in
+   * (follower), never waiting for it to commit. {@code newPeerAddresses} is the full,
+   * self-inclusive membership {@link MembershipChange#peers} now carries (see {@link
+   * #appendMembershipChangeLocked}), so this node's own id is dropped from it first -- a node never
+   * lists itself as its own peer (see {@link #peerAddresses}'s own invariant). {@code newLearners},
+   * by contrast, is stored as given, self-inclusive: see {@link #learners}'s own javadoc for why. A
    * brand-new peer's {@code nextIndex} starts at the snapshot floor rather than this node's log tip
    * (unlike {@link #becomeLeaderLocked}'s reset for already-known peers): it has seen none of the
    * log yet and must either replay it from there or catch up via {@code InstallSnapshot}. {@link
    * #membershipListener} is notified last, still under {@link #lock} -- it must stay fast and
    * non-blocking, per its own constructor-parameter javadoc.
    */
-  private void reconfigurePeersLocked(Map<String, PeerAddress> newPeerAddresses) {
-    for (Map.Entry<String, PeerAddress> e : newPeerAddresses.entrySet()) {
+  private void reconfigurePeersLocked(
+      Map<String, PeerAddress> newPeerAddresses, Set<String> newLearners) {
+    Map<String, PeerAddress> effectivePeers = newPeerAddresses;
+    if (effectivePeers.containsKey(selfId)) {
+      effectivePeers = new LinkedHashMap<>(effectivePeers);
+      effectivePeers.remove(selfId);
+    }
+    for (Map.Entry<String, PeerAddress> e : effectivePeers.entrySet()) {
       String peerId = e.getKey();
       if (peerAddresses.containsKey(peerId)) {
         continue; // already a known peer; its address never changes once a member
@@ -414,7 +577,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
     }
     for (String peerId : new ArrayList<>(peerAddresses.keySet())) {
-      if (newPeerAddresses.containsKey(peerId)) {
+      if (effectivePeers.containsKey(peerId)) {
         continue;
       }
       Thread sender = peerSenderThreads.remove(peerId);
@@ -427,27 +590,29 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       peerWake.remove(peerId);
     }
     peerAddresses.clear();
-    peerAddresses.putAll(newPeerAddresses);
+    peerAddresses.putAll(effectivePeers);
+    learners.clear();
+    learners.addAll(newLearners);
     membershipListener.accept(Map.copyOf(peerAddresses));
   }
 
   /**
    * Recomputes "what the peer configuration would be right now" by scanning the log's tail backward
    * for the most recent {@link MembershipChange} still present, falling back to {@link
-   * #bootstrapPeerAddresses} if none is found -- used by {@link #truncateFromLocked} to roll live
-   * peer state back after removing an entry that changed it. Never needs to look below the snapshot
-   * floor: a truncation only ever removes an uncommitted (hence unapplied, hence never yet
-   * compacted) entry, by Raft's own safety guarantee that a leader never overwrites a committed
+   * #bootstrapPeerAddresses}/no learners if none is found -- used by {@link #truncateFromLocked} to
+   * roll live peer state back after removing an entry that changed it. Never needs to look below
+   * the snapshot floor: a truncation only ever removes an uncommitted (hence unapplied, hence never
+   * yet compacted) entry, by Raft's own safety guarantee that a leader never overwrites a committed
    * one.
    */
-  private Map<String, PeerAddress> effectivePeerConfigLocked() {
+  private MembershipChange effectivePeerConfigLocked() {
     for (long i = raftLog.lastIndex(); i > raftLog.snapshotLastIncludedIndex(); i--) {
       Optional<LogEntry> entry = raftLog.get(i);
       if (entry.isPresent() && entry.get().payload() instanceof MembershipChange change) {
-        return change.peers();
+        return change;
       }
     }
-    return bootstrapPeerAddresses;
+    return new MembershipChange(bootstrapPeerAddresses, Set.of());
   }
 
   private void awaitAppliedThrowing(long index) {
@@ -515,7 +680,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       pendingMembershipChangeIndex = null;
     }
     if (membershipAffected) {
-      reconfigurePeersLocked(effectivePeerConfigLocked());
+      MembershipChange effective = effectivePeerConfigLocked();
+      reconfigurePeersLocked(effective.peers(), effective.learners());
     }
   }
 
@@ -540,10 +706,27 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       if (!running || role == Role.LEADER) {
         return;
       }
+      if (learners.contains(selfId)) {
+        // A learner deliberately never campaigns -- see the #learners field javadoc for the
+        // disruptive-candidate hazard this avoids. Re-arm the timer rather than just returning:
+        // this node still needs to notice once it's promoted, or a genuine leader failure.
+        resetElectionTimerLocked();
+        return;
+      }
       startElectionLocked();
     } finally {
       lock.unlock();
     }
+  }
+
+  /** {@link #peers} minus {@link #learners} -- who actually counts for election/commit majority. */
+  private Map<String, RaftPeerClient> votingPeersLocked() {
+    if (learners.isEmpty()) {
+      return peers;
+    }
+    Map<String, RaftPeerClient> voting = new HashMap<>(peers);
+    voting.keySet().removeAll(learners);
+    return voting;
   }
 
   private void startElectionLocked() {
@@ -552,7 +735,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     raftLog.setTermAndVote(newTerm, Optional.of(selfId));
     resetElectionTimerLocked();
 
-    int majority = (peers.size() + 1) / 2 + 1;
+    Map<String, RaftPeerClient> votingPeers = votingPeersLocked();
+    int majority = (votingPeers.size() + 1) / 2 + 1;
     int[] votesGranted = {1}; // self-vote
     if (votesGranted[0] >= majority) {
       becomeLeaderLocked();
@@ -561,7 +745,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
     long lastLogIndex = raftLog.lastIndex();
     long lastLogTerm = raftLog.lastTerm();
-    for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
+    for (Map.Entry<String, RaftPeerClient> peerEntry : votingPeers.entrySet()) {
       String peerId = peerEntry.getKey();
       RaftPeerClient client = peerEntry.getValue();
       Thread.ofVirtual()
@@ -619,6 +803,64 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
       startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());
     }
+    lastContactNanos.clear();
+    // Started only for the duration of this leadership tenure -- see checkQuorumTick's own
+    // javadoc. A fresh leader gets one full window's grace before its first check (initialDelay),
+    // the same benefit of the doubt becomeLeaderLocked already gives peer replication itself.
+    checkQuorumFuture =
+        scheduler.scheduleAtFixedRate(
+            this::checkQuorumTick,
+            CHECK_QUORUM_WINDOW.toMillis(),
+            HEARTBEAT_INTERVAL.toMillis(),
+            TimeUnit.MILLISECONDS);
+  }
+
+  /**
+   * Check-quorum self-demotion (Raft dissertation §6.2): if this leader hasn't completed an RPC
+   * round trip with a majority of its own voting peers within {@link #CHECK_QUORUM_WINDOW}, it
+   * steps itself down on its own -- additive to every existing {@link #stepDownLocked} call site (a
+   * higher observed term), not a replacement for them. This is what closes the gap a bare {@link
+   * #isLeader} role read leaves open: a leader isolated in a network partition's minority side
+   * would otherwise never learn to step down until it observed a higher term, which a full
+   * partition (no peer ever reachable to carry one back) prevents outright. Scheduled only while
+   * leader (see {@link #becomeLeaderLocked}/{@link #demoteToFollowerLocked}), so a stale/cancelled
+   * run firing just after this node already stopped being leader is guarded by the {@code role !=
+   * Role.LEADER} check below, not by assuming the scheduler cancellation itself is instantaneous.
+   */
+  private void checkQuorumTick() {
+    lock.lock();
+    try {
+      if (!running || role != Role.LEADER) {
+        return;
+      }
+      Map<String, RaftPeerClient> votingPeers = votingPeersLocked();
+      if (votingPeers.isEmpty()) {
+        return; // a single-voter cluster (self alone) trivially always has quorum
+      }
+      long earliestAcceptableNanos = System.nanoTime() - CHECK_QUORUM_WINDOW.toNanos();
+      long recentlyContacted = 0;
+      for (String peerId : votingPeers.keySet()) {
+        Long last = lastContactNanos.get(peerId);
+        if (last != null && last >= earliestAcceptableNanos) {
+          recentlyContacted++;
+        }
+      }
+      int majority = (votingPeers.size() + 1) / 2 + 1;
+      if (recentlyContacted + 1 < majority) { // +1: self, always trivially reachable to itself
+        log.warn(
+            "{} stepping down: only {} of {} voting peers responded within the last {} -- "
+                + "check-quorum self-demotion (possible network partition)",
+            selfId,
+            recentlyContacted,
+            votingPeers.size(),
+            CHECK_QUORUM_WINDOW);
+        demoteToFollowerLocked();
+        leaderHint = null;
+        pendingMembershipChangeIndex = null;
+      }
+    } finally {
+      lock.unlock();
+    }
   }
 
   private void startPeerSenderThreadLocked(String peerId, RaftPeerClient client) {
@@ -668,6 +910,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         t.interrupt();
       }
       peerSenderThreads.clear();
+      if (checkQuorumFuture != null) {
+        checkQuorumFuture.cancel(false);
+        checkQuorumFuture = null;
+      }
       commitAdvanced.signalAll(); // wake any propose() waiters so they observe the role change
     }
   }
@@ -749,6 +995,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
     lock.lock();
     try {
+      // A response arrived at all -- success or reject -- so the peer is reachable and processing
+      // this leader's own RPCs, exactly what check-quorum (see CHECK_QUORUM_WINDOW) needs to know;
+      // recorded before any of the staleness checks below so even a stale-term/stale-role response
+      // still counts (this leader's *previous* term successfully reached that peer, too).
+      lastContactNanos.put(peerId, System.nanoTime());
       if (response.term() > raftLog.currentTerm()) {
         stepDownLocked(response.term());
         return;
@@ -761,6 +1012,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         matchIndex.put(peerId, Math.max(matchIndex.getOrDefault(peerId, 0L), newMatchIndex));
         nextIndex.put(peerId, newMatchIndex + 1);
         advanceCommitIndexLocked();
+        maybePromoteLearnerLocked(peerId);
       } else {
         // one-index-at-a-time backtrack: correct but O(divergence) in the worst case, acceptable
         // for a small control-plane cluster where divergence is rare and small.
@@ -816,6 +1068,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
       lock.lock();
       try {
+        // Same check-quorum bookkeeping as sendOnce's own response handling -- a chunk response
+        // arriving at all proves this peer is reachable, regardless of what it turns out to say.
+        lastContactNanos.put(peerId, System.nanoTime());
         if (response.term() > raftLog.currentTerm()) {
           stepDownLocked(response.term());
           return;
@@ -837,6 +1092,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       matchIndex.put(peerId, Math.max(matchIndex.getOrDefault(peerId, 0L), lastIncludedIndex));
       nextIndex.put(peerId, lastIncludedIndex + 1);
       advanceCommitIndexLocked();
+      maybePromoteLearnerLocked(peerId);
     } finally {
       lock.unlock();
     }
@@ -880,16 +1136,36 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   }
 
   /**
+   * Whether {@code peerId} is currently a non-voting learner (see {@link #learners}) -- exercised
+   * only by {@code RaftMembershipChangeTest}/{@code RaftClusterTest} in this same package, never by
+   * application code.
+   */
+  boolean isLearnerForTest(String peerId) {
+    lock.lock();
+    try {
+      return learners.contains(peerId);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
    * Advances {@code commitIndex} to the highest index a majority of {@code matchIndex} values
    * (including this leader's own, always fully caught up with itself) reach, but only if that entry
    * was written in this leader's own current term (the Figure 8 rule from the Raft paper) -- the
    * condition a naive implementation omits, so it is its own explicit guard rather than folded into
-   * one boolean expression.
+   * one boolean expression. A learner's {@link #matchIndex} is excluded from the majority
+   * denominator entirely (see {@link #learners}'s own javadoc) -- it doesn't yet count as a voting
+   * member, so its replication progress, while tracked exactly like any other peer's, can't help
+   * commit an entry until it's promoted.
    */
   private void advanceCommitIndexLocked() {
     List<Long> matchIndexes = new ArrayList<>();
     matchIndexes.add(raftLog.lastIndex());
     for (String peerId : peers.keySet()) {
+      if (learners.contains(peerId)) {
+        continue;
+      }
       matchIndexes.add(matchIndex.getOrDefault(peerId, 0L));
     }
     matchIndexes.sort(Comparator.reverseOrder());

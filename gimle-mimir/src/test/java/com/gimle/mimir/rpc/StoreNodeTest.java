@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
@@ -18,6 +19,7 @@ import com.gimle.mimir.raft.AppendEntries;
 import com.gimle.mimir.raft.AppendEntriesResponse;
 import com.gimle.mimir.raft.InstallSnapshot;
 import com.gimle.mimir.raft.InstallSnapshotResponse;
+import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.raft.RaftPeerClient;
@@ -26,11 +28,14 @@ import com.gimle.mimir.raft.RequestVoteResponse;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -44,11 +49,26 @@ class StoreNodeTest {
 
   @TempDir Path tempDir;
 
+  private final List<RaftNode> nodes = new ArrayList<>();
+
+  @AfterEach
+  void tearDown() {
+    // None of these nodes are ever closed mid-test, so nothing stops a still-running
+    // scheduler/peer-sender thread on its own once a test method returns -- a learner's
+    // automatic promotion in particular means a background thread can still be actively
+    // appending to a test's own raft log file after the test body finishes, racing @TempDir's
+    // own post-test cleanup walk.
+    for (RaftNode node : nodes) {
+      node.close();
+    }
+  }
+
   private StoreNode leaderNode(String id) {
     Path dir = tempDir.resolve(id);
     StateStore store = new StateStore(dir.resolve("store"));
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
+    nodes.add(raftNode);
     raftNode.start(); // an empty peer set becomes its own leader immediately
     return new StoreNode(raftNode, store, Map.of(id, id + "-client:9090"));
   }
@@ -59,6 +79,7 @@ class StoreNodeTest {
     StateStore store = new StateStore(dir.resolve("store"));
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
+    nodes.add(raftNode);
     return new StoreNode(raftNode, store, Map.of(id, id + "-client:9090"));
   }
 
@@ -316,6 +337,7 @@ class StoreNodeTest {
     RaftNode raftNode =
         new RaftNode(
             "leader",
+            new PeerAddress("leader-host", 9000, 9100),
             Map.of(),
             addr -> echoAckingPeer(),
             log,
@@ -324,6 +346,7 @@ class StoreNodeTest {
                 peers.forEach(
                     (peerId, address) ->
                         raftIdToClientAddress.put(peerId, address.clientAddress())));
+    nodes.add(raftNode);
     raftNode.start(); // an empty peer set becomes its own leader immediately
     StoreNode node = new StoreNode(raftNode, store, raftIdToClientAddress);
 
@@ -345,20 +368,53 @@ class StoreNodeTest {
   }
 
   @Test
-  void a_leader_removes_a_server_it_previously_added() {
+  void a_leader_removes_a_server_it_previously_added() throws Exception {
     Path dir = tempDir.resolve("remove-server-leader");
     StateStore store = new StateStore(dir.resolve("store"));
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode =
-        new RaftNode("leader", Map.of(), addr -> echoAckingPeer(), log, store, ignored -> {});
+        new RaftNode(
+            "leader",
+            new PeerAddress("leader-host", 9000, 9100),
+            Map.of(),
+            addr -> echoAckingPeer(),
+            log,
+            store,
+            ignored -> {});
+    nodes.add(raftNode);
     raftNode.start();
     StoreNode node = new StoreNode(raftNode, store, new ConcurrentHashMap<>(Map.of("leader", "x")));
     assertEquals(
         new StoreRpc.Ok(), node.handle(new StoreRpc.AddServer("node-2", "10.0.0.2", 7100, 7200)));
 
-    StoreRpc.Response response = node.handle(new StoreRpc.RemoveServer("node-2"));
+    // node-2's own join committed the instant AddServer returned (a fresh learner never needs its
+    // own ack to join), but the fake peer acks everything, so it is then auto-promoted to a full
+    // voting member on the replication loop's very next tick -- a second, separate membership
+    // change that can itself still be uncommitted the instant it's appended. Retried rather than
+    // awaited-then-called: a RemoveServer landing in that exact window is a real, expected
+    // transient rejection (GimleRaftException#membershipChangeInFlight), not a bug.
+    StoreRpc.Response response = removeServerWithRetry(node, "node-2", Duration.ofSeconds(5));
 
     assertEquals(new StoreRpc.Ok(), response);
+  }
+
+  /**
+   * This test's leader never actually loses leadership, so the only way {@code RemoveServer} ever
+   * comes back as anything but {@link StoreRpc.Ok} here is the transient {@link
+   * GimleRaftException#membershipChangeInFlight} rejection {@code StoreNode} maps onto the same
+   * {@link StoreRpc.NotLeader} shape a genuine redirect uses -- so retrying on any non-{@code Ok}
+   * response until {@code timeout} is unambiguous here, not a guess.
+   */
+  private static StoreRpc.Response removeServerWithRetry(
+      StoreNode node, String peerId, Duration timeout) throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (true) {
+      StoreRpc.Response response = node.handle(new StoreRpc.RemoveServer(peerId));
+      if (response instanceof StoreRpc.Ok || System.nanoTime() >= deadlineNanos) {
+        return response;
+      }
+      Thread.sleep(20);
+    }
   }
 
   @Test
