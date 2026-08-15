@@ -115,6 +115,12 @@ public final class AndvariServer implements AutoCloseable {
   private static final String SESSION_COOKIE_NAME = "gimle_andvari_session";
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
+  // 500 MiB -- generous enough for a module jar with bundled dependencies, small enough that one
+  // misbehaving or malicious pusher can't fill a node's disk with a single request. Checked while
+  // streaming (see ArtifactStore.SizeLimitedInputStream), not against a client-declared
+  // Content-Length, since chunked transfer encoding means that header isn't always even present.
+  private static final long DEFAULT_MAX_ARTIFACT_BYTES = 500L * 1024 * 1024;
+
   private final StoreClient storeClient;
   private final Authorizer authorizer;
   private final ArtifactStore artifactStore;
@@ -137,7 +143,9 @@ public final class AndvariServer implements AutoCloseable {
   public AndvariServer(StoreClient storeClient, int port, Path dataRoot) throws IOException {
     this.storeClient = storeClient;
     this.authorizer = new Authorizer(storeClient);
-    this.artifactStore = new ArtifactStore(dataRoot);
+    this.artifactStore =
+        new ArtifactStore(
+            dataRoot, Long.getLong("gimle.andvari.maxArtifactBytes", DEFAULT_MAX_ARTIFACT_BYTES));
     this.sessionSigningKey = SessionKeyFileManager.loadOrCreate(dataRoot.resolve("session.key"));
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
@@ -411,7 +419,35 @@ public final class AndvariServer implements AutoCloseable {
   }
 
   /**
-   * Package-visible so {@code AndvariMain} can wire an optional {@link IntegrityScrubber} to it.
+   * The single place a version {@link ArtifactRetentionSweeper} decided to retire actually gets
+   * deleted -- unlike {@link #reportIntegrityFailure}, which is also called synchronously from
+   * {@code handleDownload}'s own per-request re-check, this is only ever reached from the sweeper's
+   * own scheduled thread (see {@code AndvariMain}'s own {@code -Dgimle.andvari.retention.enabled}
+   * wiring). Logged, durably audited under a synthetic system principal distinct from {@code
+   * andvari:integrity-check} (there is no human or node identity to attribute a scheduled retention
+   * decision to either), and deleted via {@link ArtifactStore#delete} -- not {@link
+   * ArtifactStore#quarantine}, since a version retired for being old or over the count limit isn't
+   * corrupted and doesn't need to be preserved for forensics.
+   */
+  void reportRetentionRetirement(String moduleId, String version, String reason) {
+    String target = moduleId + ":" + version;
+    boolean deleted;
+    try {
+      deleted = artifactStore.delete(moduleId, version);
+    } catch (IOException e) {
+      log.warn(
+          "failed to retire {} ({}) during retention sweep: {}", target, reason, e.getMessage());
+      deleted = false;
+    }
+    if (deleted) {
+      log.info("retired {} via retention sweep ({})", target, reason);
+    }
+    recordAudit(new Principal("andvari:retention-sweep", Set.of()), Verb.DELETE, target, deleted);
+  }
+
+  /**
+   * Package-visible so {@code AndvariMain} can wire an optional {@link IntegrityScrubber}/{@link
+   * ArtifactRetentionSweeper} to it.
    */
   ArtifactStore artifactStore() {
     return artifactStore;
@@ -426,6 +462,9 @@ public final class AndvariServer implements AutoCloseable {
     PutResult result;
     try (var body = exchange.getRequestBody()) {
       result = artifactStore.put(moduleId, version, body, pushedBy);
+    } catch (ArtifactStore.ArtifactTooLargeException e) {
+      respond(exchange, 413, e.getMessage());
+      return;
     }
     if (result.outcome() == PutOutcome.CONFLICT) {
       respond(

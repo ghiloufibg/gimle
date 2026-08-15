@@ -167,7 +167,44 @@ public final class AndvariMain {
       log.info("integrity scrub disabled (set -Dgimle.andvari.scrub.enabled=true to enable)");
     }
 
+    // Off by default -- retiring a version is an irreversible storage decision (see
+    // ArtifactRetentionSweeper's own javadoc), not a default this process should make silently.
+    // Opt in with -Dgimle.andvari.retention.enabled=true, and set at least one of
+    // maxVersionsPerModule/maxAgeDays -- with neither set, the sweeper would run forever without
+    // ever retiring anything, so that combination is called out explicitly rather than left to be
+    // discovered as "retention enabled but nothing ever happens."
+    ArtifactRetentionSweeper retentionSweeper = null;
+    if (Boolean.getBoolean("gimle.andvari.retention.enabled")) {
+      int maxVersionsPerModule =
+          Integer.getInteger("gimle.andvari.retention.maxVersionsPerModule", 0);
+      long maxAgeDays = Long.getLong("gimle.andvari.retention.maxAgeDays", 0L);
+      if (maxVersionsPerModule <= 0 && maxAgeDays <= 0) {
+        log.warn(
+            "retention enabled but neither gimle.andvari.retention.maxVersionsPerModule nor"
+                + " gimle.andvari.retention.maxAgeDays is set -- retention will never retire"
+                + " anything until at least one is configured");
+      }
+      Duration maxAge = maxAgeDays > 0 ? Duration.ofDays(maxAgeDays) : null;
+      Duration retentionInterval =
+          Duration.ofSeconds(Long.getLong("gimle.andvari.retention.intervalSeconds", 86_400L));
+      retentionSweeper =
+          new ArtifactRetentionSweeper(
+              andvariServer.artifactStore(),
+              andvariServer::reportRetentionRetirement,
+              maxVersionsPerModule,
+              maxAge,
+              retentionInterval);
+      log.info(
+          "version retention enabled: maxVersionsPerModule={}, maxAgeDays={}, running every {}",
+          maxVersionsPerModule,
+          maxAgeDays,
+          retentionInterval);
+    } else {
+      log.info("version retention disabled (set -Dgimle.andvari.retention.enabled=true to enable)");
+    }
+
     IntegrityScrubber finalIntegrityScrubber = integrityScrubber;
+    ArtifactRetentionSweeper finalRetentionSweeper = retentionSweeper;
     Runtime.getRuntime()
         .addShutdownHook(
             Thread.ofPlatform()
@@ -177,6 +214,9 @@ public final class AndvariMain {
                       ticker.shutdownNow();
                       if (finalIntegrityScrubber != null) {
                         finalIntegrityScrubber.close();
+                      }
+                      if (finalRetentionSweeper != null) {
+                        finalRetentionSweeper.close();
                       }
                       storeClient.close();
                     }));

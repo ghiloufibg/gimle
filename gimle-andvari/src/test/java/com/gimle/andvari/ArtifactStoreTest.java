@@ -238,6 +238,49 @@ class ArtifactStoreTest {
     assertFalse(store.quarantine("com.example.ghost", "1.0.0"));
   }
 
+  @Test
+  void a_push_within_the_configured_size_limit_succeeds() throws Exception {
+    ArtifactStore capped = new ArtifactStore(tempDir.resolve("capped"), 32);
+    byte[] jar = "under-the-cap".getBytes(StandardCharsets.UTF_8);
+
+    PutResult result = capped.put("com.example.app", "1.0.0", bytes(new String(jar)), "ana");
+
+    assertEquals(PutOutcome.CREATED, result.outcome());
+    assertEquals(sha256Of(jar), result.stored().sha256());
+  }
+
+  @Test
+  void a_push_over_the_configured_size_limit_is_rejected_and_leaves_no_temp_file()
+      throws Exception {
+    ArtifactStore capped = new ArtifactStore(tempDir.resolve("capped"), 8);
+
+    assertThrows(
+        ArtifactStore.ArtifactTooLargeException.class,
+        () -> capped.put("com.example.app", "1.0.0", bytes("this-is-way-over-the-cap"), "ana"));
+
+    assertTrue(capped.meta("com.example.app", "1.0.0").isEmpty());
+    // The temp file put() streams into is cleaned up by its own finally block even when the
+    // stream itself aborted mid-copy -- no leftover partial upload should survive the rejection.
+    try (var entries = Files.newDirectoryStream(tempDir.resolve("capped").resolve("tmp"))) {
+      assertFalse(entries.iterator().hasNext(), "expected no leftover temp file after rejection");
+    }
+  }
+
+  @Test
+  void the_default_single_argument_constructor_imposes_no_size_limit() throws Exception {
+    // store (from setUp) uses the single-argument constructor -- the multi-megabyte push test
+    // above already exercises this implicitly, but this test names the guarantee explicitly so a
+    // future change to the default can't silently start capping every existing caller (including
+    // every other test in this class) that never opted into a limit.
+    byte[] jar = new byte[2 * 1024 * 1024];
+    new Random(7).nextBytes(jar);
+
+    PutResult result =
+        store.put("com.example.uncapped", "1.0.0", new ByteArrayInputStream(jar), "ana");
+
+    assertEquals(PutOutcome.CREATED, result.outcome());
+  }
+
   private static ByteArrayInputStream bytes(String content) {
     return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
   }

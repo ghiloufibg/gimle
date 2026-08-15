@@ -157,6 +157,44 @@ class AndvariServerTest {
 
   @Test
   @Timeout(10)
+  void a_push_over_the_configured_size_limit_is_rejected_with_413() throws Exception {
+    // The shared server (from setUp) uses the 500 MiB default -- this test needs its own instance
+    // constructed after gimle.andvari.maxArtifactBytes is set, since AndvariServer reads that
+    // system property once, at construction time.
+    System.setProperty("gimle.andvari.maxArtifactBytes", "8");
+    try (InProcessStore cappedStore = InProcessStore.start(tempDir.resolve("capped-store"));
+        AndvariServer cappedServer =
+            new AndvariServer(cappedStore.client(), 0, tempDir.resolve("capped-data"))) {
+      cappedServer.start();
+      String cappedBaseUrl = "http://127.0.0.1:" + cappedServer.port();
+
+      HttpResponse<String> response =
+          client.send(
+              HttpRequest.newBuilder(URI.create(cappedBaseUrl + "/artifacts/com.example.app/1.0.0"))
+                  .PUT(
+                      HttpRequest.BodyPublishers.ofByteArray(
+                          "this-is-way-over-the-cap".getBytes(StandardCharsets.UTF_8)))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+      assertEquals(413, response.statusCode());
+      assertEquals(
+          404,
+          client
+              .send(
+                  HttpRequest.newBuilder(
+                          URI.create(cappedBaseUrl + "/artifacts/com.example.app/1.0.0"))
+                      .GET()
+                      .build(),
+                  HttpResponse.BodyHandlers.discarding())
+              .statusCode());
+    } finally {
+      System.clearProperty("gimle.andvari.maxArtifactBytes");
+    }
+  }
+
+  @Test
+  @Timeout(10)
   void the_catalog_and_version_listing_reflect_pushed_artifacts() throws Exception {
     send(put("/artifacts/com.example.app/1.0.0", "v1".getBytes(StandardCharsets.UTF_8)));
     send(put("/artifacts/com.example.app/2.0.0", "v2".getBytes(StandardCharsets.UTF_8)));

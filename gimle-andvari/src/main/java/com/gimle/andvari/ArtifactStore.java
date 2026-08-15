@@ -2,6 +2,7 @@ package com.gimle.andvari;
 
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -72,14 +73,80 @@ public final class ArtifactStore {
   /** The outcome of a push plus the store's now-authoritative metadata for the coordinate. */
   public record PutResult(PutOutcome outcome, StoredArtifact stored) {}
 
+  /**
+   * Thrown by {@link #put} once a push's body has streamed past {@code maxArtifactBytes} --
+   * unchecked (see {@link SizeLimitedInputStream}) so it propagates straight out of {@link
+   * Files#copy} without {@code put} needing to catch and re-signal it through {@link PutResult},
+   * which has no "rejected, no coordinate to attach" shape the way {@link PutOutcome} does. {@code
+   * put}'s own {@code finally} block still cleans up the partial temp file, exactly as it does for
+   * every other exception.
+   */
+  public static final class ArtifactTooLargeException extends RuntimeException {
+    ArtifactTooLargeException(long maxArtifactBytes) {
+      super("upload exceeds the maximum allowed artifact size of " + maxArtifactBytes + " bytes");
+    }
+  }
+
+  /**
+   * Aborts a push mid-stream once more than {@code maxBytes} have been read, so an oversized
+   * upload's excess bytes are never fully written to the temp file (or read at all past the limit)
+   * before being rejected -- the same "never buffer/write more than necessary" discipline {@link
+   * #copyAndDigest} and {@link #put} already follow, just extended to the reject path.
+   */
+  private static final class SizeLimitedInputStream extends FilterInputStream {
+    private final long maxBytes;
+    private long readSoFar;
+
+    SizeLimitedInputStream(InputStream in, long maxBytes) {
+      super(in);
+      this.maxBytes = maxBytes;
+    }
+
+    @Override
+    public int read() throws IOException {
+      int b = super.read();
+      if (b != -1) {
+        countAndCheck(1);
+      }
+      return b;
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      int n = super.read(b, off, len);
+      if (n > 0) {
+        countAndCheck(n);
+      }
+      return n;
+    }
+
+    private void countAndCheck(int justRead) {
+      readSoFar += justRead;
+      if (readSoFar > maxBytes) {
+        throw new ArtifactTooLargeException(maxBytes);
+      }
+    }
+  }
+
   private final Path artifactsRoot;
   private final Path tmpRoot;
   private final Path quarantineRoot;
+  private final long maxArtifactBytes;
 
   public ArtifactStore(Path dataRoot) throws IOException {
+    this(dataRoot, Long.MAX_VALUE);
+  }
+
+  /**
+   * @param maxArtifactBytes the largest body {@link #put} accepts, checked while streaming rather
+   *     than against a client-declared (and unenforceable, under chunked transfer encoding) {@code
+   *     Content-Length}; see {@link SizeLimitedInputStream}.
+   */
+  public ArtifactStore(Path dataRoot, long maxArtifactBytes) throws IOException {
     this.artifactsRoot = dataRoot.resolve("artifacts");
     this.tmpRoot = dataRoot.resolve("tmp");
     this.quarantineRoot = dataRoot.resolve("quarantine");
+    this.maxArtifactBytes = maxArtifactBytes;
     Files.createDirectories(artifactsRoot);
     Files.createDirectories(tmpRoot);
     Files.createDirectories(quarantineRoot);
@@ -127,7 +194,9 @@ public final class ArtifactStore {
    * version)} -- unless the coordinate already exists, in which case the upload is compared by
    * checksum and discarded either way (idempotent for identical bytes, refused for differing ones).
    * The commit section is synchronized so two concurrent pushes of one coordinate serialize into
-   * exactly one CREATED and one IDENTICAL/CONFLICT, never a torn overwrite.
+   * exactly one CREATED and one IDENTICAL/CONFLICT, never a torn overwrite. Throws {@link
+   * ArtifactTooLargeException} if {@code body} streams past {@code maxArtifactBytes} -- the partial
+   * temp file is still cleaned up by the {@code finally} below, same as any other failure mid-push.
    */
   public PutResult put(String moduleId, String version, InputStream body, String pushedBy)
       throws IOException {
@@ -138,7 +207,8 @@ public final class ArtifactStore {
     long sizeBytes;
     try {
       MessageDigest digest = sha256Digest();
-      try (DigestInputStream digesting = new DigestInputStream(body, digest)) {
+      try (DigestInputStream digesting =
+          new DigestInputStream(new SizeLimitedInputStream(body, maxArtifactBytes), digest)) {
         sizeBytes = Files.copy(digesting, tempFile, StandardCopyOption.REPLACE_EXISTING);
       }
       sha256 = HexFormat.of().formatHex(digest.digest());
