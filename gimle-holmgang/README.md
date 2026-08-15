@@ -132,6 +132,47 @@ lifecycle events for the deployment in question. Cluster work directories live u
 `-Dgimle.holmgang.keepWorkDirs=onFailure|always|never` (default `onFailure`). The Cucumber HTML
 report lands in `target/holmgang-reports/`.
 
+## Multi-machine container validation (Utgard)
+
+Where every scenario above validates a real cluster on one machine (loopback addressing, dynamic
+port leasing), **Utgard** (`com.gimle.holmgang.utgard`) validates the same platform across real,
+independently addressable machines: one Docker container per declared machine, on one shared
+Docker network, each aliased to its own machine name, driving the real `hilmir` CLI inside each
+container exactly as an operator would on a real fleet. It closes the specific gap
+`GimleCluster`'s single-machine topologies cannot reach: genuine cross-host readiness waiting
+(`hilmir up`'s remote-prerequisite block actually blocking, not racing), whole-machine loss, network
+partition, and mTLS addressed by real DNS hostnames instead of `localhost`.
+
+Plain JUnit `*IT` classes, not Gherkin -- container orchestration in step definitions would be
+noise, the same reasoning `SurtrIT` already follows. Four scenarios:
+
+- `UtgardDistributedBootIT` -- three machines; `hilmir up` is issued in a deliberately
+  out-of-dependency-order sequence to prove the remote-prerequisite wait genuinely blocks and later
+  proceeds, then a real deployment reaches `ACTIVE` through the control plane's own HTTP API.
+- `UtgardMachineLossIT` -- hard-kills a whole container and asserts the platform reschedules the
+  instance it hosted onto a surviving machine, then demonstrates rejoin via a fresh `hilmir up
+  --machine` against the restarted container.
+- `UtgardPartitionIT` -- disconnects a machine from the shared Docker network (its own process stays
+  alive throughout, unlike a kill) and asserts the cluster both reschedules around it and converges
+  back to one instance once the network is reconnected.
+- `UtgardMtlsIT` -- an mTLS topology addressed by the containers' own real network aliases, proving
+  the certificate-bootstrap flow works over a genuine DNS-named network rather than the
+  `localhost`-only mTLS every other topology in this module is limited to.
+
+Requires Docker with normal container-registry egress. Every `*IT` class's own `@BeforeAll` starts
+its container fleet inside a try/catch and converts any failure -- no reachable daemon, or a blocked
+image pull -- into a JUnit assumption failure, so the suite skips cleanly rather than hanging or
+failing hard on a machine without Docker or without registry access, the same style `SurtrIT` uses
+for its own unmet precondition.
+
+```sh
+mvn -pl gimle-holmgang verify -Pvalidation -Dit.test=Utgard*
+```
+
+The pure YAML/exec-result helpers behind Utgard (`UtgardTopologies`, `UtgardExec`, `UtgardPoll`)
+have their own fast unit tests that need no Docker at all, so they run under the module's default
+`mvn verify` alongside every other unit test here.
+
 ## Adding a scenario
 
 1. Pick (or add) a topology under `topologies/` — composition only, no ports.
