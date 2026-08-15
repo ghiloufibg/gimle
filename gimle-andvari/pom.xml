@@ -41,6 +41,10 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-observability</artifactId>
+    </dependency>
     <!-- No Java sources of its own: just the built web console SPA bundled at
          andvari-console/** inside its own jar (see that module's pom.xml). AndvariMain resolves
          it off the classpath at startup via BundledSpa, the same pattern gimle-fafnir already

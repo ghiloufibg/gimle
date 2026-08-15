@@ -101,8 +101,8 @@ traces (workers have no outbound network identity of their own, so a worker rela
 metrics snapshot and exported span batches to its agent over their existing control channel, which
 the agent then forwards to Muninn byte-for-byte under a new `WORKER` processKind —
 `{nodeId}:{workerId}`, see [Observability](./observability.md)); `gimle-controlplane`,
-`gimle-fafnir`, and `gimle-mimir` each ship their own request metrics and traces directly, since
-none of the three has a supervising agent. Shipping is entirely optional and best-effort — a
+`gimle-fafnir`, `gimle-mimir`, and `gimle-andvari` each ship their own request metrics and traces
+directly, since none of the four has a supervising agent. Shipping is entirely optional and best-effort — a
 process with no Muninn endpoint configured behaves exactly as it did before Muninn existed (local
 log tailing, no metrics/traces export), never blocked or degraded by Muninn being unreachable.
 

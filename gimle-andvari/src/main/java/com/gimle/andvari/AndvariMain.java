@@ -7,6 +7,8 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.observability.GimleTracing;
+import com.gimle.observability.MuninnShipper;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -36,6 +38,7 @@ public final class AndvariMain {
 
   private static final Logger log = LoggerFactory.getLogger(AndvariMain.class);
   private static final Duration CERT_ROTATION_CHECK_INTERVAL = Duration.ofSeconds(2);
+  private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
 
   private AndvariMain() {}
 
@@ -101,6 +104,26 @@ public final class AndvariMain {
     StoreClient storeClient = new StoreClient(storeEndpoints);
     AndvariServer andvariServer = new AndvariServer(storeClient, port, dataRoot);
     andvariServer.start();
+
+    // Optional system property, matching gimle-fafnir's own gimle.fafnir.muninnEndpoint pattern --
+    // null means "ship nowhere," this replica's own request metrics simply aren't shipped anywhere.
+    String muninnEndpoint = System.getProperty("gimle.andvari.muninnEndpoint");
+    MuninnShipper metricsShipper =
+        shipperFor(muninnEndpoint, "metrics", selfHost, andvariServer.port());
+    if (metricsShipper != null) {
+      metricsShipper.startShippingMetrics(andvariServer.metrics().registry());
+    }
+    // Tracing is installed here, unlike gimle-agent (see AgentMain's own javadoc on why it
+    // deliberately skips tracing installation), because this is a genuine request-serving process,
+    // not a pure supervisor. Shipped to Muninn when configured, falling back to GimleTracing's own
+    // default (LoggingSpanExporter) otherwise -- spans real and correctly parented either way.
+    MuninnShipper tracesShipper =
+        shipperFor(muninnEndpoint, "traces", selfHost, andvariServer.port());
+    if (tracesShipper != null) {
+      GimleTracing.installWithMuninnShipping(tracesShipper);
+    } else {
+      GimleTracing.installDefault();
+    }
 
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =
@@ -218,8 +241,30 @@ public final class AndvariMain {
                       if (finalRetentionSweeper != null) {
                         finalRetentionSweeper.close();
                       }
+                      if (metricsShipper != null) {
+                        metricsShipper.close();
+                      }
+                      if (tracesShipper != null) {
+                        tracesShipper.close();
+                      }
                       storeClient.close();
                     }));
+  }
+
+  /**
+   * A {@link MuninnShipper} targeting {@code /ingest/{kind}/ANDVARI/{selfHost}:{port}}, or {@code
+   * null} when {@code muninnEndpoint} is unconfigured -- the shared shape behind both the metrics
+   * and traces shippers above, which differ only in the ingest path's {@code kind} segment; the
+   * same helper {@code FafnirMain} carries under its own process-kind literal.
+   */
+  private static MuninnShipper shipperFor(
+      String muninnEndpoint, String kind, String selfHost, int port) {
+    return muninnEndpoint == null
+        ? null
+        : new MuninnShipper(
+            muninnEndpoint,
+            "/ingest/" + kind + "/ANDVARI/" + selfHost + ":" + port,
+            MUNINN_SHIP_INTERVAL);
   }
 
   private static List<SocketAddress> parseStoreEndpoints(String spec) {

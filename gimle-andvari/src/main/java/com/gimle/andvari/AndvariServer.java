@@ -27,8 +27,10 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.observability.AndvariMetrics;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsExchange;
@@ -127,6 +129,7 @@ public final class AndvariServer implements AutoCloseable {
   private final StoreClient storeClient;
   private final Authorizer authorizer;
   private final ArtifactStore artifactStore;
+  private final AndvariMetrics metrics;
   private final Instant startedAt = Instant.now();
   // Signs/verifies this console's own session cookies -- deliberately never shared with
   // ApiServer's or FafnirServer's own signing key (see SessionKeyFileManager's javadoc): each
@@ -144,11 +147,17 @@ public final class AndvariServer implements AutoCloseable {
   private final int boundPort;
 
   public AndvariServer(StoreClient storeClient, int port, Path dataRoot) throws IOException {
+    this(storeClient, port, dataRoot, new AndvariMetrics());
+  }
+
+  public AndvariServer(StoreClient storeClient, int port, Path dataRoot, AndvariMetrics metrics)
+      throws IOException {
     this.storeClient = storeClient;
     this.authorizer = new Authorizer(storeClient);
     this.artifactStore =
         new ArtifactStore(
             dataRoot, Long.getLong("gimle.andvari.maxArtifactBytes", DEFAULT_MAX_ARTIFACT_BYTES));
+    this.metrics = metrics;
     this.sessionSigningKey = SessionKeyFileManager.loadOrCreate(dataRoot.resolve("session.key"));
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
@@ -178,19 +187,43 @@ public final class AndvariServer implements AutoCloseable {
   }
 
   private void registerContexts(HttpServer target) throws IOException {
-    target.createContext("/status", this::handleStatus);
+    target.createContext("/status", instrument("status", this::handleStatus));
     // One context dispatching on the parsed tail rather than separate "/artifacts" and
     // "/artifacts/" registrations: the JDK server matches contexts by bare prefix, so a single
     // handler owning the whole subtree keeps "/artifactsanything" from ever matching a route.
-    target.createContext("/artifacts", this::handleArtifacts);
+    target.createContext("/artifacts", instrument("artifacts", this::handleArtifacts));
     // The Maven-2-shaped interop view over the same store -- see handleRepository's own javadoc.
-    target.createContext("/repository", this::handleRepository);
-    target.createContext("/auth/login", this::handleAuthLogin);
-    target.createContext("/auth/logout", this::handleAuthLogout);
-    target.createContext("/auth/session", this::handleAuthSession);
+    target.createContext("/repository", instrument("repository", this::handleRepository));
+    target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
+    target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
+    target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
     if (consoleStaticRoot.isPresent()) {
       registerConsole(target, consoleStaticRoot.get());
     }
+  }
+
+  /**
+   * Wraps a handler with request-count/latency/error Micrometer recording, mirroring {@code
+   * FafnirServer}'s own identical helper -- at context-registration time rather than inside each
+   * handler body, so every endpoint gets identical instrumentation with zero per-handler
+   * boilerplate. {@code error} is read from the exchange's own response code after the delegate
+   * finishes (every handler here already sends a real status and closes the exchange itself in its
+   * own {@code finally} block), not from an escaping exception -- these handlers deliberately never
+   * let one escape.
+   */
+  private HttpHandler instrument(String endpoint, HttpHandler delegate) {
+    return exchange -> {
+      String verb = exchange.getRequestMethod();
+      long startNanos = System.nanoTime();
+      try {
+        delegate.handle(exchange);
+      } finally {
+        Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
+        int status = exchange.getResponseCode();
+        boolean error = status <= 0 || status >= 400;
+        metrics.recordRequest(endpoint, verb, latency, error);
+      }
+    };
   }
 
   /**
@@ -216,6 +249,15 @@ public final class AndvariServer implements AutoCloseable {
 
   public int port() {
     return boundPort;
+  }
+
+  /**
+   * Public so {@code AndvariMain} can hand this registry to a {@code MuninnShipper} when {@code
+   * -Dgimle.andvari.muninnEndpoint} is configured -- the same shape {@code FafnirServer#metrics()}
+   * already established.
+   */
+  public AndvariMetrics metrics() {
+    return metrics;
   }
 
   @Override
