@@ -58,6 +58,20 @@ caller to a peer the way it once did, because there is no longer a fixed 1:1 rel
 an `ApiServer` replica and any particular store node to redirect to. Reads tolerate the same
 staleness they always did: any store endpoint may answer, with no linearizability guarantee.
 
+`GET /endpoints/{deployment}` is a small, read-only view over the same assignment/heartbeat state
+`GET /deployments/{name}` already exposes, purpose-built for [vessel workloads](../reference/manifest-schema.md#vessel-workloads-vessel):
+for each live instance, its `nodeId`, the host that node registered at startup (`NodeRegistration.apiAddress`,
+the same address `AgentLogServer` proxying already resolves through), and — joined from that node's
+latest heartbeat, the same `InstanceAssignment`-plus-`NodeHeartbeat` join `findObservation` already
+performs for every other status endpoint — a vessel instance's own declared ports (`env`-var name to
+allocated/fixed number). No gateway, no proxying, no load balancing: purely "list where things are,"
+for an external client (an LB, `curl`, a service mesh's own discovery hook) to dial itself. Tenant-scoped
+read authorization behaves exactly like every other single-resource `GET` route (`ResourceKind.DEPLOYMENT`,
+`Verb.READ`, scoped to that deployment's own `tenantId`); a `Deployment` with no vessel-hosted
+instances simply returns entries with no `ports` field. Scoped to `Deployment` only today — extending
+the same route shape to `Job`/`CronJob`/`DaemonSet`/`StatefulSet` is a natural follow-up, not a
+change to this route's own logic.
+
 ## Persistence and restart recovery
 
 `StateStore` is, in its own javadoc's words, "an embedded, single-node, file-backed state store: a

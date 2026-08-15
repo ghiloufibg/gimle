@@ -156,7 +156,7 @@ public final class DaemonSetReconciler {
   private void reconcileDaemonSet(DaemonSetSpec spec) {
     ModuleArtifact artifact;
     try {
-      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId());
+      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
     } catch (RuntimeException e) {
       log.warn(
           "daemonset {} references an unreadable artifact {}: {}",

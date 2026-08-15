@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.util.Optional;
 
 /**
@@ -26,7 +27,8 @@ public record StatefulSetSpec(
     int replicas,
     PlacementConstraints placement,
     Optional<String> tenantId,
-    Optional<String> artifactSha256)
+    Optional<String> artifactSha256,
+    Optional<VesselSpec> vessel)
     implements WorkloadSpec {
 
   public StatefulSetSpec {
@@ -49,5 +51,28 @@ public record StatefulSetSpec(
     if (artifactSha256 == null) {
       throw new IllegalArgumentException("artifactSha256 must be Optional.empty(), not null");
     }
+    if (vessel == null) {
+      throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code vessel} to {@code Optional.empty()}. */
+  public StatefulSetSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        tenantId,
+        artifactSha256,
+        Optional.empty());
   }
 }

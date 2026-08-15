@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.util.Optional;
 
 /**
@@ -38,6 +39,11 @@ import java.util.Optional;
  * <p>{@code disruption} is optional, matching every other field added after this record already
  * existed: absent means {@link DisruptionBudget#DEFAULT} (migrate one index at a time, no surge),
  * exactly {@code DeploymentReconciler}'s behavior before this field existed.
+ *
+ * <p>{@code vessel} is optional and, when present, is the *only* thing that distinguishes this spec
+ * from an ordinary module-hosted one -- there is no separate flag. Presence means {@code
+ * moduleId}/{@code artifactPath} name a plain runnable jar the agent spawns directly as its own OS
+ * process, never loaded into a worker JVM as a Java module.
  */
 public record DeploymentSpec(
     String name,
@@ -48,7 +54,8 @@ public record DeploymentSpec(
     Optional<AutoscalePolicy> autoscale,
     Optional<String> tenantId,
     Optional<String> artifactSha256,
-    Optional<DisruptionBudget> disruption)
+    Optional<DisruptionBudget> disruption,
+    Optional<VesselSpec> vessel)
     implements WorkloadSpec {
 
   public DeploymentSpec {
@@ -77,6 +84,33 @@ public record DeploymentSpec(
     if (disruption == null) {
       throw new IllegalArgumentException("disruption must be Optional.empty(), not null");
     }
+    if (vessel == null) {
+      throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code vessel} to {@code Optional.empty()}. */
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256,
+      Optional<DisruptionBudget> disruption) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        disruption,
+        Optional.empty());
   }
 
   /** Back-compat: defaults {@code disruption} to {@code Optional.empty()}. */

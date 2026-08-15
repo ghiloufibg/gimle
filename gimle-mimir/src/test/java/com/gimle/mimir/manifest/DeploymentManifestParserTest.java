@@ -9,9 +9,14 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -708,5 +713,113 @@ class DeploymentManifestParserTest {
     DisruptionBudget budget = spec.disruption().orElseThrow();
     assertEquals(0, budget.maxUnavailable());
     assertEquals(2, budget.maxSurge());
+  }
+
+  @Test
+  void absent_vessel_block_parses_as_module_hosted() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 1
+                """));
+
+    assertTrue(spec.vessel().isEmpty());
+  }
+
+  @Test
+  void parses_a_full_vessel_block() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: billing-api
+                module:
+                  name: com.acme.billing-api
+                  version: 2.3.1
+                artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
+                replicas: 3
+                vessel:
+                  args: ["--spring.profiles.active=prod"]
+                  jvmFlags: ["-XX:+UseZGC"]
+                  env:
+                    DB_PASSWORD: {secret: db.password}
+                    HTTP_PORT: {port: dynamic}
+                    FIXED_PORT: {port: 9000}
+                    LOG_LEVEL: INFO
+                  files:
+                    - {path: conf/application.yaml, config: billing.app-config}
+                  probes:
+                    liveness: {http: /actuator/health/liveness, initialDelaySeconds: 20}
+                    readiness: {tcp: true}
+                  resources:
+                    request: {memory: 512Mi, cpu: 250m}
+                    limit: {memory: 1Gi, cpu: 1000m}
+                """));
+
+    VesselSpec vessel = spec.vessel().orElseThrow();
+    assertEquals(List.of("--spring.profiles.active=prod"), vessel.args());
+    assertEquals(List.of("-XX:+UseZGC"), vessel.jvmFlags());
+    assertEquals(new VesselEnvValue.SecretRef("db.password"), vessel.env().get("DB_PASSWORD"));
+    assertEquals(
+        new VesselEnvValue.PortAllocation(OptionalInt.empty()), vessel.env().get("HTTP_PORT"));
+    assertEquals(
+        new VesselEnvValue.PortAllocation(OptionalInt.of(9000)), vessel.env().get("FIXED_PORT"));
+    assertEquals(new VesselEnvValue.Literal("INFO"), vessel.env().get("LOG_LEVEL"));
+    assertEquals(1, vessel.files().size());
+    assertEquals("conf/application.yaml", vessel.files().get(0).path());
+    assertEquals("billing.app-config", vessel.files().get(0).configKey());
+    VesselProbeSpec.Http liveness = (VesselProbeSpec.Http) vessel.probes().liveness().orElseThrow();
+    assertEquals("/actuator/health/liveness", liveness.path());
+    assertEquals(20, liveness.initialDelaySeconds());
+    assertTrue(vessel.probes().readiness().orElseThrow() instanceof VesselProbeSpec.Tcp);
+    assertEquals("512Mi", vessel.resourceRequest().memory());
+    assertEquals("1Gi", vessel.resourceLimit().memory());
+  }
+
+  @Test
+  void a_tcp_probe_with_no_declared_port_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: billing-api
+                    module:
+                      name: com.acme.billing-api
+                      version: 2.3.1
+                    artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
+                    replicas: 1
+                    vessel:
+                      probes:
+                        readiness: {tcp: true}
+                      resources:
+                        request: {memory: 512Mi, cpu: 250m}
+                        limit: {memory: 1Gi, cpu: 1000m}
+                    """)));
+  }
+
+  @Test
+  void a_vessel_block_missing_resources_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: billing-api
+                    module:
+                      name: com.acme.billing-api
+                      version: 2.3.1
+                    artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
+                    replicas: 1
+                    vessel: {}
+                    """)));
   }
 }

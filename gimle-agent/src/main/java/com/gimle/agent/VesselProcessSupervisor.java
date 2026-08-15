@@ -1,0 +1,196 @@
+package com.gimle.agent;
+
+import com.gimle.core.protocol.Json;
+import com.gimle.core.restart.RestartTracker;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Spawns and supervises one vessel process: {@code command} is the complete, ready-to-run command
+ * line (unlike {@link WorkerProcessSupervisor}, which appends a control-socket path itself, a
+ * vessel process never speaks Gimlé's own control protocol, so there is nothing to append), started
+ * with {@code env} applied on top of whatever this agent's own JVM inherited. Restart-on-crash
+ * reuses the same {@link RestartTracker}-driven destroy-and-respawn policy {@link
+ * WorkerProcessSupervisor} already established for a dedicated worker JVM -- a vessel gets the
+ * identical Tier-2-equivalent crash-domain guarantee -- but captures every stdout/stderr line
+ * unconditionally as this instance's own APPLICATION log rather than JSON-sniffing it: a vessel's
+ * output is whatever arbitrary program it runs, never Gimlé's own structured Logback JSON.
+ */
+final class VesselProcessSupervisor implements AutoCloseable {
+
+  private static final Logger log = LoggerFactory.getLogger(VesselProcessSupervisor.class);
+
+  private final String key;
+  private final List<String> command;
+  private final Map<String, String> env;
+  private final RestartTracker restartTracker;
+  private final Consumer<String> onRestartBudgetExhausted;
+  private final Path applicationLogFile;
+  private final Consumer<String> onRespawned;
+
+  private volatile Process process;
+  private volatile boolean closed;
+  private volatile OutputStream logStream;
+
+  VesselProcessSupervisor(
+      String key,
+      List<String> command,
+      Map<String, String> env,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Path applicationLogFile,
+      Consumer<String> onRespawned) {
+    this.key = key;
+    this.command = List.copyOf(command);
+    this.env = Map.copyOf(env);
+    this.restartTracker = restartTracker;
+    this.onRestartBudgetExhausted = onRestartBudgetExhausted;
+    this.applicationLogFile = applicationLogFile;
+    this.onRespawned = onRespawned;
+  }
+
+  synchronized void start() throws IOException {
+    spawn();
+  }
+
+  /** The live process handle, for a caller to check {@link Process#isAlive()} directly. */
+  Process process() {
+    return process;
+  }
+
+  private void spawn() throws IOException {
+    ProcessBuilder pb = new ProcessBuilder(command);
+    pb.environment().putAll(env);
+    pb.redirectErrorStream(true);
+    process = pb.start();
+    log.info("spawned vessel {} as pid {}", key, process.pid());
+    Thread.ofVirtual()
+        .name("gimle-vessel-output-" + key + "-" + process.pid())
+        .start(() -> drainOutput(process));
+    process.onExit().thenRun(this::onExit);
+  }
+
+  private void drainOutput(Process vessel) {
+    try (BufferedReader reader =
+        new BufferedReader(
+            new InputStreamReader(vessel.getInputStream(), StandardCharsets.UTF_8))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        appendApplicationLine(line);
+      }
+    } catch (IOException e) {
+      // The pipe closes when the vessel exits; nothing left to drain.
+    } finally {
+      closeLog();
+    }
+  }
+
+  private void appendApplicationLine(String line) {
+    Map<String, Object> entry = new LinkedHashMap<>();
+    entry.put("timestamp", Instant.now().toString());
+    entry.put("level", "INFO");
+    entry.put("category", "APPLICATION");
+    entry.put("message", line);
+    byte[] bytes = (Json.write(entry) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+    try {
+      OutputStream out = logStreamOrOpen();
+      synchronized (this) {
+        out.write(bytes);
+        out.flush();
+      }
+    } catch (IOException e) {
+      log.warn("failed to write vessel application log line for {}: {}", key, e.getMessage());
+    }
+  }
+
+  private synchronized OutputStream logStreamOrOpen() throws IOException {
+    if (logStream == null) {
+      Path parent = applicationLogFile.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
+      logStream =
+          Files.newOutputStream(
+              applicationLogFile, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+    return logStream;
+  }
+
+  private synchronized void closeLog() {
+    if (logStream != null) {
+      try {
+        logStream.close();
+      } catch (IOException e) {
+        // best-effort close when the vessel's output pipe closes
+      } finally {
+        logStream = null;
+      }
+    }
+  }
+
+  private void onExit() {
+    if (closed) {
+      return; // a deliberate stop(), not a crash -- no respawn.
+    }
+    int exitCode = process.exitValue();
+    log.warn("vessel {} exited unexpectedly (code {})", key, exitCode);
+
+    Instant now = Instant.now();
+    if (!restartTracker.recordFailureAndCheckShouldRetry(now)) {
+      log.error("vessel {} exhausted its restart budget; giving up", key);
+      onRestartBudgetExhausted.accept(key);
+      return;
+    }
+
+    var delay = restartTracker.delayUntilNextAttempt(now);
+    Thread.ofVirtual()
+        .name("gimle-vessel-respawn-" + key)
+        .start(
+            () -> {
+              try {
+                Thread.sleep(delay);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              synchronized (this) {
+                if (closed) {
+                  return;
+                }
+                try {
+                  spawn();
+                } catch (IOException e) {
+                  log.error("vessel {} respawn failed: {}", key, e.getMessage());
+                  return;
+                }
+              }
+              onRespawned.accept(key);
+            });
+  }
+
+  /** Deliberate shutdown: the exit this triggers is not treated as a crash to respawn from. */
+  synchronized void stop() {
+    closed = true;
+    if (process != null) {
+      process.destroyForcibly();
+    }
+  }
+
+  @Override
+  public void close() {
+    stop();
+  }
+}

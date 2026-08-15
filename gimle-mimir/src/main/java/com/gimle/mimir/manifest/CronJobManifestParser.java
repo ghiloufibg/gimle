@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -75,8 +76,10 @@ public final class CronJobManifestParser {
     PlacementConstraints placement = parsePlacement(template);
     Optional<Duration> activeDeadline = parseActiveDeadline(template);
     int backoffLimit = parseBackoffLimit(template);
+    Optional<VesselSpec> vessel = ManifestFields.parseVessel(template);
     try {
-      return new JobTemplate(moduleId, artifactPath, placement, activeDeadline, backoffLimit);
+      return new JobTemplate(
+          moduleId, artifactPath, placement, activeDeadline, backoffLimit, vessel);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid jobTemplate: " + e.getMessage(), e);
     }

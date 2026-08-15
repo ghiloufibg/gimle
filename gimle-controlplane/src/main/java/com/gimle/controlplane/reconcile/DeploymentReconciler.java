@@ -191,7 +191,7 @@ public final class DeploymentReconciler {
   private Optional<ModuleDescriptor> validateArtifact(DeploymentSpec spec) {
     ModuleArtifact artifact;
     try {
-      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId());
+      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
     } catch (RuntimeException e) {
       log.warn(
           "deployment {} references an unreadable artifact {}: {}",

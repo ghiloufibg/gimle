@@ -3,8 +3,15 @@ package com.gimle.mimir.manifest;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselFileMount;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselProbes;
+import com.gimle.core.vessel.VesselSpec;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -179,6 +186,173 @@ final class ManifestFields {
       return Optional.of(budgetFactory.apply(disruption, maxUnavailable));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * The {@code vessel: {...}} block shared identically by every workload kind's own manifest shape:
+   * presence alone (not a separate flag) is what makes a spec vessel-hosted rather than
+   * module-hosted. {@code container} is whichever map directly holds the {@code vessel} key -- the
+   * manifest root for Deployment/Job/DaemonSet/StatefulSet, {@code jobTemplate} for CronJob.
+   */
+  static Optional<VesselSpec> parseVessel(Map<?, ?> container) {
+    Object vesselObj = container.get("vessel");
+    if (vesselObj == null) {
+      return Optional.empty();
+    }
+    if (!(vesselObj instanceof Map<?, ?> vessel)) {
+      throw new GimleManifestException("'vessel' must be a mapping");
+    }
+    List<String> args = stringList(vessel, "args");
+    List<String> jvmFlags = stringList(vessel, "jvmFlags");
+    Map<String, VesselEnvValue> env = parseVesselEnv(vessel);
+    List<VesselFileMount> files = parseVesselFiles(vessel);
+    VesselProbes probes = parseVesselProbes(vessel);
+    Map<?, ?> resources = requireMap(vessel, "resources");
+    ResourceSpec request = parseResourceSpec(requireMap(resources, "request"), "vessel.resources.");
+    ResourceSpec limit = parseResourceSpec(requireMap(resources, "limit"), "vessel.resources.");
+    try {
+      return Optional.of(new VesselSpec(args, jvmFlags, env, files, probes, request, limit));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid vessel block: " + e.getMessage(), e);
+    }
+  }
+
+  private static List<String> stringList(Map<?, ?> vessel, String key) {
+    Object value = vessel.get(key);
+    if (value == null) {
+      return List.of();
+    }
+    if (!(value instanceof List<?> list)) {
+      throw new GimleManifestException("'vessel." + key + "' must be a list if present");
+    }
+    List<String> result = new ArrayList<>();
+    for (Object entry : list) {
+      if (!(entry instanceof String s)) {
+        throw new GimleManifestException("every 'vessel." + key + "' entry must be a string");
+      }
+      result.add(s);
+    }
+    return result;
+  }
+
+  private static Map<String, VesselEnvValue> parseVesselEnv(Map<?, ?> vessel) {
+    Object envObj = vessel.get("env");
+    if (envObj == null) {
+      return Map.of();
+    }
+    if (!(envObj instanceof Map<?, ?> env)) {
+      throw new GimleManifestException("'vessel.env' must be a mapping");
+    }
+    Map<String, VesselEnvValue> result = new LinkedHashMap<>();
+    for (Map.Entry<?, ?> entry : env.entrySet()) {
+      if (!(entry.getKey() instanceof String name) || name.isBlank()) {
+        throw new GimleManifestException("every 'vessel.env' key must be a non-blank string");
+      }
+      result.put(name, parseVesselEnvValue(name, entry.getValue()));
+    }
+    return result;
+  }
+
+  private static VesselEnvValue parseVesselEnvValue(String name, Object value) {
+    if (value instanceof String literal) {
+      return new VesselEnvValue.Literal(literal);
+    }
+    if (!(value instanceof Map<?, ?> map)) {
+      throw new GimleManifestException(
+          "'vessel.env." + name + "' must be a string, {secret: ...}, or {port: ...}");
+    }
+    if (map.containsKey("secret")) {
+      return new VesselEnvValue.SecretRef(requireString(map, "secret"));
+    }
+    if (map.containsKey("port")) {
+      Object port = map.get("port");
+      if ("dynamic".equals(port)) {
+        return new VesselEnvValue.PortAllocation(OptionalInt.empty());
+      }
+      if (port instanceof Number number) {
+        return new VesselEnvValue.PortAllocation(OptionalInt.of(number.intValue()));
+      }
+      throw new GimleManifestException(
+          "'vessel.env." + name + ".port' must be 'dynamic' or an integer");
+    }
+    throw new GimleManifestException(
+        "'vessel.env." + name + "' must declare 'secret' or 'port' if it is a mapping");
+  }
+
+  private static List<VesselFileMount> parseVesselFiles(Map<?, ?> vessel) {
+    Object filesObj = vessel.get("files");
+    if (filesObj == null) {
+      return List.of();
+    }
+    if (!(filesObj instanceof List<?> list)) {
+      throw new GimleManifestException("'vessel.files' must be a list");
+    }
+    List<VesselFileMount> result = new ArrayList<>();
+    for (Object entry : list) {
+      if (!(entry instanceof Map<?, ?> map)) {
+        throw new GimleManifestException("every 'vessel.files' entry must be a mapping");
+      }
+      try {
+        result.add(new VesselFileMount(requireString(map, "path"), requireString(map, "config")));
+      } catch (IllegalArgumentException e) {
+        throw new GimleManifestException("invalid 'vessel.files' entry: " + e.getMessage(), e);
+      }
+    }
+    return result;
+  }
+
+  private static VesselProbes parseVesselProbes(Map<?, ?> vessel) {
+    Object probesObj = vessel.get("probes");
+    if (probesObj == null) {
+      return VesselProbes.NONE;
+    }
+    if (!(probesObj instanceof Map<?, ?> probes)) {
+      throw new GimleManifestException("'vessel.probes' must be a mapping");
+    }
+    Optional<VesselProbeSpec> liveness = parseVesselProbeSpec(probes.get("liveness"), "liveness");
+    Optional<VesselProbeSpec> readiness =
+        parseVesselProbeSpec(probes.get("readiness"), "readiness");
+    return new VesselProbes(liveness, readiness);
+  }
+
+  private static Optional<VesselProbeSpec> parseVesselProbeSpec(Object rungObj, String which) {
+    if (rungObj == null) {
+      return Optional.empty();
+    }
+    if (!(rungObj instanceof Map<?, ?> rung)) {
+      throw new GimleManifestException("'vessel.probes." + which + "' must be a mapping");
+    }
+    int initialDelaySeconds =
+        optionalIntField(rung, "initialDelaySeconds", "vessel.probes." + which + ".").orElse(0);
+    if (Boolean.TRUE.equals(rung.get("tcp"))) {
+      try {
+        return Optional.of(new VesselProbeSpec.Tcp(initialDelaySeconds));
+      } catch (IllegalArgumentException e) {
+        throw new GimleManifestException(
+            "invalid vessel.probes." + which + ": " + e.getMessage(), e);
+      }
+    }
+    if (rung.get("http") instanceof String path) {
+      try {
+        return Optional.of(new VesselProbeSpec.Http(path, initialDelaySeconds));
+      } catch (IllegalArgumentException e) {
+        throw new GimleManifestException(
+            "invalid vessel.probes." + which + ": " + e.getMessage(), e);
+      }
+    }
+    throw new GimleManifestException(
+        "'vessel.probes." + which + "' must be either {tcp: true} or {http: <path>}");
+  }
+
+  private static ResourceSpec parseResourceSpec(Map<?, ?> map, String sectionPrefix) {
+    String memory = requireString(map, "memory");
+    String cpu = requireString(map, "cpu");
+    try {
+      return new ResourceSpec(memory, cpu);
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException(
+          "invalid " + sectionPrefix + "request/limit: " + e.getMessage(), e);
     }
   }
 }

@@ -2,6 +2,7 @@ package com.gimle.core.protocol;
 
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -19,6 +20,13 @@ import java.util.OptionalInt;
  * deploymentName#renamedFromInstanceIndex} retargeted to this index in place, no restart -- see
  * {@code AgentMain#reconcileAssignments}'s own rename branch, and {@code
  * com.gimle.mimir.store.InstanceAssignment}'s identically-named field, which this is copied from.
+ *
+ * <p>{@code vessel}, when present, means the agent must not run {@code artifactPath} as a Java
+ * module at all -- no worker JVM, no {@code ModuleLayer}, no install/resolve/start handshake -- but
+ * spawn it directly as its own {@code java -jar} process instead, configured from the {@link
+ * VesselSpec} itself rather than any descriptor read from the jar. Copied straight from the owning
+ * workload spec's own {@code vessel()} field by whichever handler builds this record; the agent
+ * never inspects the artifact to decide which hosting mode applies.
  */
 public record AssignedInstance(
     String deploymentName,
@@ -26,7 +34,8 @@ public record AssignedInstance(
     ModuleId moduleId,
     String artifactPath,
     Optional<String> tenantId,
-    OptionalInt renamedFromInstanceIndex) {
+    OptionalInt renamedFromInstanceIndex,
+    Optional<VesselSpec> vessel) {
 
   public AssignedInstance {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -46,9 +55,32 @@ public record AssignedInstance(
       throw new IllegalArgumentException(
           "renamedFromInstanceIndex must be OptionalInt.empty(), not null");
     }
+    if (vessel == null) {
+      throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
+    }
   }
 
-  /** Back-compat: defaults {@code tenantId} and {@code renamedFromInstanceIndex} to empty. */
+  /** Back-compat: defaults {@code renamedFromInstanceIndex} and {@code vessel} to empty. */
+  public AssignedInstance(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String artifactPath,
+      Optional<String> tenantId,
+      OptionalInt renamedFromInstanceIndex) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        artifactPath,
+        tenantId,
+        renamedFromInstanceIndex,
+        Optional.empty());
+  }
+
+  /**
+   * Back-compat: defaults {@code tenantId}, {@code renamedFromInstanceIndex} and {@code vessel}.
+   */
   public AssignedInstance(
       String deploymentName, int instanceIndex, ModuleId moduleId, String artifactPath) {
     this(

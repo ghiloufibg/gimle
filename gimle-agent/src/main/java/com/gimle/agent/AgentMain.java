@@ -5,6 +5,7 @@ import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.LogFileReader;
@@ -28,6 +29,10 @@ import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselFileMount;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.fabric.catalog.CatalogDelta;
 import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
@@ -47,8 +52,10 @@ import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
 import com.gimle.pki.RenewalSchedule;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
@@ -222,6 +229,11 @@ public final class AgentMain {
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
+    // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
+    // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
+    // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
+    Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
     // Keyed the same way supervised is (deploymentName#instanceIndex): a supervised instance's
     // pair of MuninnShippers (its worker's own PLATFORM log, its own APPLICATION log), started
     // the same tick the instance is added to supervised and closed the same tick it's removed.
@@ -263,6 +275,7 @@ public final class AgentMain {
             muninnEndpoint,
             nodeId,
             supervised,
+            supervisedVessels,
             instanceShippers,
             workerShippers,
             javaExecutable,
@@ -273,7 +286,7 @@ public final class AgentMain {
             gossipMember,
             catalog,
             logRoot);
-        sendHeartbeat(httpClient, baseUrl, nodeId, supervised, capacityTracker);
+        sendHeartbeat(httpClient, baseUrl, nodeId, supervised, supervisedVessels, capacityTracker);
         RotationOutcome rotationOutcome = rotateCertificateIfDue(httpClient, baseUrl);
         httpClient = rotationOutcome.httpClient();
         if (rotationOutcome.rotated()) {
@@ -595,6 +608,7 @@ public final class AgentMain {
       URI baseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
+      Map<String, SupervisedVessel> supervisedVessels,
       CapacityTracker capacityTracker)
       throws IOException, InterruptedException {
     CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
@@ -607,6 +621,9 @@ public final class AgentMain {
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {
       instances.add(observationJson(instance));
+    }
+    for (SupervisedVessel vessel : supervisedVessels.values()) {
+      instances.add(vesselObservationJson(vessel));
     }
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -678,6 +695,39 @@ public final class AgentMain {
     observation.put("requestRatePerSecond", instance.requestRatePerSecond);
     observation.put("errorRatePerSecond", instance.errorRatePerSecond);
     observation.put("queueDepth", instance.queueDepth);
+    return observation;
+  }
+
+  /**
+   * The vessel analog of {@link #observationJson} -- same {@code alive}/{@code ready} derivation
+   * from {@link SupervisedVessel#lifecycleState} (kept driven from the exact same {@code
+   * "STARTING"}/{@code "ACTIVE"}/{@code "FAILED"} vocabulary so both feed {@code HealthReconciler}
+   * identically), zero for every metrics field a vessel has no in-JVM {@code MetricsReport} to ever
+   * populate, and {@code ports} carrying its own agent-allocated/fixed port numbers -- what {@code
+   * GET /endpoints/{deployment}} ultimately reads back out.
+   */
+  static Map<String, Object> vesselObservationJson(SupervisedVessel instance) {
+    String state = instance.lifecycleState;
+    boolean alive = !"FAILED".equals(state);
+    boolean ready = "ACTIVE".equals(state);
+
+    Map<String, Object> moduleId = new LinkedHashMap<>();
+    moduleId.put("name", instance.assigned.moduleId().name());
+    moduleId.put("version", instance.assigned.moduleId().version().toString());
+
+    Map<String, Object> observation = new LinkedHashMap<>();
+    observation.put("deploymentName", instance.assigned.deploymentName());
+    observation.put("instanceIndex", instance.assigned.instanceIndex());
+    observation.put("moduleId", moduleId);
+    observation.put("lifecycleState", state);
+    observation.put("alive", alive);
+    observation.put("ready", ready);
+    observation.put("cpuMillicoresUsed", 0L);
+    observation.put("memoryBytesUsed", 0L);
+    observation.put("requestRatePerSecond", 0.0);
+    observation.put("errorRatePerSecond", 0.0);
+    observation.put("queueDepth", 0);
+    observation.put("ports", instance.allocatedPorts);
     return observation;
   }
 
@@ -801,6 +851,7 @@ public final class AgentMain {
       String muninnEndpoint,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
+      Map<String, SupervisedVessel> supervisedVessels,
       Map<String, List<MuninnShipper>> instanceShippers,
       Map<String, WorkerShipperPair> workerShippers,
       String javaExecutable,
@@ -841,6 +892,23 @@ public final class AgentMain {
                 "artifact resolution failed",
                 Optional.of(String.valueOf(e.getMessage())),
                 System.currentTimeMillis()));
+        continue;
+      }
+      // A vessel-flagged assignment never touches supervised/ModuleArtifactReader/the worker
+      // handshake at all -- its own dedicated-process spawn/health path is entirely separate, see
+      // reconcileVesselAssignment's own javadoc.
+      if (assigned.vessel().isPresent()) {
+        reconcileVesselAssignment(
+            assigned,
+            key,
+            supervisedVessels,
+            javaExecutable,
+            resourceLimiter,
+            capacityTracker,
+            httpClient,
+            baseUrl,
+            fafnirBaseUrl,
+            logRoot);
         continue;
       }
       // instanceKey() is deploymentName#index alone -- a rolling update (DeploymentReconciler
@@ -948,6 +1016,389 @@ public final class AgentMain {
             workerShippers,
             volumeManager,
             true);
+      }
+    }
+    for (String key : List.copyOf(supervisedVessels.keySet())) {
+      if (!currentKeys.contains(key)) {
+        stopVesselInstance(key, supervisedVessels, resourceLimiter, capacityTracker);
+      }
+    }
+    // Probed once per tick (the same 5-second cadence every other agent-side reconciliation runs
+    // at) rather than on a dedicated loop -- a vessel's own health has no push mechanism analogous
+    // to a worker's ModuleStateChanged message, so polling here is the only way this agent ever
+    // learns whether one is actually up.
+    for (SupervisedVessel instance : supervisedVessels.values()) {
+      updateVesselHealth(instance, httpClient);
+    }
+  }
+
+  /**
+   * A vessel's own reconcile step, entirely separate from the module path above: no {@code
+   * ModuleArtifactReader} read (there is no {@code gimle-module.yaml}), no Tier 1 density reuse (a
+   * vessel is always its own dedicated process), no rename-in-place (a vessel surge/promotion
+   * simply restarts, a documented simplification -- see this change's own final report). {@code
+   * requiresVesselReplacement} mirrors {@link #requiresReplacement}'s exact moduleId/artifactPath
+   * comparison.
+   */
+  private static void reconcileVesselAssignment(
+      AssignedInstance assigned,
+      String key,
+      Map<String, SupervisedVessel> supervisedVessels,
+      String javaExecutable,
+      ResourceLimiter resourceLimiter,
+      CapacityTracker capacityTracker,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl,
+      Path logRoot) {
+    SupervisedVessel current = supervisedVessels.get(key);
+    if (current != null && requiresVesselReplacement(assigned, current)) {
+      log.info(
+          "vessel instance {} reassigned from {} to {} -- stopping the old process before"
+              + " starting the new one",
+          key,
+          current.assigned.moduleId(),
+          assigned.moduleId());
+      stopVesselInstance(key, supervisedVessels, resourceLimiter, capacityTracker);
+    }
+    if (!supervisedVessels.containsKey(key)) {
+      try {
+        startVesselInstance(
+            assigned,
+            key,
+            assigned.vessel().orElseThrow(),
+            supervisedVessels,
+            javaExecutable,
+            resourceLimiter,
+            capacityTracker,
+            httpClient,
+            baseUrl,
+            fafnirBaseUrl,
+            logRoot);
+      } catch (IOException | RuntimeException e) {
+        log.error("failed to start vessel instance {}: {}", key, e.getMessage(), e);
+      }
+    }
+  }
+
+  static boolean requiresVesselReplacement(AssignedInstance assigned, SupervisedVessel existing) {
+    return !existing.assigned.moduleId().equals(assigned.moduleId())
+        || !existing.assigned.artifactPath().equals(assigned.artifactPath());
+  }
+
+  /**
+   * Spawns a vessel's own {@code java -jar} process directly -- reuses {@link ResourceLimiter} (the
+   * exact same {@code -Xmx}/{@code ActiveProcessorCount}-equivalent flags a dedicated worker JVM
+   * gets) and {@link VesselProcessSupervisor} (the {@code ProcessBuilder} spawn/restart-on-crash
+   * machinery {@link WorkerProcessSupervisor} already established) but skips every step that only
+   * makes sense for a real Gimlé worker: no control socket, no {@code InstallModule}/{@code
+   * ResolveModule}/{@code StartModule} handshake, no volume allocation, no fabric/gossip
+   * registration.
+   */
+  private static void startVesselInstance(
+      AssignedInstance assigned,
+      String key,
+      VesselSpec vessel,
+      Map<String, SupervisedVessel> supervisedVessels,
+      String javaExecutable,
+      ResourceLimiter resourceLimiter,
+      CapacityTracker capacityTracker,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl,
+      Path logRoot)
+      throws IOException {
+    if (!resourceLimiter.supports(IsolationTier.TIER_2)) {
+      throw GimleIsolationException.tierUnsupported(assigned.moduleId(), IsolationTier.TIER_2);
+    }
+    ResourceLimitHandle handle = resourceLimiter.prepare(key, vessel.resourceLimit());
+    Path vesselRoot = logRoot.resolve("workers").resolve(key);
+
+    Map<String, Integer> allocatedPorts = allocateVesselPorts(vessel);
+    Map<String, String> env =
+        resolveVesselEnv(vessel, allocatedPorts, assigned.tenantId(), httpClient, fafnirBaseUrl);
+    renderVesselFiles(vessel, vesselRoot, assigned.tenantId(), httpClient, baseUrl);
+
+    List<String> command =
+        buildVesselCommand(
+            javaExecutable, resourceLimiter, handle, vessel, assigned.artifactPath());
+    Path applicationLogFile =
+        vesselRoot
+            .resolve("instances")
+            .resolve(assigned.deploymentName() + "-" + assigned.instanceIndex() + ".log");
+    RestartTracker restartTracker =
+        new RestartTracker(
+            Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+
+    VesselProcessSupervisor supervisor =
+        new VesselProcessSupervisor(
+            key,
+            command,
+            env,
+            restartTracker,
+            exhaustedKey -> {
+              log.error(
+                  "vessel {} exhausted its restart budget on this node; giving up locally",
+                  exhaustedKey);
+              resourceLimiter.release(handle);
+              capacityTracker.release(exhaustedKey);
+              supervisedVessels.remove(exhaustedKey);
+            },
+            applicationLogFile,
+            respawnedKey -> onVesselRespawned(respawnedKey, supervisedVessels));
+
+    SupervisedVessel instance =
+        new SupervisedVessel(assigned, vessel, supervisor, handle, allocatedPorts, Instant.now());
+    supervisedVessels.put(key, instance);
+    capacityTracker.tryAssign(key, vessel.resourceRequest());
+    supervisor.start();
+  }
+
+  private static void stopVesselInstance(
+      String key,
+      Map<String, SupervisedVessel> supervisedVessels,
+      ResourceLimiter resourceLimiter,
+      CapacityTracker capacityTracker) {
+    SupervisedVessel instance = supervisedVessels.remove(key);
+    if (instance == null) {
+      return;
+    }
+    instance.supervisor.close();
+    resourceLimiter.release(instance.resourceLimitHandle);
+    capacityTracker.release(key);
+  }
+
+  /**
+   * A crash-triggered respawn restarts the same initial-delay clock every probe rung honors --
+   * {@link SupervisedVessel#startedAt} is intentionally not {@code final} for exactly this reason.
+   * Mirrors {@code onWorkerRespawned}'s own "the process is a blank slate again" reasoning, just
+   * without any handshake to redrive since a vessel never had one.
+   */
+  private static void onVesselRespawned(
+      String key, Map<String, SupervisedVessel> supervisedVessels) {
+    SupervisedVessel instance = supervisedVessels.get(key);
+    if (instance == null) {
+      return; // torn down (undeploy, reassignment) in the window between crash and respawn.
+    }
+    instance.startedAt = Instant.now();
+    instance.lifecycleState = "STARTING";
+  }
+
+  /**
+   * Refreshes {@link SupervisedVessel#lifecycleState} from the process's own OS-level liveness plus
+   * whichever probe rungs the vessel declared -- {@code alive} false (process gone, or a declared
+   * liveness probe failing) reports {@code FAILED}, matching the same exclusion-check {@code
+   * observationJson} already uses for a module instance, so {@code HealthReconciler} treats a dead
+   * vessel exactly like a dead module instance without needing to know the difference.
+   */
+  static void updateVesselHealth(SupervisedVessel instance, HttpClient httpClient) {
+    Process process = instance.supervisor.process();
+    boolean processAlive = process != null && process.isAlive();
+    boolean alive =
+        processAlive
+            && evaluateProbe(instance.vessel.probes().liveness(), instance, httpClient, true);
+    boolean ready =
+        alive && evaluateProbe(instance.vessel.probes().readiness(), instance, httpClient, false);
+    instance.lifecycleState = !alive ? "FAILED" : (ready ? "ACTIVE" : "STARTING");
+  }
+
+  /**
+   * Evaluates one probe rung, honoring its own {@code initialDelaySeconds} against {@link
+   * SupervisedVessel#startedAt}: before that delay elapses the rung hasn't run at all yet, so it
+   * reports {@code beforeDelayDefault} (true for liveness -- a not-yet-checked process isn't
+   * considered unhealthy; false for readiness -- Kubernetes' own "not ready until proven ready"
+   * posture). An absent rung (the process-alive-only floor) always reports {@code true}: this
+   * specific check never blocks health on its own.
+   */
+  private static boolean evaluateProbe(
+      Optional<VesselProbeSpec> probeSpec,
+      SupervisedVessel instance,
+      HttpClient httpClient,
+      boolean beforeDelayDefault) {
+    if (probeSpec.isEmpty()) {
+      return true;
+    }
+    VesselProbeSpec probe = probeSpec.get();
+    if (Instant.now().isBefore(instance.startedAt.plusSeconds(probe.initialDelaySeconds()))) {
+      return beforeDelayDefault;
+    }
+    // VesselSpec's own compact constructor already guarantees at least one declared port exists
+    // whenever a tcp/http rung is present -- firstDeclaredPortName() is only empty here in a state
+    // that construction should have made unreachable.
+    Optional<Integer> port =
+        instance.vessel.firstDeclaredPortName().map(instance.allocatedPorts::get);
+    if (port.isEmpty()) {
+      return true;
+    }
+    return switch (probe) {
+      case VesselProbeSpec.Tcp ignored -> VesselProber.tcp("localhost", port.get());
+      case VesselProbeSpec.Http http ->
+          VesselProber.http(httpClient, "localhost", port.get(), http.path());
+    };
+  }
+
+  /**
+   * The vessel's full command line: {@code java <ResourceLimiter flags> <vessel.jvmFlags> -jar
+   * <resolvedJarPath> <vessel.args>} -- the jar's own launcher, untouched. Pure and
+   * side-effect-free so it's independently unit-testable, matching {@link #buildWorkerCommand}'s
+   * own precedent.
+   */
+  static List<String> buildVesselCommand(
+      String javaExecutable,
+      ResourceLimiter resourceLimiter,
+      ResourceLimitHandle handle,
+      VesselSpec vessel,
+      String resolvedJarPath) {
+    List<String> command = new ArrayList<>();
+    command.add(javaExecutable);
+    command.addAll(resourceLimiter.jvmFlags(handle));
+    command.addAll(vessel.jvmFlags());
+    command.add("-jar");
+    command.add(resolvedJarPath);
+    command.addAll(vessel.args());
+    return command;
+  }
+
+  /**
+   * Every {@code {port: dynamic}}/{@code {port: <fixed>}} entry in {@code vessel.env}, resolved to
+   * a concrete port number -- a fixed port is used exactly as declared (no availability check
+   * beyond what the process itself discovers trying to bind it); a dynamic one is allocated via a
+   * bind-then-immediately-release on an ephemeral port, the same well-known (and equally
+   * well-known-racy) technique every JVM test harness that needs a free port already relies on.
+   */
+  static Map<String, Integer> allocateVesselPorts(VesselSpec vessel) {
+    Map<String, Integer> ports = new LinkedHashMap<>();
+    for (Map.Entry<String, VesselEnvValue> entry : vessel.env().entrySet()) {
+      if (entry.getValue() instanceof VesselEnvValue.PortAllocation portAllocation) {
+        ports.put(
+            entry.getKey(), portAllocation.fixedPort().orElseGet(AgentMain::allocateFreePort));
+      }
+    }
+    return ports;
+  }
+
+  private static int allocateFreePort() {
+    try (ServerSocket socket = new ServerSocket(0)) {
+      return socket.getLocalPort();
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed to allocate a free port for a vessel instance", e);
+    }
+  }
+
+  /**
+   * Resolves every {@code vessel.env} entry to its final string value: a literal passes through
+   * unchanged, a port allocation becomes {@code allocatedPorts}' own number as text, and a secret
+   * reference is fetched from Fafnir over this agent's own mTLS node identity -- the identical path
+   * {@link #fetchSecretsForTenant} already uses for module secret delivery, reused rather than a
+   * second implementation. Secrets are fetched at most once per spawn (lazily, only if at least one
+   * {@code SecretRef} entry exists) regardless of how many secret-backed variables are declared.
+   */
+  private static Map<String, String> resolveVesselEnv(
+      VesselSpec vessel,
+      Map<String, Integer> allocatedPorts,
+      Optional<String> tenantId,
+      HttpClient httpClient,
+      URI fafnirBaseUrl) {
+    Map<String, String> env = new LinkedHashMap<>();
+    Map<String, String> secrets = null;
+    for (Map.Entry<String, VesselEnvValue> entry : vessel.env().entrySet()) {
+      String name = entry.getKey();
+      switch (entry.getValue()) {
+        case VesselEnvValue.Literal literal -> env.put(name, literal.value());
+        case VesselEnvValue.PortAllocation ignored ->
+            env.put(name, String.valueOf(allocatedPorts.get(name)));
+        case VesselEnvValue.SecretRef secretRef -> {
+          if (secrets == null) {
+            secrets = fetchVesselSecretsByKey(tenantId, httpClient, fafnirBaseUrl);
+          }
+          String value = secrets.get(secretRef.key());
+          if (value == null) {
+            throw GimleSecretsException.secretNotFound(
+                tenantId.orElse("(untenanted)"), secretRef.key());
+          }
+          env.put(name, value);
+        }
+      }
+    }
+    return env;
+  }
+
+  private static Map<String, String> fetchVesselSecretsByKey(
+      Optional<String> tenantId, HttpClient httpClient, URI fafnirBaseUrl) {
+    if (tenantId.isEmpty() || fafnirBaseUrl == null) {
+      return Map.of();
+    }
+    try {
+      Map<String, String> byKey = new LinkedHashMap<>();
+      for (ConfigValue entry : fetchSecretsForTenant(httpClient, fafnirBaseUrl, tenantId.get())) {
+        byKey.put(entry.key(), entry.value());
+      }
+      return byKey;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return Map.of();
+    } catch (IOException e) {
+      log.warn(
+          "failed to fetch secrets for vessel env resolution (tenant {}): {}",
+          tenantId.get(),
+          e.getMessage());
+      return Map.of();
+    }
+  }
+
+  /**
+   * Renders every {@code vessel.files} entry to disk before the process starts: fetches the
+   * tenant's plain config the same way {@link #deliverConfig}'s own plain-config half already does
+   * ({@code GET /config/{tenantId}}), then writes each declared config value's raw content verbatim
+   * -- no templating -- to {@code path}, relative to this instance's own per-instance root, or used
+   * as-is if already absolute.
+   */
+  private static void renderVesselFiles(
+      VesselSpec vessel,
+      Path instanceRoot,
+      Optional<String> tenantId,
+      HttpClient httpClient,
+      URI baseUrl) {
+    if (vessel.files().isEmpty()) {
+      return;
+    }
+    Map<String, String> config = new LinkedHashMap<>();
+    if (tenantId.isPresent()) {
+      try {
+        for (ConfigValue entry : fetchConfigForTenant(httpClient, baseUrl, tenantId.get())) {
+          config.put(entry.key(), entry.value());
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      } catch (IOException | RuntimeException e) {
+        log.warn(
+            "failed to fetch config for vessel file rendering (tenant {}): {}",
+            tenantId.get(),
+            e.getMessage());
+      }
+    }
+    for (VesselFileMount mount : vessel.files()) {
+      String value = config.get(mount.configKey());
+      if (value == null) {
+        throw new GimleManifestException(
+            "vessel.files references config key '"
+                + mount.configKey()
+                + "', which has no value for tenant "
+                + tenantId.orElse("(untenanted)"));
+      }
+      Path target = Path.of(mount.path());
+      if (!target.isAbsolute()) {
+        target = instanceRoot.resolve(target);
+      }
+      try {
+        Path parent = target.getParent();
+        if (parent != null) {
+          Files.createDirectories(parent);
+        }
+        Files.writeString(target, value, StandardCharsets.UTF_8);
+      } catch (IOException e) {
+        throw new UncheckedIOException("failed to render vessel file " + target, e);
       }
     }
   }
@@ -1871,7 +2322,8 @@ public final class AgentMain {
         fetched.moduleId(),
         jar.toString(),
         fetched.tenantId(),
-        fetched.renamedFromInstanceIndex());
+        fetched.renamedFromInstanceIndex(),
+        fetched.vessel());
   }
 
   /**

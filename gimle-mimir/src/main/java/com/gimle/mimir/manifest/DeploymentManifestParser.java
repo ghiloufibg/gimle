@@ -2,6 +2,7 @@ package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +52,7 @@ public final class DeploymentManifestParser {
     Optional<String> tenantId = parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
     Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
+    Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
 
     try {
       return new DeploymentSpec(
@@ -62,7 +64,8 @@ public final class DeploymentManifestParser {
           autoscale,
           tenantId,
           artifactSha256,
-          disruption);
+          disruption,
+          vessel);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);

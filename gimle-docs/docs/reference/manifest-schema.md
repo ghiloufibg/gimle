@@ -74,6 +74,67 @@ silently assumed to be a `Deployment`. `gimle apply -f` reads this field client-
 right resource automatically — there's no separate `gimle job apply`/`gimle deployment apply`/`gimle
 cronjob apply`/`gimle daemonset apply`/`gimle statefulset apply` verb to remember.
 
+## Vessel workloads: `vessel`
+
+`vessel:` is an additive, optional block on every one of the five workload kinds above (`Deployment`,
+`Job`, `CronJob`'s `jobTemplate`, `DaemonSet`, `StatefulSet`) — never a sixth workload kind of its
+own. Its presence, not a separate flag, is what switches a spec from module hosting to **vessel
+hosting**: instead of loading `module: {name, version}`/`artifactPath` as a Java module into a shared
+or dedicated worker JVM, the node agent runs it directly as its own OS process — `java <jvmFlags> -jar
+<the artifact> <args>`, the jar's own unmodified launcher. No `gimle-module.yaml` is required inside
+that jar; a vessel is any runnable jar. `module`/`artifactPath` are read exactly as they are for a
+module-hosted spec — a vessel's jar coordinate is identified and resolved (local path, or blank to
+pull from Andvari) the same way, nothing new needed there.
+
+A vessel is always dedicated-process hosting, the same isolation guarantee `isolation.tier: TIER_2`
+gives a module — there is no `isolation:` field on a vessel block, since there is no weaker option to
+choose between and no `gimle-module.yaml` to read one from anyway.
+
+```yaml
+kind: Deployment
+name: billing-api
+module:
+  name: com.acme.billing-api
+  version: 2.3.1
+artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
+replicas: 3
+vessel:
+  args: ["--spring.profiles.active=prod"]
+  jvmFlags: ["-XX:+UseZGC"]
+  env:
+    DB_PASSWORD: {secret: db.password}    # resolved from Fafnir at spawn time, tenant-scoped
+    HTTP_PORT: {port: dynamic}            # the agent allocates a free port and exports it
+    FIXED_PORT: {port: 9000}              # or use exactly this port, no allocation
+    LOG_LEVEL: INFO                        # a plain literal works too
+  files:
+    - {path: conf/application.yaml, config: billing.app-config}
+  probes:
+    liveness:  {http: /actuator/health/liveness, initialDelaySeconds: 20}
+    readiness: {tcp: true}
+  resources:
+    request: {memory: 512Mi, cpu: 250m}
+    limit:   {memory: 1Gi,   cpu: 1000m}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `args` | no | Extra program arguments appended after the jar invocation. Defaults to none. |
+| `jvmFlags` | no | Extra JVM flags, on top of the same `ResourceLimiter`-derived `-Xmx`/`ActiveProcessorCount`-equivalent flags every dedicated-process worker already gets. Defaults to none. |
+| `env.<NAME>` | no | One of three shapes: a plain string literal; `{secret: "<tenant-scoped-key>"}`, resolved via the same Fafnir-fetch-by-the-agent's-own-mTLS-identity path module secret delivery already uses; or `{port: dynamic}` / `{port: <fixed-integer>}`, which the agent allocates (or simply uses, for a fixed value) and exports as this variable's value. |
+| `files` | no | A list of `{path, config}` entries — renders that `config:` key's tenant-scoped value, verbatim (no templating), to `path` before the process starts. `path` is relative to the instance's own per-instance data root, or absolute. |
+| `probes.liveness` / `probes.readiness` | no | Each one of: absent (process-alive only, the always-available floor rung); `{tcp: true}`; or `{http: "<path>", initialDelaySeconds: N}`. A `tcp`/`http` rung requires at least one `env` entry declaring `{port: ...}` — rejected at parse time otherwise. `initialDelaySeconds` (optional, default `0`) delays that rung's first check, the same role `health.initialDelaySeconds` plays for a module's own probes. |
+| `resources.request` / `.limit` | yes | The one genuine schema difference from module hosting: read directly off this manifest, not off a `ModuleDescriptor` pulled from the jar — there is no descriptor to read them from. Same `{memory, cpu}` shape as a `gimle-module.yaml`'s own `resources:` block. |
+
+Deliberately a black-box process, not a Java module: no service fabric (nothing to publish/consume
+by interface — a vessel has no `ModuleLayer`), no Tier 1 density (every vessel instance is always its
+own process). Everything else — scheduling, tenant quotas, rolling updates, self-healing, per-instance
+logs, the Andvari-coordinate artifact flow — operates on the same `InstanceAssignment`/reconciler
+machinery a module-hosted spec does; none of that layer needs to know a spec is vessel-hosted.
+
+A vessel instance's declared ports (`{port: ...}` entries) travel back through the node agent's
+heartbeat and are queryable via `GET /endpoints/{deployment}` — see [Control plane § API server and
+store client](../architecture/control-plane.md#api-server-and-store-client) for the response shape.
+
 ## Deployment manifest: `autoscale`
 
 The deployment manifest (`deployment.yaml`, e.g. `gimle apply -f deployment.yaml`, `kind:

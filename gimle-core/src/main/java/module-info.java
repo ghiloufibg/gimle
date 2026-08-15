@@ -6,6 +6,7 @@ module com.gimle.core {
   requires java.net.http;
 
   exports com.gimle.core.module;
+  exports com.gimle.core.vessel;
   exports com.gimle.core.exception;
   exports com.gimle.core.protocol;
   exports com.gimle.core.restart;

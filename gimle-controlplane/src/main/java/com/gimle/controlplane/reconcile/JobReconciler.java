@@ -265,7 +265,7 @@ public final class JobReconciler {
   private void placeAttempt(JobSpec spec, int attempt, Instant activeSince) {
     ModuleArtifact artifact;
     try {
-      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId());
+      artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
     } catch (RuntimeException e) {
       log.warn(
           "job {} references an unreadable artifact {}: {}",
