@@ -1,0 +1,164 @@
+package com.gimle.hilmir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class HilmirMainTest {
+
+  @TempDir Path tempDir;
+
+  private static final String HEALTHY_TOPOLOGY =
+      """
+      name: healthy
+      machines:
+        - {name: m1, host: 127.0.0.1}
+      store:
+        replicas:
+          - {machine: m1}
+      controlPlane:
+        replicas:
+          - {machine: m1}
+      fafnir:
+        keyFile: /etc/gimle/fafnir-secret.key
+        replicas:
+          - {machine: m1}
+      agents:
+        - {machine: m1, nodeId: node-a}
+      """;
+
+  private Path writeTopology(final String yaml) throws IOException {
+    final Path file = tempDir.resolve("topology.yaml");
+    Files.writeString(file, yaml, StandardCharsets.UTF_8);
+    return file;
+  }
+
+  private record Result(int exitCode, String out, String err) {}
+
+  private static Result run(final String... args) {
+    final ByteArrayOutputStream outBytes = new ByteArrayOutputStream();
+    final ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+    final int exitCode =
+        HilmirMain.run(
+            args,
+            new PrintStream(outBytes, true, StandardCharsets.UTF_8),
+            new PrintStream(errBytes, true, StandardCharsets.UTF_8));
+    return new Result(
+        exitCode,
+        outBytes.toString(StandardCharsets.UTF_8),
+        errBytes.toString(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void validate_exits_zero_for_a_topology_with_no_error_severity_findings() throws IOException {
+    // Deliberately still prints its two SINGLE_STORE/SINGLE_CONTROL_PLANE warnings: only an
+    // ERROR-severity finding should ever affect the exit code.
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result result = run("validate", "-f", file.toString());
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("[WARNING] SINGLE_STORE"));
+    assertTrue(!result.out().contains("[ERROR]"));
+  }
+
+  @Test
+  void validate_exits_one_and_lists_errors_before_warnings_for_a_broken_topology()
+      throws IOException {
+    final Path file = writeTopology("name: broken\n");
+    final Result result = run("validate", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    final int errorLine = result.out().indexOf("[ERROR] NO_MACHINES");
+    final int warningLine = result.out().indexOf("[WARNING]");
+    assertTrue(errorLine >= 0);
+    assertTrue(warningLine < 0 || errorLine < warningLine);
+  }
+
+  @Test
+  void plan_prints_the_resolved_commands_for_a_healthy_topology() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result result = run("plan", "-f", file.toString());
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("machine: m1"));
+    assertTrue(result.out().contains("STORE store-0"));
+    assertTrue(result.out().contains("com.gimle.mimir.StoreMain"));
+  }
+
+  @Test
+  void plan_filters_to_one_machine_when_requested() throws IOException {
+    final Path file =
+        writeTopology(
+            """
+            name: two-machine
+            machines:
+              - {name: m1, host: h1}
+              - {name: m2, host: h2}
+            store:
+              replicas:
+                - {machine: m1}
+            controlPlane:
+              replicas:
+                - {machine: m1}
+            fafnir:
+              keyFile: /key
+              replicas:
+                - {machine: m2}
+            """);
+    final Result result = run("plan", "-f", file.toString(), "--machine", "m2");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("machine: m2"));
+    assertTrue(!result.out().contains("machine: m1"));
+  }
+
+  @Test
+  void plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error() throws IOException {
+    final Path file = writeTopology("name: broken\n");
+    final Result result = run("plan", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.out().contains("[ERROR] NO_MACHINES"));
+    assertTrue(!result.out().contains("machine:"));
+  }
+
+  @Test
+  void reports_a_missing_file_flag_as_a_clean_error() {
+    final Result result = run("validate");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("-f"));
+  }
+
+  @Test
+  void reports_an_unreadable_topology_file_as_a_clean_error() {
+    final Result result = run("validate", "-f", tempDir.resolve("missing.yaml").toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().startsWith("error: "));
+  }
+
+  @Test
+  void rejects_an_unknown_verb() {
+    final Result result = run("frobnicate");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("usage:"));
+  }
+
+  @Test
+  void up_down_status_and_pki_init_are_stubbed_and_exit_two() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    assertEquals(2, run("up", "-f", file.toString(), "--machine", "m1").exitCode());
+    assertEquals(2, run("down", "--machine", "m1").exitCode());
+    assertEquals(2, run("status", "--machine", "m1").exitCode());
+    assertEquals(2, run("pki", "init", "-f", file.toString()).exitCode());
+  }
+
+  @Test
+  void pki_requires_the_init_subcommand() {
+    final Result result = run("pki", "status");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("pki init"));
+  }
+}

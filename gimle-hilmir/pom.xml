@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-hilmir</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Hilmir</name>
+  <description>
+    A deployment/bootstrap tool for multi-machine Gimle clusters: a declarative topology
+    model, a semantic validator, and a pure launch planner that turns a topology into the
+    exact per-machine process commands the platform's own process kinds expect.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+  </dependencies>
+</project>

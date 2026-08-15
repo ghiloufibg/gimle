@@ -32,6 +32,7 @@
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
     <module>gimle-cli</module>
+    <module>gimle-hilmir</module>
     <module>gimle-console</module>
     <module>gimle-maven-plugin</module>
     <module>gimle-examples/hello-module</module>
@@ -184,6 +185,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-cli</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-hilmir</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
