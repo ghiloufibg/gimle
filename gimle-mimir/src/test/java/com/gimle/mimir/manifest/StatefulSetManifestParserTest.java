@@ -8,9 +8,11 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -224,5 +226,49 @@ class StatefulSetManifestParserTest {
     assertThrows(
         GimleManifestException.class,
         () -> StatefulSetManifestParser.parse(yaml("- just\n- a\n- list\n")));
+  }
+
+  @Test
+  void parses_a_vessel_block() {
+    StatefulSetSpec spec =
+        StatefulSetManifestParser.parse(
+            yaml(
+                """
+                name: cache-nodes
+                module:
+                  name: com.acme.cache-node
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/cache-node-1.0.0.jar
+                replicas: 3
+                vessel:
+                  env:
+                    GOSSIP_PORT: {port: dynamic}
+                  probes:
+                    readiness: {tcp: true}
+                  resources:
+                    request: {memory: 256Mi, cpu: 100m}
+                    limit: {memory: 512Mi, cpu: 500m}
+                """));
+
+    VesselSpec vessel = spec.vessel().orElseThrow();
+    assertEquals(Optional.of("GOSSIP_PORT"), vessel.firstDeclaredPortName());
+    assertEquals("256Mi", vessel.resourceRequest().memory());
+  }
+
+  @Test
+  void absent_vessel_block_parses_as_module_hosted() {
+    StatefulSetSpec spec =
+        StatefulSetManifestParser.parse(
+            yaml(
+                """
+                name: orders-statefulset
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+                replicas: 1
+                """));
+
+    assertTrue(spec.vessel().isEmpty());
   }
 }
