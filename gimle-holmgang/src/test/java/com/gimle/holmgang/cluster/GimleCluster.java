@@ -2,6 +2,23 @@ package com.gimle.holmgang.cluster;
 
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.hilmir.plan.ClusterPlan;
+import com.gimle.hilmir.plan.LaunchPlanner;
+import com.gimle.hilmir.plan.MachinePlan;
+import com.gimle.hilmir.plan.ProcessCommand;
+import com.gimle.hilmir.plan.ResolvedRuntime;
+import com.gimle.hilmir.topology.AgentPlacement;
+import com.gimle.hilmir.topology.AndvariRole;
+import com.gimle.hilmir.topology.ControlPlaneRole;
+import com.gimle.hilmir.topology.FafnirRole;
+import com.gimle.hilmir.topology.Machine;
+import com.gimle.hilmir.topology.MuninnRole;
+import com.gimle.hilmir.topology.RuntimeSettings;
+import com.gimle.hilmir.topology.ServiceReplica;
+import com.gimle.hilmir.topology.StoreReplica;
+import com.gimle.hilmir.topology.StoreRole;
+import com.gimle.hilmir.topology.TlsMaterial;
+import com.gimle.hilmir.topology.Topology;
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.heimdall.Heimdall;
 import com.gimle.holmgang.heimdall.HeimdallScope;
@@ -29,6 +46,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -503,6 +521,14 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * The single machine every process in this topology is placed on -- dynamic loopback port leasing
+   * (see {@link PortPlan}/{@link PortLease}) is a holmgang-only need so many topologies can coexist
+   * on one CI machine; a real deployment declares real hosts, which is exactly what {@code
+   * gimle-hilmir}'s {@link Machine} otherwise models. One machine is enough to carry that mapping.
+   */
+  private static final String MACHINE = "local";
+
   private void boot() {
     createDirectories(workDir);
     final String javaExecutable = javaExecutable();
@@ -521,14 +547,200 @@ public final class GimleCluster implements AutoCloseable {
     final PortPlan ports = PortPlan.allocate(spec, host());
     this.muninnEndpointsSpec = ports.muninnEndpointsSpec();
     try (PortLease lease = ports.lease()) {
-      startStores(javaExecutable, classpath, ports, lease);
-      startMuninn(javaExecutable, classpath, ports, lease);
-      startAndvari(javaExecutable, classpath, ports, lease);
-      startFafnirs(javaExecutable, classpath, ports, lease);
-      startControlPlanes(javaExecutable, classpath, ports, lease);
+      // A pure function of the topology plus the already-resolved runtime -- no process spawning,
+      // no network calls. Its own global boot order (stores, Muninn, Andvari, Fafnir, control
+      // planes, agents) is exactly the order this method spawns in below, which is what lets each
+      // later stage's command line reference an earlier stage's already-known address.
+      final ResolvedRuntime runtime = new ResolvedRuntime(javaExecutable, classpath, workDir);
+      final ClusterPlan clusterPlan = LaunchPlanner.plan(buildTopology(ports), runtime);
+      final MachinePlan machinePlan =
+          clusterPlan.byMachine().getOrDefault(MACHINE, new MachinePlan(MACHINE, List.of()));
+
+      startStores(machinePlan, ports, lease);
+      startMuninn(machinePlan, ports, lease);
+      startAndvari(machinePlan, ports, lease);
+      startFafnirs(machinePlan, ports, lease);
+      startControlPlanes(machinePlan, ports, lease);
       applySeed();
-      startAgents(javaExecutable, classpath, ports, lease);
+      startAgents(machinePlan, ports, lease);
     }
+  }
+
+  /**
+   * Maps this topology's own {@link ClusterSpec} plus the concrete ports {@link PortPlan} already
+   * leased onto a {@code gimle-hilmir} {@link Topology}, everything on the single {@link #MACHINE}.
+   * {@link LaunchPlanner} turns the result into the same per-role command lines this class used to
+   * hand-build itself. {@code runtime} is deliberately left at {@link RuntimeSettings#EMPTY} here
+   * -- the concrete java executable, classpath, and data root are already known to {@link #boot()},
+   * so they are supplied directly as a {@link ResolvedRuntime} to {@link LaunchPlanner#plan}
+   * instead of round-tripping through this optional-fields section and back.
+   */
+  private Topology buildTopology(final PortPlan ports) {
+    final List<StoreReplica> storeReplicas = new ArrayList<>();
+    for (int i = 0; i < spec.storeReplicas(); i++) {
+      storeReplicas.add(
+          new StoreReplica(MACHINE, ports.storeRaftPorts.get(i), ports.storeClientPorts.get(i)));
+    }
+    final List<ServiceReplica> controlPlaneReplicas = new ArrayList<>();
+    for (int i = 0; i < spec.controlPlaneReplicas(); i++) {
+      controlPlaneReplicas.add(new ServiceReplica(MACHINE, ports.controlPlanePorts.get(i)));
+    }
+    final List<ServiceReplica> fafnirReplicas = new ArrayList<>();
+    for (int i = 0; i < spec.fafnirReplicas(); i++) {
+      fafnirReplicas.add(new ServiceReplica(MACHINE, ports.fafnirPorts.get(i)));
+    }
+    final List<ServiceReplica> muninnReplicas = new ArrayList<>();
+    for (int i = 0; i < spec.muninnReplicas(); i++) {
+      muninnReplicas.add(new ServiceReplica(MACHINE, ports.muninnPorts.get(i)));
+    }
+    final List<ServiceReplica> andvariReplicas = new ArrayList<>();
+    for (int i = 0; i < spec.andvariReplicas(); i++) {
+      andvariReplicas.add(new ServiceReplica(MACHINE, ports.andvariPorts.get(i)));
+    }
+    final List<AgentPlacement> agentPlacements = new ArrayList<>();
+    for (int i = 0; i < spec.nodes().size(); i++) {
+      final NodeSpec node = spec.nodes().get(i);
+      agentPlacements.add(
+          new AgentPlacement(MACHINE, node.id(), ports.gossipPorts.get(i), node.labels()));
+    }
+    final Map<com.gimle.hilmir.topology.ProcessRole, List<String>> extraJvmFlags =
+        new EnumMap<>(com.gimle.hilmir.topology.ProcessRole.class);
+    for (final ProcessRole role : ProcessRole.values()) {
+      final List<String> flags = spec.jvmFlags(role);
+      if (!flags.isEmpty()) {
+        extraJvmFlags.put(toHilmirRole(role), flags);
+      }
+    }
+    return new Topology(
+        spec.name(),
+        mtls
+            ? com.gimle.hilmir.topology.Transport.MTLS
+            : com.gimle.hilmir.topology.Transport.PLAINTEXT,
+        mtls ? Optional.of(new TlsMaterial(tlsDir)) : Optional.empty(),
+        List.of(new Machine(MACHINE, host())),
+        RuntimeSettings.EMPTY,
+        new StoreRole(storeReplicas),
+        new ControlPlaneRole(controlPlaneReplicas),
+        new FafnirRole(Optional.of(workDir.resolve("fafnir-secret.key")), fafnirReplicas),
+        new MuninnRole(muninnReplicas),
+        new AndvariRole(andvariReplicas),
+        agentPlacements,
+        extraJvmFlags);
+  }
+
+  /**
+   * {@code com.gimle.holmgang.topology.ProcessRole} and {@code
+   * com.gimle.hilmir.topology.ProcessRole} are two distinct enums with identical members:
+   * holmgang's own copy stays untouched (it belongs to {@link ClusterSpec}, a package this refactor
+   * does not touch), so every topology-to-plan boundary needs an explicit mapping rather than a
+   * shared type.
+   */
+  private static com.gimle.hilmir.topology.ProcessRole toHilmirRole(final ProcessRole role) {
+    return switch (role) {
+      case STORE -> com.gimle.hilmir.topology.ProcessRole.STORE;
+      case CONTROL_PLANE -> com.gimle.hilmir.topology.ProcessRole.CONTROL_PLANE;
+      case FAFNIR -> com.gimle.hilmir.topology.ProcessRole.FAFNIR;
+      case MUNINN -> com.gimle.hilmir.topology.ProcessRole.MUNINN;
+      case ANDVARI -> com.gimle.hilmir.topology.ProcessRole.ANDVARI;
+      case AGENT -> com.gimle.hilmir.topology.ProcessRole.AGENT;
+      case WORKER -> com.gimle.hilmir.topology.ProcessRole.WORKER;
+    };
+  }
+
+  /** The inverse of {@link #toHilmirRole}, for turning a planned command back into a spawn. */
+  private static ProcessRole toHolmgangRole(final com.gimle.hilmir.topology.ProcessRole role) {
+    return switch (role) {
+      case STORE -> ProcessRole.STORE;
+      case CONTROL_PLANE -> ProcessRole.CONTROL_PLANE;
+      case FAFNIR -> ProcessRole.FAFNIR;
+      case MUNINN -> ProcessRole.MUNINN;
+      case ANDVARI -> ProcessRole.ANDVARI;
+      case AGENT -> ProcessRole.AGENT;
+      case WORKER -> ProcessRole.WORKER;
+    };
+  }
+
+  /**
+   * Spawns {@code command} exactly as {@link LaunchPlanner} planned it. {@code
+   * command.readinessAddress()} is, in every role, precisely what {@link ManagedProcess}'s own
+   * {@code endpoint} means (the client port for a store, the HTTP port for everything else, the
+   * gossip bind address for an agent), and {@code command.logFileName()} already matches this
+   * class's own historical per-process log naming ({@code "store-0.log"}, ...), so both carry over
+   * unchanged. {@link ManagedProcess} still does its own {@link JavaArgFile} rewrite internally --
+   * kept rather than routed through {@code gimle-hilmir}'s own copy of that class, which is
+   * package-private and therefore not reachable from this module.
+   */
+  private ManagedProcess spawn(final ProcessCommand command) {
+    return new ManagedProcess(
+        toHolmgangRole(command.role()),
+        command.id(),
+        command.command(),
+        workDir.resolve(command.logFileName()),
+        command.readinessAddress());
+  }
+
+  /** Every {@code role}-tagged command in {@code machinePlan}, in {@link LaunchPlanner}'s order. */
+  private static List<ProcessCommand> commandsForRole(
+      final MachinePlan machinePlan, final com.gimle.hilmir.topology.ProcessRole role) {
+    final List<ProcessCommand> matching = new ArrayList<>();
+    for (final ProcessCommand command : machinePlan.commands()) {
+      if (command.role() == role) {
+        matching.add(command);
+      }
+    }
+    return matching;
+  }
+
+  /**
+   * A copy of {@code command} with {@code flag}'s following value replaced by {@code newValue} --
+   * {@link ProcessCommand#command()} is immutable, so overriding one flag's value (the Loki
+   * store-endpoint/peers substitution below) means rebuilding the whole record. A no-op when {@code
+   * flag} is absent, which happens legitimately (a single-store topology has no {@code --peers} to
+   * override).
+   */
+  private static ProcessCommand withFlagValueReplaced(
+      final ProcessCommand command, final String flag, final String newValue) {
+    final List<String> original = command.command();
+    final int index = original.indexOf(flag);
+    if (index < 0 || index + 1 >= original.size()) {
+      return command;
+    }
+    final List<String> rewritten = new ArrayList<>(original);
+    rewritten.set(index + 1, newValue);
+    return new ProcessCommand(
+        command.role(),
+        command.id(),
+        command.machine(),
+        rewritten,
+        command.logFileName(),
+        command.dataDir(),
+        command.readinessAddress(),
+        command.needsBootstrapToken());
+  }
+
+  /**
+   * A copy of {@code command} with {@code extraArg} (a {@code -D...} JVM flag -- the mTLS
+   * bootstrap-token flag) inserted just before the command's own first {@code -cp}, never appended
+   * at the end: an agent's command embeds a *second* {@code -cp classpath
+   * com.gimle.worker.WorkerMain} tail after its own, for the worker it spawns, so a flag appended
+   * at the very end would land after that tail as an inert trailing argument instead of a JVM flag
+   * the agent's own launch actually sees.
+   */
+  private static ProcessCommand withAppendedArg(
+      final ProcessCommand command, final String extraArg) {
+    final List<String> original = command.command();
+    final List<String> rewritten = new ArrayList<>(original);
+    final int cpIndex = original.indexOf("-cp");
+    rewritten.add(cpIndex < 0 ? rewritten.size() : cpIndex, extraArg);
+    return new ProcessCommand(
+        command.role(),
+        command.id(),
+        command.machine(),
+        rewritten,
+        command.logFileName(),
+        command.dataDir(),
+        command.readinessAddress(),
+        command.needsBootstrapToken());
   }
 
   /**
@@ -637,14 +849,22 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * Under fault proxying, every store must dial every other through its own private set of Loki
+   * raft proxies rather than the real ports -- {@link LaunchPlanner} has no notion of a
+   * fault-injecting proxy, so it always plans every store's {@code --peers} with the real raft
+   * ports. Registering the proxies still has to happen upfront, before any store spawns, since each
+   * store's own {@code --peers} argument is fixed at spawn time (unlike the control-plane
+   * substitution below, which is one proxy per replica): a proxy per (store, peer) pair, not one
+   * shared per target, since check-quorum tracks a leader's own *outbound* replication responses,
+   * so isolating a store must cut its own outbound view of every peer as well as every peer's
+   * inbound view of it (see {@code Loki#cutStoreFromPeers}). {@link #storePeersSpecExcluding}
+   * already knows how to build the substituted value from a dial-port map, so this method's only
+   * job is computing that map (empty when fault proxying is off) and handing planned commands
+   * through {@link #withFlagValueReplaced}.
+   */
   private void startStores(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    // Under fault proxying, every store dials every other through its own private set of Loki raft
-    // proxies rather than the real ports -- registered upfront (before any store spawns) since each
-    // store's own --peers argument is fixed at spawn time. A proxy per (store, peer) pair, not one
-    // shared per target: check-quorum tracks a leader's own *outbound* replication responses, so
-    // isolating a store must cut its own outbound view of every peer as well as every peer's
-    // inbound view of it -- see Loki#cutStoreFromPeers.
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
     final Map<Integer, Map<Integer, Integer>> raftDialPorts = new LinkedHashMap<>();
     if (loki != null) {
       for (int i = 0; i < spec.storeReplicas(); i++) {
@@ -657,39 +877,21 @@ public final class GimleCluster implements AutoCloseable {
         raftDialPorts.put(i, loki.interposeStoreToStores(i, host(), peerRaftPorts));
       }
     }
-    for (int i = 0; i < spec.storeReplicas(); i++) {
-      final int raftPort = ports.storeRaftPorts.get(i);
-      final int clientPort = ports.storeClientPorts.get(i);
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      // No per-store leaf exists in the generated material; the store presents the control-plane
-      // certificate, the same reuse the platform's own TLS bootstrap ships with today.
-      command.addAll(tlsFlags("controlplane"));
-      command.addAll(spec.jvmFlags(ProcessRole.STORE));
-      if (spec.muninnEnabled()) {
-        command.add("-Dgimle.store.muninnEndpoint=" + ports.muninnEndpointsSpec());
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.STORE);
+    for (int i = 0; i < planned.size(); i++) {
+      ProcessCommand command = planned.get(i);
+      if (loki != null) {
+        final String peers = storePeersSpecExcluding(i, ports, raftDialPorts.get(i));
+        command = withFlagValueReplaced(command, "--peers", peers);
       }
-      command.addAll(List.of("-cp", classpath, "com.gimle.mimir.StoreMain"));
-      command.add(workDir.resolve("store-state-" + i).toString());
-      command.add(String.valueOf(raftPort));
-      command.add(String.valueOf(clientPort));
-      final String peers = storePeersSpecExcluding(i, ports, raftDialPorts.get(i));
-      if (!peers.isBlank()) {
-        command.addAll(List.of("--peers", peers));
-      }
-      lease.release(raftPort);
-      lease.release(clientPort);
-      final ManagedProcess store =
-          new ManagedProcess(
-              ProcessRole.STORE,
-              "store-" + i,
-              command,
-              workDir.resolve("store-" + i + ".log"),
-              host() + ":" + clientPort);
+      lease.release(ports.storeRaftPorts.get(i));
+      lease.release(ports.storeClientPorts.get(i));
+      final ManagedProcess store = spawn(command);
       spawnOrder.add(store);
       stores.add(store);
-      storeRaftPorts.add(raftPort);
-      storeClientPorts.add(clientPort);
+      storeRaftPorts.add(ports.storeRaftPorts.get(i));
+      storeClientPorts.add(ports.storeClientPorts.get(i));
     }
     for (final int clientPort : ports.storeClientPorts) {
       Polls.awaitPortOpen(host(), clientPort, STAGE_TIMEOUT);
@@ -725,32 +927,15 @@ public final class GimleCluster implements AutoCloseable {
   }
 
   private void startMuninn(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    if (!spec.muninnEnabled()) {
-      return;
-    }
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
     // Before Fafnir/control planes, not after: Muninn only needs the store, and bringing it up
     // this early means it is already reachable to receive shipped data from every process started
-    // after it. Each replica is independent, unlike Andvari's peer-synced ones -- shipping already
-    // fans a batch out to every configured endpoint, so no replica needs to know about its peers.
-    for (int i = 0; i < spec.muninnReplicas(); i++) {
-      final int port = ports.muninnPorts.get(i);
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      command.addAll(tlsFlags("muninn"));
-      command.addAll(spec.jvmFlags(ProcessRole.MUNINN));
-      command.addAll(List.of("-cp", classpath, "com.gimle.muninn.MuninnMain"));
-      command.add(String.valueOf(port));
-      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-      command.addAll(List.of("--data-root", workDir.resolve("muninn-data-" + i).toString()));
-      lease.release(port);
-      final ManagedProcess muninnProcess =
-          new ManagedProcess(
-              ProcessRole.MUNINN,
-              "muninn-" + i,
-              command,
-              workDir.resolve("muninn-" + i + ".log"),
-              host() + ":" + port);
+    // after it. LaunchPlanner's own global boot order already places its planned commands here.
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.MUNINN);
+    for (int i = 0; i < planned.size(); i++) {
+      lease.release(ports.muninnPorts.get(i));
+      final ManagedProcess muninnProcess = spawn(planned.get(i));
       spawnOrder.add(muninnProcess);
       muninns.add(muninnProcess);
     }
@@ -760,34 +945,12 @@ public final class GimleCluster implements AutoCloseable {
   }
 
   private void startAndvari(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    if (spec.andvariReplicas() == 0) {
-      return;
-    }
-    // Like Muninn, Andvari needs only the store, so it comes up before the control planes and
-    // agents that resolve module coordinates through it.
-    for (int i = 0; i < spec.andvariReplicas(); i++) {
-      final int port = ports.andvariPorts.get(i);
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      command.addAll(tlsFlags("andvari"));
-      command.addAll(spec.jvmFlags(ProcessRole.ANDVARI));
-      command.addAll(List.of("-cp", classpath, "com.gimle.andvari.AndvariMain"));
-      command.add(String.valueOf(port));
-      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-      command.addAll(List.of("--data-root", workDir.resolve("andvari-data-" + i).toString()));
-      final String peers = ports.andvariPeersSpecExcluding(i);
-      if (!peers.isBlank()) {
-        command.addAll(List.of("--peer-endpoints", peers));
-      }
-      lease.release(port);
-      final ManagedProcess andvari =
-          new ManagedProcess(
-              ProcessRole.ANDVARI,
-              "andvari-" + i,
-              command,
-              workDir.resolve("andvari-" + i + ".log"),
-              host() + ":" + port);
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.ANDVARI);
+    for (int i = 0; i < planned.size(); i++) {
+      lease.release(ports.andvariPorts.get(i));
+      final ManagedProcess andvari = spawn(planned.get(i));
       spawnOrder.add(andvari);
       andvaris.add(andvari);
     }
@@ -797,31 +960,12 @@ public final class GimleCluster implements AutoCloseable {
   }
 
   private void startFafnirs(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    // One key file shared across every replica: each must be able to decrypt secrets written
-    // through any other.
-    final Path fafnirSecretKey = workDir.resolve("fafnir-secret.key");
-    for (int i = 0; i < spec.fafnirReplicas(); i++) {
-      final int port = ports.fafnirPorts.get(i);
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      command.addAll(tlsFlags("fafnir"));
-      command.addAll(spec.jvmFlags(ProcessRole.FAFNIR));
-      if (spec.muninnEnabled()) {
-        command.add("-Dgimle.fafnir.muninnEndpoint=" + ports.muninnEndpointsSpec());
-      }
-      command.addAll(List.of("-cp", classpath, "com.gimle.fafnir.FafnirMain"));
-      command.add(String.valueOf(port));
-      command.add(fafnirSecretKey.toString());
-      command.addAll(List.of("--store-endpoints", ports.storeEndpointsSpec()));
-      lease.release(port);
-      final ManagedProcess fafnir =
-          new ManagedProcess(
-              ProcessRole.FAFNIR,
-              "fafnir-" + i,
-              command,
-              workDir.resolve("fafnir-" + i + ".log"),
-              host() + ":" + port);
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.FAFNIR);
+    for (int i = 0; i < planned.size(); i++) {
+      lease.release(ports.fafnirPorts.get(i));
+      final ManagedProcess fafnir = spawn(planned.get(i));
       spawnOrder.add(fafnir);
       fafnirs.add(fafnir);
     }
@@ -830,54 +974,35 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * {@link LaunchPlanner} always plans every control-plane replica's {@code --store-endpoints}
+   * against the topology's own real store addresses -- it has no notion of a fault-injecting proxy.
+   * Under fault proxying, this replica's real view of the stores must instead run through Loki's
+   * own per-replica proxy sockets, which Loki only binds lazily, right here at boot time, from the
+   * real (already-leased) store client ports -- a genuine runtime dependency a pure planner cannot
+   * express. The fix is a post-hoc, single-flag substitution on the planner's own output: {@code
+   * --store-endpoints}'s value is always exactly one token and {@link LaunchPlanner} never emits
+   * any other flag with that literal name, so replacing it via {@link #withFlagValueReplaced} is
+   * safe and keeps {@code gimle-hilmir} itself completely untouched.
+   *
+   * <p>Unlike the store-to-store substitution in {@link #startStores}, this one is genuinely
+   * per-replica rather than upfront: each replica's own Loki proxies are registered as that
+   * replica's own command is about to spawn, exactly matching this method's own original spawn
+   * order (control planes come up and are awaited for readiness one at a time, not all at once).
+   */
   private void startControlPlanes(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    for (int i = 0; i < spec.controlPlaneReplicas(); i++) {
-      final int port = ports.controlPlanePorts.get(i);
-      // Round-robin across the Fafnir replicas -- FafnirClient talks to exactly one address, so
-      // this is what makes every replica independently exercised rather than just replica #0.
-      final int fafnirPort = ports.fafnirPorts.get(i % ports.fafnirPorts.size());
-      // Under fault proxying, each replica gets its own interposed store endpoints -- which is
-      // exactly what lets Loki cut one replica's view of the store without touching another's.
-      final String storeEndpoints =
-          loki != null
-              ? endpointsSpec(loki.interposeControlPlaneToStores(i, host(), ports.storeClientPorts))
-              : ports.storeEndpointsSpec();
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      command.addAll(tlsFlags("controlplane"));
-      if (mtls) {
-        // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap
-        // through this control plane.
-        command.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.CONTROL_PLANE);
+    for (int i = 0; i < planned.size(); i++) {
+      ProcessCommand command = planned.get(i);
+      if (loki != null) {
+        final String storeEndpoints =
+            endpointsSpec(loki.interposeControlPlaneToStores(i, host(), ports.storeClientPorts));
+        command = withFlagValueReplaced(command, "--store-endpoints", storeEndpoints);
       }
-      command.addAll(spec.jvmFlags(ProcessRole.CONTROL_PLANE));
-      // Per-replica, not left at ControlPlaneMain's own cwd-relative "gimle-data" default: that
-      // default is exactly what startAgents already avoids below via its own gimle.data.root, and
-      // for the same reason -- a control plane resolving registry-coordinate artifacts through
-      // ArtifactPullCache persistently caches jars by presence alone, so an unscoped path would
-      // survive this run's own workDir and silently poison the next run against a stale jar
-      // cached under a coordinate the next run's fresh Andvari instance re-pushes with new bytes.
-      command.add("-Dgimle.data.root=" + workDir.resolve("controlplane-data-" + i));
-      command.addAll(List.of("-cp", classpath, "com.gimle.controlplane.ControlPlaneMain"));
-      command.add(String.valueOf(port));
-      command.add(workDir.resolve("controlplane-secret-" + i + ".key").toString());
-      command.addAll(List.of("--store-endpoints", storeEndpoints));
-      command.addAll(List.of("--fafnir-endpoint", host() + ":" + fafnirPort));
-      if (spec.muninnEnabled()) {
-        command.addAll(List.of("--muninn-endpoint", ports.muninnEndpointsSpec()));
-      }
-      if (spec.andvariReplicas() > 0) {
-        command.addAll(List.of("--andvari-endpoint", ports.andvariEndpointsSpec()));
-      }
-      lease.release(port);
-      final ManagedProcess controlPlane =
-          new ManagedProcess(
-              ProcessRole.CONTROL_PLANE,
-              "controlplane-" + i,
-              command,
-              workDir.resolve("controlplane-" + i + ".log"),
-              host() + ":" + port);
+      lease.release(ports.controlPlanePorts.get(i));
+      final ManagedProcess controlPlane = spawn(command);
       spawnOrder.add(controlPlane);
       controlPlanes.add(controlPlane);
       final int replicaIndex = i;
@@ -898,63 +1023,27 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * {@link ProcessCommand#needsBootstrapToken()} is {@code true} for every mtls agent command
+   * {@link LaunchPlanner} produces -- minting the token itself requires a live call against an
+   * already-running control plane, which is exactly what a pure planner cannot do, so the launcher
+   * (here) mints it and appends {@code -Dgimle.tls.bootstrapToken=<token>} via {@link
+   * #withAppendedArg} before spawning.
+   */
   private void startAgents(
-      final String java, final String classpath, final PortPlan ports, final PortLease lease) {
-    // One token per agent, minted through the real /bootstrap/tokens surface with the operator
-    // identity -- so every mTLS topology exercises certificate bootstrap for free.
-    String firstGossipAddress = null;
-    for (int i = 0; i < spec.nodes().size(); i++) {
-      final NodeSpec node = spec.nodes().get(i);
-      final int gossipPort = ports.gossipPorts.get(i);
-      final String gossipAddress = host() + ":" + gossipPort;
-      // The first agent seeds nothing; every later one seeds off the first, so a multi-node
-      // topology forms one gossip cluster rather than several singletons.
-      final String seeds = firstGossipAddress == null ? "-" : firstGossipAddress;
-      if (firstGossipAddress == null) {
-        firstGossipAddress = gossipAddress;
+      final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
+    final List<ProcessCommand> planned =
+        commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.AGENT);
+    for (int i = 0; i < planned.size(); i++) {
+      ProcessCommand command = planned.get(i);
+      if (command.needsBootstrapToken()) {
+        final String token = mintBootstrapToken(javaExecutablePath, classpath);
+        command = withAppendedArg(command, "-Dgimle.tls.bootstrapToken=" + token);
       }
-      final int fafnirPort = ports.fafnirPorts.get(i % ports.fafnirPorts.size());
-      final List<String> command = new ArrayList<>();
-      command.add(java);
-      // The agent's own leaf does not exist yet: it generates a keypair and CSR against these
-      // paths and bootstraps its certificate through the control plane, gated by the token.
-      command.addAll(tlsFlags("node-" + node.id()));
-      if (mtls) {
-        command.add("-Dgimle.tls.bootstrapToken=" + mintBootstrapToken(java, classpath));
-      }
-      command.addAll(spec.jvmFlags(ProcessRole.AGENT));
-      command.add("-Dgimle.agent.fafnirEndpoint=" + host() + ":" + fafnirPort);
-      if (spec.muninnEnabled()) {
-        command.add("-Dgimle.agent.muninnEndpoint=" + ports.muninnEndpointsSpec());
-      }
-      if (spec.andvariReplicas() > 0) {
-        command.add("-Dgimle.agent.andvariEndpoint=" + ports.andvariEndpointsSpec());
-      }
-      // Per-node, not shared: a second agent would otherwise write its agent-platform.log to the
-      // exact same file as the first, interleaving both processes' JSON output.
-      command.add("-Dgimle.log.root=" + workDir.resolve("gimle-logs-" + node.id()));
-      command.add("-Dgimle.data.root=" + workDir.resolve("gimle-data-" + node.id()));
-      if (!node.labels().isEmpty()) {
-        command.add("-Dgimle.node.labels=" + String.join(",", node.labels()));
-      }
-      command.addAll(List.of("-cp", classpath, "com.gimle.agent.AgentMain"));
-      command.add(node.id());
-      command.add(controlPlaneBaseUrl(0));
-      command.add(gossipAddress);
-      command.add(seeds);
-      command.add(java);
-      command.addAll(spec.jvmFlags(ProcessRole.WORKER));
-      command.addAll(List.of("-cp", classpath, "com.gimle.worker.WorkerMain"));
-      lease.release(gossipPort);
-      final ManagedProcess agent =
-          new ManagedProcess(
-              ProcessRole.AGENT,
-              node.id(),
-              command,
-              workDir.resolve("agent-" + node.id() + ".log"),
-              gossipAddress);
+      lease.release(ports.gossipPorts.get(i));
+      final ManagedProcess agent = spawn(command);
       spawnOrder.add(agent);
-      agents.put(node.id(), agent);
+      agents.put(spec.nodes().get(i).id(), agent);
     }
     for (final NodeSpec node : spec.nodes()) {
       Polls.await(
