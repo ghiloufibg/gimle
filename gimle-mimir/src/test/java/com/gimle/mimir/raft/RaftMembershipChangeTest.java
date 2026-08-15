@@ -332,7 +332,15 @@ class RaftMembershipChangeTest {
             Duration.ofSeconds(5));
 
     leader.addServer("voter", voterAddress);
+    // Not just "no longer a learner": membership changes are effective on append, so
+    // isLearnerForTest already flips the instant voter's own promotion is appended, well before
+    // that promotion entry itself commits (it needs voter's own ack, being a full voting member
+    // as of that same entry). Waiting for the pending-change gate to clear too means voter's
+    // promotion has genuinely settled before this test starts relying on a *second* change
+    // finding that gate held open -- otherwise this scenario can race voter's own still-in-flight
+    // promotion instead of node-3's change, this test's actual subject.
     awaitTrue(() -> !leader.isLearnerForTest("voter"), Duration.ofSeconds(5));
+    awaitTrue(() -> !leader.hasPendingMembershipChangeForTest(), Duration.ofSeconds(5));
     voterClient.acking = false; // the one existing voting member goes unreachable
 
     Thread background =

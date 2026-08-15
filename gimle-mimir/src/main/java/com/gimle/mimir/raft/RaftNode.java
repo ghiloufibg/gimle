@@ -525,12 +525,34 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     }
     Set<String> updatedLearners = new LinkedHashSet<>(learners);
     updatedLearners.remove(peerId);
-    appendMembershipChangeLocked(Map.copyOf(peerAddresses), updatedLearners);
+    long index = appendMembershipChangeLocked(Map.copyOf(peerAddresses), updatedLearners);
     wakePeerSenders();
     log.info(
         "promoted learner {} to a full voting member (matchIndex within {} of leader's log)",
         peerId,
         LEARNER_CATCH_UP_THRESHOLD);
+    // The promotion entry itself now needs the just-promoted peer's own ack to commit (it counts
+    // toward majority arithmetic the instant reconfigurePeersLocked applied it, above) -- if that
+    // peer goes unreachable right as it's promoted, nothing else would ever resolve this, and
+    // pendingMembershipChangeIndex would stay set forever, blocking every future addServer/
+    // removeServer on this leader. Unlike addServer/removeServer's own caller, nothing here is
+    // waiting synchronously on this index (see this method's own javadoc), so the same bounded
+    // give-up/truncate awaitAppliedThrowing already provides is run on its own thread instead --
+    // reusing that method rather than duplicating its timeout-then-truncate logic. A
+    // GimleRaftException
+    // here just means "didn't commit in time," already handled by the truncation inside
+    // awaitAppliedThrowing itself; nothing further to do with it.
+    Thread.ofVirtual()
+        .name("gimle-raft-promotion-watchdog-" + peerId)
+        .start(
+            () -> {
+              try {
+                awaitAppliedThrowing(index);
+              } catch (GimleRaftException ignored) {
+                // Already truncated (and, if still a learner-eligible peer, will simply be
+                // re-promoted on its next successful ack) -- see this call site's own comment.
+              }
+            });
   }
 
   private void applyIfMembershipChangeLocked(LogEntry entry) {
@@ -1144,6 +1166,21 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     lock.lock();
     try {
       return learners.contains(peerId);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Whether a membership change is currently appended-but-not-yet-committed (see {@link
+   * #pendingMembershipChangeIndex}) -- exercised only by {@code RaftMembershipChangeTest} to wait
+   * out a promotion's own commit, not just its (earlier, effective-on-append) removal from {@link
+   * #learners}, before driving a scenario that depends on the membership-change gate being clear.
+   */
+  boolean hasPendingMembershipChangeForTest() {
+    lock.lock();
+    try {
+      return pendingMembershipChangeIndex != null;
     } finally {
       lock.unlock();
     }
