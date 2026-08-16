@@ -806,6 +806,393 @@ class ApiServerAuthzTest {
     }
   }
 
+  /**
+   * A broad, unscoped {@code TENANT:WRITE}/{@code TENANT:DELETE} grant is exactly the shape a human
+   * operator might hand out for legitimate day-to-day tenant administration -- and exactly the
+   * shape that must still not reach {@code gimle-system}, since it carries no proof of the
+   * bootstrap-level operator credential this reserved tenant actually requires.
+   */
+  @Test
+  void a_broad_unscoped_tenant_permission_still_cannot_touch_gimle_system() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("tenant-admin", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "unscoped-tenant-admin",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.TENANT, Verb.WRITE),
+                Permission.unscoped(ResourceKind.TENANT, Verb.DELETE))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("tenant-admin"), "unscoped-tenant-admin"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "tenant-admin", "pw");
+
+      assertEquals(403, putTenant(client, baseUrl, cookie, "gimle-system").statusCode());
+      assertEquals(403, deleteTenant(client, baseUrl, cookie, "gimle-system").statusCode());
+      // The same unscoped grant still works on an ordinary tenant name -- the veto is specific to
+      // gimle-system, not a general breakage of TENANT:WRITE/DELETE.
+      assertEquals(200, putTenant(client, baseUrl, cookie, "ordinary-tenant").statusCode());
+      assertEquals(200, deleteTenant(client, baseUrl, cookie, "ordinary-tenant").statusCode());
+    }
+  }
+
+  /**
+   * The workload-admission half of the same guard, proven for all five kinds individually since
+   * each routes through {@code dispatchResourceRequest}'s shared PUT branch differently (Job/
+   * DaemonSet/StatefulSet skip {@code TenantQuotaPlugin} entirely, CronJob resolves its own tenant
+   * via a sub-route name resolver) -- a broad, unscoped write grant per kind must still be unable
+   * to plant a workload inside gimle-system.
+   */
+  @Test
+  void a_broad_unscoped_workload_write_permission_cannot_submit_into_gimle_system()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("workload-admin", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "unscoped-workload-admin",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.WRITE),
+                Permission.unscoped(ResourceKind.JOB, Verb.WRITE),
+                Permission.unscoped(ResourceKind.DAEMONSET, Verb.WRITE),
+                Permission.unscoped(ResourceKind.STATEFULSET, Verb.WRITE))));
+    store.putRoleBinding(
+        new RoleBinding(
+            "b1", RoleBinding.userSubject("workload-admin"), "unscoped-workload-admin"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "workload-admin", "pw");
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.reserved");
+
+      assertEquals(
+          403, putDeployment(client, baseUrl, cookie, "sys-dep", jar, Optional.of("gimle-system")));
+      assertEquals(403, putJob(client, baseUrl, cookie, "sys-job", Optional.of("gimle-system")));
+      assertEquals(
+          403, putDaemonSet(client, baseUrl, cookie, "sys-ds", Optional.of("gimle-system")));
+      assertEquals(
+          403, putStatefulSet(client, baseUrl, cookie, "sys-sts", Optional.of("gimle-system")));
+      assertEquals(403, putCronJob(client, baseUrl, cookie, "sys-cj", Optional.of("gimle-system")));
+    }
+  }
+
+  /**
+   * The credential tier that *is* meant to reach gimle-system: an operator-group certificate
+   * succeeds at both tenant CRUD and submitting every workload kind into it, proving the guard
+   * vetoes ordinary grants specifically, not gimle-system itself.
+   */
+  @Test
+  void an_operator_group_caller_can_manage_gimle_system_and_its_workloads() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient operatorClient = mutualTlsClient(ca, "O=gimle:operators,CN=root-operator");
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.operator");
+
+      assertEquals(
+          200,
+          operatorPutTenant(operatorClient, baseUrl, "gimle-system").statusCode(),
+          "an operator can still rewrite the reserved tenant's own quota");
+      assertEquals(
+          200,
+          operatorPutDeployment(operatorClient, baseUrl, "sys-dep", jar, "gimle-system"),
+          "deployment");
+      assertEquals(200, operatorPutJob(operatorClient, baseUrl, "sys-job", "gimle-system"), "job");
+      assertEquals(
+          200,
+          operatorPutDaemonSet(operatorClient, baseUrl, "sys-ds", "gimle-system"),
+          "daemonset");
+      assertEquals(
+          200,
+          operatorPutStatefulSet(operatorClient, baseUrl, "sys-sts", "gimle-system"),
+          "statefulset");
+      assertEquals(
+          200, operatorPutCronJob(operatorClient, baseUrl, "sys-cj", "gimle-system"), "cronjob");
+      assertEquals(
+          200,
+          operatorDeleteTenant(operatorClient, baseUrl, "gimle-system").statusCode(),
+          "an operator can delete the reserved tenant itself if it chooses to");
+    }
+  }
+
+  private static HttpResponse<String> putTenant(
+      HttpClient client, String baseUrl, String cookie, String id)
+      throws IOException, InterruptedException {
+    String body =
+        "{\"quota\":{\"maxMemoryBytes\":1024,\"maxCpuMillicores\":500,\"maxInstances\":5}}";
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + id))
+            .header("Content-Type", "application/json")
+            .header("Cookie", cookie)
+            .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> deleteTenant(
+      HttpClient client, String baseUrl, String cookie, String id)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + id))
+            .header("Cookie", cookie)
+            .DELETE()
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> operatorPutTenant(
+      HttpClient operatorClient, String baseUrl, String id)
+      throws IOException, InterruptedException {
+    // Generous, not the tiny quota putTenant/deleteTenant use above -- this same tenant is about
+    // to receive a real, quota-checked Deployment submission below.
+    String body =
+        "{\"quota\":{\"maxMemoryBytes\":1000000000,\"maxCpuMillicores\":4000,\"maxInstances\":100}}";
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + id))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+            .build();
+    return operatorClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> operatorDeleteTenant(
+      HttpClient operatorClient, String baseUrl, String id)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + id)).DELETE().build();
+    return operatorClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static int putJob(
+      HttpClient client, String baseUrl, String cookie, String name, Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + name))
+            .header("Cookie", cookie)
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    jobYaml(name, tenantId), StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int operatorPutJob(
+      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + name))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    jobYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .build();
+    return operatorClient
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static String jobYaml(String name, Optional<String> tenantId) {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    return """
+        kind: Job
+        name: %s
+        module:
+          name: com.gimle.example.cleanup
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+        backoffLimit: 3
+        %s"""
+        .formatted(name, tenantLine);
+  }
+
+  private static int putDaemonSet(
+      HttpClient client, String baseUrl, String cookie, String name, Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name))
+            .header("Cookie", cookie)
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    daemonSetYaml(name, tenantId), StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int operatorPutDaemonSet(
+      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    daemonSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .build();
+    return operatorClient
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static String daemonSetYaml(String name, Optional<String> tenantId) {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    return """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: com.gimle.example.node-exporter
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+        %s"""
+        .formatted(name, tenantLine);
+  }
+
+  private static int putStatefulSet(
+      HttpClient client, String baseUrl, String cookie, String name, Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/" + name))
+            .header("Cookie", cookie)
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    statefulSetYaml(name, tenantId), StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int operatorPutStatefulSet(
+      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/" + name))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    statefulSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .build();
+    return operatorClient
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static String statefulSetYaml(String name, Optional<String> tenantId) {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    return """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 1
+        %s"""
+        .formatted(name, tenantLine);
+  }
+
+  private static int putCronJob(
+      HttpClient client, String baseUrl, String cookie, String name, Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/" + name))
+            .header("Cookie", cookie)
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    cronJobYaml(name, tenantId), StandardCharsets.UTF_8))
+            .build();
+    return client
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int operatorPutCronJob(
+      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/" + name))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    cronJobYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .build();
+    return operatorClient
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static String cronJobYaml(String name, Optional<String> tenantId) {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    return """
+        kind: CronJob
+        name: %s
+        schedule: "0 2 * * *"
+        jobTemplate:
+          module:
+            name: com.gimle.example.cleanup
+            version: 1.0.0
+          artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+          backoffLimit: 3
+        %s"""
+        .formatted(name, tenantLine);
+  }
+
+  private static int operatorPutDeployment(
+      HttpClient operatorClient, String baseUrl, String name, Path jar, String tenantId)
+      throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        tenantId: %s
+        """
+            .formatted(name, name, jar.toAbsolutePath(), tenantId);
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
+            .build();
+    return operatorClient
+        .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
   private DeploymentSpec deployment(String name, Optional<String> tenantId) {
     return new DeploymentSpec(
         name,
