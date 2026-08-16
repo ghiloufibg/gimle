@@ -21,6 +21,10 @@ mvn -pl gimle-dist -am install
 under `gimle-dist/target/`, each with a `.sha256` checksum file and a CycloneDX SBOM
 (`*-cyclonedx.json`) beside it.
 
+Add `-P dist-with-jre` to also bundle a per-component jlink JRE into each archive (see [Bundling a
+JRE into the archives](#bundling-a-jre-into-the-archives) below) — the default build above is
+completely unaffected by this profile's existence.
+
 ## The three archives
 
 | Archive | Audience | Contents |
@@ -40,8 +44,14 @@ reference](./hilmir-reference.md)).
 `bin/hilmir` and `bin/gimle` are the same two files reused verbatim across all three archives: each
 resolves its own directory (so `../lib` is found regardless of the caller's working directory),
 builds a classpath from every jar under that `lib/`, and `exec`s `java -cp "$CLASSPATH"
-com.gimle.hilmir.HilmirMain "$@"` (or `com.gimle.cli.GimleCli` for `bin/gimle`) — respecting
-`JAVA_HOME` when set, falling back to `java` on `PATH` otherwise.
+com.gimle.hilmir.HilmirMain "$@"` (or `com.gimle.cli.GimleCli` for `bin/gimle`). The `java` each
+script launches itself with follows this precedence: an explicit `JAVA_HOME` environment variable
+always wins (a deliberate operator override); otherwise, if the archive was built with
+`-P dist-with-jre`, each script prefers its own bundled JRE (`jre/hilmir/bin/java` for `bin/hilmir`,
+`jre/cli/bin/java` for `bin/gimle`) when that file actually exists next to it; otherwise both fall
+back to plain `java` on `PATH`, exactly as they did before this archive ever bundled a JRE of its
+own. A plain default-build archive (no `-P dist-with-jre`) simply has no `jre/` directory at all, so
+every unpacked archive built that way always falls through to the `JAVA_HOME`/`PATH` behavior.
 
 ### Why `bin/hilmir up` needs no extra flag inside the platform archive
 
@@ -76,17 +86,84 @@ elsewhere on that machine.
 - **No cryptographic signing.** Each archive gets a `sha256sum`-compatible checksum file, not a
   signature — who signs a real release and where that key lives is an operational/security decision
   left for later, not a placeholder step invented here.
-- **No jlink JRE bundling.** The root `runtime-image` profile now has
-  `gimle.runtimeImage.jdkModules`/`launcherClass` empirically wired for all ten process/client
-  modules (`gimle-agent`, `gimle-worker`, `gimle-controlplane`, `gimle-mimir`, `gimle-fafnir`,
-  `gimle-muninn`, `gimle-andvari`, `gimle-pki`, `gimle-hilmir`, `gimle-cli`), each usable
-  standalone via `mvn clean package -pl <module> -P runtime-image`. `gimle-dist` itself still
-  doesn't produce a jlink-bundled tarball variant, though — its archives ship jars run by the
-  caller's own `java`, not a bundled custom runtime; wiring a jlink-bundled packaging option into
-  `gimle-dist` remains a genuine follow-up, not built here.
 - **One combined SBOM, not three scoped ones.** `cyclonedx-maven-plugin` has no per-artifact
   include/exclude filter — only whole-project-dependency-graph or reactor-aggregate modes — so
   genuinely scoping a separate SBOM to each archive's own narrower jar set would need three separate
   Maven modules. `gimle-dist` generates one CycloneDX SBOM covering its own full resolved dependency
   set (a superset of any single archive's own jars) and copies it to each archive's own
-  `-cyclonedx.json` name.
+  `-cyclonedx.json` name. This SBOM never lists a bundled JRE either way (see below) — a jlink-built
+  runtime is never a Maven dependency, so it was never going to appear in a dependency-graph-derived
+  SBOM regardless of whether `-P dist-with-jre` was used, a known and accepted limitation rather than
+  an oversight.
+
+## Bundling a JRE into the archives
+
+`-P dist-with-jre` is an opt-in, additive build option: `mvn -pl gimle-dist -am install
+-P dist-with-jre` builds the same three archives the default build produces, each additionally
+carrying a per-component jlink-trimmed JRE under a new top-level `jre/` directory. It never changes
+what the default (no-profile) build produces — no `jre/` directory exists in an archive built
+without this flag.
+
+### Which components, and why not all of them
+
+Only **eight** of the ten process/client modules are safe to bundle a trimmed JRE for, and this
+profile bundles exactly those eight — never more:
+
+| Bundled (`jre/<name>/`) | Never bundled |
+|---|---|
+| `controlplane`, `mimir`, `fafnir`, `muninn`, `andvari`, `pki`, `hilmir`, `cli` | `agent`, `worker` |
+
+`gimle-agent` and `gimle-worker` are excluded on purpose, not by oversight: the node agent spawns
+arbitrary vessel workloads (plain runnable jars, e.g. a Spring Boot app) as child processes, and the
+worker hosts arbitrary Gimlé modules inside its own JVM via `ModuleLayer` — in both cases the actual
+JDK module needs of the code that ends up running are only known once that workload is deployed,
+long after this archive was built. jlink's `--add-modules` list, by contrast, is derived once, ahead
+of time, from a fixed set of platform code that never changes at runtime — true for the other eight
+process kinds (each one only ever runs the platform's own code), but never true for the agent or the
+worker. Bundling a trimmed JRE for either would silently break any vessel or module that happens to
+need a JDK module outside whatever set was baked in at build time, with no way to detect the mismatch
+ahead of time. Nothing in this feature — not `gimle-dist`'s own build, not any `gimle-hilmir`
+topology field, not either wrapper script — ever produces or consumes a `jre/agent/` or
+`jre/worker/` directory.
+
+### The `jre/<component>/` layout
+
+Each bundled JRE is a real, standalone, runnable `jlink` output (its own `bin/java`, `lib/`,
+`release` file, and so on), named after the module it was built for rather than the topology-level
+role vocabulary `gimle-hilmir` uses elsewhere (so `jre/mimir/`, not `jre/store/`; `jre/controlplane/`,
+not `jre/control-plane/`) — the same naming already used for `lib/`'s own jars, so a `jre/<name>/`
+directory is identifiable purely by inspecting the unpacked archive. The `--add-modules` list each
+one is built from is a verbatim duplicate of that component's own `gimle.runtimeImage.jdkModules`
+property (`gimle-dist/pom.xml`'s own `dist-with-jre` profile documents which module's `pom.xml` each
+one was copied from), and every invocation uses the identical `--strip-debug --no-header-files
+--no-man-pages` flags the root `runtime-image` profile already established.
+
+Archive contents:
+
+| Archive | `jre/` contents when built with `-P dist-with-jre` |
+|---|---|
+| `gimle-platform-<version>.tar.gz` | All eight: `jre/controlplane/`, `jre/mimir/`, `jre/fafnir/`, `jre/muninn/`, `jre/andvari/`, `jre/pki/`, `jre/hilmir/`, `jre/cli/`. |
+| `gimle-cli-<version>.tar.gz` | `jre/cli/` only. |
+| `gimle-hilmir-<version>.tar.gz` | `jre/hilmir/` only. |
+
+### How it gets used
+
+Both wrapper scripts auto-prefer their own bundled JRE when present (see [The wrapper
+scripts](#the-wrapper-scripts) above), and `gimle-hilmir`'s own `runtime.useBundledJre` topology
+field controls whether `hilmir up`/`hilmir pki init` launch the *spawned* cluster processes against
+their own bundled JREs too — see [`gimle-hilmir`
+reference](./hilmir-reference.md#topology-runtime-block) for that field's own precondition and
+failure behavior. The two mechanisms are independent: a `JAVA_HOME`
+override, an unpacked archive's own bundled `jre/hilmir/`, and `runtime.useBundledJre` in a topology
+document each answer a different "which `java`?" question — which `java` runs `hilmir` itself, versus
+which `java` `hilmir` spawns every other process kind with.
+
+### Storage tradeoff
+
+A single trimmed per-component JRE (`java.base` plus a handful of modules, `--strip-debug`) is
+meaningfully smaller than a full JDK install, but the platform archive bundles eight of them side by
+side — its total size is measurably larger than the default build's. This is why bundling stays
+opt-in rather than becoming the default: an operator who doesn't need a self-contained JRE bundled
+into the archive (a machine that already has a suitable `java` installed, or one where minimizing
+archive size matters more than removing the external `java` dependency) keeps the smaller default
+archive by simply not passing `-P dist-with-jre`.

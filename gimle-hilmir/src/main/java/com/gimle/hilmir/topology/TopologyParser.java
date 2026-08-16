@@ -142,11 +142,13 @@ public final class TopologyParser {
     if (!(value instanceof Map<?, ?> map)) {
       throw new GimleManifestException("'runtime' must be a mapping");
     }
-    requireNoUnknownKeys(map, Set.of("javaExecutable", "classpath", "dataRoot"), "runtime");
+    requireNoUnknownKeys(
+        map, Set.of("javaExecutable", "classpath", "dataRoot", "useBundledJre"), "runtime");
     return new RuntimeSettings(
         optionalString(map, "javaExecutable"),
         optionalString(map, "classpath"),
-        optionalString(map, "dataRoot").map(Path::of));
+        optionalString(map, "dataRoot").map(Path::of),
+        optionalBoolean(map, "useBundledJre", false));
   }
 
   private static List<StoreReplica> parseStoreReplicas(final Map<?, ?> root) {
@@ -309,6 +311,18 @@ public final class TopologyParser {
       throw new GimleManifestException("field must be numeric if present: " + key);
     }
     return Optional.of(number.intValue());
+  }
+
+  private static boolean optionalBoolean(
+      final Map<?, ?> map, final String key, final boolean defaultValue) {
+    final Object value = map.get(key);
+    if (value == null) {
+      return defaultValue;
+    }
+    if (!(value instanceof Boolean b)) {
+      throw new GimleManifestException("field must be a boolean if present: " + key);
+    }
+    return b;
   }
 
   private static List<String> stringList(final Map<?, ?> map, final String key) {
