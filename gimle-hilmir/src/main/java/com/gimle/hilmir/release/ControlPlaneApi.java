@@ -26,15 +26,19 @@ import javax.net.ssl.SSLContext;
  * retried against the real leader while preserving the original HTTP method), the same {@code
  * gimle.transport.protocol}- driven plaintext/mTLS switch, and the same status-code-tailored error
  * messages.
+ *
+ * <p>Public (rather than package-private, its original shape) so {@code com.gimle.hilmir.doctor}'s
+ * cluster-aware checks -- e.g. "does this tenant actually exist" -- can reuse it too, rather than a
+ * second small HTTP client duplicating this one within the same module.
  */
-final class ControlPlaneApi {
+public final class ControlPlaneApi {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
   private final URI baseUri;
   private final HttpClient httpClient;
 
-  ControlPlaneApi(String serverAddress) {
+  public ControlPlaneApi(String serverAddress) {
     Optional<SSLContext> sslContext = defaultSslContext();
     String scheme = sslContext.isPresent() ? "https" : "http";
     this.baseUri = URI.create(scheme + "://" + serverAddress);
@@ -84,7 +88,7 @@ final class ControlPlaneApi {
    * by a CronJob's own "ready" signal, which is nothing more than "does this resource round-trip
    * back from the control plane."
    */
-  boolean exists(String path) {
+  public boolean exists(String path) {
     return get(path).isSuccess();
   }
 

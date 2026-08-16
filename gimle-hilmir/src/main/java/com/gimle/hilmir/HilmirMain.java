@@ -1,6 +1,8 @@
 package com.gimle.hilmir;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.hilmir.doctor.DoctorCommand;
+import com.gimle.hilmir.init.InitCommand;
 import com.gimle.hilmir.launch.MachineLauncher;
 import com.gimle.hilmir.launch.PkiInit;
 import com.gimle.hilmir.launch.RunRecord;
@@ -58,6 +60,11 @@ import java.util.Optional;
  * {@code GIMLE_SERVER}) rather than to a topology document, so their own flag parsing and HTTP
  * calling logic live entirely in {@code com.gimle.hilmir.release}, dispatched here the same way
  * every other verb is.
+ *
+ * <p>{@code doctor}/{@code init} are a third, independent concern: deployability diagnostics and
+ * manifest scaffolding for a single built jar, needing neither a topology document nor a running
+ * control plane (though {@code doctor --server} adds cluster-aware checks on top). Their own jar
+ * and bytecode analysis lives in {@code com.gimle.hilmir.analyze}, shared by both.
  */
 public final class HilmirMain {
 
@@ -99,6 +106,8 @@ public final class HilmirMain {
       case "undeploy" -> runUndeploy(rest, out);
       case "releases" -> runReleases(rest, out);
       case "release-status" -> runReleaseStatus(rest, out);
+      case "doctor" -> runDoctor(rest, out);
+      case "init" -> runInit(rest, out);
       default -> throw new HilmirException(usage());
     };
   }
@@ -182,6 +191,14 @@ public final class HilmirMain {
 
   private static int runReleaseStatus(final List<String> args, final PrintStream out) {
     return ReleaseStatusCommand.run(args, out);
+  }
+
+  private static int runDoctor(final List<String> args, final PrintStream out) {
+    return DoctorCommand.run(args, out);
+  }
+
+  private static int runInit(final List<String> args, final PrintStream out) {
+    return InitCommand.run(args, out);
   }
 
   private static ResolvedRuntime resolveRuntime(final Topology topology) {
@@ -275,6 +292,8 @@ public final class HilmirMain {
           rollback --release <name> [--to-revision r] [--wait] [--dry-run] [-o json]
           undeploy --release <name> [--keep-tenants] [-o json]
           releases [-o json]
-          release-status <name> [-o json]""";
+          release-status <name> [-o json]
+          doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]
+          init <jar> [--out-dir <dir>]""";
   }
 }

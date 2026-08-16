@@ -9,4 +9,7 @@ module com.gimle.hilmir {
   exports com.gimle.hilmir.plan;
   exports com.gimle.hilmir.launch;
   exports com.gimle.hilmir.release;
+  exports com.gimle.hilmir.analyze;
+  exports com.gimle.hilmir.doctor;
+  exports com.gimle.hilmir.init;
 }
