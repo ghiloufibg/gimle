@@ -1,0 +1,37 @@
+#!/bin/sh
+# Launches Hilmir (Gimle's cluster bootstrap/deployment tool) against every jar in this archive's
+# own lib/ directory, regardless of the caller's current working directory.
+#
+# Whatever classpath is built here becomes the default classpath LaunchPlanner writes into every
+# process command "hilmir up" spawns (StoreMain, ControlPlaneMain, AgentMain, WorkerMain, and the
+# rest), unless a topology document sets runtime.classpath itself: HilmirMain falls back to the
+# running JVM's own java.class.path when a topology leaves that field unset, so this script's own
+# -cp argument doubles as the default classpath every role launches with.
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+lib_dir="$script_dir/../lib"
+
+classpath=
+for jar in "$lib_dir"/*.jar; do
+  if [ -e "$jar" ]; then
+    if [ -z "$classpath" ]; then
+      classpath="$jar"
+    else
+      classpath="$classpath:$jar"
+    fi
+  fi
+done
+
+if [ -z "$classpath" ]; then
+  echo "hilmir: no jars found under $lib_dir" >&2
+  exit 1
+fi
+
+if [ -n "${JAVA_HOME:-}" ]; then
+  java_bin="$JAVA_HOME/bin/java"
+else
+  java_bin=java
+fi
+
+exec "$java_bin" -cp "$classpath" com.gimle.hilmir.HilmirMain "$@"

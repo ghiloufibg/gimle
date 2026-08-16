@@ -1,0 +1,31 @@
+#!/bin/sh
+# Launches the gimle CLI against every jar in this archive's own lib/ directory, regardless of the
+# caller's current working directory.
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+lib_dir="$script_dir/../lib"
+
+classpath=
+for jar in "$lib_dir"/*.jar; do
+  if [ -e "$jar" ]; then
+    if [ -z "$classpath" ]; then
+      classpath="$jar"
+    else
+      classpath="$classpath:$jar"
+    fi
+  fi
+done
+
+if [ -z "$classpath" ]; then
+  echo "gimle: no jars found under $lib_dir" >&2
+  exit 1
+fi
+
+if [ -n "${JAVA_HOME:-}" ]; then
+  java_bin="$JAVA_HOME/bin/java"
+else
+  java_bin=java
+fi
+
+exec "$java_bin" -cp "$classpath" com.gimle.cli.GimleCli "$@"
