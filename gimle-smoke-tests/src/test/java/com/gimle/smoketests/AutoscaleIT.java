@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -61,17 +62,18 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
     assertTrue(
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
 
-    submitAutoscaleDeployment(
+    submitAutoscaleDeploymentWithRetry(
         baseUrl,
         "greeter-provider-autoscale-deployment",
         "com.gimle.examples.greeter.provider",
@@ -82,8 +84,9 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         /* targetCpuUtilizationPercent= */ 200,
         /* targetRequestRatePerSecond= */ Optional.of(5.0),
         /* targetErrorRatePercent= */ Optional.empty(),
-        /* targetQueueDepth= */ Optional.empty());
-    await(
+        /* targetQueueDepth= */ Optional.empty(),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-autoscale-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-autoscale-deployment should reach ACTIVE before any load is generated");
@@ -104,7 +107,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("gatling.log"));
     processes.add(gatling);
 
-    await(
+    Await.until(
         () -> activeInstanceCount(baseUrl, "greeter-provider-autoscale-deployment") >= 2,
         Duration.ofSeconds(120),
         "greeter-provider-autoscale-deployment should scale up from 1 to 2 replicas under real"
@@ -142,17 +145,18 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path faultyProviderJar = buildFaultyProviderJar();
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
 
-    submitAutoscaleDeployment(
+    submitAutoscaleDeploymentWithRetry(
         baseUrl,
         "greeter-provider-error-rate-deployment",
         "com.gimle.examples.greeter.provider",
@@ -166,8 +170,9 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         // request stream alone (no rate target configured) still drives a scale-up purely off
         // error percentage.
         /* targetErrorRatePercent= */ Optional.of(20.0),
-        /* targetQueueDepth= */ Optional.empty());
-    await(
+        /* targetQueueDepth= */ Optional.empty(),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-error-rate-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-error-rate-deployment should reach ACTIVE before any load is generated");
@@ -185,7 +190,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("gatling-error-rate.log"));
     processes.add(gatling);
 
-    await(
+    Await.until(
         () -> activeInstanceCount(baseUrl, "greeter-provider-error-rate-deployment") >= 2,
         Duration.ofSeconds(120),
         "greeter-provider-error-rate-deployment should scale up from 1 to 2 replicas under real"
@@ -222,17 +227,18 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path slowProviderJar = buildSlowProviderJar();
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
 
-    submitAutoscaleDeployment(
+    submitAutoscaleDeploymentWithRetry(
         baseUrl,
         "greeter-provider-queue-depth-deployment",
         "com.gimle.examples.greeter.provider",
@@ -245,8 +251,9 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         /* targetErrorRatePercent= */ Optional.empty(),
         // Comfortably below the ~16-deep backlog 20 concurrent 300ms-each callers sustain against
         // a concurrency bound of 4 (roughly (20-4) requests waiting at any moment).
-        /* targetQueueDepth= */ Optional.of(2));
-    await(
+        /* targetQueueDepth= */ Optional.of(2),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-queue-depth-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-queue-depth-deployment should reach ACTIVE before any load is generated");
@@ -265,7 +272,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("gatling-queue-depth.log"));
     processes.add(gatling);
 
-    await(
+    Await.until(
         () -> activeInstanceCount(baseUrl, "greeter-provider-queue-depth-deployment") >= 2,
         Duration.ofSeconds(120),
         "greeter-provider-queue-depth-deployment should scale up from 1 to 2 replicas under a real"
@@ -304,17 +311,18 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path slowProviderJar = buildSlowProviderJar();
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
 
-    submitAutoscaleDeployment(
+    submitAutoscaleDeploymentWithRetry(
         baseUrl,
         "greeter-provider-weighted-deployment",
         "com.gimle.examples.greeter.provider",
@@ -333,8 +341,9 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         /* cpuWeight= */ Optional.empty(),
         /* requestRateWeight= */ Optional.of(1.0),
         /* errorRateWeight= */ Optional.empty(),
-        /* queueDepthWeight= */ Optional.of(3.0));
-    await(
+        /* queueDepthWeight= */ Optional.of(3.0),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-weighted-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-weighted-deployment should reach ACTIVE before any load is generated");
@@ -353,7 +362,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("gatling-weighted.log"));
     processes.add(gatling);
 
-    await(
+    Await.until(
         () -> activeInstanceCount(baseUrl, "greeter-provider-weighted-deployment") >= 2,
         Duration.ofSeconds(120),
         "greeter-provider-weighted-deployment should scale up from 1 to 2 replicas under real load,"

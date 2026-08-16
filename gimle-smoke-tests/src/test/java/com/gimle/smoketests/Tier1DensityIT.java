@@ -1,5 +1,6 @@
 package com.gimle.smoketests;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
@@ -42,9 +43,16 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
     for (int i = 0; i < 4; i++) {
       String moduleName = MODULE_NAMES[i];
       Path jar = buildInertTier1ModuleJar(moduleName, "1.0.0");
-      submitDeploymentWithReplicas(
-          baseUrl, moduleName + "-deployment", moduleName, "1.0.0", jar, 1, Optional.empty());
-      await(
+      submitDeploymentWithReplicasWithRetry(
+          baseUrl,
+          moduleName + "-deployment",
+          moduleName,
+          "1.0.0",
+          jar,
+          1,
+          Optional.empty(),
+          Duration.ofSeconds(30));
+      Await.until(
           () -> isActive(baseUrl, moduleName + "-deployment"),
           Duration.ofSeconds(60),
           moduleName + "-deployment should reach ACTIVE");
@@ -54,21 +62,28 @@ class Tier1DensityIT extends GreeterSmokeClusterSupport {
     // wrapped in a short poll rather than a bare one-shot read, since ACTIVE (the control plane's
     // own heartbeat-derived state) and ProcessHandle#descendants() (a direct OS process-tree
     // walk) are observed through two different channels.
-    await(
+    Await.until(
         () -> findWorkerDescendants(cluster.agentProcesses().get(0)).size() == 1,
         Duration.ofSeconds(15),
         "four distinct untenanted TIER_1 modules should share exactly one worker process");
 
     String fifthModule = MODULE_NAMES[4];
     Path fifthJar = buildInertTier1ModuleJar(fifthModule, "1.0.0");
-    submitDeploymentWithReplicas(
-        baseUrl, fifthModule + "-deployment", fifthModule, "1.0.0", fifthJar, 1, Optional.empty());
-    await(
+    submitDeploymentWithReplicasWithRetry(
+        baseUrl,
+        fifthModule + "-deployment",
+        fifthModule,
+        "1.0.0",
+        fifthJar,
+        1,
+        Optional.empty(),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, fifthModule + "-deployment"),
         Duration.ofSeconds(60),
         fifthModule + "-deployment should reach ACTIVE");
 
-    await(
+    Await.until(
         () -> findWorkerDescendants(cluster.agentProcesses().get(0)).size() == 2,
         Duration.ofSeconds(15),
         "a fifth distinct TIER_1 module should genuinely spawn a new worker once"

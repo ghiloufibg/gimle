@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -78,10 +79,14 @@ class AndvariRegistryIT extends GreeterSmokeClusterSupport {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     assertEquals(200, pushed.statusCode(), "artifact push failed: " + pushed.body());
 
-    submitDeploymentByCoordinate(
-        writeUrl, DEPLOYMENT_NAME, MODULE_NAME, Optional.of(SECRET_TENANT_ID));
+    submitDeploymentByCoordinateWithRetry(
+        writeUrl,
+        DEPLOYMENT_NAME,
+        MODULE_NAME,
+        Optional.of(SECRET_TENANT_ID),
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> isActive(readUrl, DEPLOYMENT_NAME),
         Duration.ofSeconds(90),
         DEPLOYMENT_NAME

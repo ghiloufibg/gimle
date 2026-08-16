@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -52,24 +53,26 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
     // already readable the moment the agent delivers config at install time.
     provisionTenantAndSecret(writeUrl);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         writeUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
         providerJar,
-        Optional.of(SECRET_TENANT_ID));
-    submitDeployment(
+        Optional.of(SECRET_TENANT_ID),
+        Duration.ofSeconds(30));
+    submitDeploymentWithRetry(
         writeUrl,
         "greeter-consumer-deployment",
         "com.gimle.examples.greeter.consumer",
-        consumerJar);
+        consumerJar,
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> isActive(readUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE, observed through a different"
             + " control-plane replica than the one it was submitted to");
-    await(
+    Await.until(
         () -> isActive(readUrl, "greeter-consumer-deployment"),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment should reach ACTIVE, observed through a different"
@@ -78,7 +81,7 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
     // Proves the real fabric call happened, not just that both processes started: the consumer
     // retries its lookup+call every 5s, so a healthy cluster should show this well within a
     // minute of both instances going ACTIVE.
-    await(
+    Await.until(
         () -> consumerLogShowsAGreeting(readUrl),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment's own log should show a real reply from greeter-provider");
@@ -88,7 +91,7 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
     // own onStart hook -- logged there, asserted here. onStart already ran by the time the
     // ACTIVE await above passed, so this should already be true; the await is headroom for log
     // flush/propagation latency, not for the secret fetch itself.
-    await(
+    Await.until(
         () -> providerLogShowsTheSecret(readUrl),
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should show the real secret value fetched from"

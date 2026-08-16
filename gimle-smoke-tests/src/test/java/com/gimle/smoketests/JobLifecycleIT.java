@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -37,9 +38,9 @@ class JobLifecycleIT extends GreeterSmokeClusterSupport {
     String moduleName = "com.gimle.fixture.quicksucceedingjob";
     Path jar = buildQuickSucceedingJobModuleJar(moduleName, "1.0.0");
 
-    submitJob(baseUrl, "quick-job", moduleName, "1.0.0", jar, 3);
+    submitJobWithRetry(baseUrl, "quick-job", moduleName, "1.0.0", jar, 3, Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> jobPhaseIs(baseUrl, "quick-job", "SUCCEEDED"),
         Duration.ofSeconds(60),
         "quick-job should reach SUCCEEDED once a real worker JVM runs its JobHooks to completion");
@@ -70,7 +71,15 @@ class JobLifecycleIT extends GreeterSmokeClusterSupport {
 
     // Once a year, so nothing here depends on -- or races -- the schedule's own natural firing;
     // the whole point of this test is the explicit gimle cronjob trigger path.
-    submitCronJob(baseUrl, "nightly-cleanup", moduleName, "1.0.0", jar, "0 0 1 1 *", "Allow");
+    submitCronJobWithRetry(
+        baseUrl,
+        "nightly-cleanup",
+        moduleName,
+        "1.0.0",
+        jar,
+        "0 0 1 1 *",
+        "Allow",
+        Duration.ofSeconds(30));
 
     String generatedJobName =
         triggerCronJobNowWithRetry(baseUrl, "nightly-cleanup", Duration.ofSeconds(10));
@@ -79,7 +88,7 @@ class JobLifecycleIT extends GreeterSmokeClusterSupport {
         "a CronJob-generated Job name should be \"{cronJobName}-{epochSeconds}\", got: "
             + generatedJobName);
 
-    await(
+    Await.until(
         () -> jobPhaseIs(baseUrl, generatedJobName, "SUCCEEDED"),
         Duration.ofSeconds(60),
         "the CronJob-generated job " + generatedJobName + " should reach SUCCEEDED");

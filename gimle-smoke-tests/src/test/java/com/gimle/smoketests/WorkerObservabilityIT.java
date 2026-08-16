@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -50,15 +51,24 @@ class WorkerObservabilityIT extends GreeterSmokeClusterSupport {
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
     assertTrue(Files.isRegularFile(consumerJar), "expected a built jar at " + consumerJar);
 
-    submitDeployment(baseUrl, "greeter-provider-deployment", PROVIDER_MODULE, providerJar);
-    submitDeployment(
-        baseUrl, "greeter-consumer-deployment", "com.gimle.examples.greeter.consumer", consumerJar);
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment",
+        PROVIDER_MODULE,
+        providerJar,
+        Duration.ofSeconds(30));
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-consumer-deployment",
+        "com.gimle.examples.greeter.consumer",
+        consumerJar,
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-consumer-deployment"),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment should reach ACTIVE");
@@ -66,7 +76,7 @@ class WorkerObservabilityIT extends GreeterSmokeClusterSupport {
     // The real fabric call: FabricServer starts a real span around it on the provider's own
     // worker, and WorkerMetrics#recordRequest increments a real counter there too -- both driven
     // by the exact same call this await already proves happened.
-    await(
+    Await.until(
         () -> consumerLogShowsAGreeting(baseUrl),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment's own log should show a real reply from greeter-provider");
@@ -77,7 +87,7 @@ class WorkerObservabilityIT extends GreeterSmokeClusterSupport {
     assertTrue(providerWorker.isPresent(), "expected a live worker JVM for the provider instance");
     String workerProcessId = "smoke-node-1:worker-" + providerWorker.get().pid();
 
-    await(
+    Await.until(
         () -> metricsHistoryShowsWorkerRequestCount(baseUrl, workerProcessId, PROVIDER_MODULE),
         Duration.ofSeconds(60),
         "gimle.module.request.count for "
@@ -85,7 +95,7 @@ class WorkerObservabilityIT extends GreeterSmokeClusterSupport {
             + " should be shipped by the provider's own worker JVM and readable back through"
             + " /metrics-history/WORKER/"
             + workerProcessId);
-    await(
+    Await.until(
         () -> tracesHistoryShowsSpan(baseUrl, workerProcessId, GREETER_SPAN_NAME),
         Duration.ofSeconds(60),
         "the real "

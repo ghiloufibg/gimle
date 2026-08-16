@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -46,15 +47,19 @@ class NodeCordoningIT extends GreeterSmokeClusterSupport {
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
     assertTrue(Files.isRegularFile(helloJar), "expected a built jar at " + helloJar);
 
-    submitDeployment(
-        baseUrl, "greeter-provider-deployment", "com.gimle.examples.greeter.provider", providerJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE before the node is cordoned");
 
     cordonNode(baseUrl, NODE_ID);
-    await(
+    Await.until(
         () -> nodeCordonedIs(baseUrl, NODE_ID, true),
         Duration.ofSeconds(30),
         "GET /nodes should report " + NODE_ID + " as cordoned");
@@ -73,7 +78,12 @@ class NodeCordoningIT extends GreeterSmokeClusterSupport {
     // A NEW deployment submitted while the node is cordoned must never be able to place: this
     // single-node fixture's only tier-eligible candidate is cordoned, so Scheduler#place has
     // nowhere left to put it.
-    submitDeployment(baseUrl, "hello-module-deployment", "com.gimle.examples.hello", helloJar);
+    submitDeploymentWithRetry(
+        baseUrl,
+        "hello-module-deployment",
+        "com.gimle.examples.hello",
+        helloJar,
+        Duration.ofSeconds(30));
     long placementDeadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
     while (System.nanoTime() < placementDeadline) {
       assertFalse(
@@ -83,11 +93,11 @@ class NodeCordoningIT extends GreeterSmokeClusterSupport {
     }
 
     uncordonNode(baseUrl, NODE_ID);
-    await(
+    Await.until(
         () -> nodeCordonedIs(baseUrl, NODE_ID, false),
         Duration.ofSeconds(30),
         "GET /nodes should report " + NODE_ID + " as no longer cordoned");
-    await(
+    Await.until(
         () -> isActive(baseUrl, "hello-module-deployment"),
         Duration.ofSeconds(60),
         "hello-module-deployment should reach ACTIVE once the node is uncordoned");

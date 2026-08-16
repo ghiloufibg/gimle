@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -70,11 +71,12 @@ class ServiceFabricIT extends GreeterSmokeClusterSupport {
     assertTrue(Files.isRegularFile(consumerJar), "expected a built jar at " + consumerJar);
     Path brokenProviderJar = buildAlwaysBrokenProviderJar();
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
-        healthyProviderJar);
+        healthyProviderJar,
+        Duration.ofSeconds(30));
     submitDeploymentWithReplicasWithRetry(
         baseUrl,
         "greeter-provider-broken-deployment",
@@ -84,19 +86,23 @@ class ServiceFabricIT extends GreeterSmokeClusterSupport {
         1,
         Optional.empty(),
         Duration.ofSeconds(30));
-    submitDeployment(
-        baseUrl, "greeter-consumer-deployment", "com.gimle.examples.greeter.consumer", consumerJar);
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-consumer-deployment",
+        "com.gimle.examples.greeter.consumer",
+        consumerJar,
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-broken-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-broken-deployment should reach ACTIVE (starting fine is the point --"
             + " only calls into it fail)");
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-consumer-deployment"),
         Duration.ofSeconds(60),
         "greeter-consumer-deployment should reach ACTIVE");
@@ -108,7 +114,7 @@ class ServiceFabricIT extends GreeterSmokeClusterSupport {
     // to roughly 5+10+20+40=75s of reopen backoff alone, on top of the time to the first open and
     // the successes themselves -- 400s gives real margin over that worst case.
     try {
-      await(
+      Await.until(
           () -> breakerHasExcludedTheBrokenReplica(baseUrl),
           Duration.ofSeconds(400),
           "greeter-consumer-deployment's own log should show at least one real failure (the"

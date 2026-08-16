@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -53,8 +54,13 @@ class RedeployStabilityIT extends GreeterSmokeClusterSupport {
         repoRoot.resolve(
             "gimle-examples/hello-module/target/hello-module-" + GIMLE_VERSION + ".jar");
     assertTrue(Files.isRegularFile(helloJar), "expected a built jar at " + helloJar);
-    submitDeployment(baseUrl, "redeploy-anchor-deployment", "com.gimle.examples.hello", helloJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "redeploy-anchor-deployment",
+        "com.gimle.examples.hello",
+        helloJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "redeploy-anchor-deployment"),
         Duration.ofSeconds(60),
         "redeploy-anchor-deployment should reach ACTIVE before the subject module joins its"
@@ -65,15 +71,16 @@ class RedeployStabilityIT extends GreeterSmokeClusterSupport {
     for (int i = 0; i < REDEPLOY_CYCLES; i++) {
       String version = "1.0." + i;
       Path jar = buildInertTier1ModuleJar(SUBJECT_MODULE, version);
-      submitDeploymentWithReplicas(
+      submitDeploymentWithReplicasWithRetry(
           baseUrl,
           "redeploy-subject-deployment",
           SUBJECT_MODULE,
           version,
           jar,
           1,
-          Optional.empty());
-      await(
+          Optional.empty(),
+          Duration.ofSeconds(30));
+      Await.until(
           () -> allInstancesOnVersion(baseUrl, "redeploy-subject-deployment", version, 1),
           Duration.ofSeconds(60),
           "redeploy-subject-deployment should reach ACTIVE on version " + version);

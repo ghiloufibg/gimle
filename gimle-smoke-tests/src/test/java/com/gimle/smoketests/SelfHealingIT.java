@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -48,13 +49,14 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
 
     provisionTenantAndSecret(baseUrl);
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
         providerJar,
-        Optional.of(SECRET_TENANT_ID));
-    await(
+        Optional.of(SECRET_TENANT_ID),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE before the worker is killed");
@@ -66,7 +68,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
     long firstWorkerPid = firstWorker.pid();
     firstWorker.destroyForcibly();
 
-    await(
+    Await.until(
         () -> {
           Optional<ProcessHandle> current = findWorkerDescendant(cluster.agentProcesses().get(0));
           // Both halves matter: a *new* worker process (proof the supervisor actually respawned
@@ -110,16 +112,17 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
     // "-slow" naming buildFaultyProviderJar/buildSlowProviderJar already use) -- submitting via
     // the version-aware overload here is what actually resolves that moduleId, not an unrelated
     // one the worker NACKs with "module not registered".
-    submitDeploymentWithReplicas(
+    submitDeploymentWithReplicasWithRetry(
         baseUrl,
         "greeter-unhealthy-deployment",
         "com.gimle.examples.greeter.provider",
         "1.0.0-unhealthy",
         unhealthyJar,
         1,
-        Optional.empty());
+        Optional.empty(),
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> hasFailedInstance(baseUrl, "greeter-unhealthy-deployment"),
         Duration.ofSeconds(90),
         "greeter-unhealthy-deployment should exhaust its restart budget and reach FAILED");

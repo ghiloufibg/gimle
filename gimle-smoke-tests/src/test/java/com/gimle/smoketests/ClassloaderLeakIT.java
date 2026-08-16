@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -51,22 +52,28 @@ class ClassloaderLeakIT extends GreeterSmokeClusterSupport {
         repoRoot.resolve(
             "gimle-examples/hello-module/target/hello-module-" + GIMLE_VERSION + ".jar");
     assertTrue(Files.isRegularFile(helloJar), "expected a built jar at " + helloJar);
-    submitDeployment(baseUrl, "leak-anchor-deployment", "com.gimle.examples.hello", helloJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "leak-anchor-deployment",
+        "com.gimle.examples.hello",
+        helloJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "leak-anchor-deployment"),
         Duration.ofSeconds(60),
         "leak-anchor-deployment should reach ACTIVE before the leaky module joins its worker");
 
     Path leakyV1 = buildLeakyProviderJar("1.0.0-leaky");
-    submitDeploymentWithReplicas(
+    submitDeploymentWithReplicasWithRetry(
         baseUrl,
         "leaky-deployment",
         "com.gimle.fixture.leaky",
         "1.0.0-leaky",
         leakyV1,
         1,
-        Optional.empty());
-    await(
+        Optional.empty(),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "leaky-deployment"),
         Duration.ofSeconds(60),
         "leaky-deployment should reach ACTIVE before being redeployed");
@@ -76,20 +83,21 @@ class ClassloaderLeakIT extends GreeterSmokeClusterSupport {
     // interrupts, so that thread's own Runnable (loaded by v1's classloader) keeps it reachable,
     // and therefore un-collectable, for as long as the thread itself keeps running: deliberately.
     Path leakyV2 = buildLeakyProviderJar("1.0.1-leaky");
-    submitDeploymentWithReplicas(
+    submitDeploymentWithReplicasWithRetry(
         baseUrl,
         "leaky-deployment",
         "com.gimle.fixture.leaky",
         "1.0.1-leaky",
         leakyV2,
         1,
-        Optional.empty());
-    await(
+        Optional.empty(),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> allInstancesOnVersion(baseUrl, "leaky-deployment", "1.0.1-leaky", 1),
         Duration.ofSeconds(60),
         "leaky-deployment should migrate to 1.0.1-leaky");
 
-    await(
+    Await.until(
         () ->
             instanceLogContains(
                 baseUrl, "leak-anchor-deployment", 0, "PLATFORM", "classloader leak detected"),

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.module.testsupport.TestModuleBuilder;
+import com.gimle.testkit.Await;
+import com.gimle.testkit.PortLease;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -18,15 +20,14 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -66,27 +67,63 @@ abstract class GreeterSmokeClusterSupport {
 
   static final int FAFNIR_COUNT = 2;
 
-  static final int STORE_RAFT_PORT_BASE = 19080;
+  // Every port this fixture's own spawned cluster processes bind is leased up front through
+  // PortLease (kernel-assigned loopback ports, held and released immediately before the owning
+  // process spawns) rather than hardcoded -- this is what lets several *IT classes' clusters run
+  // concurrently (junit.jupiter.execution.parallel.mode.classes.default=concurrent, root pom)
+  // without ever colliding on a fixed port number. One lease per test instance: JUnit Jupiter's
+  // default per-method lifecycle constructs a fresh GreeterSmokeClusterSupport subclass instance
+  // for every @Test method, so a fresh port budget is reserved every time.
+  private static final int LEASED_PORT_COUNT =
+      (2 * STORE_COUNT) // Raft + client, one pair per store node
+          + 1 // Muninn
+          + 1 // Andvari
+          + FAFNIR_COUNT
+          + CONTROLPLANE_COUNT
+          + 3; // gossip: this fixture's own agent, plus GossipFailureDetectionIT's two extras
 
-  static final int STORE_CLIENT_PORT_BASE = 19091;
+  final PortLease portLease = PortLease.reserve(LEASED_PORT_COUNT);
 
-  static final int CONTROLPLANE_PORT_BASE = 18080;
+  final List<Integer> storeRaftPorts = new ArrayList<>();
 
-  static final int FAFNIR_PORT_BASE = 19060;
+  final List<Integer> storeClientPorts = new ArrayList<>();
 
-  static final int MUNINN_PORT = 19070;
+  final List<Integer> fafnirPorts = new ArrayList<>();
 
-  static final int ANDVARI_PORT = 19050;
+  final List<Integer> controlPlanePorts = new ArrayList<>();
 
-  static final String GOSSIP_ADDRESS = "127.0.0.1:19090";
+  final int muninnPort;
 
-  // Two additional gossip addresses, used only by GossipFailureDetectionIT's extra two agents --
-  // verified clear of every other port range in this file: STORE_RAFT_PORT_BASE (19080-19082),
-  // STORE_CLIENT_PORT_BASE (19091-19093), CONTROLPLANE_PORT_BASE (18080+), FAFNIR_PORT_BASE
-  // (19060-19061), MUNINN_PORT (19070), ANDVARI_PORT (19050), and GOSSIP_ADDRESS itself (19090).
-  static final String GOSSIP_ADDRESS_NODE2 = "127.0.0.1:19100";
+  final int andvariPort;
 
-  static final String GOSSIP_ADDRESS_NODE3 = "127.0.0.1:19101";
+  final String gossipAddress;
+
+  // Two additional gossip addresses, used only by GossipFailureDetectionIT's (and its
+  // multi-agent siblings') extra agents.
+  final String gossipAddressNode2;
+
+  final String gossipAddressNode3;
+
+  {
+    Iterator<Integer> leased = portLease.ports().iterator();
+    for (int i = 0; i < STORE_COUNT; i++) {
+      storeRaftPorts.add(leased.next());
+    }
+    for (int i = 0; i < STORE_COUNT; i++) {
+      storeClientPorts.add(leased.next());
+    }
+    muninnPort = leased.next();
+    andvariPort = leased.next();
+    for (int i = 0; i < FAFNIR_COUNT; i++) {
+      fafnirPorts.add(leased.next());
+    }
+    for (int i = 0; i < CONTROLPLANE_COUNT; i++) {
+      controlPlanePorts.add(leased.next());
+    }
+    gossipAddress = "127.0.0.1:" + leased.next();
+    gossipAddressNode2 = "127.0.0.1:" + leased.next();
+    gossipAddressNode3 = "127.0.0.1:" + leased.next();
+  }
 
   static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
 
@@ -124,21 +161,6 @@ abstract class GreeterSmokeClusterSupport {
 
   final HttpClient httpClient = HttpClient.newHttpClient();
 
-  // Lets the static await() below (called from every concrete *IT class, never with tempDir in
-  // scope -- it's an instance field) report where this test's process logs actually are on a
-  // timeout, its most common failure mode: previously only runPlaywrightSuite's own failure
-  // pointed at a log location at all. A ThreadLocal, not a plain static field, because
-  // junit.jupiter.execution.parallel.mode.classes.default=concurrent (root pom) can run multiple
-  // *IT classes' instances on different threads at once, each needing its own tempDir; JUnit
-  // Jupiter guarantees one test instance's @BeforeEach/test-method/@AfterEach all run on the same
-  // thread, so thread-affinity here is safe.
-  private static final ThreadLocal<Path> CURRENT_TEMP_DIR = new ThreadLocal<>();
-
-  @BeforeEach
-  void rememberTempDirForAwaitFailures() {
-    CURRENT_TEMP_DIR.set(tempDir);
-  }
-
   @AfterEach
   void tearDown() {
     // Reverse of spawn order (store nodes, then control-plane replicas, then the agent), so
@@ -147,11 +169,6 @@ abstract class GreeterSmokeClusterSupport {
     for (int i = processes.size() - 1; i >= 0; i--) {
       killWithDescendants(processes.get(i));
     }
-    // Not strictly required for correctness (the next test on this thread overwrites it in its
-    // own @BeforeEach before any await() could read it), but leaving a dead test's tempDir
-    // reachable from a thread-pool-reused thread is the kind of stale-reference footgun worth
-    // just not having.
-    CURRENT_TEMP_DIR.remove();
   }
 
   static void killWithDescendants(Process process) {
@@ -1175,6 +1192,89 @@ abstract class GreeterSmokeClusterSupport {
     }
   }
 
+  /**
+   * Like {@link #submitDeploymentWithRetry}, but for the sixteen-argument {@link
+   * #submitAutoscaleDeployment} -- see {@link #retryUntilSuccess}'s own javadoc for the shared
+   * retry reasoning every {@code *WithRetry} helper in this class relies on.
+   */
+  void submitAutoscaleDeploymentWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String moduleVersion,
+      Path jar,
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      Optional<Double> targetRequestRatePerSecond,
+      Optional<Double> targetErrorRatePercent,
+      Optional<Integer> targetQueueDepth,
+      Optional<String> mode,
+      Optional<Double> cpuWeight,
+      Optional<Double> requestRateWeight,
+      Optional<Double> errorRateWeight,
+      Optional<Double> queueDepthWeight,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout,
+        () ->
+            submitAutoscaleDeployment(
+                baseUrl,
+                deploymentName,
+                moduleName,
+                moduleVersion,
+                jar,
+                minReplicas,
+                maxReplicas,
+                targetCpuUtilizationPercent,
+                targetRequestRatePerSecond,
+                targetErrorRatePercent,
+                targetQueueDepth,
+                mode,
+                cpuWeight,
+                requestRateWeight,
+                errorRateWeight,
+                queueDepthWeight));
+  }
+
+  /**
+   * Like the sixteen-argument {@link #submitAutoscaleDeploymentWithRetry}, plus no signal weights.
+   */
+  void submitAutoscaleDeploymentWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      String moduleVersion,
+      Path jar,
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      Optional<Double> targetRequestRatePerSecond,
+      Optional<Double> targetErrorRatePercent,
+      Optional<Integer> targetQueueDepth,
+      Duration timeout)
+      throws Exception {
+    submitAutoscaleDeploymentWithRetry(
+        baseUrl,
+        deploymentName,
+        moduleName,
+        moduleVersion,
+        jar,
+        minReplicas,
+        maxReplicas,
+        targetCpuUtilizationPercent,
+        targetRequestRatePerSecond,
+        targetErrorRatePercent,
+        targetQueueDepth,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        timeout);
+  }
+
   /** How many of {@code deploymentName}'s real placed instances currently report ACTIVE. */
   int activeInstanceCount(String baseUrl, String deploymentName) {
     try {
@@ -1319,11 +1419,13 @@ abstract class GreeterSmokeClusterSupport {
     List<Process> storeProcesses = new ArrayList<>();
     List<String> storeClientEndpoints = new ArrayList<>();
     for (int i = 0; i < STORE_COUNT; i++) {
-      storeClientEndpoints.add("127.0.0.1:" + (STORE_CLIENT_PORT_BASE + i));
+      storeClientEndpoints.add("127.0.0.1:" + storeClientPorts.get(i));
     }
     for (int i = 0; i < STORE_COUNT; i++) {
-      int raftPort = STORE_RAFT_PORT_BASE + i;
-      int clientPort = STORE_CLIENT_PORT_BASE + i;
+      int raftPort = storeRaftPorts.get(i);
+      int clientPort = storeClientPorts.get(i);
+      portLease.release(raftPort);
+      portLease.release(clientPort);
       Process store =
           spawnStore(
               javaExecutable,
@@ -1336,34 +1438,36 @@ abstract class GreeterSmokeClusterSupport {
       storeProcesses.add(store);
     }
     for (int i = 0; i < STORE_COUNT; i++) {
-      awaitPortOpen("127.0.0.1", STORE_CLIENT_PORT_BASE + i, Duration.ofSeconds(30));
+      awaitPortOpen("127.0.0.1", storeClientPorts.get(i), Duration.ofSeconds(30));
     }
     String storeEndpointsSpec = String.join(",", storeClientEndpoints);
 
     // Before Fafnir/control-plane, not after: Muninn only needs the store (its own read-only
     // Authorizer check), so bringing it up this early means it's already reachable to receive
     // shipped data from every process started after it, matching BootstrapMojo's own ordering.
-    String muninnEndpoint = "127.0.0.1:" + MUNINN_PORT;
+    String muninnEndpoint = "127.0.0.1:" + muninnPort;
+    portLease.release(muninnPort);
     processes.add(
         spawnMuninn(
             javaExecutable,
             classpath,
-            MUNINN_PORT,
+            muninnPort,
             storeEndpointsSpec,
             tempDir.resolve("muninn.log")));
-    awaitPortOpen("127.0.0.1", MUNINN_PORT, Duration.ofSeconds(30));
+    awaitPortOpen("127.0.0.1", muninnPort, Duration.ofSeconds(30));
 
     // Same early-bring-up reasoning as Muninn just above: Andvari only needs the store (its own
     // RBAC re-check), and every process after it -- control plane admission HEADs, agent pulls --
     // wants it already reachable.
+    portLease.release(andvariPort);
     processes.add(
         spawnAndvari(
             javaExecutable,
             classpath,
-            ANDVARI_PORT,
+            andvariPort,
             storeEndpointsSpec,
             tempDir.resolve("andvari.log")));
-    awaitPortOpen("127.0.0.1", ANDVARI_PORT, Duration.ofSeconds(30));
+    awaitPortOpen("127.0.0.1", andvariPort, Duration.ofSeconds(30));
 
     // A single key file shared across every Fafnir replica -- every replica must be able to
     // decrypt secrets written through any other replica -- unlike spawnControlPlane's own
@@ -1374,7 +1478,8 @@ abstract class GreeterSmokeClusterSupport {
     Path fafnirSecretKeyPath = tempDir.resolve("fafnir-secret.key");
     List<String> fafnirEndpoints = new ArrayList<>();
     for (int i = 0; i < FAFNIR_COUNT; i++) {
-      int port = FAFNIR_PORT_BASE + i;
+      int port = fafnirPorts.get(i);
+      portLease.release(port);
       processes.add(
           spawnFafnir(
               javaExecutable,
@@ -1393,7 +1498,8 @@ abstract class GreeterSmokeClusterSupport {
 
     List<String> controlPlaneBaseUrls = new ArrayList<>();
     for (int i = 0; i < CONTROLPLANE_COUNT; i++) {
-      int port = CONTROLPLANE_PORT_BASE + i;
+      int port = controlPlanePorts.get(i);
+      portLease.release(port);
       String baseUrl = "http://127.0.0.1:" + port;
       // Round-robin across the Fafnir replicas -- FafnirClient talks to exactly one address, so
       // this is what proves every replica is independently usable (not just replica #0), matching
@@ -1411,7 +1517,7 @@ abstract class GreeterSmokeClusterSupport {
               tempDir.resolve("controlplane-" + i + ".log")));
       final String awaitUrl = baseUrl;
       final int replicaIndex = i;
-      await(
+      Await.until(
           () -> httpRespondsQuietly(awaitUrl + "/deployments"),
           Duration.ofSeconds(30),
           "control-plane replica #" + replicaIndex + " should start accepting requests");
@@ -1423,7 +1529,7 @@ abstract class GreeterSmokeClusterSupport {
             javaExecutable,
             classpath,
             "smoke-node-1",
-            GOSSIP_ADDRESS,
+            gossipAddress,
             "-",
             controlPlaneBaseUrls.get(0),
             fafnirEndpoints.get(0),
@@ -1435,13 +1541,13 @@ abstract class GreeterSmokeClusterSupport {
         storeProcesses, controlPlaneBaseUrls, List.of(agentProcess), muninnEndpoint);
   }
 
-  static String storePeersSpecExcluding(int excludeIndex) {
+  String storePeersSpecExcluding(int excludeIndex) {
     List<String> peers = new ArrayList<>();
     for (int i = 0; i < STORE_COUNT; i++) {
       if (i == excludeIndex) {
         continue;
       }
-      peers.add("127.0.0.1:" + (STORE_RAFT_PORT_BASE + i) + ":" + (STORE_CLIENT_PORT_BASE + i));
+      peers.add("127.0.0.1:" + storeRaftPorts.get(i) + ":" + storeClientPorts.get(i));
     }
     return String.join(",", peers);
   }
@@ -1487,10 +1593,10 @@ abstract class GreeterSmokeClusterSupport {
         new ArrayList<>(
             List.of(
                 javaExecutable,
-                // MUNINN_PORT is a known constant even though Muninn itself starts after every
-                // store node does (see #startCluster's own comment) -- matches BootstrapMojo's own
+                // muninnPort is already leased even though Muninn itself starts after every store
+                // node does (see #startCluster's own comment) -- matches BootstrapMojo's own
                 // spawnStore wiring.
-                "-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT,
+                "-Dgimle.store.muninnEndpoint=127.0.0.1:" + muninnPort,
                 "-cp",
                 classpath,
                 "com.gimle.mimir.StoreMain",
@@ -1598,7 +1704,7 @@ abstract class GreeterSmokeClusterSupport {
             "--muninn-endpoint",
             muninnEndpoint,
             "--andvari-endpoint",
-            "127.0.0.1:" + ANDVARI_PORT);
+            "127.0.0.1:" + andvariPort);
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
@@ -1651,7 +1757,7 @@ abstract class GreeterSmokeClusterSupport {
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
-            "-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT,
+            "-Dgimle.agent.andvariEndpoint=127.0.0.1:" + andvariPort,
             "-Dgimle.node.labels=" + nodeLabels,
             // Same tempDir/nodeId-scoping reasoning as -Dgimle.log.root= just below: absent this,
             // AgentMain's LocalDiskVolumeManager defaults to "gimle-data" relative to the forked
@@ -1735,6 +1841,24 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitJob} -- see {@link
+   * #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code *WithRetry}
+   * helper in this class relies on.
+   */
+  void submitJobWithRetry(
+      String baseUrl,
+      String jobName,
+      String moduleName,
+      String version,
+      Path jar,
+      int backoffLimit,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout, () -> submitJob(baseUrl, jobName, moduleName, version, jar, backoffLimit));
+  }
+
+  /**
    * {@code JobPhase} is {@code RUNNING}/{@code SUCCEEDED}/{@code FAILED} ({@code
    * com.gimle.mimir.store.JobPhase}) -- distinct from the module's own {@code lifecycleState}
    * ({@code ACTIVE}/{@code COMPLETED}/...), which {@code JobReconciler} translates into this. A
@@ -1807,6 +1931,28 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitCronJob} -- see {@link
+   * #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code *WithRetry}
+   * helper in this class relies on.
+   */
+  void submitCronJobWithRetry(
+      String baseUrl,
+      String cronJobName,
+      String moduleName,
+      String version,
+      Path jar,
+      String schedule,
+      String concurrencyPolicy,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout,
+        () ->
+            submitCronJob(
+                baseUrl, cronJobName, moduleName, version, jar, schedule, concurrencyPolicy));
+  }
+
+  /**
    * {@code POST /cronjobs/{name}/trigger} -- the one CronJob action verb, distinct from the
    * ordinary PUT/GET/DELETE every other kind gets (see {@code ApiServer#handleCronJobTrigger}).
    * Returns the real generated Job's own name ({@code "{cronJobName}-{epochSeconds}"}) straight off
@@ -1867,6 +2013,17 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #submitDeploymentWithRetry}, but for the five-argument {@link #submitDaemonSet} --
+   * see {@link #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code
+   * *WithRetry} helper in this class relies on.
+   */
+  void submitDaemonSetWithRetry(
+      String baseUrl, String name, String moduleName, String version, Path jar, Duration timeout)
+      throws Exception {
+    retryUntilSuccess(timeout, () -> submitDaemonSet(baseUrl, name, moduleName, version, jar));
+  }
+
+  /**
    * Like {@link #submitDaemonSet(String, String, String, String, Path)}, but with a caller-chosen
    * {@code placement.requiredLabels} set and {@code tenantId} -- needed by {@code
    * GatewayFabricRouteIT}, which deploys a real {@code gimle-gateway} DaemonSet scoped to
@@ -1907,6 +2064,25 @@ abstract class GreeterSmokeClusterSupport {
                 placementBlock,
                 tenantId.map(id -> "tenantId: " + id).orElse(""));
     submitManifest(baseUrl, "/daemonsets/", name, manifest);
+  }
+
+  /**
+   * Like {@link #submitDaemonSetWithRetry(String, String, String, String, Path, Duration)}, but for
+   * the seven-argument {@link #submitDaemonSet}.
+   */
+  void submitDaemonSetWithRetry(
+      String baseUrl,
+      String name,
+      String moduleName,
+      String version,
+      Path jar,
+      List<String> requiredLabels,
+      Optional<String> tenantId,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout,
+        () -> submitDaemonSet(baseUrl, name, moduleName, version, jar, requiredLabels, tenantId));
   }
 
   Map<String, Object> daemonSetStatus(String baseUrl, String name) throws Exception {
@@ -1969,6 +2145,24 @@ abstract class GreeterSmokeClusterSupport {
         """
             .formatted(name, moduleName, version, jar.toAbsolutePath(), replicas);
     submitManifest(baseUrl, "/statefulsets/", name, manifest);
+  }
+
+  /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitStatefulSet} -- see {@link
+   * #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code *WithRetry}
+   * helper in this class relies on.
+   */
+  void submitStatefulSetWithRetry(
+      String baseUrl,
+      String name,
+      String moduleName,
+      String version,
+      Path jar,
+      int replicas,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout, () -> submitStatefulSet(baseUrl, name, moduleName, version, jar, replicas));
   }
 
   Map<String, Object> statefulSetStatus(String baseUrl, String name) throws Exception {
@@ -2088,6 +2282,22 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
+   * Like {@link #submitDeploymentWithRetry}, but for {@link #submitDeploymentByCoordinate} -- see
+   * {@link #retryUntilSuccess}'s own javadoc for the shared retry reasoning every {@code
+   * *WithRetry} helper in this class relies on.
+   */
+  void submitDeploymentByCoordinateWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      Optional<String> tenantId,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout, () -> submitDeploymentByCoordinate(baseUrl, deploymentName, moduleName, tenantId));
+  }
+
+  /**
    * Like {@link #submitDeployment(String, String, String, Path, Optional)}, but for a submission
    * expected to be rejected at admission -- returns the raw response instead of failing on a
    * non-200, so the caller can assert on the rejection itself ({@code TenantQuotaPlugin}'s own 409,
@@ -2198,6 +2408,22 @@ abstract class GreeterSmokeClusterSupport {
       String baseUrl, String deploymentName, String moduleName, Path jar, Duration timeout)
       throws Exception {
     retryUntilSuccess(timeout, () -> submitDeployment(baseUrl, deploymentName, moduleName, jar));
+  }
+
+  /**
+   * Like the five-argument {@link #submitDeploymentWithRetry}, but for a tenant-scoped submission
+   * ({@link #submitDeployment(String, String, String, Path, Optional)}).
+   */
+  void submitDeploymentWithRetry(
+      String baseUrl,
+      String deploymentName,
+      String moduleName,
+      Path jar,
+      Optional<String> tenantId,
+      Duration timeout)
+      throws Exception {
+    retryUntilSuccess(
+        timeout, () -> submitDeployment(baseUrl, deploymentName, moduleName, jar, tenantId));
   }
 
   void createLoginAccount(String baseUrl, String username, String password) throws Exception {
@@ -2373,7 +2599,7 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   static void awaitPortOpen(String host, int port, Duration timeout) {
-    await(
+    Await.until(
         () -> isPortOpen(host, port),
         timeout,
         "port " + host + ":" + port + " should start listening");
@@ -2386,35 +2612,6 @@ abstract class GreeterSmokeClusterSupport {
     } catch (IOException e) {
       return false;
     }
-  }
-
-  static void await(BooleanSupplier condition, Duration timeout, String description) {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.getAsBoolean()) {
-      if (System.nanoTime() > deadline) {
-        throw new AssertionError(
-            "condition not met within " + timeout + ": " + description + tempDirSuffix());
-      }
-      try {
-        Thread.sleep(500);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new AssertionError(
-            "interrupted while waiting for: " + description + tempDirSuffix(), e);
-      }
-    }
-  }
-
-  /**
-   * {@code " (see <tempDir>)"} when called from a test's own thread, {@code ""} otherwise (a
-   * static-context caller with no current test instance, e.g. {@code @BeforeAll} setup) -- see
-   * {@link #CURRENT_TEMP_DIR}'s own javadoc for why this can't just take {@code tempDir} as a
-   * parameter without changing every existing {@link #await} call site across every {@code *IT}
-   * class.
-   */
-  private static String tempDirSuffix() {
-    Path dir = CURRENT_TEMP_DIR.get();
-    return dir == null ? "" : " (see " + dir + ")";
   }
 
   static Path repoRoot() {

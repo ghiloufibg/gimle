@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -50,7 +51,7 @@ class SurgePromotionIT extends GreeterSmokeClusterSupport {
         /* replicas= */ 2,
         Optional.of(new Disruption(/* maxUnavailable= */ 1, /* maxSurge= */ 1)),
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () -> allInstancesOnVersion(baseUrl, DEPLOYMENT_NAME, "1.0.0", 2),
         Duration.ofSeconds(90),
         "both v1 replicas should reach ACTIVE before any rollout begins");
@@ -75,7 +76,7 @@ class SurgePromotionIT extends GreeterSmokeClusterSupport {
    */
   private long captureSurgeWorkerPid(Process agentProcess, String surgeKey) {
     AtomicLong surgePid = new AtomicLong(-1);
-    await(
+    Await.until(
         () -> {
           Optional<ProcessHandle> surgeWorker = findWorkerDescendantForKey(agentProcess, surgeKey);
           surgeWorker.ifPresent(handle -> surgePid.set(handle.pid()));
@@ -88,7 +89,7 @@ class SurgePromotionIT extends GreeterSmokeClusterSupport {
 
   /** Awaits both replicas converging to v1.1.0, one via ordinary restart, one via promotion. */
   private void awaitConvergenceToV2(String baseUrl) {
-    await(
+    Await.until(
         () -> allInstancesOnVersion(baseUrl, DEPLOYMENT_NAME, "1.1.0", 2),
         Duration.ofSeconds(120),
         "both replicas should converge to v1.1.0 -- index 0 via an ordinary restart, index 1 via"

@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
@@ -36,9 +37,10 @@ class StatefulSetPersistenceIT extends GreeterSmokeClusterSupport {
 
     String moduleName = "com.gimle.fixture.statefulprobe";
     Path jar = buildStatefulModuleJar(moduleName, "1.0.0");
-    submitStatefulSet(baseUrl, "orders-statefulset", moduleName, "1.0.0", jar, 1);
+    submitStatefulSetWithRetry(
+        baseUrl, "orders-statefulset", moduleName, "1.0.0", jar, 1, Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> statefulSetIndexReady(baseUrl, "orders-statefulset", 0),
         Duration.ofSeconds(60),
         "orders-statefulset's index 0 should reach ready");
@@ -47,7 +49,7 @@ class StatefulSetPersistenceIT extends GreeterSmokeClusterSupport {
         statefulSetIndexNode(baseUrl, "orders-statefulset", 0)
             .orElseThrow(() -> new AssertionError("expected index 0 to already have a nodeId"));
 
-    await(
+    Await.until(
         () ->
             instanceLogContains(
                 baseUrl,
@@ -65,7 +67,7 @@ class StatefulSetPersistenceIT extends GreeterSmokeClusterSupport {
     long firstWorkerPid = firstWorker.pid();
     firstWorker.destroyForcibly();
 
-    await(
+    Await.until(
         () -> {
           Optional<ProcessHandle> current =
               findWorkerDescendantForKey(cluster.agentProcesses().get(0), "orders-statefulset#0");
@@ -84,7 +86,7 @@ class StatefulSetPersistenceIT extends GreeterSmokeClusterSupport {
         "the replacement worker must land on the same sticky node as before the crash, not a"
             + " different one");
 
-    await(
+    Await.until(
         () ->
             instanceLogContains(
                 baseUrl,

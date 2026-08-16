@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -48,17 +49,18 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
 
     provisionTenantAndSecret(baseUrl);
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
         providerJar,
-        Optional.of(SECRET_TENANT_ID));
-    await(
+        Optional.of(SECRET_TENANT_ID),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
-    await(
+    Await.until(
         () -> providerLogShowsTheSecret(baseUrl),
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should show the real secret value, served live by"
@@ -71,7 +73,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
 
     killWithDescendants(cluster.agentProcesses().get(0));
 
-    await(
+    Await.until(
         () -> providerLogShowsTheSecret(baseUrl),
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should still show the real secret value after its"
@@ -95,7 +97,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
     String baseUrl = cluster.controlPlaneBaseUrls().get(0);
     // Matches ControlPlaneMain's own selfApiAddress derivation (selfHost defaults to 127.0.0.1
     // when --host isn't passed, which spawnControlPlane above never passes).
-    String processId = "127.0.0.1:" + CONTROLPLANE_PORT_BASE;
+    String processId = "127.0.0.1:" + controlPlanePorts.get(0);
 
     // Real traffic against this replica's own /deployments endpoint -- exactly what
     // ApiServerMetricsTest's own unit-level assertion drives, here observed end to end through a
@@ -106,7 +108,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
           HttpResponse.BodyHandlers.discarding());
     }
 
-    await(
+    Await.until(
         () -> metricsHistoryShowsDeploymentsRequestCount(baseUrl, processId),
         Duration.ofSeconds(30),
         "gimle.controlplane.request.count for the deployments endpoint should be shipped to"

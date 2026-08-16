@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -36,12 +37,12 @@ class DaemonSetLifecycleIT extends GreeterSmokeClusterSupport {
 
     SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
     String baseUrl = cluster.controlPlaneBaseUrls().get(0);
-    String fafnirEndpoint = "127.0.0.1:" + FAFNIR_PORT_BASE;
+    String fafnirEndpoint = "127.0.0.1:" + fafnirPorts.get(0);
 
     // Same reasoning as GossipFailureDetectionIT: wait for node 1's own registration before
     // seeding a second agent off its gossip address, so the second agent's own join never races
     // node 1's gossip listener still binding.
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, "smoke-node-1"),
         Duration.ofSeconds(30),
         "smoke-node-1 should register with the control plane before a second node seeds off it");
@@ -51,24 +52,25 @@ class DaemonSetLifecycleIT extends GreeterSmokeClusterSupport {
             javaExecutable,
             classpath,
             NODE2_ID,
-            GOSSIP_ADDRESS_NODE2,
-            GOSSIP_ADDRESS,
+            gossipAddressNode2,
+            gossipAddress,
             baseUrl,
             fafnirEndpoint,
             cluster.muninnEndpoint(),
             tempDir.resolve("agent-2.log"));
     processes.add(agent2);
 
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, NODE2_ID),
         Duration.ofSeconds(30),
         NODE2_ID + " should register with the control plane once its own gossip join completes");
 
     String moduleName = "com.gimle.fixture.daemonsetprobe";
     Path jar = buildInertTier1ModuleJar(moduleName, "1.0.0");
-    submitDaemonSet(baseUrl, "probe-daemonset", moduleName, "1.0.0", jar);
+    submitDaemonSetWithRetry(
+        baseUrl, "probe-daemonset", moduleName, "1.0.0", jar, Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> daemonSetActiveNodeCount(baseUrl, "probe-daemonset") == 2,
         Duration.ofSeconds(60),
         "probe-daemonset should place one ACTIVE instance on each of the two real nodes");
@@ -86,7 +88,7 @@ class DaemonSetLifecycleIT extends GreeterSmokeClusterSupport {
     // DaemonSetReconciler actually removes the now-orphaned assignment -- 90s is generous
     // real-sandbox headroom on top of both, matching this suite's own established pattern for
     // real multi-process timing under contention.
-    await(
+    Await.until(
         () -> daemonSetActiveNodeCount(baseUrl, "probe-daemonset") == 1,
         Duration.ofSeconds(90),
         "probe-daemonset should drop back to exactly one ACTIVE instance once "

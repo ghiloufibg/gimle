@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.module.testsupport.TestModuleBuilder;
+import com.gimle.testkit.Await;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -93,12 +94,13 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
@@ -112,7 +114,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         2,
         Optional.empty(),
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () -> allInstancesOnVersion(baseUrl, "greeter-provider-rolling-deployment", "1.0.0", 2),
         Duration.ofSeconds(90),
         "both v1 replicas should reach ACTIVE before any rollout begins");
@@ -147,7 +149,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
 
     try {
-      await(
+      Await.until(
           () -> allInstancesOnVersion(baseUrl, "greeter-provider-rolling-deployment", "1.1.0", 2),
           Duration.ofSeconds(180),
           "both replicas should migrate to v1.1.0 one index at a time, per"
@@ -201,12 +203,13 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-load-generator-deployment",
         "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar);
-    await(
+        loadGeneratorJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-load-generator-deployment"),
         Duration.ofSeconds(60),
         "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
@@ -220,7 +223,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         1,
         Optional.empty(),
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () ->
             allInstancesOnVersion(
                 baseUrl, "greeter-provider-single-rolling-deployment", "1.0.0", 1),
@@ -257,7 +260,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
 
     try {
-      await(
+      Await.until(
           () ->
               allInstancesOnVersion(
                   baseUrl, "greeter-provider-single-rolling-deployment", "1.1.0", 1),

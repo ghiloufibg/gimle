@@ -43,6 +43,13 @@
   </properties>
 
   <dependencies>
+    <!-- Heimdall (the event-driven cluster-condition watcher), Await, and PortLease: the same
+         real-cluster test infrastructure gimle-holmgang's own suite is built on. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>

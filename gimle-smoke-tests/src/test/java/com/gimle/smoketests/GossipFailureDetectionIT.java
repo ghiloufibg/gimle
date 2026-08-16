@@ -1,5 +1,6 @@
 package com.gimle.smoketests;
 
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -40,7 +41,7 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
     // Same Fafnir replica node 1's own agent was already given -- Fafnir replicas are shared
     // cluster infrastructure, not agent-exclusive, and neither of these two extra nodes ever hosts
     // a deployment that would need one anyway.
-    String fafnirEndpoint = "127.0.0.1:" + FAFNIR_PORT_BASE;
+    String fafnirEndpoint = "127.0.0.1:" + fafnirPorts.get(0);
 
     // startCluster itself returns the instant node 1's process is forked, with no wait for
     // anything about the agent specifically (only the control plane's own HTTP port). Real-cluster
@@ -49,7 +50,7 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
     // both return, so waiting for node 1's own registration is a reliable proxy for "its gossip
     // socket is definitely open," the same technique already used below for node 2 and node 3
     // themselves.
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, "smoke-node-1"),
         Duration.ofSeconds(30),
         "smoke-node-1 should register with the control plane before any other node tries to seed"
@@ -64,8 +65,8 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
             javaExecutable,
             classpath,
             NODE2_ID,
-            GOSSIP_ADDRESS_NODE2,
-            GOSSIP_ADDRESS,
+            gossipAddressNode2,
+            gossipAddress,
             baseUrl,
             fafnirEndpoint,
             cluster.muninnEndpoint(),
@@ -76,19 +77,19 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
             javaExecutable,
             classpath,
             NODE3_ID,
-            GOSSIP_ADDRESS_NODE3,
-            GOSSIP_ADDRESS,
+            gossipAddressNode3,
+            gossipAddress,
             baseUrl,
             fafnirEndpoint,
             cluster.muninnEndpoint(),
             node3Log);
     processes.add(agent3);
 
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, NODE2_ID),
         Duration.ofSeconds(30),
         NODE2_ID + " should register with the control plane once its own gossip join completes");
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, NODE3_ID),
         Duration.ofSeconds(30),
         NODE3_ID + " should register with the control plane once its own gossip join completes");
@@ -108,7 +109,7 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
     // 4-11s range -- a 60s budget is generous real-sandbox headroom on top of that, matching this
     // session's own established pattern (e.g. ClassloaderLeakIT's 90s window) for real
     // multi-process timing under contention.
-    await(
+    Await.until(
         () -> agentLogContains(node1Log, "member " + NODE3_ID + " is now DEAD"),
         Duration.ofSeconds(60),
         "node 1's own gossip member should detect and log " + NODE3_ID + " as DEAD");
@@ -116,7 +117,7 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
     // secondhand via gossip rather than detecting it directly used to adopt the DEAD status into
     // its own membership table completely silently, with no log line at all -- this assertion is
     // what surfaced that gap, not just what now proves it fixed.
-    await(
+    Await.until(
         () -> agentLogContains(node2Log, "member " + NODE3_ID + " is now DEAD"),
         Duration.ofSeconds(60),
         "node 2's own gossip member should also detect and log "

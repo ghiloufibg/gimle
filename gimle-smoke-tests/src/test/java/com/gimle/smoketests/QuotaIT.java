@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -55,13 +56,14 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     // and reach ACTIVE cleanly before the quota is lowered below it.
     putTenantQuota(baseUrl, quotaTenantId, 256L * 1024 * 1024, 1000L, 10);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-provider-deployment",
         "com.gimle.examples.greeter.provider",
         providerJar,
-        Optional.of(quotaTenantId));
-    await(
+        Optional.of(quotaTenantId),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE under a compliant quota");
@@ -73,7 +75,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     // own documented trigger for this flag, not a quota rejected at admission time.
     putTenantQuota(baseUrl, quotaTenantId, 1L, 1L, 0);
 
-    await(
+    Await.until(
         () -> isQuotaViolating(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(30),
         "greeter-provider-deployment should be flagged quota-violating once its tenant's quota is"
@@ -132,13 +134,14 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     // replica of anything would push memory to 64Mi (> 40Mi) and instances to 2 (> 1).
     putTenantQuota(baseUrl, tenantId, 40L * 1024 * 1024, 1000L, 1);
 
-    submitDeployment(
+    submitDeploymentWithRetry(
         baseUrl,
         "greeter-provider-quota-admission-a",
         "com.gimle.examples.greeter.provider",
         providerJar,
-        Optional.of(tenantId));
-    await(
+        Optional.of(tenantId),
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-quota-admission-a"),
         Duration.ofSeconds(60),
         "the first deployment should reach ACTIVE while comfortably within quota");

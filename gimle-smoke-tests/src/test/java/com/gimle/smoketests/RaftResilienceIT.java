@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.protocol.Json;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.testkit.Await;
+import com.gimle.testkit.PortLease;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -51,9 +53,13 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
             "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
 
-    submitDeployment(
-        baseUrl, "greeter-provider-deployment", "com.gimle.examples.greeter.provider", providerJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE before the store node is killed");
@@ -77,7 +83,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
         "com.gimle.examples.greeter.provider",
         providerJar,
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment-2"),
         Duration.ofSeconds(90),
         "a deployment submitted after losing one store node should still reach ACTIVE, proving"
@@ -244,15 +250,26 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
             "gimle-examples/greeter-provider/target/greeter-provider-" + GIMLE_VERSION + ".jar");
     assertTrue(Files.isRegularFile(providerJar), "expected a built jar at " + providerJar);
 
-    submitDeployment(
-        baseUrl, "greeter-provider-deployment", "com.gimle.examples.greeter.provider", providerJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE before any membership change");
 
-    int newRaftPort = STORE_RAFT_PORT_BASE + STORE_COUNT;
-    int newClientPort = STORE_CLIENT_PORT_BASE + STORE_COUNT;
+    int newRaftPort;
+    int newClientPort;
+    try (PortLease fourthStoreLease = PortLease.reserve(2)) {
+      List<Integer> leased = fourthStoreLease.ports();
+      newRaftPort = leased.get(0);
+      newClientPort = leased.get(1);
+      fourthStoreLease.release(newRaftPort);
+      fourthStoreLease.release(newClientPort);
+    }
     Process fourthStore =
         spawnStore(
             javaExecutable,
@@ -266,7 +283,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
 
     List<SocketAddress> bootstrapEndpoints = new ArrayList<>();
     for (int i = 0; i < STORE_COUNT; i++) {
-      bootstrapEndpoints.add(new InetSocketAddress("127.0.0.1", STORE_CLIENT_PORT_BASE + i));
+      bootstrapEndpoints.add(new InetSocketAddress("127.0.0.1", storeClientPorts.get(i)));
     }
     String newPeerId = "127.0.0.1:" + newRaftPort;
     try (StoreClient storeClient = new StoreClient(bootstrapEndpoints)) {
@@ -279,7 +296,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
         "com.gimle.examples.greeter.provider",
         providerJar,
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment-2"),
         // 150s, not the usual 90s this suite's other post-disruption awaits use: the new peer
         // joins as a non-voting learner and must fully catch up its log via real AppendEntries/
@@ -301,7 +318,7 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
         "com.gimle.examples.greeter.provider",
         providerJar,
         Duration.ofSeconds(30));
-    await(
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment-3"),
         Duration.ofSeconds(150),
         "a deployment submitted after the 4th store node was removed again should still reach"

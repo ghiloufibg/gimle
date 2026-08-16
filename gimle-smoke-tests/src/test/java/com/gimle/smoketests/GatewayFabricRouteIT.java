@@ -3,6 +3,7 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.tenant.Tenant;
+import com.gimle.testkit.Await;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -48,9 +49,9 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
 
     SmokeCluster cluster = startCluster(repoRoot, javaExecutable, classpath);
     String baseUrl = cluster.controlPlaneBaseUrls().get(0);
-    String fafnirEndpoint = "127.0.0.1:" + FAFNIR_PORT_BASE;
+    String fafnirEndpoint = "127.0.0.1:" + fafnirPorts.get(0);
 
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, "smoke-node-1"),
         Duration.ofSeconds(30),
         "smoke-node-1 should register with the control plane before a second node seeds off it");
@@ -63,8 +64,8 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
             javaExecutable,
             classpath,
             EDGE_NODE_ID,
-            GOSSIP_ADDRESS_NODE2,
-            GOSSIP_ADDRESS,
+            gossipAddressNode2,
+            gossipAddress,
             baseUrl,
             fafnirEndpoint,
             cluster.muninnEndpoint(),
@@ -72,7 +73,7 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("agent-edge.log"));
     processes.add(edgeAgent);
 
-    await(
+    Await.until(
         () -> nodeRegistered(baseUrl, EDGE_NODE_ID),
         Duration.ofSeconds(30),
         EDGE_NODE_ID
@@ -91,9 +92,13 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
     // defaultDenyCrossTenant
     // is off by default (AgentMain's own default), so an unscoped export is reachable from any
     // tenant, including gimle-system, exactly as it would be from any other hosted module.
-    submitDeployment(
-        baseUrl, "greeter-provider-deployment", "com.gimle.examples.greeter.provider", providerJar);
-    await(
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-provider-deployment",
+        "com.gimle.examples.greeter.provider",
+        providerJar,
+        Duration.ofSeconds(30));
+    Await.until(
         () -> isActive(baseUrl, "greeter-provider-deployment"),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
@@ -110,23 +115,24 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
         "gateway.routes",
         "/greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
 
-    submitDaemonSet(
+    submitDaemonSetWithRetry(
         baseUrl,
         "gimle-gateway",
         "com.gimle.gateway",
         "1.0.0",
         gatewayJar,
         List.of("edge"),
-        Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID));
+        Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID),
+        Duration.ofSeconds(30));
 
-    await(
+    Await.until(
         () -> daemonSetActiveNodeCount(baseUrl, "gimle-gateway") == 1,
         Duration.ofSeconds(90),
         "the gimle-gateway DaemonSet should place exactly one ACTIVE instance, on the sole"
             + " edge-labeled node");
     assertTrue(daemonSetHasNodeAssignment(baseUrl, "gimle-gateway", EDGE_NODE_ID));
 
-    await(
+    Await.until(
         () ->
             gatewayRespondsToGreet("Gimlé")
                 .map("Hello, Gimlé! (from provider)"::equals)
