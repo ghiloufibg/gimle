@@ -25,6 +25,12 @@
     substantial third-party crypto library none of them ever use.
   </description>
 
+  <properties>
+    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.pki.PkiBootstrapMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http</gimle.runtimeImage.jdkModules>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.gimle</groupId>

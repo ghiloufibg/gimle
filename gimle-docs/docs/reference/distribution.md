@@ -76,11 +76,14 @@ elsewhere on that machine.
 - **No cryptographic signing.** Each archive gets a `sha256sum`-compatible checksum file, not a
   signature — who signs a real release and where that key lives is an operational/security decision
   left for later, not a placeholder step invented here.
-- **No jlink JRE bundling.** The root `runtime-image` profile only has
-  `gimle.runtimeImage.jdkModules`/`launcherClass` wired for three modules
-  (`gimle-agent`/`gimle-worker`/`gimle-controlplane`); deriving the same properties for the other
-  seven process/client modules needs empirical per-module trial and error not yet done.
-  `gimle-dist`'s archives ship jars run by the caller's own `java`, not a bundled custom runtime.
+- **No jlink JRE bundling.** The root `runtime-image` profile now has
+  `gimle.runtimeImage.jdkModules`/`launcherClass` empirically wired for all ten process/client
+  modules (`gimle-agent`, `gimle-worker`, `gimle-controlplane`, `gimle-mimir`, `gimle-fafnir`,
+  `gimle-muninn`, `gimle-andvari`, `gimle-pki`, `gimle-hilmir`, `gimle-cli`), each usable
+  standalone via `mvn clean package -pl <module> -P runtime-image`. `gimle-dist` itself still
+  doesn't produce a jlink-bundled tarball variant, though — its archives ship jars run by the
+  caller's own `java`, not a bundled custom runtime; wiring a jlink-bundled packaging option into
+  `gimle-dist` remains a genuine follow-up, not built here.
 - **One combined SBOM, not three scoped ones.** `cyclonedx-maven-plugin` has no per-artifact
   include/exclude filter — only whole-project-dependency-graph or reactor-aggregate modes — so
   genuinely scoping a separate SBOM to each archive's own narrower jar set would need three separate
