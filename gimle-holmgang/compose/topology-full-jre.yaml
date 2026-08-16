@@ -1,0 +1,51 @@
+name: compose-full-jre
+transport: plaintext
+
+# Every process kind gets the same shared java -- the caller's own PATH/JAVA_HOME (an
+# eclipse-temurin:25-jre image on every service here, including agent's own worker JVMs). Matches
+# the platform archive's default distribution: no jre/<component>/ directory exists in it, so
+# useBundledJre would refuse to resolve one even if it were set.
+
+machines:
+  - name: store
+    host: store
+  - name: muninn
+    host: muninn
+  - name: andvari
+    host: andvari
+  - name: fafnir
+    host: fafnir
+  - name: controlplane
+    host: controlplane
+  - name: agent
+    host: agent
+
+runtime:
+  classpath: /opt/gimle/lib/*
+  dataRoot: /data
+  useBundledJre: false
+
+store:
+  replicas:
+    - machine: store
+
+muninn:
+  replicas:
+    - machine: muninn
+
+andvari:
+  replicas:
+    - machine: andvari
+
+fafnir:
+  keyFile: /data/fafnir.key
+  replicas:
+    - machine: fafnir
+
+controlPlane:
+  replicas:
+    - machine: controlplane
+
+agents:
+  - machine: agent
+    nodeId: agent-0

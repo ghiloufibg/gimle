@@ -1,0 +1,93 @@
+# The bundled-JRE scenario: store/muninn/andvari/fafnir/controlplane run on a bare debian-slim base
+# image with no JRE of their own at all -- they launch entirely off the jre/<component>/bin/java
+# that gimle-dist's dist-with-jre profile bundled into the mounted platform archive (see
+# topology-bundled-jre.yaml's own runtime.useBundledJre: true). agent keeps a real eclipse-temurin:
+# 25-jre image, matching LaunchPlanner.planAgents' structural exclusion from useBundledJre -- agent
+# spawns arbitrary vessel workloads and the worker JVMs it supervises host arbitrary Gimle modules,
+# neither of which jlink's own derivation ever saw, so neither can safely run on a trimmed JRE (see
+# gimle-docs/docs/reference/hilmir-reference.md).
+#
+# debian:bookworm-slim, not an Alpine base -- jlink's own runtime image links against glibc, which
+# Alpine's musl libc cannot load.
+#
+# Prerequisite (see ../README.md#docker-compose-manual-validation): build the archive WITH
+# dist-with-jre and point GIMLE_PLATFORM_DIR at its unpacked directory before running this file --
+#   mvn -pl gimle-dist -am install -P dist-with-jre
+#   tar xzf gimle-dist/target/gimle-platform-<version>.tar.gz -C /tmp/gimle-bundled-jre
+#   export GIMLE_PLATFORM_DIR=/tmp/gimle-bundled-jre/gimle-platform-<version>
+#   docker compose -f docker-compose.bundled-jre.yml up
+
+x-gimle-light-service: &gimle-light-service
+  image: debian:bookworm-slim
+  networks: [gimle]
+  entrypoint: ["/bin/sh", "/holmgang/entrypoint.sh"]
+
+services:
+  store:
+    <<: *gimle-light-service
+    command: ["store"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?set GIMLE_PLATFORM_DIR to an unpacked gimle-platform archive built with -P dist-with-jre}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - store-data:/data
+
+  muninn:
+    <<: *gimle-light-service
+    command: ["muninn"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - muninn-data:/data
+
+  andvari:
+    <<: *gimle-light-service
+    command: ["andvari"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - andvari-data:/data
+
+  fafnir:
+    <<: *gimle-light-service
+    command: ["fafnir"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - fafnir-data:/data
+
+  controlplane:
+    <<: *gimle-light-service
+    command: ["controlplane"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - controlplane-data:/data
+    ports:
+      - "8080:8080"
+
+  agent:
+    image: eclipse-temurin:25-jre
+    networks: [gimle]
+    entrypoint: ["/bin/sh", "/holmgang/entrypoint.sh"]
+    command: ["agent"]
+    volumes:
+      - ${GIMLE_PLATFORM_DIR:?}:/opt/gimle:ro
+      - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
+      - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
+      - agent-data:/data
+
+networks:
+  gimle: {}
+
+volumes:
+  store-data: {}
+  muninn-data: {}
+  andvari-data: {}
+  fafnir-data: {}
+  controlplane-data: {}
+  agent-data: {}

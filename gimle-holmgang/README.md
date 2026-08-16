@@ -173,6 +173,60 @@ The pure YAML/exec-result helpers behind Utgard (`UtgardTopologies`, `UtgardExec
 have their own fast unit tests that need no Docker at all, so they run under the module's default
 `mvn verify` alongside every other unit test here.
 
+## Docker Compose manual validation
+
+`compose/` holds two hand-run Docker Compose files for manually eyeballing the two ways a real
+`gimle-platform` archive can be deployed, distinct from Utgard above: Utgard is an automated JUnit
+suite asserting specific platform behaviors from Java, while these compose files are for a person to
+`docker compose up` and poke at with their own eyes and their own `curl`/`hilmir` commands. Both
+files drive the exact same real `hilmir up`/`hilmir status` verbs an operator would run by hand
+(`compose/entrypoint.sh`) against a real topology document (`compose/topology-*.yaml`, in the actual
+`gimle-hilmir` `TopologyParser` schema) -- neither file hand-crafts `StoreMain`/`FafnirMain`/etc.
+command lines itself.
+
+- `docker-compose.full-jre.yml` -- the baseline: every service runs `eclipse-temurin:25-jre`, and
+  `topology-full-jre.yaml` sets `runtime.useBundledJre: false`. Matches a `gimle-platform` archive
+  built the default way (no `jre/<component>/` directory in it).
+- `docker-compose.bundled-jre.yml` -- store/muninn/andvari/fafnir/controlplane run on a bare
+  `debian:bookworm-slim` base with no JRE of their own at all, launching entirely off the
+  `jre/<component>/bin/java` that `gimle-dist`'s `dist-with-jre` profile bundled into the mounted
+  archive (`topology-bundled-jre.yaml` sets `runtime.useBundledJre: true`). `agent` keeps a real
+  `eclipse-temurin:25-jre` image, matching `LaunchPlanner.planAgents`' structural exclusion from
+  `useBundledJre` -- agent spawns arbitrary vessel workloads and the worker JVMs it supervises host
+  arbitrary Gimlé modules, neither of which jlink's own derivation ever saw.
+
+Prerequisites:
+
+```sh
+# full-jre scenario
+mvn -pl gimle-dist -am install
+tar xzf gimle-dist/target/gimle-platform-<version>.tar.gz -C /tmp/gimle-full-jre
+export GIMLE_PLATFORM_DIR=/tmp/gimle-full-jre/gimle-platform-<version>
+docker compose -f compose/docker-compose.full-jre.yml up
+
+# bundled-jre scenario -- note the extra profile
+mvn -pl gimle-dist -am install -P dist-with-jre
+tar xzf gimle-dist/target/gimle-platform-<version>.tar.gz -C /tmp/gimle-bundled-jre
+export GIMLE_PLATFORM_DIR=/tmp/gimle-bundled-jre/gimle-platform-<version>
+docker compose -f compose/docker-compose.bundled-jre.yml up
+```
+
+The control plane's HTTP API is published at `localhost:8080` in both files. Each service polls its
+own `hilmir status` every 10s and exits non-zero the moment any process it hosts reports
+`alive=false`, so `docker compose ps`/a non-zero exit is itself a signal something died -- watch
+`docker compose logs -f` for which one and why. Tear down with `docker compose down -v` (the `-v`
+matters: each service keeps its own `dataRoot` in a named volume, so a stale Fafnir key or Raft log
+survives a plain `down` otherwise).
+
+Not run automatically anywhere (no CI, not part of Utgard's own Testcontainers fleet) -- these are
+for a person to run by hand. Utgard itself deliberately stays on its own programmatic
+`UtgardMachines` container provisioning rather than these files: every Utgard scenario needs
+per-test dynamic control a static compose file can't give it (killing/restarting one specific
+container mid-scenario, disconnecting/reconnecting a machine from the network, mounting the *test
+JVM's own* reactor build classpath rather than a pre-built archive) -- reusing these compose files
+would mean re-deriving that same dynamic lifecycle control on top of Compose instead of Testcontainers'
+own Java API for it, for no reduction in real complexity.
+
 ## Adding a scenario
 
 1. Pick (or add) a topology under `topologies/` — composition only, no ports.
