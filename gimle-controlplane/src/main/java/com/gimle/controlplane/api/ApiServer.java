@@ -145,6 +145,11 @@ public final class ApiServer implements AutoCloseable {
 
   private static final String SESSION_COOKIE_NAME = "gimle_session";
   private static final Duration SESSION_TTL = Duration.ofHours(12);
+  // Generous on purpose: gimle-system hosts the platform's own self-hosted extensions, not a
+  // workload a human sizes deployment-by-deployment, so these ceilings just need enough headroom
+  // that an operator never has to tune them for ordinary platform-extension traffic.
+  private static final ResourceQuota RESERVED_SYSTEM_TENANT_QUOTA =
+      new ResourceQuota(64L * 1024 * 1024 * 1024, 32_000, 1000);
 
   private final StoreClient storeClient;
   // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
@@ -311,10 +316,28 @@ public final class ApiServer implements AutoCloseable {
         artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
+    seedReservedSystemTenantIfAbsent();
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+  }
+
+  /**
+   * Ensures {@link Tenant#RESERVED_SYSTEM_TENANT_ID} exists as a real, persisted row before any
+   * request is ever served -- never through the {@code /tenants/*} HTTP path itself, so {@link
+   * #rejectIfReservedSystemTenant} can reject every non-operator caller there with no "but let the
+   * bootstrap request through" carve-out. Check-then-propose, not unconditional: a later restart of
+   * this same replica must not clobber a quota an operator has since adjusted through the ordinary
+   * API.
+   */
+  private void seedReservedSystemTenantIfAbsent() {
+    if (storeClient.getTenant(Tenant.RESERVED_SYSTEM_TENANT_ID).isPresent()) {
+      return;
+    }
+    storeClient.propose(
+        new StateMutation.PutTenant(
+            new Tenant(Tenant.RESERVED_SYSTEM_TENANT_ID, RESERVED_SYSTEM_TENANT_QUOTA)));
   }
 
   private void registerContexts(HttpServer target) throws IOException {
@@ -662,7 +685,7 @@ public final class ApiServer implements AutoCloseable {
           if (authorized && existing.isPresent() && !existing.get().equals(submittedTenant)) {
             authorized = requireAuthorized(exchange, kind, Verb.WRITE, existing.get());
           }
-          if (authorized) {
+          if (authorized && !rejectIfReservedSystemTenant(exchange, submittedTenant)) {
             put.run(exchange, name, submitted);
           }
         }
@@ -2203,7 +2226,8 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))) {
+          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))) {
             handlePutTenant(exchange, id);
           }
         }
@@ -2213,7 +2237,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.DELETE, Optional.of(id))) {
+          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.DELETE, Optional.of(id))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))) {
             handleDeleteTenant(exchange, id);
           }
         }
@@ -3856,6 +3881,47 @@ public final class ApiServer implements AutoCloseable {
   private boolean requireAuthorized(
       HttpExchange exchange, ResourceKind resource, Verb verb, Optional<String> tenant) {
     return requireAuthorized(exchange, resource, verb, tenant, Optional.empty());
+  }
+
+  /**
+   * The one veto in this codebase that an ordinary {@link RoleBinding} can never grant its way
+   * around: {@link #requireAuthorized} already ran and passed by the time either call site below
+   * reaches this, so a caller with no {@link ResourceKind#TENANT}/{@link ResourceKind#DEPLOYMENT}/
+   * etc. permission whatsoever still gets that check's own plain 403, never something that reveals
+   * gimle-system's reserved status to someone not even in the ballpark. Only when the ordinary
+   * check already said yes does this ask the one further question that matters here: is this
+   * specifically the bootstrap-level operator credential, not merely some grant broad enough to
+   * otherwise qualify. Sends the 403 itself and returns {@code true} so both call sites read as a
+   * single guard clause.
+   */
+  private boolean rejectIfReservedSystemTenant(HttpExchange exchange, Optional<String> tenantId) {
+    if (!isReservedSystemTenant(tenantId) || isOperatorCaller(exchange)) {
+      return false;
+    }
+    respondQuietly(
+        exchange, 403, "gimle-system is reserved for gimle:operators-group callers only");
+    return true;
+  }
+
+  private static boolean isReservedSystemTenant(Optional<String> tenantId) {
+    return tenantId.filter(Tenant.RESERVED_SYSTEM_TENANT_ID::equals).isPresent();
+  }
+
+  /**
+   * True for a caller carrying the bootstrap-level {@code gimle:operators} group -- reusing the
+   * exact signal {@link Authorizer#authorize} already special-cases as its implicit cluster-admin
+   * bypass, rather than inventing a second notion of "trusted enough." Plaintext mode resolves no
+   * principal at all (see {@link #requireAuthorized}'s identical carve-out just above) and is
+   * treated as trusted here too, matching every other authorization decision this class makes for a
+   * plaintext deployment.
+   */
+  private boolean isOperatorCaller(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return true;
+    }
+    return resolvePrincipal(exchange)
+        .map(principal -> principal.groups().contains(BuiltinRoles.GROUP_OPERATORS))
+        .orElse(false);
   }
 
   /**
