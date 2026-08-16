@@ -1,0 +1,56 @@
+name: compose-bundled-jre
+transport: plaintext
+
+# Identical to topology-full-jre.yaml except useBundledJre: true -- store/muninn/andvari/fafnir/
+# controlplane each resolve their own java from ${GIMLE_HOME}/jre/<component>/bin/java (the bundled
+# jlink image gimle-dist's dist-with-jre profile produced), never from runtime.javaExecutable
+# below. agent (and the worker JVMs it spawns) is structurally excluded from that resolution --
+# LaunchPlanner.planAgents never even looks at useBundledJre -- so it always uses plain
+# javaExecutable, which is why docker-compose.bundled-jre.yml still gives agent's own container a
+# real eclipse-temurin:25-jre image while every other service here runs on a bare debian-slim base
+# with no JRE of its own at all.
+
+machines:
+  - name: store
+    host: store
+  - name: muninn
+    host: muninn
+  - name: andvari
+    host: andvari
+  - name: fafnir
+    host: fafnir
+  - name: controlplane
+    host: controlplane
+  - name: agent
+    host: agent
+
+runtime:
+  javaExecutable: java
+  classpath: /opt/gimle/lib/*
+  dataRoot: /data
+  useBundledJre: true
+
+store:
+  replicas:
+    - machine: store
+
+muninn:
+  replicas:
+    - machine: muninn
+
+andvari:
+  replicas:
+    - machine: andvari
+
+fafnir:
+  keyFile: /data/fafnir.key
+  replicas:
+    - machine: fafnir
+
+controlPlane:
+  replicas:
+    - machine: controlplane
+
+agents:
+  - machine: agent
+    nodeId: agent-0
