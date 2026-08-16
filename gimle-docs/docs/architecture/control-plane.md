@@ -58,19 +58,32 @@ caller to a peer the way it once did, because there is no longer a fixed 1:1 rel
 an `ApiServer` replica and any particular store node to redirect to. Reads tolerate the same
 staleness they always did: any store endpoint may answer, with no linearizability guarantee.
 
-`GET /endpoints/{deployment}` is a small, read-only view over the same assignment/heartbeat state
+`GET /endpoints/{name}` is a small, read-only view over the same assignment/heartbeat state
 `GET /deployments/{name}` already exposes, purpose-built for [vessel workloads](../reference/manifest-schema.md#vessel-workloads-vessel):
 for each live instance, its `nodeId`, the host that node registered at startup (`NodeRegistration.apiAddress`,
 the same address `AgentLogServer` proxying already resolves through), and — joined from that node's
 latest heartbeat, the same `InstanceAssignment`-plus-`NodeHeartbeat` join `findObservation` already
 performs for every other status endpoint — a vessel instance's own declared ports (`env`-var name to
 allocated/fixed number). No gateway, no proxying, no load balancing: purely "list where things are,"
-for an external client (an LB, `curl`, a service mesh's own discovery hook) to dial itself. Tenant-scoped
-read authorization behaves exactly like every other single-resource `GET` route (`ResourceKind.DEPLOYMENT`,
-`Verb.READ`, scoped to that deployment's own `tenantId`); a `Deployment` with no vessel-hosted
-instances simply returns entries with no `ports` field. Scoped to `Deployment` only today — extending
-the same route shape to `Job`/`CronJob`/`DaemonSet`/`StatefulSet` is a natural follow-up, not a
-change to this route's own logic.
+for an external client (an LB, `curl`, a service mesh's own discovery hook) to dial itself. `name` is
+looked up against each supported workload kind in turn — `Deployment`, `Job` (`JobRun#attempt` plays
+`InstanceAssignment#instanceIndex`'s own role), `DaemonSet` (a fixed `instanceIndex` of `0` — the
+node itself is the index), `StatefulSet` — the first kind whose spec store actually has that name
+wins. `CronJob` is deliberately excluded: it has no live instance of its own, only the `Job`s it
+spawns, so there is nothing for this route to ever join against for a CronJob's own name. Tenant-scoped
+read authorization behaves exactly like every other single-resource `GET` route (the matching
+`ResourceKind` for whichever kind resolved, `Verb.READ`, scoped to that workload's own `tenantId`);
+a workload with no vessel-hosted instances simply returns entries with no `ports` field.
+
+A `gimle:nodes` caller takes a different, narrower authorization path than the ordinary RBAC walk
+above: it may read `/endpoints/{name}` only if `Authorizer#isTenantAssignedToNode` says the calling
+node currently holds an active instance assignment for that workload's own `tenantId` — the identical
+node-tenant-scoping check Fafnir's `/secrets/*` surface already established (see
+[Authentication and authorization](./authn-authz.md)), now lifted onto `Authorizer` itself so both
+call sites share one implementation. This is what lets a hosted module ask its own node agent to
+relay a `GET /endpoints/{name}` call on its behalf (the worker-agent control channel's
+`RelayControlPlaneRead`/`RelayControlPlaneResult` pair — see [Node topology](./node-topology.md#relaying-a-hosted-modules-control-plane-reads))
+without that agent's own certificate needing an ordinary `RoleBinding` granted to it.
 
 ## Persistence and restart recovery
 

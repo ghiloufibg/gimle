@@ -114,4 +114,33 @@ public final class Authorizer {
     }
     return targetId.isPresent() && targetId.get().equals(principal.name());
   }
+
+  /**
+   * Node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
+   * {@code gimle:nodes} principal (a node agent's own certificate identity, {@code CN=nodeId}) may
+   * read a tenant's data only if that node currently has at least one active instance assignment
+   * for that tenant -- read-only by construction (this method answers "is this node entitled to see
+   * this tenant's data at all," never distinguishes a verb), and never resolved through the
+   * ordinary {@link #authorize} walk, since a node certificate has no {@link Role}/{@link
+   * RoleBinding} of its own to check against. Originally private to {@code gimle-fafnir}'s own
+   * {@code FafnirServer}; lifted here once {@code gimle-controlplane}'s own {@code /endpoints/*}
+   * route needed the identical check and duplicating it a second time stopped being defensible.
+   *
+   * <p>There is no direct "assignments for this node" query on {@link StoreReader} -- {@code
+   * listAssignmentsFor(String deploymentName)} is deployment-scoped, not node-scoped. So this walks
+   * every assignment via {@link StoreReader#listAssignments()}, filters to this node, and joins
+   * each surviving assignment's {@code deploymentName} back to its {@code DeploymentSpec} to read
+   * that deployment's own {@code tenantId}.
+   *
+   * <p>Honest limitation, stated rather than hidden: this is tenant-scoped, not per-resource-scoped
+   * -- a node with any assignment for a tenant can see every resource that tenant owns under this
+   * check, not just the ones its own deployed modules actually declared a dependency on.
+   */
+  public boolean isTenantAssignedToNode(String nodeId, String tenantId) {
+    return store.listAssignments().stream()
+        .filter(a -> a.nodeId().equals(nodeId))
+        .map(a -> store.getDeployment(a.deploymentName()))
+        .flatMap(Optional::stream)
+        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+  }
 }

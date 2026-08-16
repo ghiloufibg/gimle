@@ -103,6 +103,19 @@ public sealed interface ControlMessage {
   /** See {@link #MetricsSnapshot}; the same shape for a worker's own exported span batch. */
   record TracesSnapshot(String workerId, String ndjsonPayload) implements ControlMessage {}
 
+  /**
+   * A hosted module's narrow, whitelisted read-back into the control plane's own HTTP API, relayed
+   * through this worker's agent -- a worker JVM has no outbound network identity of its own, only
+   * its agent does (a real mTLS client certificate minted at bootstrap), so the module can never
+   * make this call itself. {@code path} is an HTTP path only (e.g. {@code GET
+   * /endpoints/{deployment}}), never interpreted by the worker -- the agent alone decides whether
+   * it's one of the paths this mechanism is allowed to reach, and makes the real call on the
+   * module's behalf if so. {@code correlationId} lets the worker match this request to its eventual
+   * {@link RelayControlPlaneResult}, since the control channel carries other unrelated traffic
+   * concurrently.
+   */
+  record RelayControlPlaneRead(String correlationId, String path) implements ControlMessage {}
+
   // Agent -> Worker
   /**
    * {@code deploymentName}/{@code instanceIndex} are this instance's placement identity, already
@@ -185,5 +198,15 @@ public sealed interface ControlMessage {
    * plaintext the module should see.
    */
   record ConfigDelivered(String key, String value, boolean wasEncrypted)
+      implements ControlMessage {}
+
+  /**
+   * The agent's answer to a {@link RelayControlPlaneRead}: {@code status} and {@code body} are
+   * exactly what the control plane's own HTTP API returned, or a status the agent synthesized
+   * itself -- {@code 403} for a path the whitelist rejected before any real call was made, {@code
+   * 502} for a transport failure reaching the control plane. Never a thrown exception on the worker
+   * side: a hosted module sees this as an ordinary result, not a channel-level failure.
+   */
+  record RelayControlPlaneResult(String correlationId, int status, String body)
       implements ControlMessage {}
 }

@@ -18,7 +18,6 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.raft.StateMutation;
-import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.observability.FafnirMetrics;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
@@ -518,7 +517,7 @@ public final class FafnirServer implements AutoCloseable {
    */
   private boolean decideAllowed(Principal principal, Verb verb, String tenantId) {
     return principal.groups().contains(BuiltinRoles.GROUP_NODES)
-        ? verb == Verb.READ && isTenantAssignedToNode(principal.name(), tenantId)
+        ? verb == Verb.READ && authorizer.isTenantAssignedToNode(principal.name(), tenantId)
         : authorizer.authorize(
             principal, ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty());
   }
@@ -554,33 +553,9 @@ public final class FafnirServer implements AutoCloseable {
                     System.currentTimeMillis())));
   }
 
-  /**
-   * Node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
-   * {@code gimle:nodes} principal (a node agent's own certificate identity, {@code CN=nodeId}) may
-   * read a tenant's secrets only if that node currently has at least one active instance assignment
-   * for that tenant -- read-only, never write/delete, and never the ordinary RBAC path (a node
-   * certificate has no {@code Role}/{@code RoleBinding} of its own to check against).
-   *
-   * <p>There is no direct "assignments for this node" query -- {@code
-   * StoreClient.listAssignmentsFor(nodeId)} is deployment-scoped ({@code listAssignmentsFor(String
-   * deploymentName)}), not node-scoped. So this walks every assignment via {@link
-   * StoreClient#listAssignments()}, filters to this node, and joins each surviving assignment's
-   * {@code deploymentName} back to its {@code DeploymentSpec} to read that deployment's own {@code
-   * tenantId}.
-   *
-   * <p>Honest limitation, stated rather than hidden: this is tenant-scoped, not per-key-scoped -- a
-   * node with any assignment for a tenant can read every secret that tenant owns, not just the ones
-   * its own deployed modules actually declared a dependency on, since the module manifest has no
-   * per-key secret-dependency declaration today.
-   */
-  private boolean isTenantAssignedToNode(String nodeId, String tenantId) {
-    StoreClient storeClient = crypto.storeClient();
-    return storeClient.listAssignments().stream()
-        .filter(a -> a.nodeId().equals(nodeId))
-        .map(a -> storeClient.getDeployment(a.deploymentName()))
-        .flatMap(Optional::stream)
-        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
-  }
+  // isTenantAssignedToNode lives on Authorizer now (gimle-mimir.authz) -- both this class and
+  // gimle-controlplane's own /endpoints/* route need the identical node-tenant-scoping check, so
+  // it moved to their one shared dependency rather than staying duplicated here.
 
   /**
    * A forwarded principal (set only by {@code ApiServer}'s own {@code /secrets/*} proxy) wins over

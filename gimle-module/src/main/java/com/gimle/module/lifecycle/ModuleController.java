@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +47,14 @@ public final class ModuleController {
   private static final BiConsumer<ModuleId, ModuleLayerHandle> NO_OP_ON_DISPOSED =
       (id, handle) -> {};
 
+  /**
+   * The default {@code relay} for a caller that doesn't wire the real agent-backed collaborator
+   * (every pre-existing constructor below, and any test constructing a controller directly) --
+   * matches {@link SimpleModuleContext}'s own default posture for the same collaborator.
+   */
+  private static final Function<String, ModuleContext.RelayResult> NO_OP_RELAY =
+      path -> new ModuleContext.RelayResult(501, "control-plane relay is not available");
+
   private final ModuleRegistry registry;
   private final ModuleResolver resolver;
   private final ModuleLayer platformLayer;
@@ -54,6 +63,7 @@ public final class ModuleController {
   private final Consumer<LifecycleEvent> eventSink;
   private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
   private final ServiceRegistry serviceRegistry;
+  private final Function<String, ModuleContext.RelayResult> relay;
 
   private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
   private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
@@ -131,6 +141,36 @@ public final class ModuleController {
       Consumer<LifecycleEvent> eventSink,
       BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry) {
+    this(
+        registry,
+        resolver,
+        platformLayer,
+        parentLoader,
+        drainTimeout,
+        eventSink,
+        onDisposed,
+        serviceRegistry,
+        NO_OP_RELAY);
+  }
+
+  /**
+   * The full constructor: every collaborator explicit, no defaulting. {@code relay} is what {@code
+   * gimle-worker}'s {@code WorkerMain} supplies to let a resolved module's {@link ModuleContext}
+   * reach back into the control plane over the worker-agent control channel (see {@link
+   * ModuleContext#relayControlPlaneRead}) -- every other constructor above defaults it to {@link
+   * #NO_OP_RELAY}, matching this class's existing back-compat pattern for {@code onDisposed}/{@code
+   * serviceRegistry}.
+   */
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink,
+      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      ServiceRegistry serviceRegistry,
+      Function<String, ModuleContext.RelayResult> relay) {
     this.registry = registry;
     this.resolver = resolver;
     this.platformLayer = platformLayer;
@@ -139,6 +179,7 @@ public final class ModuleController {
     this.eventSink = eventSink;
     this.onDisposed = onDisposed;
     this.serviceRegistry = serviceRegistry;
+    this.relay = relay;
   }
 
   /**
@@ -198,7 +239,7 @@ public final class ModuleController {
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
     SimpleModuleContext ctx =
-        new SimpleModuleContext(id, serviceRegistry, configValues, dataDirectory);
+        new SimpleModuleContext(id, serviceRegistry, configValues, dataDirectory, relay);
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);

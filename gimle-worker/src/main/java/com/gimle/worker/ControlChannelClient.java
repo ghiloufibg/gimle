@@ -58,7 +58,15 @@ final class ControlChannelClient implements AutoCloseable {
         lastFailure);
   }
 
-  void send(ControlMessage message) throws IOException {
+  /**
+   * Synchronized: several background threads (the metrics reporter, the Muninn relay loop, the
+   * fabric registry's own outbound catalog traffic, and now a module thread awaiting a {@link
+   * com.gimle.core.protocol.ControlMessage.RelayControlPlaneResult}) all send on this same
+   * connection concurrently -- without this, two interleaved writes could corrupt the wire
+   * protocol's line framing for both, the same reasoning {@code WorkerConnection}'s own {@code
+   * send} already documents on the agent side of this channel.
+   */
+  synchronized void send(ControlMessage message) throws IOException {
     out.write(ControlMessageCodec.encode(message));
     out.write("\n");
     out.flush();

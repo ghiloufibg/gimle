@@ -67,6 +67,8 @@ public final class ControlMessageCodec {
           line("METRICS_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
       case ControlMessage.TracesSnapshot m ->
           line("TRACES_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
+      case ControlMessage.RelayControlPlaneRead m ->
+          line("RELAY_READ", m.correlationId(), escape(m.path()));
       case ControlMessage.InstallModule m ->
           line(
               "INSTALL",
@@ -106,6 +108,8 @@ public final class ControlMessageCodec {
               escape(m.key()),
               escape(m.value()),
               Boolean.toString(m.wasEncrypted()));
+      case ControlMessage.RelayControlPlaneResult m ->
+          line("RELAY_RESULT", m.correlationId(), Integer.toString(m.status()), escape(m.body()));
     };
   }
 
@@ -165,6 +169,8 @@ public final class ControlMessageCodec {
               unescape(field(fields, 1)), unescape(field(fields, 2)));
       case "TRACES_SNAPSHOT" ->
           new ControlMessage.TracesSnapshot(unescape(field(fields, 1)), unescape(field(fields, 2)));
+      case "RELAY_READ" ->
+          new ControlMessage.RelayControlPlaneRead(field(fields, 1), unescape(field(fields, 2)));
       case "INSTALL" ->
           new ControlMessage.InstallModule(
               field(fields, 1),
@@ -201,6 +207,9 @@ public final class ControlMessageCodec {
               unescape(field(fields, 1)),
               unescape(field(fields, 2)),
               Boolean.parseBoolean(field(fields, 3)));
+      case "RELAY_RESULT" ->
+          new ControlMessage.RelayControlPlaneResult(
+              field(fields, 1), Integer.parseInt(field(fields, 2)), unescape(field(fields, 3)));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
   }

@@ -1552,19 +1552,21 @@ public final class ApiServer implements AutoCloseable {
     return map;
   }
 
-  // ---- /endpoints/{deployment} ----
+  // ---- /endpoints/{name} ----
 
   /**
-   * Read-only view over where a deployment's live instances are actually reachable: for each
-   * assigned instance, its node id, the host that node registered at startup, and whichever ports a
-   * vessel instance declared (name -> allocated/fixed number) -- joined from the latest heartbeat
-   * the same way {@link #findObservation} already joins an {@link InstanceAssignment} against one,
-   * plus the node's own {@link NodeRegistration#apiAddress()} for the host half. No gateway, no
-   * proxying -- purely "list where things are," for an external client to dial itself. Scoped to
-   * {@code /endpoints/{deployment}} only for now: a module workload declaring a port is out of
-   * scope, and extending this route to Job/CronJob/DaemonSet/StatefulSet as well is a
-   * straightforward follow-up (each already exposes the same assignment-plus-heartbeat shape this
-   * method reads) rather than something this route's own logic would need to change to support.
+   * Read-only view over where a workload's live instances are actually reachable: for each placed
+   * instance, its node id, the host that node registered at startup, and whichever ports a vessel
+   * instance declared (name -> allocated/fixed number) -- joined from the latest heartbeat the same
+   * way {@link #findObservation} already joins an {@link InstanceAssignment} against one, plus the
+   * node's own {@link NodeRegistration#apiAddress()} for the host half. No gateway, no proxying --
+   * purely "list where things are," for an external client to dial itself.
+   *
+   * <p>{@code name} is looked up against each supported workload kind in turn (Deployment, Job,
+   * DaemonSet, StatefulSet) since this one path carries no kind of its own -- the first kind whose
+   * spec store actually has {@code name} wins. CronJob is deliberately not one of them: it has no
+   * live instance of its own, only the Jobs it spawns, so there is nothing for this route to ever
+   * join against for a CronJob's own name.
    */
   private void handleEndpoints(HttpExchange exchange) {
     try {
@@ -1574,38 +1576,128 @@ public final class ApiServer implements AutoCloseable {
       }
       String name = pathSegmentAfter(exchange, "/endpoints/");
       if (name.isBlank()) {
-        respond(exchange, 400, "missing deployment name");
+        respond(exchange, 400, "missing workload name");
         return;
       }
-      Optional<DeploymentSpec> spec = storeClient.getDeployment(name);
-      if (spec.isEmpty()) {
-        respond(exchange, 404, "no such deployment: " + name);
+      Optional<DeploymentSpec> deployment = storeClient.getDeployment(name);
+      if (deployment.isPresent()) {
+        if (authorizeEndpointsRead(
+            exchange, ResourceKind.DEPLOYMENT, deployment.get().tenantId())) {
+          respondJson(exchange, 200, deploymentEndpoints(deployment.get()));
+        }
         return;
       }
-      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, spec.get().tenantId())) {
+      Optional<JobSpec> job = storeClient.getJobSpec(name);
+      if (job.isPresent()) {
+        if (authorizeEndpointsRead(exchange, ResourceKind.JOB, job.get().tenantId())) {
+          respondJson(exchange, 200, jobEndpoints(job.get()));
+        }
         return;
       }
-      List<Map<String, Object>> endpoints = new ArrayList<>();
-      for (InstanceAssignment assignment : storeClient.listAssignmentsFor(name)) {
-        Map<String, Object> entry = new LinkedHashMap<>();
-        entry.put("instanceIndex", assignment.instanceIndex());
-        entry.put("nodeId", assignment.nodeId());
-        storeClient
-            .getNodeRegistration(assignment.nodeId())
-            .ifPresent(
-                reg -> {
-                  reg.apiAddress().ifPresent(address -> entry.put("host", hostOnly(address)));
-                });
-        findObservation(assignment).ifPresent(obs -> entry.put("ports", obs.ports()));
-        endpoints.add(entry);
+      Optional<DaemonSetSpec> daemonSet = storeClient.getDaemonSetSpec(name);
+      if (daemonSet.isPresent()) {
+        if (authorizeEndpointsRead(exchange, ResourceKind.DAEMONSET, daemonSet.get().tenantId())) {
+          respondJson(exchange, 200, daemonSetEndpoints(daemonSet.get()));
+        }
+        return;
       }
-      respondJson(exchange, 200, endpoints);
+      Optional<StatefulSetSpec> statefulSet = storeClient.getStatefulSetSpec(name);
+      if (statefulSet.isPresent()) {
+        if (authorizeEndpointsRead(
+            exchange, ResourceKind.STATEFULSET, statefulSet.get().tenantId())) {
+          respondJson(exchange, 200, statefulSetEndpoints(statefulSet.get()));
+        }
+        return;
+      }
+      respond(exchange, 404, "no such workload: " + name);
     } catch (IOException | RuntimeException e) {
       log.warn("endpoints request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * Before the ordinary {@link #requireAuthorized} RBAC walk: a {@code gimle:nodes} caller takes
+   * the node-tenant-scoping path instead -- permitted only if {@link
+   * Authorizer#isTenantAssignedToNode} says this node currently has an active assignment for {@code
+   * tenantId} -- mirroring {@code FafnirServer#decideAllowed}'s identical shape for {@code
+   * /secrets/*}. Anyone else (an operator, a role-bound user, an unauthenticated plaintext caller)
+   * still goes through the ordinary path unchanged. {@code /endpoints/*} is GET-only, so there is
+   * no verb to branch on the way {@code decideAllowed} does for {@code /secrets/*}'s write/delete.
+   */
+  private boolean authorizeEndpointsRead(
+      HttpExchange exchange, ResourceKind resourceKind, Optional<String> tenantId) {
+    if (exchange instanceof HttpsExchange) {
+      Optional<Principal> principal = resolvePrincipal(exchange);
+      if (principal.isPresent() && principal.get().groups().contains(BuiltinRoles.GROUP_NODES)) {
+        boolean allowed =
+            tenantId.isPresent()
+                && authorizer.isTenantAssignedToNode(principal.get().name(), tenantId.get());
+        if (!allowed) {
+          respondQuietly(exchange, 403, "forbidden");
+        }
+        return allowed;
+      }
+    }
+    return requireAuthorized(exchange, resourceKind, Verb.READ, tenantId);
+  }
+
+  private List<Map<String, Object>> deploymentEndpoints(DeploymentSpec spec) {
+    List<Map<String, Object>> endpoints = new ArrayList<>();
+    for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.name())) {
+      endpoints.add(
+          endpointEntry(
+              assignment.nodeId(), assignment.instanceIndex(), findObservation(assignment)));
+    }
+    return endpoints;
+  }
+
+  /** {@code attempt} plays {@code instanceIndex}'s own role -- see {@link JobRun}'s own javadoc. */
+  private List<Map<String, Object>> jobEndpoints(JobSpec spec) {
+    List<Map<String, Object>> endpoints = new ArrayList<>();
+    for (JobRun run : storeClient.listJobRunsFor(spec.name())) {
+      endpoints.add(endpointEntry(run.nodeId(), run.attempt(), findObservationForJobRun(run)));
+    }
+    return endpoints;
+  }
+
+  /** A DaemonSet has no {@code instanceIndex} of its own -- the node itself is the index. */
+  private List<Map<String, Object>> daemonSetEndpoints(DaemonSetSpec spec) {
+    List<Map<String, Object>> endpoints = new ArrayList<>();
+    for (DaemonSetAssignment assignment : storeClient.listDaemonSetAssignmentsFor(spec.name())) {
+      endpoints.add(
+          endpointEntry(assignment.nodeId(), 0, findObservationForDaemonSetAssignment(assignment)));
+    }
+    return endpoints;
+  }
+
+  private List<Map<String, Object>> statefulSetEndpoints(StatefulSetSpec spec) {
+    List<Map<String, Object>> endpoints = new ArrayList<>();
+    for (StatefulSetAssignment assignment :
+        storeClient.listStatefulSetAssignmentsFor(spec.name())) {
+      endpoints.add(
+          endpointEntry(
+              assignment.nodeId(),
+              assignment.instanceIndex(),
+              findObservationForStatefulSetAssignment(assignment)));
+    }
+    return endpoints;
+  }
+
+  /** The one entry shape every workload kind's own endpoints list is built out of. */
+  private Map<String, Object> endpointEntry(
+      String nodeId, int instanceIndex, Optional<InstanceObservation> observation) {
+    Map<String, Object> entry = new LinkedHashMap<>();
+    entry.put("instanceIndex", instanceIndex);
+    entry.put("nodeId", nodeId);
+    storeClient
+        .getNodeRegistration(nodeId)
+        .ifPresent(
+            reg -> reg.apiAddress().ifPresent(address -> entry.put("host", hostOnly(address))));
+    observation.ifPresent(obs -> entry.put("ports", obs.ports()));
+    return entry;
   }
 
   /** Strips a trailing {@code :port} off a registered {@code host:port} node address. */

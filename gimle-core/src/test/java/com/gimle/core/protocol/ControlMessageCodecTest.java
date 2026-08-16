@@ -46,6 +46,11 @@ class ControlMessageCodecTest {
             9000),
         new ControlMessage.Pong("corr-2"),
         new ControlMessage.ConfigDelivered("db.password", "hunter2", true),
+        new ControlMessage.RelayControlPlaneRead("corr-10", "/endpoints/orders-service"),
+        new ControlMessage.RelayControlPlaneResult(
+            "corr-10", 200, "[{\"instanceIndex\":0,\"nodeId\":\"node-a\"}]"),
+        new ControlMessage.RelayControlPlaneResult(
+            "corr-11", 403, "path not whitelisted for relay: /secrets/acme"),
         new ControlMessage.MetricsSnapshot(
             "worker-1",
             "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),

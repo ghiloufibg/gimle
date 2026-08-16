@@ -13,10 +13,16 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -24,6 +30,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -188,5 +195,125 @@ class ApiServerEndpointsTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     assertEquals(400, response.statusCode());
+  }
+
+  /**
+   * The generalization beyond Deployment: a Job's current run resolves through {@code
+   * /endpoints/{name}} the same way a Deployment's replicas do, {@code attempt} playing {@code
+   * instanceIndex}'s own role.
+   */
+  @Test
+  @Timeout(10)
+  void a_job_run_is_listed_under_its_own_endpoints_route() throws Exception {
+    ModuleId moduleId = new ModuleId("com.acme.cleanup", Version.parse("1.0.0"));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutJobSpec(
+                new JobSpec(
+                    "cleanup-job",
+                    moduleId,
+                    "/artifacts/cleanup.jar",
+                    PlacementConstraints.NONE,
+                    Optional.empty(),
+                    3,
+                    Optional.empty(),
+                    Optional.empty())));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutJobRun(
+                new JobRun(
+                    "cleanup-job",
+                    0,
+                    "node-3",
+                    moduleId,
+                    "/artifacts/cleanup.jar",
+                    Instant.now())));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/endpoints/cleanup-job")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> body = Json.asArray(Json.parse(response.body()));
+    assertEquals(1, body.size());
+    Map<String, Object> endpoint = Json.asObject(body.get(0));
+    assertEquals(0, ((Number) endpoint.get("instanceIndex")).intValue());
+    assertEquals("node-3", endpoint.get("nodeId"));
+  }
+
+  /** A DaemonSet's per-node assignment resolves the same way, {@code instanceIndex} fixed at 0. */
+  @Test
+  @Timeout(10)
+  void a_daemonset_assignment_is_listed_under_its_own_endpoints_route() throws Exception {
+    ModuleId moduleId = new ModuleId("com.acme.node-exporter", Version.parse("1.0.0"));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutDaemonSetSpec(
+                new DaemonSetSpec(
+                    "node-exporter",
+                    moduleId,
+                    "/artifacts/node-exporter.jar",
+                    PlacementConstraints.NONE,
+                    Optional.empty(),
+                    Optional.empty())));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutDaemonSetAssignment(
+                new DaemonSetAssignment(
+                    "node-exporter", "node-4", moduleId, "/artifacts/node-exporter.jar")));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/endpoints/node-exporter")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> body = Json.asArray(Json.parse(response.body()));
+    assertEquals(1, body.size());
+    Map<String, Object> endpoint = Json.asObject(body.get(0));
+    assertEquals(0, ((Number) endpoint.get("instanceIndex")).intValue());
+    assertEquals("node-4", endpoint.get("nodeId"));
+  }
+
+  /** A StatefulSet's per-index assignment resolves the same way, a real {@code instanceIndex}. */
+  @Test
+  @Timeout(10)
+  void a_statefulset_assignment_is_listed_under_its_own_endpoints_route() throws Exception {
+    ModuleId moduleId = new ModuleId("com.acme.ledger", Version.parse("1.0.0"));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutStatefulSetSpec(
+                new StatefulSetSpec(
+                    "ledger",
+                    moduleId,
+                    "/artifacts/ledger.jar",
+                    1,
+                    PlacementConstraints.NONE,
+                    Optional.empty(),
+                    Optional.empty())));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutStatefulSetAssignment(
+                new StatefulSetAssignment(
+                    "ledger", 0, "node-5", moduleId, "/artifacts/ledger.jar")));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/endpoints/ledger")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> body = Json.asArray(Json.parse(response.body()));
+    assertEquals(1, body.size());
+    Map<String, Object> endpoint = Json.asObject(body.get(0));
+    assertEquals(0, ((Number) endpoint.get("instanceIndex")).intValue());
+    assertEquals("node-5", endpoint.get("nodeId"));
   }
 }

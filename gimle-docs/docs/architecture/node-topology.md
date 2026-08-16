@@ -67,6 +67,30 @@ scheduler each instance runs under) and `ProbeLoop` (calls each module's `Livene
 `ReadinessProbe` directly — no HTTP, no sidecar). Disposable by design: the agent can
 `destroyForcibly` and respawn one without touching anything else on the machine.
 
+### Relaying a hosted module's control-plane reads
+
+A worker JVM has no outbound network identity of its own — only its node agent does (a real mTLS
+client certificate minted at bootstrap). Everything else a worker ships outward (logs, metrics,
+traces) already goes out over this same relay-through-the-agent shape; `RelayControlPlaneRead`/
+`RelayControlPlaneResult` extend it to a narrow, whitelisted read-back into the control plane's own
+HTTP API, so a hosted module can call `ModuleContext#relayControlPlaneRead(path)` — e.g. to look up
+its own siblings' addresses via `GET /endpoints/{name}` — without the module or its worker ever
+holding a certificate of their own.
+
+The flow: `gimle-worker`'s `ControlPlaneRelay` generates a correlation id, registers a
+`CompletableFuture` keyed by it, sends `RelayControlPlaneRead` over the control channel, and blocks
+the calling thread (never `WorkerMain`'s own single receive-loop thread — that would deadlock the
+worker against itself, since that same thread is what would need to read the eventual response off
+the wire) with a bounded timeout. `gimle-agent`'s `AgentMain` is the trust boundary: it independently
+re-validates the requested path against a hard-coded whitelist (today, exactly
+`GET /endpoints/{name}`) before making any real call — a worker (and the hosted module running
+inside it) is never trusted to only ask for something already allowed. A non-whitelisted path is
+rejected locally with a synthesized `403`, never forwarded to the control plane at all; a whitelisted
+path is fetched with the agent's own already-mTLS-authenticated `HttpClient` (the same one
+`fetchAssignments`/`fetchConfigForTenant` already use) and its real status/body relayed back
+verbatim as `RelayControlPlaneResult`. A transport failure reaching the control plane comes back as
+a synthesized `502` rather than propagating out of the agent's own read loop.
+
 ## Control Plane
 
 One or more JVMs (`gimle-controlplane`). Owns the API server, the scheduler, and the reconcilers,
