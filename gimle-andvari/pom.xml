@@ -25,7 +25,7 @@
   <properties>
     <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
     <gimle.runtimeImage.launcherClass>com.gimle.andvari.AndvariMain</gimle.runtimeImage.launcherClass>
-    <gimle.runtimeImage.jdkModules>java.base,java.logging,java.xml,java.naming</gimle.runtimeImage.jdkModules>
+    <gimle.runtimeImage.jdkModules>java.base,java.xml,java.naming,jdk.httpserver,jdk.zipfs</gimle.runtimeImage.jdkModules>
   </properties>
 
   <dependencies>
