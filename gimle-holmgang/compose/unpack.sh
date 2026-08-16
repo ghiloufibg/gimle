@@ -6,6 +6,17 @@
 # bin/lib/modules(/jre) directly. A one-shot service the rest depend on
 # (condition: service_completed_successfully) rather than requiring the operator to unpack the
 # archive by hand and export a path to it themselves.
+#
+# Also sanitizes bin/*'s line endings after extracting: unlike entrypoint.sh/unpack.sh (which this
+# compose file already protects by sanitizing them right before exec, see docker-compose.*.yml),
+# bin/hilmir and bin/gimle are baked into the tarball itself at gimle-dist's own Maven build time --
+# if that build ran on a Windows checkout with a CRLF-corrupted working tree (the same disease
+# .gitattributes now prevents for a fresh checkout, but can't retroactively fix an existing one),
+# the archive ships the corruption, and the kernel's own shebang-line handling then looks for a
+# literal "/bin/sh\r" interpreter that doesn't exist -- surfacing as "not found" (exit 127), not an
+# obviously line-ending-shaped error. This is the one point every compose service's own
+# /opt/gimle/bin/hilmir invocation passes through, so it's the one point that can fix it for all of
+# them regardless of how the mounted archive was built.
 set -eu
 
 candidates=$(find /dist -maxdepth 1 -name 'gimle-platform-*.tar.gz' 2>/dev/null)
@@ -27,3 +38,10 @@ fi
 archive="$candidates"
 echo "unpack: extracting $archive into /opt/gimle"
 tar xzf "$archive" -C /opt/gimle --strip-components=1
+
+echo "unpack: sanitizing bin/* line endings"
+find /opt/gimle/bin -type f | while IFS= read -r launcher; do
+  tr -d '\r' < "$launcher" > "$launcher.tmp"
+  mv "$launcher.tmp" "$launcher"
+  chmod +x "$launcher"
+done
