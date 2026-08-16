@@ -297,4 +297,39 @@ class HilmirMainTest {
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("release name"));
   }
+
+  @Test
+  void usage_lists_the_enable_and_disable_verbs() {
+    final Result result = run("frobnicate");
+    assertTrue(result.err().contains("enable gateway --server"));
+    assertTrue(result.err().contains("disable gateway --server"));
+  }
+
+  @Test
+  void enable_requires_an_extension_name() {
+    final Result result = run("enable");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("usage: hilmir enable gateway"));
+  }
+
+  @Test
+  void enable_rejects_an_unknown_extension() {
+    final Result result = run("enable", "frobnicate");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("unknown extension: frobnicate"));
+  }
+
+  @Test
+  void disable_requires_an_extension_name() {
+    final Result result = run("disable");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("usage: hilmir disable gateway"));
+  }
+
+  @Test
+  void disable_rejects_an_unknown_extension() {
+    final Result result = run("disable", "frobnicate");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("unknown extension: frobnicate"));
+  }
 }

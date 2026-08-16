@@ -2,6 +2,8 @@ package com.gimle.hilmir;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.hilmir.doctor.DoctorCommand;
+import com.gimle.hilmir.extension.DisableGatewayCommand;
+import com.gimle.hilmir.extension.EnableGatewayCommand;
 import com.gimle.hilmir.init.InitCommand;
 import com.gimle.hilmir.launch.MachineLauncher;
 import com.gimle.hilmir.launch.PkiInit;
@@ -54,6 +56,9 @@ import java.util.Optional;
  *   hilmir undeploy --release &lt;name&gt; [--keep-tenants] [-o json]
  *   hilmir releases [-o json]
  *   hilmir release-status &lt;name&gt; [-o json]
+ *   hilmir enable gateway --server &lt;host:port&gt; [--modules-dir &lt;dir&gt;] [--values &lt;file&gt;]
+ *       [--set k=v]... [--wait] [--dry-run] [-o json]
+ *   hilmir disable gateway --server &lt;host:port&gt; [-o json]
  * </pre>
  *
  * {@code down}/{@code status} take {@code --data-root} rather than {@code -f}: the run ledger
@@ -71,6 +76,13 @@ import java.util.Optional;
  * manifest scaffolding for a single built jar, needing neither a topology document nor a running
  * control plane (though {@code doctor --server} adds cluster-aware checks on top). Their own jar
  * and bytecode analysis lives in {@code com.gimle.hilmir.analyze}, shared by both.
+ *
+ * <p>{@code enable}/{@code disable} are a fourth concern, layered on the same release-verb
+ * machinery as {@code deploy}/{@code upgrade}/{@code undeploy}: a named platform extension (today,
+ * only {@code gateway}) gets pushed to the artifact registry and applied as a synthesized release,
+ * rather than requiring an operator to hand-write its bundle file. Their own logic lives in {@code
+ * com.gimle.hilmir.extension}, dispatched here the same peel-the-first-argument-and-switch shape
+ * {@code store} already uses.
  */
 public final class HilmirMain {
 
@@ -82,6 +94,15 @@ public final class HilmirMain {
              hilmir store remove <peerId>
                  (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
                  [--pki-dir <dir>]""";
+
+  private static final String ENABLE_USAGE =
+      """
+      usage: hilmir enable gateway --server <host:port> [--modules-dir <dir>]
+                 [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]""";
+
+  private static final String DISABLE_USAGE =
+      """
+      usage: hilmir disable gateway --server <host:port> [-o json]""";
 
   private HilmirMain() {}
 
@@ -124,6 +145,8 @@ public final class HilmirMain {
       case "release-status" -> runReleaseStatus(rest, out);
       case "doctor" -> runDoctor(rest, out);
       case "init" -> runInit(rest, out);
+      case "enable" -> handleEnable(rest, out);
+      case "disable" -> handleDisable(rest, out);
       default -> throw new HilmirException(usage());
     };
   }
@@ -195,6 +218,32 @@ public final class HilmirMain {
       case "add" -> StoreAddCommand.run(subArgs, out);
       case "remove" -> StoreRemoveCommand.run(subArgs, out);
       default -> throw new HilmirException(STORE_USAGE);
+    };
+  }
+
+  private static int handleEnable(final List<String> args, final PrintStream out) {
+    if (args.isEmpty()) {
+      throw new HilmirException(ENABLE_USAGE);
+    }
+    final String extension = args.get(0);
+    final List<String> extensionArgs = args.subList(1, args.size());
+    return switch (extension) {
+      case "gateway" -> EnableGatewayCommand.run(extensionArgs, out);
+      default ->
+          throw new HilmirException("unknown extension: " + extension + " (supported: gateway)");
+    };
+  }
+
+  private static int handleDisable(final List<String> args, final PrintStream out) {
+    if (args.isEmpty()) {
+      throw new HilmirException(DISABLE_USAGE);
+    }
+    final String extension = args.get(0);
+    final List<String> extensionArgs = args.subList(1, args.size());
+    return switch (extension) {
+      case "gateway" -> DisableGatewayCommand.run(extensionArgs, out);
+      default ->
+          throw new HilmirException("unknown extension: " + extension + " (supported: gateway)");
     };
   }
 
@@ -329,6 +378,9 @@ public final class HilmirMain {
           releases [-o json]
           release-status <name> [-o json]
           doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]
-          init <jar> [--out-dir <dir>]""";
+          init <jar> [--out-dir <dir>]
+          enable gateway --server <host:port> [--modules-dir <dir>] [--values <file>]
+              [--set k=v]... [--wait] [--dry-run] [-o json]
+          disable gateway --server <host:port> [-o json]""";
   }
 }
