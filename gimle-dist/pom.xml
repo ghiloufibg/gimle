@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-dist</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Gimle Dist</name>
+  <description>
+    Packages the platform's own already-built jars into three audience-specific distribution
+    tarballs (a cluster-machine platform archive, a standalone CLI archive, and a standalone
+    Hilmir archive) -- no Java sources of its own, only assembly descriptors and the two shell
+    wrapper scripts every archive ships.
+  </description>
+
+  <!--
+    Every dependency this module declares exists so maven-assembly-plugin has a resolved
+    dependency graph to pick jars out of; gimle-dist itself never calls any of this code. The
+    three assembly descriptors under src/main/assembly each select their own subset of this graph
+    via <includes>/<excludes>; see each descriptor's own comment for which subset and why.
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-controlplane</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-agent</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-worker</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-muninn</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-andvari</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hilmir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-cli</artifactId>
+    </dependency>
+    <!-- The gateway hosted module: ships under modules/, never on any process's own classpath. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-gateway</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        This module gets no SBOM for free from the root aggregator (that execution is
+        inherited=false and covers the whole reactor, not any one module's own jar set; see the
+        root pom's own comment on cyclonedx-maven-plugin). One combined SBOM covering the union of
+        everything gimle-dist depends on is generated here and then copied to a per-archive
+        filename by postprocess.sh; three genuinely scoped SBOMs (one per archive's own narrower
+        jar set) were judged not worth the complexity, since cyclonedx-maven-plugin has no
+        artifact-level include/exclude filter of its own, only reactor-aggregate or
+        whole-project-dependency-graph modes, which would otherwise require three separate
+        Maven modules just to get three separate dependency graphs.
+      -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>sbom</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>platform</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/platform.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-platform-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
+          <execution>
+            <id>cli</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/cli.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-cli-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
+          <execution>
+            <id>hilmir</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/hilmir.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-hilmir-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        Writes a sha256sum-compatible checksum file next to each archive and copies the combined
+        SBOM above to each archive's own -cyclonedx.json name. Runs after both plugins above
+        because Maven executes same-phase plugin executions in the order they're declared in this
+        file, and this is declared last.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>postprocess-archives</id>
+            <phase>package</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>/bin/sh</executable>
+              <arguments>
+                <argument>${project.basedir}/src/main/scripts/postprocess.sh</argument>
+                <argument>${project.build.directory}</argument>
+                <argument>${project.version}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
