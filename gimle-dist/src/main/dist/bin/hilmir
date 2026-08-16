@@ -28,8 +28,18 @@ if [ -z "$classpath" ]; then
   exit 1
 fi
 
+# Precedence: an explicit JAVA_HOME is a deliberate operator override and always wins; otherwise
+# prefer this archive's own bundled jre/hilmir/ (present only when gimle-dist was built with its
+# dist-with-jre profile -- see gimle-docs/docs/reference/distribution.md); otherwise fall back to
+# plain "java" on PATH, exactly as before this archive ever bundled a JRE of its own. This choice is
+# purely about which java launches hilmir itself -- it is unrelated to runtime.useBundledJre, the
+# separate topology-level setting controlling which java LaunchPlanner picks for each *spawned*
+# process (store/muninn/andvari/fafnir/control-plane; never agent/worker -- see
+# gimle-docs/docs/reference/hilmir-reference.md).
 if [ -n "${JAVA_HOME:-}" ]; then
   java_bin="$JAVA_HOME/bin/java"
+elif [ -x "$script_dir/../jre/hilmir/bin/java" ]; then
+  java_bin="$script_dir/../jre/hilmir/bin/java"
 else
   java_bin=java
 fi

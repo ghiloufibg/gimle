@@ -22,8 +22,14 @@ if [ -z "$classpath" ]; then
   exit 1
 fi
 
+# Precedence: an explicit JAVA_HOME is a deliberate operator override and always wins; otherwise
+# prefer this archive's own bundled jre/cli/ (present only when gimle-dist was built with its
+# dist-with-jre profile -- see gimle-docs/docs/reference/distribution.md); otherwise fall back to
+# plain "java" on PATH, exactly as before this archive ever bundled a JRE of its own.
 if [ -n "${JAVA_HOME:-}" ]; then
   java_bin="$JAVA_HOME/bin/java"
+elif [ -x "$script_dir/../jre/cli/bin/java" ]; then
+  java_bin="$script_dir/../jre/cli/bin/java"
 else
   java_bin=java
 fi
