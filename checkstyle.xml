@@ -5,13 +5,25 @@
 
 <!--
   Gimlé project-wide Checkstyle rules. Deliberately minimal: formatting is
-  google-java-format's job (fmt-maven-plugin); this file only enforces a
-  convention gjf doesn't cover, method naming (see CLAUDE.md): standard
-  camelCase everywhere, except methods directly annotated @Test, which are
-  snake_case so a test's name reads as a sentence describing the behavior
-  it verifies. Two MethodName instances implement the split; which one
-  applies to a given method is decided by the XPath suppressions in
-  checkstyle-suppressions.xml, keyed on the presence/absence of @Test.
+  google-java-format's job (fmt-maven-plugin); this file only enforces
+  conventions gjf doesn't cover.
+
+  Method naming (see CLAUDE.md): standard camelCase everywhere, except methods directly
+  annotated @Test, which are snake_case so a test's name reads as a sentence describing the
+  behavior it verifies. Two MethodName instances implement the split; which one applies to a
+  given method is decided by the XPath suppressions in checkstyle-suppressions.xml, keyed on
+  the presence/absence of @Test.
+
+  A Thread.sleep ban across the real-cluster test harness and its own consumers (gimle-testkit,
+  gimle-holmgang, gimle-smoke-tests): a fixed sleep is a race against however long the real
+  condition actually takes, where Heimdall/Await's own event-driven waits complete the instant
+  the condition is satisfied and fail fast with a forensic report otherwise. Scoped by file path
+  in checkstyle-suppressions.xml (only those three modules are subject to it at all) rather than
+  repo-wide, since every other module's own test suite has its own established polling idioms
+  this change doesn't touch. A short, explicit allow-list grandfathers gimle-testkit's own
+  Await/Heimdall implementation (the one place a real sleep belongs) and every already-existing,
+  already-documented deliberate sleep (rate-limiter pacing, workload dwell timing) predating this
+  rule; the ban is on adding a new one, not rewriting every old one in the same change.
 -->
 <module name="Checker">
   <module name="TreeWalker">
@@ -37,6 +49,18 @@
       <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
       <message key="name.invalidPattern"
                value="Method name ''{0}'' must be camelCase, matching pattern ''{1}'' (project convention: only @Test methods are snake_case, see CLAUDE.md)."/>
+    </module>
+
+    <!-- Suppressed everywhere except gimle-testkit/gimle-holmgang/gimle-smoke-tests (file-path
+         scoped in checkstyle-suppressions.xml), and within those, grandfathered for
+         gimle-testkit's own Await/Heimdall implementation and every already-existing sleep
+         predating this rule. -->
+    <module name="RegexpSinglelineJava">
+      <property name="id" value="TestThreadSleepBan"/>
+      <property name="format" value="Thread\.sleep\("/>
+      <property name="ignoreComments" value="true"/>
+      <property name="message"
+                value="Thread.sleep is banned here -- wait on a real condition through gimle-testkit's Await/Heimdall instead of a fixed sleep (project convention, see CLAUDE.md)."/>
     </module>
   </module>
 </module>

@@ -11,4 +11,47 @@
   <!-- Every method that is not @Test is exempt from the snake_case check. -->
   <suppress-xpath id="TestMethodName"
                    query="//METHOD_DEF[not(./MODIFIERS/ANNOTATION/IDENT[@text='Test'])]/IDENT"/>
+
+  <!-- The Thread.sleep ban only ever applies inside these three modules: every other module's
+       file path fails this negative-lookahead match and is fully exempt. -->
+  <suppress-xpath id="TestThreadSleepBan"
+                   files="^(?!.*[\\/](gimle-testkit|gimle-holmgang|gimle-smoke-tests)[\\/]src[\\/]).*$"/>
+  <!-- gimle-testkit's own Await/Heimdall implementation is the one place a real Thread.sleep
+       belongs: it's the canonical spin-poll/backoff primitive every other sleep in these three
+       modules should be routing through instead of rolling its own. -->
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-testkit[\\/]src[\\/]main[\\/]java[\\/]com[\\/]gimle[\\/]testkit[\\/]Await\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-testkit[\\/]src[\\/]main[\\/]java[\\/]com[\\/]gimle[\\/]testkit[\\/]heimdall[\\/]Heimdall\.java.*"/>
+  <!-- Already-existing, already-documented deliberate sleeps predating this rule (rate-limiter
+       pacing, workload dwell intervals, a soak scenario's own fixed wait): grandfathered, not
+       rewritten in the same change that adds the ban on new ones. -->
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]surtr[\\/]TokenBucket\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]utgard[\\/]UtgardPoll\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]utgard[\\/]UtgardDistributedBootIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]fenrir[\\/]Fenrir\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]workload[\\/]RecordingWorkload\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-holmgang[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]holmgang[\\/]cluster[\\/]Polls\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]GossipFailureDetectionIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]RollingUpdateIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]ObservabilityIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]QuotaIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]GreeterSmokeClusterSupport\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]JobLifecycleIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]RaftResilienceIT\.java.*"/>
+  <suppress-xpath id="TestThreadSleepBan"
+                   files=".*gimle-smoke-tests[\\/]src[\\/]test[\\/]java[\\/]com[\\/]gimle[\\/]smoketests[\\/]NodeCordoningIT\.java.*"/>
 </suppressions>
