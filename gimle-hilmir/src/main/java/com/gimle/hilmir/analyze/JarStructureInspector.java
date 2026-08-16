@@ -58,7 +58,8 @@ public final class JarStructureInspector {
     if (Files.isDirectory(path)) {
       return ArtifactPackaging.DIRECTORY;
     }
-    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+    Path fileNamePath = path.getFileName();
+    String name = fileNamePath == null ? "" : fileNamePath.toString().toLowerCase(Locale.ROOT);
     if (name.endsWith(".war")) {
       return ArtifactPackaging.WAR;
     }

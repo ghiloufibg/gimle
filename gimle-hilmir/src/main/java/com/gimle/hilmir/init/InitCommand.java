@@ -44,8 +44,7 @@ public final class InitCommand {
     }
     JarStructure structure = scan.structure().orElseThrow();
 
-    Path outDir =
-        parsed.outDir != null ? Path.of(parsed.outDir) : jarPath.toAbsolutePath().getParent();
+    Path outDir = parsed.outDir != null ? Path.of(parsed.outDir) : defaultOutDir(jarPath);
     boolean vesselShaped = !structure.hasModuleInfo() || structure.launcherArchiveShaped();
 
     NameGuess name = guessModuleName(jarPath, structure);
@@ -84,6 +83,14 @@ public final class InitCommand {
     out.println("wrote " + moduleYamlPath);
     out.println("wrote " + deploymentPath);
     return 0;
+  }
+
+  // toAbsolutePath().getParent() is null only for a filesystem root itself, never for a real
+  // jar path -- falling back to the current directory keeps this total rather than throwing on
+  // that theoretical case.
+  private static Path defaultOutDir(Path jarPath) {
+    Path parent = jarPath.toAbsolutePath().getParent();
+    return parent != null ? parent : Path.of(".");
   }
 
   private record NameGuess(String value, boolean confident) {}
@@ -126,7 +133,8 @@ public final class InitCommand {
         return new NameGuess(fromModuleInfo.get(), true);
       }
     }
-    String base = jarPath.getFileName().toString();
+    Path fileNamePath = jarPath.getFileName();
+    String base = fileNamePath == null ? jarPath.toString() : fileNamePath.toString();
     if (base.toLowerCase(Locale.ROOT).endsWith(".jar")) {
       base = base.substring(0, base.length() - ".jar".length());
     }
@@ -146,7 +154,10 @@ public final class InitCommand {
 
   private static void writeFile(Path path, String content) {
     try {
-      Files.createDirectories(path.getParent());
+      Path parent = path.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
       Files.writeString(path, content, StandardCharsets.UTF_8);
     } catch (IOException e) {
       throw new UncheckedIOException("failed to write " + path, e);
