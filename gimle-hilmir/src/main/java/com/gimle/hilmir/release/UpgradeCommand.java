@@ -3,8 +3,6 @@ package com.gimle.hilmir.release;
 import com.gimle.hilmir.HilmirException;
 import java.io.PrintStream;
 import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,61 +53,30 @@ public final class UpgradeCommand {
                             + meta.currentRevision()
                             + " recorded in its ledger"));
 
-    List<ResourceRef> currentResources = new ArrayList<>();
-    for (RenderedWorkload workload : rendered.workloads()) {
-      currentResources.add(new ResourceRef(workload.kind(), workload.name()));
-    }
-    List<ResourceRef> toPrune =
-        previous.resources().stream().filter(r -> !currentResources.contains(r)).toList();
+    List<ResourceRef> toPrune = ReleaseReconciler.computePrune(rendered, previous);
 
     if (flags.isSet("--dry-run")) {
       ReleasePlan.printWithPrune(rendered, toPrune, json, out);
       return 0;
     }
 
-    BundleApplier.applyTenants(api, rendered.tenants());
-    BundleApplier.applyConfig(api, rendered.config());
-    BundleApplier.applySecrets(api, rendered.secrets());
-    BundleApplier.applyWorkloads(api, rendered.workloads());
-    BundleApplier.deleteWorkloads(api, toPrune);
-    if (flags.isSet("--wait")) {
-      for (RenderedWorkload workload : rendered.workloads()) {
-        WaitPoller.awaitReady(api, workload, out);
-      }
-    }
-
-    int nextRevision = meta.currentRevision() + 1;
-    List<String> tenantIds = rendered.tenants().stream().map(BundleTenant::id).toList();
-    ReleaseLedger.writeRevision(
-        api,
-        rendered.name(),
-        new ReleaseRevision(
-            nextRevision,
-            Instant.now().toEpochMilli(),
-            rendered.tenants(),
-            rendered.config(),
-            rendered.secrets(),
-            rendered.workloads(),
-            Optional.empty()));
-    ReleaseLedger.writeMeta(
-        api,
-        rendered.name(),
-        new ReleaseMeta(rendered.name(), rendered.version(), nextRevision, tenantIds));
+    ReleaseReconciler.UpgradeOutcome outcome =
+        ReleaseReconciler.upgradeExisting(api, rendered, meta, toPrune, flags.isSet("--wait"), out);
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", "upgraded");
     body.put("release", rendered.name());
-    body.put("revision", nextRevision);
-    body.put("pruned", toPrune.stream().map(ResourceRef::toJson).toList());
+    body.put("revision", outcome.revision());
+    body.put("pruned", outcome.pruned().stream().map(ResourceRef::toJson).toList());
     ReleaseOutput.printResult(
         json,
         body,
         "release/"
             + rendered.name()
             + " upgraded (revision "
-            + nextRevision
+            + outcome.revision()
             + "; pruned "
-            + toPrune.size()
+            + outcome.pruned().size()
             + " resource(s))",
         out);
     return 0;

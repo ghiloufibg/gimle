@@ -12,12 +12,16 @@ import java.util.Map;
  * all for {@code deploy} -- {@code upgrade}/{@code rollback} necessarily read the release's
  * existing ledger state first to compute an accurate prune list, so only their own read calls
  * (never a write) precede this.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} prints a bundle's dry-run plan the same way {@code
+ * deploy --dry-run} does -- see {@code SyncCommand}'s own javadoc for why sync's dry-run always
+ * prints this unconditioned "would apply" plan rather than a deploy/upgrade/converged verdict.
  */
-final class ReleasePlan {
+public final class ReleasePlan {
 
   private ReleasePlan() {}
 
-  static void print(RenderedBundle bundle, boolean json, PrintStream out) {
+  public static void print(RenderedBundle bundle, boolean json, PrintStream out) {
     printWithPrune(bundle, List.of(), json, out);
   }
 

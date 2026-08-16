@@ -6,7 +6,6 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,38 +48,18 @@ public final class DeployCommand {
           "release '" + rendered.name() + "' already exists -- use 'hilmir upgrade' instead");
     }
 
-    ReleaseLedger.ensureTenant(api);
-    BundleApplier.applyTenants(api, rendered.tenants());
-    BundleApplier.applyConfig(api, rendered.config());
-    BundleApplier.applySecrets(api, rendered.secrets());
-    BundleApplier.applyWorkloads(api, rendered.workloads());
-    if (flags.isSet("--wait")) {
-      for (RenderedWorkload workload : rendered.workloads()) {
-        WaitPoller.awaitReady(api, workload, out);
-      }
-    }
-
-    List<String> tenantIds = rendered.tenants().stream().map(BundleTenant::id).toList();
-    ReleaseLedger.writeRevision(
-        api,
-        rendered.name(),
-        new ReleaseRevision(
-            1,
-            Instant.now().toEpochMilli(),
-            rendered.tenants(),
-            rendered.config(),
-            rendered.secrets(),
-            rendered.workloads(),
-            Optional.empty()));
-    ReleaseLedger.writeMeta(
-        api, rendered.name(), new ReleaseMeta(rendered.name(), rendered.version(), 1, tenantIds));
+    ReleaseReconciler.DeployOutcome outcome =
+        ReleaseReconciler.deployFresh(api, rendered, flags.isSet("--wait"), out);
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", "deployed");
     body.put("release", rendered.name());
-    body.put("revision", 1);
+    body.put("revision", outcome.revision());
     ReleaseOutput.printResult(
-        json, body, "release/" + rendered.name() + " deployed (revision 1)", out);
+        json,
+        body,
+        "release/" + rendered.name() + " deployed (revision " + outcome.revision() + ")",
+        out);
     return 0;
   }
 
