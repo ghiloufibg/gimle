@@ -45,6 +45,11 @@ export path. Andvari (below) is a fifth: the module artifact registry, the one p
 are pushed to and pulled from rather than every node needing them pre-placed on its own
 filesystem.
 
+The north-south HTTP gateway (`gimle-gateway`) is deliberately *not* an eighth process kind here —
+it's an ordinary hosted module running inside a Worker JVM like any other, just one an operator
+deploys as a `DaemonSet` onto edge-labeled nodes. See [Service fabric § the gateway
+module](./service-fabric.md#the-gateway-module).
+
 ## Node Agent
 
 One JVM per machine (`gimle-agent`). Owns the machine: spawns and supervises worker JVM processes

@@ -11,10 +11,12 @@ isolation); reusing the word here would invite exactly the ambiguity this projec
 conventions elsewhere try to avoid.
 
 One tenant identity is reserved rather than operator-assigned: `gimle-system`, the `kube-system`
-equivalent where the platform's own self-hosted extensions run. It is auto-seeded at control-plane
-startup with a generous default quota, and only a `group:gimle:operators` credential — not an
-ordinary or even broad `cluster-admin`-style RBAC grant — can create/rename/delete it or submit a
-workload naming it as `tenantId`. See [Authentication and authorization § The reserved gimle-system
+equivalent where the platform's own self-hosted extensions run — `gimle-gateway` (see [Service
+fabric § the gateway module](./service-fabric.md#the-gateway-module)) is the first such extension.
+It is auto-seeded at control-plane startup with a generous default quota, and only a
+`group:gimle:operators` credential — not an ordinary or even broad `cluster-admin`-style RBAC grant
+— can create/rename/delete it or submit a workload naming it as `tenantId`. See [Authentication and
+authorization § The reserved gimle-system
 tenant](./authn-authz.md#the-reserved-gimle-system-tenant) for the guard itself.
 
 A deployment optionally carries a `tenantId`. The quota constraint: the sum of
