@@ -195,21 +195,25 @@ command lines itself.
   `useBundledJre` -- agent spawns arbitrary vessel workloads and the worker JVMs it supervises host
   arbitrary Gimlé modules, neither of which jlink's own derivation ever saw.
 
-Prerequisites:
+Prerequisites -- build the archive, nothing else:
 
 ```sh
 # full-jre scenario
 mvn -pl gimle-dist -am install
-tar xzf gimle-dist/target/gimle-platform-<version>.tar.gz -C /tmp/gimle-full-jre
-export GIMLE_PLATFORM_DIR=/tmp/gimle-full-jre/gimle-platform-<version>
 docker compose -f compose/docker-compose.full-jre.yml up
 
 # bundled-jre scenario -- note the extra profile
 mvn -pl gimle-dist -am install -P dist-with-jre
-tar xzf gimle-dist/target/gimle-platform-<version>.tar.gz -C /tmp/gimle-bundled-jre
-export GIMLE_PLATFORM_DIR=/tmp/gimle-bundled-jre/gimle-platform-<version>
 docker compose -f compose/docker-compose.bundled-jre.yml up
 ```
+
+Each file's own `unpack` service extracts whichever `gimle-platform-<version>.tar.gz` it finds under
+`gimle-dist/target/` into a shared volume before any other service starts (`condition:
+service_completed_successfully`), so there's no tarball to unpack or path to export by hand --
+`gimle-dist/target/` only ever holds one built archive at a time, so build the variant the file you're
+about to run actually needs first. Building out of a different checkout (or a pre-built archive
+elsewhere) is still possible: `GIMLE_DIST_TARGET` overrides the mounted directory, e.g.
+`GIMLE_DIST_TARGET=/path/to/gimle-dist/target docker compose -f compose/docker-compose.full-jre.yml up`.
 
 The control plane's HTTP API is published at `localhost:8080` in both files. Each service polls its
 own `hilmir status` every 10s and exits non-zero the moment any process it hosts reports
