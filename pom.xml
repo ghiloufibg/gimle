@@ -36,6 +36,7 @@
     <module>gimle-hilmir</module>
     <module>gimle-console</module>
     <module>gimle-saga-console</module>
+    <module>gimle-saga</module>
     <module>gimle-maven-plugin</module>
     <module>gimle-examples/hello-module</module>
     <module>gimle-examples/greeter-provider</module>
@@ -208,6 +209,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-saga-console</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-saga</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

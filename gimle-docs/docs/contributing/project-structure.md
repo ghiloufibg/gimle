@@ -54,6 +54,8 @@ graph LR
     controlplane --> mimir
     cli[gimle-cli] --> core
     cli --> pki
+    saga[gimle-saga] --> core
+    saga --> sagaconsole[gimle-saga-console]
     hilmir[gimle-hilmir] --> core
     mavenplugin[gimle-maven-plugin]
     dist[gimle-dist] --> mimir
@@ -127,6 +129,8 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`/`cert`). |
 | `gimle-hilmir` | Multi-machine cluster bootstrap (declarative topology → real processes: `validate`/`plan`/`up`/`down`/`status`/`pki init`) plus a Helm-equivalent release lifecycle over a `Bundle` manifest kind (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`), talking to the control plane over its own small HTTP client rather than depending on `gimle-cli`. See [`gimle-hilmir` reference](../reference/hilmir-reference.md). |
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
+| `gimle-saga` | The test-report server (`SagaMain`) — a standalone local development tool, not a cluster process kind: ingests `SagaEvent` NDJSON streams (or imports Surefire XML), stores each run as an append-only event file plus derived metadata, maintains a cross-run flake ledger, and serves runs/live event tails/flaky scoreboard/per-test history over a JSON HTTP API with the bundled console at `/console`. Deliberately unauthenticated and loopback-bound by default. |
+| `gimle-saga-console` | Saga's own web console SPA — same no-Java Bun/Vite pattern as the other consoles, embedded into `gimle-saga`'s jar and served from there. |
 | `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
 | `gimle-dist` | Packages the platform's already-built jars into three audience-specific distribution tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone `gimle-hilmir` archive) via `maven-assembly-plugin`, each with a checksum file and a CycloneDX SBOM. No Java sources — assembly descriptors and two shell wrapper scripts only. See [Distribution archives](../reference/distribution.md). |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |

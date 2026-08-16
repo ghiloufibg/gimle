@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-saga</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Saga</name>
+  <description>
+    The test-report server: a standalone local process (SagaMain) that ingests SagaEvent NDJSON
+    streams shipped by test runs (or folded in after the fact from Surefire XML), stores each run
+    as an append-only event file plus derived metadata, maintains a flake ledger across runs, and
+    serves the whole record -- runs, live event tails, flaky-test scoreboard, per-test history --
+    over a small JSON HTTP API with the bundled gimle-saga-console SPA at /console. A development
+    tool, deliberately unauthenticated and loopback-bound by default, never part of a deployed
+    Gimle cluster's own process topology.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <!-- No Java sources of its own: just the built web console SPA bundled at saga-console/**
+         inside its own jar (see that module's pom.xml). SagaMain resolves it off the classpath
+         at startup via BundledSpa, the same pattern gimle-andvari already uses for
+         gimle-andvari-console. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-saga-console</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+</project>

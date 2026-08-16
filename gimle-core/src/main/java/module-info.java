@@ -20,4 +20,5 @@ module com.gimle.core {
   exports com.gimle.core.session;
   exports com.gimle.core.web;
   exports com.gimle.core.codec;
+  exports com.gimle.core.saga;
 }
