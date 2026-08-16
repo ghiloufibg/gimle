@@ -22,6 +22,7 @@ graph LR
     fabric[gimle-fabric] --> core
     fabric --> module
     gateway[gimle-gateway] --> module
+    gateway --> core
     pki[gimle-pki] --> core
     worker[gimle-worker] --> core
     worker --> module
@@ -77,11 +78,15 @@ Two things worth noticing in that graph, not just the boxes:
   *generation*/*signing* is `gimle-pki`'s job (needed only by `gimle-controlplane`, `gimle-agent`,
   `gimle-cli`); a worker JVM only ever *loads* already-issued material inherited from the agent that
   spawned it, pure public JDK API — see [Transport security](../architecture/transport-security.md).
-- **`gimle-gateway` depends only on `gimle-module`, not `gimle-fabric`.** It's a hosted module like
-  any other, calling the fabric purely through `ModuleContext#invokeServiceByName` (`gimle-module`'s
-  own contract) rather than linking against `gimle-fabric` directly — the same reason
-  `greeter-provider`/`greeter-consumer` never depend on `gimle-fabric` either. See [Service fabric §
-  the gateway module](../architecture/service-fabric.md#the-gateway-module).
+- **`gimle-gateway` depends only on `gimle-module` and `gimle-core`, never `gimle-fabric`.** It's a
+  hosted module like any other, calling the fabric purely through
+  `ModuleContext#invokeServiceByName` (`gimle-module`'s own contract) rather than linking against
+  `gimle-fabric` directly — the same reason `greeter-provider`/`greeter-consumer` never depend on
+  `gimle-fabric` either. The `gimle-core` dependency exists only for `com.gimle.core.protocol.Json`,
+  to parse a vessel route's `GET /endpoints/{name}` response the same way the rest of the platform
+  parses JSON, both `provided`-scope like `gimle-module` for the same boot-only-platform-layer
+  reason (see `ModuleLayerFactory`'s own javadoc in `gimle-module`). See [Service fabric § the
+  gateway module](../architecture/service-fabric.md#the-gateway-module).
 
 ## Module roles
 
@@ -101,7 +106,7 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-andvari-console` | Andvari's own web console SPA — same no-Java Bun/Vite pattern as `gimle-console`/`gimle-fafnir-console`, embedded into `gimle-andvari`'s jar and served from there. |
 | `gimle-controlplane` | API server, scheduler, reconcilers — talks to a `gimle-mimir` store cluster via `StoreClient` rather than embedding a state store. Serves the bundled web console. See [Control plane](../architecture/control-plane.md). |
 | `gimle-fabric` | Service registry, same-worker/same-machine/cross-machine invocation, load balancing, circuit breaking, and the SWIM-style gossip membership protocol between node agents. See [Service fabric](../architecture/service-fabric.md). |
-| `gimle-gateway` | The north-south HTTP gateway — a real, deployable `TIER_2` hosted module (not a new process kind), proxying inbound HTTP requests into the service fabric via `ModuleContext#invokeServiceByName`. Deployed as a `DaemonSet` onto edge-labeled nodes inside the reserved `gimle-system` tenant. v1 is fabric-routes only. See [Service fabric § the gateway module](../architecture/service-fabric.md#the-gateway-module). |
+| `gimle-gateway` | The north-south HTTP gateway — a real, deployable `TIER_2` hosted module (not a new process kind), proxying inbound HTTP requests either into the service fabric via `ModuleContext#invokeServiceByName` (a FABRIC route) or straight through to a live vessel deployment instance resolved via `ModuleContext#relayControlPlaneRead` (a VESSEL route). Deployed as a `DaemonSet` onto edge-labeled nodes inside the reserved `gimle-system` tenant. See [Service fabric § the gateway module](../architecture/service-fabric.md#the-gateway-module). |
 | `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |
 | `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`/`cert`). |
 | `gimle-hilmir` | Multi-machine cluster bootstrap (declarative topology → real processes: `validate`/`plan`/`up`/`down`/`status`/`pki init`) plus a Helm-equivalent release lifecycle over a `Bundle` manifest kind (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`), talking to the control plane over its own small HTTP client rather than depending on `gimle-cli`. See [`gimle-hilmir` reference](../reference/hilmir-reference.md). |

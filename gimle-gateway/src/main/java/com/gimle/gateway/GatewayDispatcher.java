@@ -1,6 +1,8 @@
 package com.gimle.gateway;
 
-import com.gimle.gateway.GatewayRoute.ParamType;
+import com.gimle.gateway.GatewayRoute.FabricRoute;
+import com.gimle.gateway.GatewayRoute.FabricRoute.ParamType;
+import com.gimle.gateway.GatewayRoute.VesselRoute;
 import com.gimle.module.lifecycle.ModuleContext;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,17 +12,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The HTTP-request-to-fabric-call-to-HTTP-response core of the gateway, deliberately kept free of
- * {@code com.sun.net.httpserver} types so it's testable against a hand-built {@link ModuleContext}
- * without a real bound socket -- {@link GatewayHooks} is the thin adapter that actually wires an
- * {@code HttpServer} to this.
+ * The HTTP-request-to-response core of the gateway, deliberately kept free of {@code
+ * com.sun.net.httpserver} types so it's testable against a hand-built {@link ModuleContext} without
+ * a real bound socket -- {@link GatewayHooks} is the thin adapter that actually wires an {@code
+ * HttpServer} to this. Dispatch is exact-path lookup only ({@link Map#get(Object)} against a route
+ * table keyed by literal path) -- no prefix/wildcard routing for either route kind, a deliberate v1
+ * restriction rather than an oversight: it's what lets a {@link VesselRoute} forward its inbound
+ * path to its target verbatim (see that record's own javadoc) with no rewriting logic to get wrong.
  *
- * <p>A {@link ParamType#NONE} route is served on {@code GET}; every other route is served on {@code
- * POST}, with the raw HTTP request body supplying the single argument's plain-text representation
- * (see {@link ParamType#coerce}). A route's real return value -- whatever {@code
- * ModuleContext#invokeServiceByName} hands back -- is serialized via {@link String#valueOf}, which
- * is exact for the only return shapes v1 supports ({@link String}, a boxed primitive, or {@code
- * void}/{@code null}).
+ * <p>A {@link FabricRoute} is served exactly as before this module gained a second route kind: a
+ * {@link ParamType#NONE} route on {@code GET}, every other route on {@code POST} with the request
+ * body supplying its single argument (see {@link ParamType#coerce}), and the real return value --
+ * whatever {@code ModuleContext#invokeServiceByName} hands back -- serialized via {@link
+ * String#valueOf}. A {@link VesselRoute} is served by resolving a live target through {@link
+ * VesselEndpointCache} and proxying the request to it via {@link VesselProxyClient}, unrestricted
+ * on HTTP method and request body (see {@link VesselRoute}'s own javadoc for exactly what
+ * "unrestricted" excludes -- request/response headers are not forwarded in v1).
  */
 public final class GatewayDispatcher {
 
@@ -28,40 +35,65 @@ public final class GatewayDispatcher {
 
   private final ModuleContext ctx;
   private final Map<String, GatewayRoute> routesByPath;
+  private final VesselEndpointCache vesselEndpointCache;
+  private final VesselProxyClient vesselProxyClient;
 
   public GatewayDispatcher(ModuleContext ctx, List<GatewayRoute> routes) {
+    this(ctx, routes, new VesselEndpointCache(ctx), new VesselProxyClient());
+  }
+
+  /**
+   * Test-only seam: lets a test hand this dispatcher a {@link VesselEndpointCache} built with a
+   * controlled TTL/clock (to exercise staleness/refresh deterministically) and/or its own {@link
+   * VesselProxyClient}, without the public single-arg-list constructor above needing to expose
+   * either.
+   */
+  GatewayDispatcher(
+      ModuleContext ctx,
+      List<GatewayRoute> routes,
+      VesselEndpointCache vesselEndpointCache,
+      VesselProxyClient vesselProxyClient) {
     this.ctx = ctx;
     Map<String, GatewayRoute> byPath = new LinkedHashMap<>();
     for (GatewayRoute route : routes) {
       byPath.put(route.path(), route);
     }
     this.routesByPath = Map.copyOf(byPath);
+    this.vesselEndpointCache = vesselEndpointCache;
+    this.vesselProxyClient = vesselProxyClient;
   }
 
   /**
    * Dispatches one inbound HTTP request. Never throws: every failure mode this method knows about
-   * -- no such route, wrong HTTP verb, a body that doesn't coerce to the route's declared {@link
-   * ParamType}, or the downstream fabric call itself failing -- becomes a {@link GatewayResponse}
-   * with an appropriate status, so a caller (ultimately {@link GatewayHooks}) never has to catch an
-   * exception to produce a real HTTP response.
-   *
-   * <p>A successful call whose real result is {@link Optional#empty()} is served as {@code 200}
-   * with an empty body -- {@code ModuleContext#invokeServiceByName}'s own javadoc explains why an
-   * empty result can mean either "no exporter known for this interface/version" or a genuine {@code
-   * void}/{@code null} return, and this dispatcher has no separate signal to tell those two apart.
-   * A misconfigured route naming a service nothing exports therefore reads as a quiet success
-   * rather than a clear error in v1 -- a known, accepted limitation of routing purely by name with
-   * no separate existence check.
+   * -- no such route, wrong HTTP verb, a body that doesn't coerce to a fabric route's declared
+   * {@link ParamType}, a downstream fabric call failing, or a vessel route with no resolvable/ready
+   * target -- becomes a {@link GatewayResponse} with an appropriate status, so a caller (ultimately
+   * {@link GatewayHooks}) never has to catch an exception to produce a real HTTP response.
    */
   public GatewayResponse dispatch(String httpMethod, String path, String body) {
     GatewayRoute route = routesByPath.get(path);
     if (route == null) {
       return new GatewayResponse(404, "no gateway route for " + path);
     }
+    return switch (route) {
+      case FabricRoute fabricRoute -> dispatchFabric(fabricRoute, httpMethod, body);
+      case VesselRoute vesselRoute -> dispatchVessel(vesselRoute, httpMethod, path, body);
+    };
+  }
 
+  /**
+   * A successful call whose real result is {@link Optional#empty()} is served as {@code 200} with
+   * an empty body -- {@code ModuleContext#invokeServiceByName}'s own javadoc explains why an empty
+   * result can mean either "no exporter known for this interface/version" or a genuine {@code
+   * void}/{@code null} return, and this dispatcher has no separate signal to tell those two apart.
+   * A misconfigured route naming a service nothing exports therefore reads as a quiet success
+   * rather than a clear error in v1 -- a known, accepted limitation of routing purely by name with
+   * no separate existence check.
+   */
+  private GatewayResponse dispatchFabric(FabricRoute route, String httpMethod, String body) {
     String expectedMethod = route.paramType() == ParamType.NONE ? "GET" : "POST";
     if (!expectedMethod.equals(httpMethod)) {
-      return new GatewayResponse(405, "route " + path + " requires " + expectedMethod);
+      return new GatewayResponse(405, "route " + route.path() + " requires " + expectedMethod);
     }
 
     Object[] args;
@@ -92,7 +124,7 @@ public final class GatewayDispatcher {
     } catch (Throwable t) {
       log.warn(
           "gateway route {} failed calling {}#{}: {}",
-          path,
+          route.path(),
           route.interfaceName(),
           route.methodName(),
           t.toString());
@@ -111,9 +143,23 @@ public final class GatewayDispatcher {
         .orElse(new GatewayResponse(200, ""));
   }
 
+  private GatewayResponse dispatchVessel(
+      VesselRoute route, String httpMethod, String path, String body) {
+    VesselEndpointCache.Outcome outcome =
+        vesselEndpointCache.resolve(route.deploymentName(), route.portName());
+    return switch (outcome) {
+      case VesselEndpointCache.Outcome.Unavailable unavailable ->
+          new GatewayResponse(unavailable.status(), unavailable.message());
+      case VesselEndpointCache.Outcome.Ready ready ->
+          vesselProxyClient.proxy(ready.target(), httpMethod, path, body);
+    };
+  }
+
   /**
-   * A finished HTTP response this dispatcher decided on -- {@code status} plus a plain-text {@code
-   * body}, never JSON (matching the plain-text request-body convention {@link ParamType} uses).
+   * A finished HTTP response this dispatcher decided on -- {@code status} plus a body. A fabric
+   * route's body is always plain text (matching {@link ParamType}'s own plain-text request-body
+   * convention); a vessel route's body is whatever its target returned, unexamined and passed
+   * through as-is.
    */
   public record GatewayResponse(int status, String body) {}
 }

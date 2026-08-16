@@ -6,7 +6,7 @@
 #   PUT /config/gimle-system/gateway.port
 #     {"value": "8090", "encrypted": false}
 #   PUT /config/gimle-system/gateway.routes
-#     {"value": "/greet com.gimle.examples.greeter.Greeter 1 greet STRING\n", "encrypted": false}
+#     {"value": "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n", "encrypted": false}
 #
 # See GatewayHooks's own javadoc for the two keys' exact meaning, and GatewayRouteConfig's own
 # javadoc for the route-table format the second one holds.

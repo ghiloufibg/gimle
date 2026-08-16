@@ -109,32 +109,55 @@ reserved `gimle-system` tenant — see [Multi-tenancy and quotas § the reserved
 tenant](./multi-tenancy.md) — so only a `gimle:operators`-group credential can ever submit or
 change it.
 
-**v1 is deliberately fabric-routes only.** A route named in the gateway's own config resolves and
-invokes a fabric-published service by name via `ServiceRegistry#invokeByName` (above) — an external
-HTTP client hits the gateway, the gateway calls the named service, the result comes back as the
-HTTP response. Proxying to a *vessel* workload's own HTTP port (discovered via the already-existing
-`GET /endpoints/{deployment}` API) is a deferred second increment, not implemented yet: it needs a
-hosted module to authenticate a call back into the control-plane HTTP API, and a worker JVM has no
-outbound network identity of its own today (see `WorkerMain`'s own comment to that effect) — a real,
-unsolved platform gap, not a scoping choice made for convenience.
+The gateway supports two route kinds, declared in the same route table. A **fabric route**
+resolves and invokes a fabric-published service by name via `ServiceRegistry#invokeByName` (above)
+— an external HTTP client hits the gateway, the gateway calls the named service, the result comes
+back as the HTTP response. A **vessel route** instead proxies the inbound request, verbatim, to a
+live instance of a named deployment: it resolves a `host`/port pair via
+`ModuleContext#relayControlPlaneRead("/endpoints/" + deploymentName)` — the narrow, whitelisted
+read-back into the control plane's own HTTP API that lets a hosted module answer "where does
+`deploymentName` currently run?" despite a worker JVM having no outbound network identity of its
+own — and makes a plain outbound HTTP call to it.
 
 Route configuration is a single `ctx.config("gateway.routes")` value (delivered the same tenant-
 scoped way any other plain config is — see [Multi-tenancy and quotas](./multi-tenancy.md)), one
-route per line:
+route per line, starting with an explicit kind token:
 
 ```text
-<httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
+FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
+VESSEL <httpPath> <deploymentName> <portName>
 ```
 
-`paramType` is `NONE` (served on `GET`) or one of `STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN` (served
-on `POST`, with the plain-text HTTP request body as that single argument) — the same v1 restriction
-this module's own `GatewayRoute.ParamType` javadoc states plainly: zero or one simple-typed
-argument, never a general JSON-to-POJO mapping. A target method's return type follows the same
-restriction (`void` or one simple type); `GatewayDispatcher` serializes whatever the fabric call
-actually returns rather than needing a return type declared up front. `ctx.config("gateway.port")`
-supplies the fixed listen port — there is no platform-level port allocation for modules yet, so an
-operator is responsible for picking one that doesn't collide across co-located `DaemonSet`
-instances, the same posture `greeter-load-generator`'s own hardcoded port already accepts.
+**`FABRIC` routes.** `paramType` is `NONE` (served on `GET`) or one of
+`STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN` (served on `POST`, with the plain-text HTTP request body as
+that single argument) — the same v1 restriction this module's own
+`GatewayRoute.FabricRoute.ParamType` javadoc states plainly: zero or one simple-typed argument,
+never a general JSON-to-POJO mapping. A target method's return type follows the same restriction
+(`void` or one simple type); `GatewayDispatcher` serializes whatever the fabric call actually
+returns rather than needing a return type declared up front.
+
+**`VESSEL` routes.** `deploymentName` names the workload whose live instances this route proxies
+to; `portName` names which of that workload's declared ports to dial (a vessel workload can export
+more than one, each under its own env-var name — see `VesselEnvValue.PortAllocation` in
+`gimle-core`). Every HTTP method and the full request body pass through unchanged — unlike a fabric
+route, a vessel route has no argument shape to coerce or validate, it just forwards. Request/
+response *headers* are not forwarded in v1, and there is no path rewriting or prefix stripping: a
+vessel route's own `httpPath` is dialed on the target verbatim, exact-path matching only, the same
+way fabric routes are looked up. An `/endpoints/{deploymentName}` entry counts as a usable proxy
+target only once it carries both a `host` and the specific named port — a deliberately simple stand-
+in for real health, since the endpoint list carries no explicit ready/not-ready flag today. Results
+are cached per deployment name for a few seconds (`VesselEndpointCache`'s own default TTL) rather
+than relayed on every request, refreshed lazily and round-robined across whichever endpoints are
+currently usable; a refresh failure serves the still-cached list rather than failing every in-flight
+request, and only a deployment with no cached list at all and no reachable/parseable fresh one, or
+one with zero currently-usable endpoints, reports a proxying error back to the external caller. TLS
+to the vessel instance and real per-instance health-awareness beyond the host/port-present heuristic
+are both out of scope for v1.
+
+`ctx.config("gateway.port")` supplies the fixed listen port for either route kind — there is no
+platform-level port allocation for modules yet, so an operator is responsible for picking one that
+doesn't collide across co-located `DaemonSet` instances, the same posture `greeter-load-generator`'s
+own hardcoded port already accepts.
 
 See `gimle-gateway/deployment.yaml` for a complete worked example, including the two `/config/
 gimle-system/*` API calls a real deployment needs alongside the manifest itself.
