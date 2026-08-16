@@ -12,10 +12,13 @@ import java.util.Set;
  * A minimal {@code --flag value} / {@code --flag} (boolean) / repeatable {@code --flag value --flag
  * value ...} parser for one release verb's own arguments -- the same hand-rolled linear-scan shape
  * {@code HilmirMain}'s own flag helpers (see {@code requireFileFlag}, {@code machineFlag}) already
- * use, just reusable across the six release verbs' larger, shared flag vocabulary rather than one
+ * use, just reusable across the release verbs' larger, shared flag vocabulary rather than one
  * bespoke scan per flag.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} parses its own flag vocabulary with the same class
+ * rather than a bespoke copy.
  */
-final class ReleaseFlags {
+public final class ReleaseFlags {
 
   private final Map<String, String> values = new LinkedHashMap<>();
   private final Set<String> booleanFlags = new LinkedHashSet<>();
@@ -23,7 +26,7 @@ final class ReleaseFlags {
 
   private ReleaseFlags() {}
 
-  static ReleaseFlags parse(
+  public static ReleaseFlags parse(
       List<String> args, Set<String> booleanFlagNames, Set<String> repeatableFlagNames) {
     ReleaseFlags flags = new ReleaseFlags();
     int i = 0;
@@ -48,15 +51,15 @@ final class ReleaseFlags {
     return flags;
   }
 
-  List<String> getAll(String flag) {
+  public List<String> getAll(String flag) {
     return repeatedValues.getOrDefault(flag, List.of());
   }
 
-  boolean isSet(String flag) {
+  public boolean isSet(String flag) {
     return booleanFlags.contains(flag);
   }
 
-  String get(String flag) {
+  public String get(String flag) {
     String value = values.get(flag);
     if (value == null) {
       throw new HilmirException("missing required flag: " + flag);
@@ -64,7 +67,7 @@ final class ReleaseFlags {
     return value;
   }
 
-  String getOrDefault(String flag, String defaultValue) {
+  public String getOrDefault(String flag, String defaultValue) {
     return values.getOrDefault(flag, defaultValue);
   }
 }

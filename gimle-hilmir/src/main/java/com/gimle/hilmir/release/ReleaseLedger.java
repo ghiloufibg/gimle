@@ -22,8 +22,13 @@ import java.util.Optional;
  * key in that exact shape would be silently invisible to {@link #listReleaseNames} and every other
  * read here, which have no way to ask the list endpoint for it back -- there is no per-key {@code
  * GET} on {@code /config/*} to fall back on, only list-and-filter.
+ *
+ * <p>{@link #readMeta}, {@link #readRevision}, and {@link #listReleaseNames} are public so {@code
+ * com.gimle.hilmir.sync} can read a release's current ledger state directly, the same way {@link
+ * DeployCommand}/{@link UpgradeCommand} already do -- the write-side methods stay package-private,
+ * reached only through {@link ReleaseReconciler}.
  */
-final class ReleaseLedger {
+public final class ReleaseLedger {
 
   static final String TENANT = "gimle-hilmir";
   private static final String KEY_PREFIX = "hilmir.release.";
@@ -48,7 +53,7 @@ final class ReleaseLedger {
     api.expectSuccess(api.put("/tenants/" + TENANT, Json.write(body)));
   }
 
-  static List<String> listReleaseNames(ControlPlaneApi api) {
+  public static List<String> listReleaseNames(ControlPlaneApi api) {
     List<String> names = new ArrayList<>();
     for (Map<String, Object> entry : api.getList("/config/" + TENANT)) {
       String key = (String) entry.get("key");
@@ -59,7 +64,7 @@ final class ReleaseLedger {
     return names;
   }
 
-  static Optional<ReleaseMeta> readMeta(ControlPlaneApi api, String releaseName) {
+  public static Optional<ReleaseMeta> readMeta(ControlPlaneApi api, String releaseName) {
     String key = metaKey(releaseName);
     for (Map<String, Object> entry : api.getList("/config/" + TENANT)) {
       if (key.equals(entry.get("key"))) {
@@ -78,7 +83,7 @@ final class ReleaseLedger {
     api.expectSuccess(api.delete("/config/" + TENANT + "/" + metaKey(releaseName)));
   }
 
-  static Optional<ReleaseRevision> readRevision(
+  public static Optional<ReleaseRevision> readRevision(
       ControlPlaneApi api, String releaseName, int revision) {
     String key = revisionKey(releaseName, revision);
     for (Map<String, Object> entry : api.getList("/config/" + TENANT)) {

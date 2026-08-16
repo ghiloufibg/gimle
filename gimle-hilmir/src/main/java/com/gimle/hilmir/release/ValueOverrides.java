@@ -19,12 +19,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * and any number of repeatable {@code --set key=value} flags, in that precedence order -- Helm's
  * own (chart defaults, then a values file, then individual {@code --set} flags win last) -- into
  * the map {@link BundleRenderer} then resolves every {@code ${values.*}} reference against.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} merges its own shared {@code --values}/{@code --set}
+ * overrides against each bundle's own defaults the identical way {@code deploy}/{@code upgrade} do.
  */
-final class ValueOverrides {
+public final class ValueOverrides {
 
   private ValueOverrides() {}
 
-  static Map<String, String> merge(
+  public static Map<String, String> merge(
       Map<String, String> bundleDefaults, Optional<Path> valuesFile, List<String> setFlags) {
     Map<String, String> merged = new LinkedHashMap<>(bundleDefaults);
     valuesFile.ifPresent(file -> merged.putAll(readValuesFile(file)));

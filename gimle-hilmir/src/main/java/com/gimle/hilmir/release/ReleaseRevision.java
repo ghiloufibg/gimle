@@ -22,8 +22,12 @@ import java.util.Optional;
  * re-applying a rollback byte-for-byte requires the exact value that was set, and the {@code
  * /secrets/*} surface has no "read back the plaintext I previously wrote" endpoint to recover it
  * from instead.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} can read a release's last-applied content back through
+ * {@link ReleaseLedger#readRevision} and compare it against a freshly rendered candidate via {@link
+ * #matchesContent}.
  */
-record ReleaseRevision(
+public record ReleaseRevision(
     int revision,
     long appliedAtEpochMilli,
     List<BundleTenant> tenants,
@@ -34,6 +38,22 @@ record ReleaseRevision(
 
   List<ResourceRef> resources() {
     return workloads.stream().map(w -> new ResourceRef(w.kind(), w.name())).toList();
+  }
+
+  /**
+   * Whether this revision's own content already matches {@code rendered} exactly -- plain record
+   * {@code equals()} on each of the four content fields, deliberately ignoring this revision's own
+   * ledger-only bookkeeping fields ({@code revision}, {@code appliedAtEpochMilli}, {@code
+   * rollbackOfRevision}), which have no counterpart on a freshly rendered bundle. Comparison is
+   * list-order-sensitive: a bundle re-declaring the exact same tenants/config/secrets/workloads in
+   * a different order reads as changed, not converged -- a deliberate v1 simplification, since a
+   * genuinely unchanged bundle file renders its lists in the same order every time.
+   */
+  public boolean matchesContent(RenderedBundle rendered) {
+    return tenants.equals(rendered.tenants())
+        && config.equals(rendered.config())
+        && secrets.equals(rendered.secrets())
+        && workloads.equals(rendered.workloads());
   }
 
   Map<String, Object> toJson() {

@@ -2,8 +2,6 @@ package com.gimle.hilmir.release;
 
 import com.gimle.hilmir.HilmirException;
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,18 +45,8 @@ public final class UndeployCommand {
                             + meta.currentRevision()
                             + " recorded in its ledger"));
 
-    List<ResourceRef> reverseOrder = new ArrayList<>(current.resources());
-    Collections.reverse(reverseOrder);
-    BundleApplier.deleteWorkloads(api, reverseOrder);
-
-    if (!flags.isSet("--keep-tenants")) {
-      BundleApplier.deleteTenants(api, meta.tenants());
-    }
-
-    for (int revision : ReleaseLedger.listRevisions(api, releaseName)) {
-      ReleaseLedger.deleteRevision(api, releaseName, revision);
-    }
-    ReleaseLedger.deleteMeta(api, releaseName);
+    ReleaseReconciler.undeployRelease(
+        api, releaseName, meta, current, flags.isSet("--keep-tenants"));
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", "undeployed");

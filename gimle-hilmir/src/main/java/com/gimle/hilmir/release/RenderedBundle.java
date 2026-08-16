@@ -8,8 +8,12 @@ import java.util.List;
  * snapshot actually records. {@code rollback} builds one of these straight from a stored {@link
  * ReleaseRevision} rather than from a freshly rendered {@link Bundle}, since the whole point of a
  * revision snapshot is to be able to re-apply it without the original bundle file.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} can render a bundle the same way {@code deploy}/{@code
+ * upgrade} do and pass the result straight into {@link ReleaseReconciler} and {@link
+ * ReleaseRevision#matchesContent}.
  */
-record RenderedBundle(
+public record RenderedBundle(
     String name,
     String version,
     List<BundleTenant> tenants,

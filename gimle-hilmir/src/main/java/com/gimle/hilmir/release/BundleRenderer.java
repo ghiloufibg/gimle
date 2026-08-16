@@ -21,14 +21,17 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * its inline {@code manifest:} text -- before substituting and parsing out that workload's own
  * {@code kind}/{@code name}. No template language beyond this single substitution: no conditionals,
  * no loops, no expression evaluation, no nested/indirect references.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} renders each bundle it reconciles the identical way
+ * {@code deploy}/{@code upgrade} already do.
  */
-final class BundleRenderer {
+public final class BundleRenderer {
 
   private static final Pattern VALUE_REFERENCE = Pattern.compile("\\$\\{values\\.([^}]+)\\}");
 
   private BundleRenderer() {}
 
-  static RenderedBundle render(Bundle bundle, Map<String, String> values, Path bundleDir) {
+  public static RenderedBundle render(Bundle bundle, Map<String, String> values, Path bundleDir) {
     List<RenderedConfigEntry> config = new ArrayList<>();
     for (BundleConfigEntry entry : bundle.config()) {
       String context = "config[" + entry.tenant() + "/" + entry.key() + "].value";

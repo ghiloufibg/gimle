@@ -6,12 +6,15 @@ import com.gimle.hilmir.HilmirException;
  * Resolves the control-plane address a release verb targets: {@code --server host:port}, falling
  * back to the {@code GIMLE_SERVER} environment variable -- the same flag-over-environment-variable
  * precedence {@code gimle-cli} itself uses for the identical flag.
+ *
+ * <p>Public so {@code com.gimle.hilmir.sync} resolves {@code --server}/{@code GIMLE_SERVER} the
+ * same way every other release verb does, rather than a second copy of this precedence rule.
  */
-final class ReleaseServer {
+public final class ReleaseServer {
 
   private ReleaseServer() {}
 
-  static String resolve(ReleaseFlags flags) {
+  public static String resolve(ReleaseFlags flags) {
     String server = flags.getOrDefault("--server", System.getenv("GIMLE_SERVER"));
     if (server == null || server.isBlank()) {
       throw new HilmirException(
