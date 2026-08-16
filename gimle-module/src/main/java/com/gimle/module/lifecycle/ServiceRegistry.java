@@ -1,6 +1,9 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 /**
@@ -86,12 +89,79 @@ public interface ServiceRegistry {
    * legitimately {@code null} or {@code void}; this method has no way to distinguish those two
    * outcomes from the return value alone. An unresolvable method name or parameter-type list is a
    * genuine failure, by contrast: it throws rather than silently matching the wrong overload.
+   *
+   * <p>{@code default}, not abstract: the implementation here is the same-worker-only behavior
+   * every implementation gets for free (a plain reflective invoke against whatever {@link
+   * #lookupByInterfaceName} already resolves, ignoring {@code majorVersion} -- this registry tracks
+   * no per-registration export-version metadata to filter by, the same reason {@link
+   * #lookupByInterfaceName} itself carries no version parameter). {@code majorVersion} is still
+   * part of the signature so a name-driven caller never has to special-case "this registry ignores
+   * version" -- a richer registry that spans more than one tier (e.g. {@code gimle-fabric}'s own)
+   * overrides this to add same-machine/remote tiers with real version filtering, without changing
+   * the contract every simpler, same-worker-only implementation (including a wrapper that merely
+   * delegates every other method, like {@code gimle-worker}'s own instance-tagging wrapper) has to
+   * satisfy.
    */
-  Optional<Object> invokeByName(
+  default Optional<Object> invokeByName(
       String interfaceName,
       int majorVersion,
       String methodName,
       String[] paramTypeNames,
       Object[] args)
-      throws Throwable;
+      throws Throwable {
+    Optional<Object> instance = lookupByInterfaceName(interfaceName);
+    if (instance.isEmpty()) {
+      return Optional.empty();
+    }
+    Class<?> iface = findInterface(instance.get().getClass(), interfaceName);
+    Class<?>[] paramTypes = resolveParamTypes(paramTypeNames, iface.getClassLoader());
+    Method method = iface.getMethod(methodName, paramTypes);
+    try {
+      return Optional.ofNullable(
+          method.invoke(instance.get(), args == null ? new Object[0] : args));
+    } catch (InvocationTargetException e) {
+      throw e.getCause() != null ? e.getCause() : e;
+    }
+  }
+
+  /**
+   * The public interface {@code instanceClass} declares matching {@code interfaceName} --
+   * reflecting through this, not {@code instanceClass} itself, matters when the instance is a
+   * lambda or a dynamic-proxy wrapper (both package-private/synthetic): {@link Method#invoke}
+   * checks the *declaring class*'s accessibility, not just the method's own public modifier.
+   */
+  private static Class<?> findInterface(Class<?> instanceClass, String interfaceName) {
+    for (Class<?> candidate : instanceClass.getInterfaces()) {
+      if (candidate.getName().equals(interfaceName)) {
+        return candidate;
+      }
+    }
+    throw new NoSuchElementException(interfaceName + " is not implemented by " + instanceClass);
+  }
+
+  private static Class<?>[] resolveParamTypes(String[] paramTypeNames, ClassLoader loader)
+      throws ClassNotFoundException {
+    Class<?>[] paramTypes = new Class<?>[paramTypeNames.length];
+    for (int i = 0; i < paramTypes.length; i++) {
+      paramTypes[i] = resolveParamType(paramTypeNames[i], loader);
+    }
+    return paramTypes;
+  }
+
+  /** Mirrors the wire protocol's own primitive-name convention (see {@code FabricFrame}). */
+  private static Class<?> resolveParamType(String name, ClassLoader loader)
+      throws ClassNotFoundException {
+    return switch (name) {
+      case "boolean" -> boolean.class;
+      case "byte" -> byte.class;
+      case "short" -> short.class;
+      case "char" -> char.class;
+      case "int" -> int.class;
+      case "long" -> long.class;
+      case "float" -> float.class;
+      case "double" -> double.class;
+      case "void" -> void.class;
+      default -> Class.forName(name, false, loader);
+    };
+  }
 }

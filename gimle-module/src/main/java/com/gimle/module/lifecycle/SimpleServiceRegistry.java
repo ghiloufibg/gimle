@@ -2,8 +2,6 @@ package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -156,66 +154,9 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
     }
   }
 
-  /**
-   * Same-worker-only, matching this whole class's own scope: there is no other tier to reach for.
-   * {@code majorVersion} is accepted for interface parity with {@code FabricServiceRegistry}'s own
-   * cross-tier implementation but not filtered on here -- unlike {@code ServiceCatalog}'s entries,
-   * this registry's own {@link Entry} tracks no export-version metadata at all (only the owning
-   * {@link ModuleId}), so there is nothing to filter against; a caller registering more than one
-   * incompatible version of the same interface name in one worker is already outside what {@link
-   * #selectEntry} disambiguates cleanly.
-   */
-  @Override
-  public Optional<Object> invokeByName(
-      String interfaceName,
-      int majorVersion,
-      String methodName,
-      String[] paramTypeNames,
-      Object[] args)
-      throws Throwable {
-    Optional<Class<?>> iface = findInterface(interfaceName);
-    if (iface.isEmpty()) {
-      return Optional.empty();
-    }
-    Optional<Object> instance = select(iface.get());
-    if (instance.isEmpty()) {
-      return Optional.empty();
-    }
-    Class<?>[] paramTypes = resolveParamTypes(paramTypeNames, iface.get().getClassLoader());
-    Method method = iface.get().getMethod(methodName, paramTypes);
-    try {
-      return Optional.ofNullable(
-          method.invoke(instance.get(), args == null ? new Object[0] : args));
-    } catch (InvocationTargetException e) {
-      throw e.getCause() != null ? e.getCause() : e;
-    }
-  }
-
-  private static Class<?>[] resolveParamTypes(String[] paramTypeNames, ClassLoader loader)
-      throws ClassNotFoundException {
-    Class<?>[] paramTypes = new Class<?>[paramTypeNames.length];
-    for (int i = 0; i < paramTypes.length; i++) {
-      paramTypes[i] = resolveParamType(paramTypeNames[i], loader);
-    }
-    return paramTypes;
-  }
-
-  /** Mirrors the wire protocol's own primitive-name convention (see {@code FabricFrame}). */
-  private static Class<?> resolveParamType(String name, ClassLoader loader)
-      throws ClassNotFoundException {
-    return switch (name) {
-      case "boolean" -> boolean.class;
-      case "byte" -> byte.class;
-      case "short" -> short.class;
-      case "char" -> char.class;
-      case "int" -> int.class;
-      case "long" -> long.class;
-      case "float" -> float.class;
-      case "double" -> double.class;
-      case "void" -> void.class;
-      default -> Class.forName(name, false, loader);
-    };
-  }
+  // invokeByName: no override needed here -- ServiceRegistry's own default method (a plain
+  // reflective invoke against whatever lookupByInterfaceName resolves) is already exactly this
+  // class's same-worker-only behavior; see that default's own javadoc.
 
   private record Entry(ModuleId owner, Object instance, AtomicBoolean ready) {}
 }
