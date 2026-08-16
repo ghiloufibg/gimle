@@ -1,14 +1,19 @@
 package com.gimle.mavenplugin;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.Test;
 
 /**
  * {@link FlakyTestsMojo#executeAtRoot()} needs a live Maven session to run at all, but the module
- * list parsing and per-module command it builds are pure functions of their own inputs, split out
- * into {@link FlakyTestsMojo#parseModules} and {@link FlakyTestsMojo#buildCommand} specifically so
+ * list parsing, per-module command, and repeat-count guard it builds are pure functions of their
+ * own inputs, split out into {@link FlakyTestsMojo#parseModules}, {@link
+ * FlakyTestsMojo#buildCommand}, and {@link FlakyTestsMojo#requirePositiveRepeat} specifically so
  * they can be asserted here without any of that machinery -- the same seam {@code DoctorMojoTest}
  * exercises for {@link DoctorMojo}.
  */
@@ -51,5 +56,27 @@ class FlakyTestsMojoTest {
   @Test
   void drops_empty_entries() {
     assertEquals(List.of("gimle-mimir"), FlakyTestsMojo.parseModules("gimle-mimir,,"));
+  }
+
+  @Test
+  void accepts_a_repeat_of_one() {
+    assertDoesNotThrow(() -> FlakyTestsMojo.requirePositiveRepeat(1));
+  }
+
+  @Test
+  void accepts_a_repeat_greater_than_one() {
+    assertDoesNotThrow(() -> FlakyTestsMojo.requirePositiveRepeat(3));
+  }
+
+  @Test
+  void rejects_a_zero_repeat() {
+    MojoExecutionException exception =
+        assertThrows(MojoExecutionException.class, () -> FlakyTestsMojo.requirePositiveRepeat(0));
+    assertTrue(exception.getMessage().contains("gimle.flakyTests.repeat"));
+  }
+
+  @Test
+  void rejects_a_negative_repeat() {
+    assertThrows(MojoExecutionException.class, () -> FlakyTestsMojo.requirePositiveRepeat(-1));
   }
 }

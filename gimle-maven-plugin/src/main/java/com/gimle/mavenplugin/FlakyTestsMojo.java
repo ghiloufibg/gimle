@@ -15,7 +15,10 @@ import org.apache.maven.plugins.annotations.Parameter;
  * contention from a multithreaded reactor build (multiple modules' own forks competing for CPU at
  * once) -- an axis a single module's own {@code @Isolated} guard has no visibility into. Spawning
  * each listed module as its own standalone reactor, strictly in sequence, removes that contention
- * by construction: nothing else is running in that reactor to compete with.
+ * by construction: nothing else is running in that reactor to compete with. Each listed module can
+ * optionally be repeated several times in a row ({@code -Dgimle.flakyTests.repeat}), still one
+ * clean standalone reactor invocation per repeat, so a nightly run accumulates real pass/fail
+ * evidence across many runs rather than a single snapshot.
  */
 @Mojo(name = "flaky-tests", threadSafe = true)
 public final class FlakyTestsMojo extends AbstractGimleRootMojo {
@@ -32,20 +35,63 @@ public final class FlakyTestsMojo extends AbstractGimleRootMojo {
   @Parameter(property = "gimle.flakyTests.modules", defaultValue = "gimle-mimir")
   private String modules;
 
+  /**
+   * How many times, in a row, to run each listed module's flaky-tagged tests -- each repeat is
+   * still its own clean standalone reactor invocation (see {@link #buildCommand(String, String)}),
+   * not a Surefire rerun. A single nightly run only reports pass/fail once per test; repeating
+   * accumulates real evidence of a known-flaky test's actual failure rate over many runs instead.
+   */
+  @Parameter(property = "gimle.flakyTests.repeat", defaultValue = "1")
+  private int repeat;
+
   @Override
   protected void executeAtRoot() throws MojoExecutionException, MojoFailureException {
+    requirePositiveRepeat(repeat);
     String mavenExecutable = GimleProcesses.mavenExecutable();
     for (String module : parseModules(modules)) {
-      List<String> command = buildCommand(mavenExecutable, module);
-      getLog().info("running flaky tests for " + module + ": " + String.join(" ", command));
-      int exitCode =
-          GimleProcesses.startAndAwaitExit(
-              command, project.getBasedir().toPath(), "flaky-tests-" + module);
-      if (exitCode != 0) {
-        throw new MojoFailureException(
-            "flaky tests in " + module + " failed with exit code " + exitCode);
+      for (int attempt = 1; attempt <= repeat; attempt++) {
+        List<String> command = buildCommand(mavenExecutable, module);
+        getLog()
+            .info(
+                "running flaky tests for "
+                    + module
+                    + " (repeat "
+                    + attempt
+                    + " of "
+                    + repeat
+                    + "): "
+                    + String.join(" ", command));
+        int exitCode =
+            GimleProcesses.startAndAwaitExit(
+                command,
+                project.getBasedir().toPath(),
+                "flaky-tests-" + module + "-repeat" + attempt);
+        if (exitCode != 0) {
+          throw new MojoFailureException(
+              "flaky tests in "
+                  + module
+                  + " failed on repeat "
+                  + attempt
+                  + " of "
+                  + repeat
+                  + " with exit code "
+                  + exitCode);
+        }
+        getLog()
+            .info(
+                "flaky tests in " + module + " passed (repeat " + attempt + " of " + repeat + ")");
       }
-      getLog().info("flaky tests in " + module + " passed");
+    }
+  }
+
+  /**
+   * Guards against a nonsensical {@code repeat} value up front, before spawning anything -- a value
+   * below 1 would otherwise silently run each module's flaky tests zero times rather than failing
+   * loudly on a plainly wrong invocation.
+   */
+  static void requirePositiveRepeat(int repeat) throws MojoExecutionException {
+    if (repeat < 1) {
+      throw new MojoExecutionException("gimle.flakyTests.repeat must be at least 1, got " + repeat);
     }
   }
 

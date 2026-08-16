@@ -270,13 +270,20 @@ never nested inside this build's own reactor. `@Tag("flaky")` tests are excluded
 module's default `mvn verify` (root `pom.xml`'s Surefire `excludedGroups=flaky`); this goal is how
 they still get run, with nothing else in the reactor to contend with.
 
+Each listed module can optionally be repeated several times in a row, still one clean standalone
+reactor invocation per repeat -- a nightly run accumulates real pass/fail evidence for a
+known-flaky test across many runs instead of a single snapshot. The goal fails on the first repeat
+of the first module that fails, logging which module and which repeat failed.
+
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.flakyTests.modules` | `gimle-mimir` | Comma-separated artifactIds known to carry `@Tag("flaky")` tests -- a small, manually-maintained list, run strictly in order, one module at a time. |
+| `gimle.flakyTests.repeat` | `1` | How many times, in a row, to run each listed module's flaky-tagged tests. Must be at least 1. |
 
 ```bash
 mvn gimle:flaky-tests
 mvn gimle:flaky-tests -Dgimle.flakyTests.modules=gimle-mimir,gimle-fabric
+mvn gimle:flaky-tests -Dgimle.flakyTests.repeat=20
 ```
 
 ## `mvn gimle:docs`
