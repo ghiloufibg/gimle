@@ -55,6 +55,17 @@ graph LR
     cli --> pki
     hilmir[gimle-hilmir] --> core
     mavenplugin[gimle-maven-plugin]
+    dist[gimle-dist] --> mimir
+    dist --> controlplane
+    dist --> agent
+    dist --> worker
+    dist --> fafnir
+    dist --> muninn
+    dist --> andvari
+    dist --> pki
+    dist --> hilmir
+    dist --> cli
+    dist --> gateway
 ```
 
 Two things worth noticing in that graph, not just the boxes:
@@ -82,6 +93,11 @@ Two things worth noticing in that graph, not just the boxes:
   own contract) rather than linking against `gimle-fabric` directly — the same reason
   `greeter-provider`/`greeter-consumer` never depend on `gimle-fabric` either. See [Service fabric §
   the gateway module](../architecture/service-fabric.md#the-gateway-module).
+- **`gimle-dist` is the one module with no code of its own that still depends on almost
+  everything.** Its `<dependency>` list exists purely so `maven-assembly-plugin` has a resolved jar
+  graph to package into the distribution tarballs — it's the mirror image of `gimle-maven-plugin`
+  (zero Gimlé dependencies, since it only needs the Maven Plugin API) at the other extreme of the
+  graph. See [Distribution archives](../reference/distribution.md).
 
 ## Module roles
 
@@ -107,4 +123,5 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-hilmir` | Multi-machine cluster bootstrap (declarative topology → real processes: `validate`/`plan`/`up`/`down`/`status`/`pki init`) plus a Helm-equivalent release lifecycle over a `Bundle` manifest kind (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`), talking to the control plane over its own small HTTP client rather than depending on `gimle-cli`. See [`gimle-hilmir` reference](../reference/hilmir-reference.md). |
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
 | `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
+| `gimle-dist` | Packages the platform's already-built jars into three audience-specific distribution tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone `gimle-hilmir` archive) via `maven-assembly-plugin`, each with a checksum file and a CycloneDX SBOM. No Java sources — assembly descriptors and two shell wrapper scripts only. See [Distribution archives](../reference/distribution.md). |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |
