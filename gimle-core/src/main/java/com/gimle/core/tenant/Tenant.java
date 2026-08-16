@@ -8,6 +8,14 @@ package com.gimle.core.tenant;
  */
 public record Tenant(String id, ResourceQuota quota) {
 
+  /**
+   * The platform's own reserved tenant, the {@code kube-system} equivalent -- where self-hosted
+   * platform extensions run. Reserved at the HTTP layer (see {@code ApiServer}'s own tenant and
+   * workload-admission guards) rather than here: a plain record constructor has no way to know who
+   * is calling, only whether the arguments it was given are individually well-formed.
+   */
+  public static final String RESERVED_SYSTEM_TENANT_ID = "gimle-system";
+
   public Tenant {
     if (id == null || id.isBlank()) {
       throw new IllegalArgumentException("tenant id must not be blank");
