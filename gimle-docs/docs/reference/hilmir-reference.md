@@ -4,16 +4,19 @@ sidebar_position: 5
 
 # `gimle-hilmir` reference
 
-`gimle-hilmir` is three tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
+`gimle-hilmir` is four tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
 verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
 it into real, running Gimlé processes on the local machine, or the exact per-machine process
-commands the topology implies. The `deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/
-`release-status` verbs are a Helm-equivalent release lifecycle layered on top of an already-running
-cluster — they talk to the control plane's own HTTP API, the same way `gimle-cli` does, and never
-touch a topology document at all. `doctor`/`init` are a third, independent concern: deployability
-diagnostics and manifest scaffolding for a single built jar, needing neither a topology document
-nor a running control plane (`doctor --server` only adds cluster-aware checks on top of its own
-static ones) — see [`doctor`/`init`](#doctorinit) below.
+commands the topology implies. `store add`/`store remove` are an operator-facing surface over the
+store's own live Raft membership change, talking directly to an already-running cluster over the
+same binary `StoreClient` protocol `gimle-mimir` itself uses — see
+[Store membership verbs](#store-membership-verbs) below. The `deploy`/`upgrade`/`rollback`/
+`undeploy`/`releases`/`release-status` verbs are a Helm-equivalent release lifecycle layered on top
+of an already-running cluster — they talk to the control plane's own HTTP API, the same way
+`gimle-cli` does, and never touch a topology document at all. `doctor`/`init` are a fourth,
+independent concern: deployability diagnostics and manifest scaffolding for a single built jar,
+needing neither a topology document nor a running control plane (`doctor --server` only adds
+cluster-aware checks on top of its own static ones) — see [`doctor`/`init`](#doctorinit) below.
 
 ## Machine bootstrap verbs
 
@@ -35,6 +38,55 @@ prerequisite (a store replica another machine hosts, say) via a plain TCP-connec
 before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
 neither needs the topology document again. `pki init` mints the cluster's certificate authority and
 every process's leaf certificate up front, for a topology that declares `tls:`.
+
+## Store membership verbs
+
+```text
+hilmir store add <peerId> <host> <raftPort> <clientPort>
+    (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+    [--pki-dir <dir>]
+hilmir store remove <peerId>
+    (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+    [--pki-dir <dir>]
+```
+
+`gimle-mimir`'s Raft membership has always been dynamically reconfigurable at runtime
+(`StoreClient#addServer`/`#removeServer`), but until now the only callers were test fixtures. `store
+add`/`store remove` are the operator-facing surface over exactly that: each builds a short-lived
+`StoreClient` against a resolved bootstrap endpoint list, makes the one call, and closes it
+immediately after — never a cached or reused client, and no control-plane HTTP hop involved at any
+point (there is no `gimle-controlplane`/`gimle-cli` surface for this; it is a direct binary
+`StoreClient` connection to the store cluster, the same way `gimle-smoke-tests`' `RaftResilienceIT`
+and `gimle-holmgang`'s `GimleCluster` already talk to it).
+
+`peerId` follows the same `host:raftPort` convention used everywhere else in the codebase
+(`PeerAddress.raftId()`) and is always given explicitly — it is never derived from `<host>`/
+`<raftPort>` automatically, since a real caller (a test fixture, an operator) already has it in hand
+independently.
+
+Exactly one of two ways to reach the cluster is required:
+
+- `--topology <file>` — parses the topology document the same way `validate`/`plan`/`up` do, derives
+  the bootstrap endpoint list from `topology.store().replicas()` resolved against
+  `topology.machines()`, and auto-detects mTLS from the topology's own `transport`/`tls` fields.
+- `--server <host:clientPort>[,<host:clientPort>...]` — a direct, topology-free endpoint list (any
+  member of a running cluster answers; `StoreClient` follows leader redirects on its own). Plaintext
+  by default; `--pki-dir <dir>` turns on mTLS, presenting `<dir>/operator.crt`/`<dir>/operator.key`
+  against `<dir>/ca.crt` — the same three-file operator-identity convention `hilmir up`'s own
+  bootstrap-token minting already uses for talking to a running cluster.
+
+Giving neither or both flags is a clean usage error, not a silently-picked default.
+
+Both `addServer`/`removeServer` throw the same `GimleRaftException` for genuine unreachability and
+for a transient "another membership change is still in flight" rejection alike (a just-added
+learner's automatic promotion racing the call, most commonly) — the two aren't distinguishable from
+the exception alone. Both verbs therefore retry the call up to 10 times, 200ms apart, printing one
+progress line if they're still retrying after a few attempts, and only surface the final attempt's
+error once every retry is exhausted — so a transient rejection resolves on its own within a second or
+two, while a genuinely unreachable cluster or a request that can never succeed (removing a peer that
+was never a member) still fails within a few seconds, not a hang.
+
+On success, each verb prints one confirmation line naming the peer and the operation performed.
 
 ## Release verbs
 
