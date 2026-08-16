@@ -5,6 +5,7 @@ import static com.gimle.saga.testsupport.TestEvents.passed;
 import static com.gimle.saga.testsupport.TestEvents.runFinished;
 import static com.gimle.saga.testsupport.TestEvents.runStarted;
 import static com.gimle.saga.testsupport.TestEvents.testStarted;
+import static com.gimle.saga.testsupport.TestEvents.testStartedWithTags;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -200,11 +201,50 @@ class SagaServerTest {
     assertEquals("passed", run.get("status"));
     assertEquals(1, ((Number) Json.asObject(run.get("totals")).get("flaky")).intValue());
 
-    List<Map<String, Object>> scoreboard =
-        Json.asObjectList(Json.parse(get("/api/flaky?window=36500").body()));
+    Map<String, Object> flaky = Json.asObject(Json.parse(get("/api/flaky?window=36500").body()));
+    List<Map<String, Object>> scoreboard = Json.asObjectList(flaky.get("entries"));
     assertEquals(1, scoreboard.size());
     assertEquals("imported:FlakyTest#sometimes_binds", scoreboard.get(0).get("testId"));
     assertEquals(1, ((Number) scoreboard.get(0).get("occurrences")).intValue());
+  }
+
+  @Test
+  @Timeout(10)
+  void flaky_entries_carry_quarantine_status_and_the_response_carries_the_budget_allowance()
+      throws Exception {
+    ingest(
+        List.of(
+            runStarted("run-q", 1000L),
+            testStartedWithTags("run-q", TEST_ID, 1, List.of("flaky")),
+            failed("run-q", TEST_ID, 1, "deadbeef00000001"),
+            testStartedWithTags("run-q", TEST_ID, 2, List.of("flaky")),
+            passed("run-q", TEST_ID, 2, 5L),
+            runFinished("run-q", 2000L, 1, 1, 0, 1)));
+
+    Map<String, Object> flaky = Json.asObject(Json.parse(get("/api/flaky?window=36500").body()));
+    assertEquals(120, ((Number) flaky.get("budgetAllowance")).intValue());
+    List<Map<String, Object>> entries = Json.asObjectList(flaky.get("entries"));
+    assertEquals(1, entries.size());
+    assertEquals(true, entries.get(0).get("quarantined"));
+  }
+
+  @Test
+  @Timeout(10)
+  void the_flake_budget_allowance_is_configurable_per_server() throws Exception {
+    SagaServer custom = new SagaServer(store, InetAddress.getLoopbackAddress(), 0, 5);
+    custom.start();
+    try {
+      HttpResponse<String> response =
+          client.send(
+              HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + custom.port() + "/api/flaky"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      Map<String, Object> flaky = Json.asObject(Json.parse(response.body()));
+      assertEquals(5, ((Number) flaky.get("budgetAllowance")).intValue());
+    } finally {
+      custom.close();
+    }
   }
 
   @Test

@@ -18,6 +18,11 @@ public final class TestEvents {
     return new SagaEvent.TestStarted(runId, testId, List.of(), attempt);
   }
 
+  public static SagaEvent.TestStarted testStartedWithTags(
+      String runId, String testId, int attempt, List<String> tags) {
+    return new SagaEvent.TestStarted(runId, testId, tags, attempt);
+  }
+
   public static SagaEvent.TestFinished passed(
       String runId, String testId, int attempt, long durationMillis) {
     return new SagaEvent.TestFinished(

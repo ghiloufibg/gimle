@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
@@ -39,6 +40,12 @@ import org.slf4j.LoggerFactory;
  * ones, so re-shipping a whole run -- the natural retry after a partial upload -- never
  * double-counts anything. Appends to one run are serialized by a per-run lock; a torn trailing line
  * (a crash mid-append) is truncated away before the next append and skipped on every read.
+ *
+ * <p>A second cross-run derived index, {@code index/test-tags.ndjson}, holds one line per testId
+ * with that test's most recently observed JUnit tags -- unlike the flake ledger, this is a
+ * current-state index, not a history, so a later observation simply overwrites the earlier one (the
+ * same "one authoritative record per key, atomically rewritten" shape as a run's own {@code
+ * meta.json}) rather than appending another entry.
  */
 public final class SagaStore {
 
@@ -55,13 +62,17 @@ public final class SagaStore {
 
   private final Path runsDir;
   private final Path ledgerFile;
+  private final Path testTagsFile;
   private final ConcurrentHashMap<String, ReentrantLock> runLocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, List<String>> testTags = new ConcurrentHashMap<>();
   private final Object ledgerLock = new Object();
+  private final Object testTagsLock = new Object();
 
   public SagaStore(Path dataRoot) {
     this.runsDir = dataRoot.resolve("runs");
     final Path indexDir = dataRoot.resolve("index");
     this.ledgerFile = indexDir.resolve("flake-ledger.ndjson");
+    this.testTagsFile = indexDir.resolve("test-tags.ndjson");
     try {
       Files.createDirectories(runsDir);
       Files.createDirectories(indexDir);
@@ -69,6 +80,7 @@ public final class SagaStore {
       throw new UncheckedIOException("failed to create saga data root under " + dataRoot, e);
     }
     markLiveRunsAbandoned();
+    loadTestTags();
   }
 
   /** A slice of one run's stored event lines: raw NDJSON lines plus the cursor to resume from. */
@@ -184,6 +196,7 @@ public final class SagaStore {
       }
       atomicWrite(
           runDir.resolve(META_FILE), Json.write(meta.toJsonMap()).getBytes(StandardCharsets.UTF_8));
+      updateTestTags(events);
       if (events.stream().anyMatch(e -> e instanceof SagaEvent.RunFinished)) {
         List<FlakeObservation> observations =
             deriveFlakeObservations(runId, decodeStoredEvents(runId), meta.finishedAtEpochMilli());
@@ -366,6 +379,69 @@ public final class SagaStore {
               flaky));
     }
     return List.copyOf(history);
+  }
+
+  /**
+   * True iff {@code testId}'s most recently observed tag set includes {@code "flaky"} -- the
+   * quarantine marker a test author adds via {@code @Tag("flaky")} once it's a known offender.
+   * Answers {@code false} for a testId this store has never seen a {@code TestStarted} for.
+   */
+  public boolean quarantined(String testId) {
+    return testTags.getOrDefault(testId, List.of()).contains("flaky");
+  }
+
+  // ---- test tags index ----
+
+  /**
+   * Folds every {@link SagaEvent.TestStarted} in the batch into the in-memory tag index, then
+   * rewrites the whole index file once -- the same one-atomic-write-per-batch shape {@code
+   * meta.json} already uses, not one write per event.
+   */
+  private void updateTestTags(List<SagaEvent> events) {
+    boolean changed = false;
+    for (SagaEvent event : events) {
+      if (event instanceof SagaEvent.TestStarted started) {
+        testTags.put(started.testId(), List.copyOf(started.tags()));
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    synchronized (testTagsLock) {
+      atomicWrite(testTagsFile, serializeTestTags());
+    }
+  }
+
+  private byte[] serializeTestTags() {
+    StringBuilder content = new StringBuilder();
+    // Sorted by testId so the file is diff-friendly and its order doesn't depend on ingest order.
+    for (Map.Entry<String, List<String>> entry : new TreeMap<>(testTags).entrySet()) {
+      Map<String, Object> line = new LinkedHashMap<>();
+      line.put("testId", entry.getKey());
+      line.put("tags", entry.getValue());
+      content.append(Json.write(line)).append('\n');
+    }
+    return content.toString().getBytes(StandardCharsets.UTF_8);
+  }
+
+  private void loadTestTags() {
+    if (!Files.isRegularFile(testTagsFile)) {
+      return;
+    }
+    for (String line : completeLines(testTagsFile)) {
+      try {
+        Map<String, Object> json = Json.asObject(Json.parse(line));
+        String testId = String.valueOf(json.get("testId"));
+        List<String> tags =
+            Json.asArray(json.getOrDefault("tags", List.of())).stream()
+                .map(String::valueOf)
+                .toList();
+        testTags.put(testId, tags);
+      } catch (RuntimeException e) {
+        log.warn("skipping unparseable test-tags index line: {}", e.getMessage());
+      }
+    }
   }
 
   // ---- flake derivation ----

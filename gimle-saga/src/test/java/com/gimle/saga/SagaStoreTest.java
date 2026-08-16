@@ -5,6 +5,7 @@ import static com.gimle.saga.testsupport.TestEvents.passed;
 import static com.gimle.saga.testsupport.TestEvents.runFinished;
 import static com.gimle.saga.testsupport.TestEvents.runStarted;
 import static com.gimle.saga.testsupport.TestEvents.testStarted;
+import static com.gimle.saga.testsupport.TestEvents.testStartedWithTags;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -254,6 +255,47 @@ class SagaStoreTest {
 
     assertFalse(store.flakyScoreboard(0L).isEmpty());
     assertTrue(store.flakyScoreboard(50_000L).isEmpty());
+  }
+
+  @Test
+  void a_test_tagged_flaky_is_quarantined_and_an_untagged_one_is_not() {
+    store.ingest(
+        List.of(
+            runStarted("run-tags", 1000L),
+            testStartedWithTags("run-tags", TEST_ID, 1, List.of("flaky", "slow")),
+            passed("run-tags", TEST_ID, 1, 5L),
+            runFinished("run-tags", 1500L, 1, 1, 0, 0)));
+
+    assertTrue(store.quarantined(TEST_ID));
+    assertFalse(store.quarantined("gimle-core:OtherTest#never_seen"));
+  }
+
+  @Test
+  void the_latest_tag_set_for_a_test_id_overwrites_an_earlier_one() {
+    store.ingest(
+        List.of(
+            runStarted("run-tags-1", 1000L),
+            testStartedWithTags("run-tags-1", TEST_ID, 1, List.of("flaky"))));
+    assertTrue(store.quarantined(TEST_ID));
+
+    store.ingest(
+        List.of(
+            runStarted("run-tags-2", 2000L),
+            testStartedWithTags("run-tags-2", TEST_ID, 1, List.of())));
+
+    assertFalse(store.quarantined(TEST_ID), "the newer, untagged observation wins");
+  }
+
+  @Test
+  void the_test_tags_index_survives_a_store_restart() {
+    store.ingest(
+        List.of(
+            runStarted("run-tags", 1000L),
+            testStartedWithTags("run-tags", TEST_ID, 1, List.of("flaky"))));
+
+    SagaStore reopened = new SagaStore(tempDir);
+
+    assertTrue(reopened.quarantined(TEST_ID));
   }
 
   @Test

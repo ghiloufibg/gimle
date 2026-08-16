@@ -13,15 +13,17 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Saga's entry point: the test-report server, configured entirely through system properties ({@code
- * -Dgimle.saga.port}, {@code -Dgimle.saga.dataRoot}, {@code -Dgimle.saga.host}) rather than the
- * flag parsing the cluster processes use -- it is a local development tool started next to a build,
- * not a supervised cluster process. Deliberately no authentication or TLS, and bound to loopback
- * unless a host is explicitly configured.
+ * -Dgimle.saga.port}, {@code -Dgimle.saga.dataRoot}, {@code -Dgimle.saga.host}, {@code
+ * -Dgimle.saga.flakeBudgetAllowance}) rather than the flag parsing the cluster processes use -- it
+ * is a local development tool started next to a build, not a supervised cluster process.
+ * Deliberately no authentication or TLS, and bound to loopback unless a host is explicitly
+ * configured.
  */
 public final class SagaMain {
 
   private static final Logger log = LoggerFactory.getLogger(SagaMain.class);
   private static final int DEFAULT_PORT = 9096;
+  private static final int DEFAULT_FLAKE_BUDGET_ALLOWANCE = 120;
 
   private SagaMain() {}
 
@@ -43,9 +45,11 @@ public final class SagaMain {
     String host = System.getProperty("gimle.saga.host");
     InetAddress address =
         host == null ? InetAddress.getLoopbackAddress() : InetAddress.getByName(host);
+    int flakeBudgetAllowance =
+        Integer.getInteger("gimle.saga.flakeBudgetAllowance", DEFAULT_FLAKE_BUDGET_ALLOWANCE);
 
     SagaStore store = new SagaStore(dataRoot);
-    SagaServer server = new SagaServer(store, address, port);
+    SagaServer server = new SagaServer(store, address, port, flakeBudgetAllowance);
 
     Optional<Path> consoleRoot =
         BundledSpa.resolve(SagaMain.class.getClassLoader(), "saga-console/index.html");

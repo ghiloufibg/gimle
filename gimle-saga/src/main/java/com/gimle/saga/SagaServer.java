@@ -38,12 +38,20 @@ public final class SagaServer implements AutoCloseable {
   private static final Duration FOLLOW_POLL_INTERVAL = Duration.ofMillis(200);
   private static final int DEFAULT_RUNS_LIMIT = 50;
   private static final int DEFAULT_FLAKY_WINDOW_DAYS = 30;
+  private static final int DEFAULT_FLAKE_BUDGET_ALLOWANCE = 120;
 
   private final SagaStore store;
   private final HttpServer server;
+  private final int flakeBudgetAllowance;
 
   public SagaServer(SagaStore store, InetAddress address, int port) throws IOException {
+    this(store, address, port, DEFAULT_FLAKE_BUDGET_ALLOWANCE);
+  }
+
+  public SagaServer(SagaStore store, InetAddress address, int port, int flakeBudgetAllowance)
+      throws IOException {
     this.store = store;
+    this.flakeBudgetAllowance = flakeBudgetAllowance;
     this.server = HttpServer.create(new InetSocketAddress(address, port), 0);
     server.createContext("/api/health", this::handleHealth);
     server.createContext("/api/ingest", this::handleIngest);
@@ -269,7 +277,7 @@ public final class SagaServer implements AutoCloseable {
       }
       int windowDays = parseIntOr(parseQuery(exchange).get("window"), DEFAULT_FLAKY_WINDOW_DAYS);
       long since = System.currentTimeMillis() - Duration.ofDays(windowDays).toMillis();
-      List<Map<String, Object>> result = new ArrayList<>();
+      List<Map<String, Object>> entries = new ArrayList<>();
       for (SagaStore.FlakySummary summary : store.flakyScoreboard(since)) {
         Map<String, Object> json = new LinkedHashMap<>();
         json.put("testId", summary.testId());
@@ -281,8 +289,12 @@ public final class SagaServer implements AutoCloseable {
         json.put("signatures", summary.signatures());
         json.put("firstSeen", summary.firstSeen());
         json.put("lastSeen", summary.lastSeen());
-        result.add(json);
+        json.put("quarantined", store.quarantined(summary.testId()));
+        entries.add(json);
       }
+      Map<String, Object> result = new LinkedHashMap<>();
+      result.put("entries", entries);
+      result.put("budgetAllowance", flakeBudgetAllowance);
       respondJson(exchange, 200, result);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
