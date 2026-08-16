@@ -1,0 +1,23 @@
+name: com.gimle.gateway
+version: 1.0.0
+isolation:
+  # Always TIER_2 -- a gateway is never Tier 1: it fronts external traffic on its own listen port,
+  # so it needs its own crash domain and a hard resource ceiling independent of whatever else a
+  # worker JVM might otherwise host.
+  tier: TIER_2
+resources:
+  # Sized for a request-proxying workload, not a compute-heavy one: most of a gateway instance's
+  # own footprint is virtual-thread stacks and in-flight request/response buffers, not heap churn.
+  # Headroom above greeter-provider's own 32Mi/64Mi (a service that does no request fan-out of its
+  # own) since every gateway request holds open a real fabric round trip, possibly cross-machine.
+  request:
+    memory: 64Mi
+    cpu: 50m
+  limit:
+    memory: 128Mi
+    cpu: 500m
+lifecycle:
+  hooks: com.gimle.gateway.GatewayHooks
+health:
+  liveness: com.gimle.gateway.GatewayLivenessProbe
+  readiness: com.gimle.gateway.GatewayReadinessProbe

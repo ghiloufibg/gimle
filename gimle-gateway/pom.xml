@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-gateway</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Gateway</name>
+  <description>
+    A self-hosted, Tier-2 module giving Gimle a north-south HTTP story: proxies incoming HTTP
+    requests to the platform's own service fabric via ModuleContext's name-driven invocation path
+    (com.gimle.module.lifecycle.ServiceRegistry#invokeByName), since a gateway route names its
+    target service through runtime config rather than a compile-time generic interface type.
+    Deployed as a real
+    DaemonSet onto operator-labeled edge nodes, into the reserved gimle-system tenant -- a
+    first-party platform component, not an example/sample module. v1 covers fabric routes only;
+    see this module's own package-info for the deferred vessel-route increment. com.gimle.module and
+    org.slf4j are declared `requires static`, not `requires`, for the same boot-only-platform-layer
+    reason every other hosted module in this codebase declares them that way -- see
+    ModuleLayerFactory's own javadoc in gimle-module.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -31,6 +31,7 @@
     <module>gimle-fafnir</module>
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
+    <module>gimle-gateway</module>
     <module>gimle-cli</module>
     <module>gimle-hilmir</module>
     <module>gimle-console</module>
@@ -180,6 +181,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-fabric</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-gateway</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
