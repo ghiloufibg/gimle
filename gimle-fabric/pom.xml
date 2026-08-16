@@ -63,5 +63,10 @@
       <artifactId>gimle-pki</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

@@ -1,7 +1,6 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.mimir.raft.PeerConnection;
@@ -13,6 +12,7 @@ import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -54,7 +53,7 @@ import org.junit.jupiter.api.parallel.Resources;
 // See ApiServerTest for why: ApiServer#start reads gimle.transport.protocol at construction
 // time, so this class is exposed to it even though it never writes it itself.
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
-// Real multi-node Raft cluster with real leader-election timing (awaitLeader/awaitTrue against
+// Real multi-node Raft cluster with real leader-election timing (awaitLeader/Await.until against
 // wall-clock @Timeout budgets), the same CPU-contention flakiness RaftClusterTest had -- see its
 // own comment. @Isolated makes the other two locks on this class redundant but harmless.
 @Isolated
@@ -198,21 +197,9 @@ class ApiServerRaftTest {
     return servers;
   }
 
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
-  }
-
-  private static StoreClusterNode awaitStoreLeader(List<StoreClusterNode> cluster)
-      throws InterruptedException {
-    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
+  private static StoreClusterNode awaitStoreLeader(List<StoreClusterNode> cluster) {
+    Await.until(
+        () -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
     return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
   }
 
@@ -240,7 +227,7 @@ class ApiServerRaftTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     assertEquals(200, put.statusCode());
 
-    awaitTrue(
+    Await.until(
         () ->
             replicas.stream()
                 .allMatch(

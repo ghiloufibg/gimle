@@ -61,5 +61,10 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-observability</artifactId>
     </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

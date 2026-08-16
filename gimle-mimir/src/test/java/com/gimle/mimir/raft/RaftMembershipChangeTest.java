@@ -7,6 +7,7 @@ import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.testkit.Await;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -15,7 +16,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -165,18 +165,6 @@ class RaftMembershipChangeTest {
     }
   }
 
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
-  }
-
   private static void removeServerWithRetry(RaftNode leader, String peerId, Duration timeout)
       throws InterruptedException {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
@@ -234,7 +222,7 @@ class RaftMembershipChangeTest {
     leader.propose(new StateMutation.PutTenant(new Tenant("t1", new ResourceQuota(1, 1, 1))));
     // The fake peer acks everything immediately, so this always-caught-up learner is promoted to
     // a full voting member right away rather than staying a learner indefinitely.
-    awaitTrue(() -> !leader.isLearnerForTest("node-2"), Duration.ofSeconds(5));
+    Await.until(() -> !leader.isLearnerForTest("node-2"), Duration.ofSeconds(5));
   }
 
   @Test
@@ -339,8 +327,8 @@ class RaftMembershipChangeTest {
     // promotion has genuinely settled before this test starts relying on a *second* change
     // finding that gate held open -- otherwise this scenario can race voter's own still-in-flight
     // promotion instead of node-3's change, this test's actual subject.
-    awaitTrue(() -> !leader.isLearnerForTest("voter"), Duration.ofSeconds(5));
-    awaitTrue(() -> !leader.hasPendingMembershipChangeForTest(), Duration.ofSeconds(5));
+    Await.until(() -> !leader.isLearnerForTest("voter"), Duration.ofSeconds(5));
+    Await.until(() -> !leader.hasPendingMembershipChangeForTest(), Duration.ofSeconds(5));
     voterClient.acking = false; // the one existing voting member goes unreachable
 
     Thread background =
@@ -396,7 +384,7 @@ class RaftMembershipChangeTest {
     assertTrue(leader.isLearnerForTest("node-2"));
 
     laggingThenCaughtUp.advanceCeilingTo(Long.MAX_VALUE);
-    awaitTrue(() -> !leader.isLearnerForTest("node-2"), Duration.ofSeconds(5));
+    Await.until(() -> !leader.isLearnerForTest("node-2"), Duration.ofSeconds(5));
   }
 
   @Test

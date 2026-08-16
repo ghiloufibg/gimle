@@ -13,7 +13,7 @@ import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ModuleState;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.testsupport.TestModuleBuilder;
-import com.gimle.worker.testsupport.Await;
+import com.gimle.testkit.Await;
 import com.gimle.worker.testsupport.ControllableLivenessProbe;
 import com.gimle.worker.testsupport.ControllableReadinessProbe;
 import com.gimle.worker.testsupport.WiredWorkerRuntime;
@@ -140,7 +140,7 @@ class WorkerRuntimeTest {
   void on_active_tags_the_scheduler_with_the_registered_instance_identity() {
     IdentityFixture f = startFixtureWithIdentity("com.gimle.fixture.identity.mdc");
 
-    Await.atLeast(() -> ControllableLivenessProbe.LAST_MDC.get() != null, Duration.ofSeconds(2));
+    Await.until(() -> ControllableLivenessProbe.LAST_MDC.get() != null, Duration.ofSeconds(2));
 
     Map<String, String> tags = ControllableLivenessProbe.LAST_MDC.get();
     assertEquals("orders-service", tags.get(InstanceMdcKeys.DEPLOYMENT_NAME));
@@ -178,11 +178,11 @@ class WorkerRuntimeTest {
     // At least one full restart cycle (Stopping -> Uninstalled -> Resolved -> Starting -> Active)
     // must complete; how many happen before this observes one is inherently racy against the
     // probe loop's own ticking, so this only asserts "at least one", not an exact count.
-    Await.atLeast(
+    Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.Uninstalled),
         Duration.ofSeconds(10));
     ControllableLivenessProbe.ALIVE.set(true);
-    Await.atLeast(() -> activeTransitionCount(f.events()) >= 2, Duration.ofSeconds(10));
+    Await.until(() -> activeTransitionCount(f.events()) >= 2, Duration.ofSeconds(10));
 
     // The core regression this test guards: WorkerRuntime#restartModule used to call
     // controller.resolve(id) right after controller.stop(id), but stop() drives the module all
@@ -194,8 +194,7 @@ class WorkerRuntimeTest {
     // onStart's hook re-registers the Greeter service against the restarted module's fresh
     // ModuleContext -- proving the restart didn't just flip lifecycle state but actually
     // re-ran module startup.
-    Await.atLeast(
-        () -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
+    Await.until(() -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
     assertEquals(
         Optional.of("hello from provider"),
         f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));
@@ -241,7 +240,7 @@ class WorkerRuntimeTest {
         startBudgetFixture("com.gimle.fixture.neverrecovers", 2, Duration.ofMinutes(10));
     ControllableLivenessProbe.ALIVE.set(false);
 
-    Await.atLeast(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
+    Await.until(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
 
     assertEquals(1, f.exhaustedCount().get());
     assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
@@ -261,7 +260,7 @@ class WorkerRuntimeTest {
     BudgetFixture f = startBudgetFixture("com.gimle.fixture.recovers", 2, Duration.ofMillis(300));
 
     ControllableLivenessProbe.ALIVE.set(false);
-    Await.atLeast(() -> uninstalledCount(f.events()) >= 2, Duration.ofSeconds(10));
+    Await.until(() -> uninstalledCount(f.events()) >= 2, Duration.ofSeconds(10));
 
     ControllableLivenessProbe.ALIVE.set(true);
     // Long enough for the in-flight restart to finish, the module to reach ACTIVE, and the
@@ -274,7 +273,7 @@ class WorkerRuntimeTest {
     long uninstalledBeforeSecondSpell = uninstalledCount(f.events());
 
     ControllableLivenessProbe.ALIVE.set(false);
-    Await.atLeast(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
+    Await.until(() -> f.exhaustedCount().get() > 0, Duration.ofSeconds(15));
 
     // Without a genuine reset, the second spell alone would exhaust after exactly 5 more
     // Uninstalled events (matching the test above) -- a fresh budget means the *total* across both
@@ -294,7 +293,7 @@ class WorkerRuntimeTest {
     WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.readiness", 99);
 
     ControllableReadinessProbe.READY.set(false);
-    Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
+    Await.until(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
 
     assertEquals(1, activeTransitionCount(f.events()));
     assertTrue(f.registry().contains(f.id()));
@@ -305,11 +304,10 @@ class WorkerRuntimeTest {
     WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.readiness.recovery", 99);
 
     ControllableReadinessProbe.READY.set(false);
-    Await.atLeast(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
+    Await.until(() -> f.serviceRegistry().lookup(Greeter.class).isEmpty(), Duration.ofSeconds(2));
 
     ControllableReadinessProbe.READY.set(true);
-    Await.atLeast(
-        () -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
+    Await.until(() -> f.serviceRegistry().lookup(Greeter.class).isPresent(), Duration.ofSeconds(2));
 
     assertEquals(
         Optional.of("hello from provider"),

@@ -23,6 +23,7 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -34,7 +35,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -165,23 +165,11 @@ class StoreClientClusterTest {
     return clusterNodes;
   }
 
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
-  }
-
   /**
-   * Unlike {@link #awaitTrue}, returns the value the poll actually observed present -- reads
+   * Unlike {@link Await#until}, returns the value the poll actually observed present -- reads
    * round-robin across every node, with no linearizability requirement, so a follow-up call after
-   * an {@code awaitTrue}-then-refetch pattern can legitimately land on a still-lagging replica and
-   * see it absent again, a false failure that has nothing to do with {@link StoreClient}
+   * an {@code Await.until}-then-refetch pattern can legitimately land on a still-lagging replica
+   * and see it absent again, a false failure that has nothing to do with {@link StoreClient}
    * correctness.
    */
   private static <T> T awaitPresent(Supplier<Optional<T>> poll, Duration timeout)
@@ -197,8 +185,9 @@ class StoreClientClusterTest {
     throw new AssertionError("condition not met within " + timeout);
   }
 
-  private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
-    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster) {
+    Await.until(
+        () -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
     ClusterNode leader =
         cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
     // A node believing itself leader doesn't mean every other node has processed that leader's
@@ -206,7 +195,7 @@ class StoreClientClusterTest {
     // from the election itself. A StoreClient write immediately after this returns can otherwise
     // race a follower whose leaderHint is still unset, exhausting its own redirect-retry budget
     // against a "leader unknown" response instead of a real address to follow.
-    awaitTrue(
+    Await.until(
         () ->
             cluster.stream()
                 .allMatch(

@@ -7,7 +7,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.time.TestClock;
 import com.gimle.core.time.TestScheduler;
-import com.gimle.worker.testsupport.Await;
+import com.gimle.testkit.Await;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -203,7 +203,7 @@ class ProbeLoopTest {
           Duration.ofSeconds(1),
           results::add);
 
-      Await.atLeast(() -> !results.isEmpty(), Duration.ofSeconds(2));
+      Await.until(() -> !results.isEmpty(), Duration.ofSeconds(2));
       assertTrue(results.get(0));
     }
   }

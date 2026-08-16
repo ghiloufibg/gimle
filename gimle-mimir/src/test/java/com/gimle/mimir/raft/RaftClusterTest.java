@@ -10,6 +10,7 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
@@ -21,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,7 +39,7 @@ import org.junit.jupiter.api.parallel.Isolated;
  * same way a real {@code StoreMain} process would.
  */
 // Real multi-node in-process Raft cluster with real heartbeat/election-timeout-driven timing
-// (awaitLeader/awaitTrue polling against wall-clock @Timeout budgets). Unlike a ResourceLock
+// (awaitLeader/Await.until polling against wall-clock @Timeout budgets). Unlike a ResourceLock
 // (which only prevents collision with specific other named-resource holders), @Isolated forces
 // the whole suite to pause around this class -- CPU contention from unrelated concurrent classes,
 // not a shared-resource collision, is what made this flaky once class-level concurrency (root
@@ -279,25 +279,12 @@ class RaftClusterTest {
     edges.get(new Edge(nodeIdB, nodeIdA)).blocked = true;
   }
 
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
-  }
-
-  private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster) {
     return awaitLeader(cluster, Duration.ofSeconds(5));
   }
 
-  private static ClusterNode awaitLeader(List<ClusterNode> cluster, Duration timeout)
-      throws InterruptedException {
-    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), timeout);
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster, Duration timeout) {
+    Await.until(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), timeout);
     return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
   }
 
@@ -321,7 +308,7 @@ class RaftClusterTest {
         .raftNode()
         .propose(new StateMutation.PutTenant(new Tenant("t1", new ResourceQuota(10, 10, 10))));
 
-    awaitTrue(
+    Await.until(
         () -> cluster.stream().allMatch(c -> c.store().getTenant("t1").isPresent()),
         Duration.ofSeconds(3));
     for (ClusterNode c : cluster) {
@@ -346,7 +333,7 @@ class RaftClusterTest {
     newLeader
         .raftNode()
         .propose(new StateMutation.PutTenant(new Tenant("t2", new ResourceQuota(20, 20, 20))));
-    awaitTrue(
+    Await.until(
         () -> remaining.stream().allMatch(c -> c.store().getTenant("t2").isPresent()),
         Duration.ofSeconds(3));
   }
@@ -365,7 +352,7 @@ class RaftClusterTest {
     newLeader
         .raftNode()
         .propose(new StateMutation.PutTenant(new Tenant("t3", new ResourceQuota(1, 1, 1))));
-    awaitTrue(
+    Await.until(
         () -> majority.stream().allMatch(c -> c.store().getTenant("t3").isPresent()),
         Duration.ofSeconds(3));
 
@@ -397,7 +384,7 @@ class RaftClusterTest {
     // peer is unreachable, so nothing could ever carry one back), not as a side effect of a
     // proposal timing out the way a_partitioned_minority_cannot_elect_a_leader_or_commit_writes
     // above already covers.
-    awaitTrue(() -> !isolated.raftNode().isLeader(), Duration.ofSeconds(2));
+    Await.until(() -> !isolated.raftNode().isLeader(), Duration.ofSeconds(2));
 
     // The majority side elects its own new leader independently, unaffected by the isolated
     // node's own self-demotion.
@@ -435,7 +422,7 @@ class RaftClusterTest {
     // propose below can race a genuinely-just-elected leader's first heartbeat: leaderHint is
     // still null, and RaftNode#propose's rejection reports "leader unknown" rather than the
     // leader's address, failing the assertion below on a correct implementation, not a bug in it.
-    awaitTrue(
+    Await.until(
         () -> follower.raftNode().leaderHint().equals(Optional.of(leader.id())),
         Duration.ofSeconds(5));
 
@@ -479,9 +466,9 @@ class RaftClusterTest {
     // established no happens-before edge for this plain field specifically -- both are written by
     // the node's internal thread while applying InstallSnapshot, but only the ConcurrentHashMap
     // write carries its own visibility guarantee to a reader on another thread. Folding this into
-    // the same polling predicate (matching this file's own awaitTrue idiom used everywhere else
+    // the same polling predicate (matching this file's own Await.until idiom used everywhere else
     // to observe background-thread state) is the fix, not a one-shot read.
-    awaitTrue(
+    Await.until(
         () ->
             farBehind.store().getTenant("t").isPresent()
                 && farBehind.store().getTenant("t").get().quota().maxMemoryBytes() == 4
@@ -504,7 +491,7 @@ class RaftClusterTest {
         .raftNode()
         .propose(new StateMutation.PutTenant(new Tenant("grown", new ResourceQuota(5, 5, 5))));
 
-    awaitTrue(
+    Await.until(
         () ->
             cluster.stream().allMatch(c -> c.store().getTenant("grown").isPresent())
                 && fourth.store().getTenant("grown").isPresent()
@@ -543,6 +530,6 @@ class RaftClusterTest {
         .propose(new StateMutation.PutTenant(new Tenant("shrunk", new ResourceQuota(3, 3, 3))));
 
     ClusterNode survivor = followers.get(2);
-    awaitTrue(() -> survivor.store().getTenant("shrunk").isPresent(), Duration.ofSeconds(5));
+    Await.until(() -> survivor.store().getTenant("shrunk").isPresent(), Duration.ofSeconds(5));
   }
 }

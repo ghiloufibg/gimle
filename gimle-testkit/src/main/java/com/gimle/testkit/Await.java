@@ -6,10 +6,8 @@ import java.util.function.BooleanSupplier;
 /**
  * Spin-polls a condition instead of a fixed sleep, so a real-cluster test fails fast the moment the
  * condition becomes true rather than always waiting out a fixed delay. The canonical copy of this
- * primitive: several modules (gimle-mimir, gimle-fabric, gimle-worker, gimle-controlplane's own
- * test sources) each still carry their own small, independent copy rather than depending on this
- * one -- deliberately left as-is rather than migrated, since none of them otherwise depends on
- * test-only infrastructure from another module.
+ * primitive: gimle-mimir, gimle-fabric, gimle-worker, and gimle-controlplane's own test sources all
+ * depend on this one rather than each carrying an independent copy.
  */
 public final class Await {
 

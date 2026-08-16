@@ -11,6 +11,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -27,7 +28,6 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BooleanSupplier;
 import javax.net.ssl.SSLHandshakeException;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -206,20 +206,9 @@ class RaftClusterTlsTest {
     return clusterNodes;
   }
 
-  private static void awaitTrue(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (System.nanoTime() < deadline) {
-      if (condition.getAsBoolean()) {
-        return;
-      }
-      Thread.sleep(20);
-    }
-    assertTrue(condition.getAsBoolean(), "condition not met within " + timeout);
-  }
-
-  private static ClusterNode awaitLeader(List<ClusterNode> cluster) throws InterruptedException {
-    awaitTrue(() -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
+  private static ClusterNode awaitLeader(List<ClusterNode> cluster) {
+    Await.until(
+        () -> cluster.stream().anyMatch(c -> c.raftNode().isLeader()), Duration.ofSeconds(5));
     return cluster.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
   }
 
@@ -239,7 +228,7 @@ class RaftClusterTlsTest {
         .raftNode()
         .propose(new StateMutation.PutTenant(new Tenant("t1", new ResourceQuota(10, 10, 10))));
 
-    awaitTrue(
+    Await.until(
         () -> cluster.stream().allMatch(c -> c.store().getTenant("t1").isPresent()),
         Duration.ofSeconds(5));
     for (ClusterNode c : cluster) {

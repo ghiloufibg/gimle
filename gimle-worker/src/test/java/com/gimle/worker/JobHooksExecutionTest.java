@@ -8,7 +8,7 @@ import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ModuleState;
 import com.gimle.module.testsupport.TestModuleBuilder;
-import com.gimle.worker.testsupport.Await;
+import com.gimle.testkit.Await;
 import com.gimle.worker.testsupport.RecordingJobHooks;
 import com.gimle.worker.testsupport.WiredWorkerRuntime;
 import java.nio.file.Path;
@@ -84,7 +84,7 @@ class JobHooksExecutionTest {
 
     // registry.markCompleted() (what the second Await below would see) runs before the sink
     // publishes the Completed event, so waiting on the event itself is the only race-free signal.
-    Await.atLeast(
+    Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.Completed),
         Duration.ofSeconds(2));
 
@@ -100,7 +100,7 @@ class JobHooksExecutionTest {
     WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.fails");
     RecordingJobHooks.STATUS_TO_RETURN.set(CompletionStatus.FAILED);
 
-    Await.atLeast(
+    Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
         Duration.ofSeconds(2));
 
@@ -113,7 +113,7 @@ class JobHooksExecutionTest {
     WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.throws");
     RecordingJobHooks.THROW_INSTEAD.set(new IllegalStateException("boom"));
 
-    Await.atLeast(
+    Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
         Duration.ofSeconds(2));
 

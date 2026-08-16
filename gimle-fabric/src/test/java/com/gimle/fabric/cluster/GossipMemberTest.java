@@ -11,7 +11,7 @@ import com.gimle.core.module.Version;
 import com.gimle.core.time.TestClock;
 import com.gimle.core.time.TestScheduler;
 import com.gimle.fabric.catalog.ServiceCatalog;
-import com.gimle.fabric.testsupport.Await;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
