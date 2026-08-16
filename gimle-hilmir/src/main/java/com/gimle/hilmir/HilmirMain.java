@@ -9,6 +9,12 @@ import com.gimle.hilmir.plan.LaunchPlanner;
 import com.gimle.hilmir.plan.MachinePlan;
 import com.gimle.hilmir.plan.ProcessCommand;
 import com.gimle.hilmir.plan.ResolvedRuntime;
+import com.gimle.hilmir.release.DeployCommand;
+import com.gimle.hilmir.release.ReleaseStatusCommand;
+import com.gimle.hilmir.release.ReleasesCommand;
+import com.gimle.hilmir.release.RollbackCommand;
+import com.gimle.hilmir.release.UndeployCommand;
+import com.gimle.hilmir.release.UpgradeCommand;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.validate.Finding;
@@ -34,12 +40,24 @@ import java.util.Optional;
  *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
  *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
  *   hilmir pki init -f &lt;topology.yaml&gt;
+ *   hilmir deploy -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
+ *   hilmir upgrade -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
+ *   hilmir rollback --release &lt;name&gt; [--to-revision r] [--wait] [--dry-run] [-o json]
+ *   hilmir undeploy --release &lt;name&gt; [--keep-tenants] [-o json]
+ *   hilmir releases [-o json]
+ *   hilmir release-status &lt;name&gt; [-o json]
  * </pre>
  *
  * {@code down}/{@code status} take {@code --data-root} rather than {@code -f}: the run ledger
  * {@code up} writes lives under a resolved runtime's own data root, and neither verb needs the
  * topology document again to find it (it defaults the same way {@link ResolvedRuntime#resolve}'s
  * own default does when omitted).
+ *
+ * <p>The six release verbs are a separate, Helm-equivalent concern layered on top of the same
+ * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
+ * {@code GIMLE_SERVER}) rather than to a topology document, so their own flag parsing and HTTP
+ * calling logic live entirely in {@code com.gimle.hilmir.release}, dispatched here the same way
+ * every other verb is.
  */
 public final class HilmirMain {
 
@@ -75,6 +93,12 @@ public final class HilmirMain {
       case "down" -> runDown(rest, out);
       case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
+      case "deploy" -> runDeploy(rest, out);
+      case "upgrade" -> runUpgrade(rest, out);
+      case "rollback" -> runRollback(rest, out);
+      case "undeploy" -> runUndeploy(rest, out);
+      case "releases" -> runReleases(rest, out);
+      case "release-status" -> runReleaseStatus(rest, out);
       default -> throw new HilmirException(usage());
     };
   }
@@ -134,6 +158,30 @@ public final class HilmirMain {
     final ResolvedRuntime runtime = resolveRuntime(topology);
     PkiInit.run(topology, runtime, out);
     return 0;
+  }
+
+  private static int runDeploy(final List<String> args, final PrintStream out) {
+    return DeployCommand.run(args, out);
+  }
+
+  private static int runUpgrade(final List<String> args, final PrintStream out) {
+    return UpgradeCommand.run(args, out);
+  }
+
+  private static int runRollback(final List<String> args, final PrintStream out) {
+    return RollbackCommand.run(args, out);
+  }
+
+  private static int runUndeploy(final List<String> args, final PrintStream out) {
+    return UndeployCommand.run(args, out);
+  }
+
+  private static int runReleases(final List<String> args, final PrintStream out) {
+    return ReleasesCommand.run(args, out);
+  }
+
+  private static int runReleaseStatus(final List<String> args, final PrintStream out) {
+    return ReleaseStatusCommand.run(args, out);
   }
 
   private static ResolvedRuntime resolveRuntime(final Topology topology) {
@@ -221,6 +269,12 @@ public final class HilmirMain {
           up -f <topology.yaml> --machine <name>
           down --machine <name> [--data-root <path>]
           status --machine <name> [--data-root <path>]
-          pki init -f <topology.yaml>""";
+          pki init -f <topology.yaml>
+          deploy -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
+          upgrade -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
+          rollback --release <name> [--to-revision r] [--wait] [--dry-run] [-o json]
+          undeploy --release <name> [--keep-tenants] [-o json]
+          releases [-o json]
+          release-status <name> [-o json]""";
   }
 }
