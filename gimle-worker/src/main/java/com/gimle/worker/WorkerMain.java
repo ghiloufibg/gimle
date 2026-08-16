@@ -109,6 +109,7 @@ public final class WorkerMain {
 
     long pid = ProcessHandle.current().pid();
     String workerId = "worker-" + pid;
+    ControlPlaneRelay relay = new ControlPlaneRelay(channel);
 
     // A worker has no outbound network identity of its own -- every exported span relays to the
     // agent over this same control channel rather than shipping to Muninn directly, replacing
@@ -150,7 +151,8 @@ public final class WorkerMain {
             channel,
             identityRegistry,
             instanceLogCloser,
-            activeModules);
+            activeModules,
+            relay);
     ModuleController controller = controllerAndRuntime.controller();
     WorkerRuntime runtime = controllerAndRuntime.runtime();
 
@@ -184,7 +186,8 @@ public final class WorkerMain {
           identityRegistry,
           tenantId,
           workerId,
-          workerMetrics);
+          workerMetrics,
+          relay);
     }
     log.info("control channel closed by agent; shutting down");
   }
@@ -264,7 +267,8 @@ public final class WorkerMain {
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry,
       InstanceLogCloser instanceLogCloser,
-      Set<ModuleId> activeModules) {
+      Set<ModuleId> activeModules,
+      ControlPlaneRelay relay) {
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
         event -> handleLifecycleEvent(event, runtimeRef, activeModules, channel, identityRegistry);
@@ -292,7 +296,8 @@ public final class WorkerMain {
             Duration.ofSeconds(5),
             sink,
             leakTracker::track,
-            fabricRegistry);
+            fabricRegistry,
+            relay::request);
     // How many virtual threads a module's BoundedModuleScheduler runs concurrently by default,
     // and the liveness/readiness probe cadence every module is checked against once ACTIVE.
     int defaultMaxConcurrency = 4;
@@ -517,7 +522,8 @@ public final class WorkerMain {
       InstanceIdentityRegistry identityRegistry,
       Optional<String> tenantId,
       String workerId,
-      WorkerMetrics workerMetrics)
+      WorkerMetrics workerMetrics,
+      ControlPlaneRelay relay)
       throws IOException {
     switch (message) {
       case ControlMessage.InstallModule m -> {
@@ -600,6 +606,7 @@ public final class WorkerMain {
               m.udsPath().isEmpty() ? Optional.empty() : Optional.of(m.udsPath()),
               new InetSocketAddress(m.tcpHost(), m.tcpPort()));
       case ControlMessage.ConfigDelivered m -> controller.deliverConfig(m.key(), m.value());
+      case ControlMessage.RelayControlPlaneResult m -> relay.complete(m);
       default -> log.warn("unexpected control message from agent: {}", message);
     }
   }
