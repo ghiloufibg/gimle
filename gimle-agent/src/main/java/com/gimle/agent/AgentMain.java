@@ -274,6 +274,10 @@ public final class AgentMain {
     gossipMember.join(seeds);
     log.info("agent {} gossip member listening at {}", nodeId, gossipMember.self().gossipAddress());
 
+    AgentGossipServer gossipServer = new AgentGossipServer(gossipMember, 0);
+    gossipServer.start();
+    log.info("agent {} serving gossip membership at :{}", nodeId, gossipServer.port());
+
     register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
