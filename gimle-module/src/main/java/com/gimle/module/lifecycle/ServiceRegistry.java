@@ -65,4 +65,33 @@ public interface ServiceRegistry {
 
   /** Removes everything {@code owner} registered. */
   void remove(ModuleId owner);
+
+  /**
+   * Cross-tier, name-driven invocation for a caller that only has a service's identity as plain
+   * runtime strings -- an interface name, its major version, and a method signature -- not a
+   * compile-time {@code Class<T>} a caller could reflect against directly. A route-config-driven
+   * caller (the gateway module) is the motivating case: its routes name a target service at
+   * runtime, never at compile time, so {@link #lookup}/{@link #lookupByInterfaceName} (which both
+   * hand back a typed or bare instance for the caller's own code to invoke) don't fit -- this
+   * method does the invocation itself and hands back only the result.
+   *
+   * <p>{@code paramTypeNames} names each argument's declared type (not the runtime type of {@code
+   * args}' contents), the same convention the fabric wire protocol uses, so the exact overload is
+   * resolved deterministically rather than guessed from the arguments alone.
+   *
+   * <p>Returns {@link Optional#empty()} both when nothing this registry knows about exports {@code
+   * interfaceName} at {@code majorVersion} (consistent with {@link #lookupByInterfaceName}'s own
+   * "nothing registered" convention -- an unresolvable route is reported the same way as "not
+   * registered yet," never as an exception) and when a found method's real return value is
+   * legitimately {@code null} or {@code void}; this method has no way to distinguish those two
+   * outcomes from the return value alone. An unresolvable method name or parameter-type list is a
+   * genuine failure, by contrast: it throws rather than silently matching the wrong overload.
+   */
+  Optional<Object> invokeByName(
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable;
 }

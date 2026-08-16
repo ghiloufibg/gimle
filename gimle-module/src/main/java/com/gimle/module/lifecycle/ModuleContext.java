@@ -32,6 +32,20 @@ public interface ModuleContext {
   <T> Optional<T> lookupService(Class<T> iface);
 
   /**
+   * Cross-tier, name-driven service invocation for a caller with no compile-time {@code Class<T>}
+   * to look up by — a module whose own routes/config name a target service at runtime, not in Java
+   * source. See {@link ServiceRegistry#invokeByName} for the full contract (tiers tried, what an
+   * empty {@link Optional} means, what throws instead).
+   */
+  Optional<Object> invokeServiceByName(
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable;
+
+  /**
    * Looks up a tenant-scoped configuration or secret value the agent has relayed down for this
    * instance — always plaintext by the time a module sees it, whether or not it was encrypted at
    * rest. Absent if the key was never delivered.

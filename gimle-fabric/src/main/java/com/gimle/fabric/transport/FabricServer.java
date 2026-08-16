@@ -293,17 +293,12 @@ public final class FabricServer implements AutoCloseable {
                     new NoSuchElementException(
                         "no local service registered for " + request.interfaceName()));
 
-    Class<?>[] paramTypes = new Class<?>[request.paramTypeNames().length];
-    for (int i = 0; i < paramTypes.length; i++) {
-      paramTypes[i] = resolveClass(request.paramTypeNames()[i]);
-    }
+    Class<?>[] paramTypes =
+        ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), interfaceLoader);
     // The Method must come from the public interface Class, not owned.instance().getClass()
-    // directly: a lambda or InstanceMdcContext MDC-tagging proxy implementing the interface is
-    // itself package-private/synthetic, and Method#invoke checks the *declaring class*'s
-    // accessibility, not just the method's own public modifier -- reflecting through the
-    // interface (which the registering module's own Class.getInterfaces() always exposes as the
-    // real public interface object) avoids IllegalAccessException.
-    Class<?> iface = findInterface(owned.instance().getClass(), request.interfaceName());
+    // directly -- see ReflectiveDispatch.findInterface's own javadoc for why.
+    Class<?> iface =
+        ReflectiveDispatch.findInterface(owned.instance().getClass(), request.interfaceName());
     Method method = iface.getMethod(request.methodName(), paramTypes);
     Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs());
 
@@ -360,30 +355,6 @@ public final class FabricServer implements AutoCloseable {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("interrupted while invoking via bounded scheduler", e);
     }
-  }
-
-  private static Class<?> findInterface(Class<?> instanceClass, String interfaceName) {
-    for (Class<?> candidate : instanceClass.getInterfaces()) {
-      if (candidate.getName().equals(interfaceName)) {
-        return candidate;
-      }
-    }
-    throw new NoSuchElementException(interfaceName + " is not implemented by " + instanceClass);
-  }
-
-  private Class<?> resolveClass(String name) throws ClassNotFoundException {
-    return switch (name) {
-      case "boolean" -> boolean.class;
-      case "byte" -> byte.class;
-      case "short" -> short.class;
-      case "char" -> char.class;
-      case "int" -> int.class;
-      case "long" -> long.class;
-      case "float" -> float.class;
-      case "double" -> double.class;
-      case "void" -> void.class;
-      default -> Class.forName(name, false, interfaceLoader);
-    };
   }
 
   /**
