@@ -30,7 +30,8 @@ class SagaVerifyMojoTest {
             "mvn",
             "verify",
             "-Dgimle.saga.endpoint=http://127.0.0.1:9096",
-            "-Dgimle.saga.runId=2026-08-16T10-30-05_abc1234"),
+            "-Dgimle.saga.runId=2026-08-16T10-30-05_abc1234",
+            "-Dmaven.build.cache.skipCache=true"),
         SagaVerifyMojo.childMavenCommand(
             "mvn", "verify", "http://127.0.0.1:9096", "2026-08-16T10-30-05_abc1234"));
   }
@@ -44,7 +45,8 @@ class SagaVerifyMojoTest {
             "verify",
             "-Psmoke",
             "-Dgimle.saga.endpoint=http://127.0.0.1:9096",
-            "-Dgimle.saga.runId=r1"),
+            "-Dgimle.saga.runId=r1",
+            "-Dmaven.build.cache.skipCache=true"),
         SagaVerifyMojo.childMavenCommand(
             "mvn", "  clean   verify -Psmoke ", "http://127.0.0.1:9096", "r1"));
   }

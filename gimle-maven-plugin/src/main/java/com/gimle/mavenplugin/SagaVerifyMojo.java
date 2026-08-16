@@ -136,6 +136,10 @@ public final class SagaVerifyMojo extends AbstractGimleRootMojo {
     }
     command.add("-Dgimle.saga.endpoint=" + endpoint);
     command.add("-Dgimle.saga.runId=" + runId);
+    // A build-cache restore skips surefire entirely, so a cached child would record zero test
+    // events -- executing the tests is the whole point of a report run. Restores are bypassed
+    // (the cache is still written) rather than disabling the extension outright.
+    command.add("-Dmaven.build.cache.skipCache=true");
     return List.copyOf(command);
   }
 
