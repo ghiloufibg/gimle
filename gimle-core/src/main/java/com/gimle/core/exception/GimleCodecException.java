@@ -14,6 +14,15 @@ public class GimleCodecException extends RuntimeException {
     super(message);
   }
 
+  /**
+   * A test-report event line (HTTP ingest or a stored {@code events.ndjson} line) that cannot be
+   * decoded: malformed JSON, an unknown discriminator, or a missing/mistyped field. Named with the
+   * offending detail so a bad line in a day-old store file is diagnosable from the message alone.
+   */
+  public static GimleCodecException malformedSagaEvent(String detail) {
+    return new GimleCodecException("malformed saga event: " + detail);
+  }
+
   public static GimleCodecException invalidFrameLength(int declaredLength) {
     return new GimleCodecException("negative frame length in wire protocol: " + declaredLength);
   }
