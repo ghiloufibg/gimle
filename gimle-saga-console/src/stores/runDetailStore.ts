@@ -55,7 +55,10 @@ export const useRunDetailStore = create<RunDetailState>((set, get) => ({
           const failed = events.filter(
             (e) => e.testId.startsWith(`${m.module}:`) && e.outcome === "FAILED",
           ).length;
-          return { ...m, completed: Math.min(done, m.total), failed };
+          // A backend that can't preview the planned test count ahead of time (no historical
+          // baseline to compare against) reports `total` as "completed so far" -- grow it
+          // alongside `done` rather than capping, so the bar tracks reality instead of stalling.
+          return { ...m, total: Math.max(m.total, done), completed: done, failed };
         });
         return { events, detail: { ...s.detail, moduleProgress } };
       });

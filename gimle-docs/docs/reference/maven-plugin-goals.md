@@ -201,6 +201,67 @@ goal targets.
 mvn gimle:tls-init -Dgimle.tlsInit.outputDir=./gimle-tls -Dgimle.tlsInit.hostname=localhost
 ```
 
+## `mvn gimle:saga`
+
+Ensures a real `SagaMain` process is up — the test-run report server, serving its own bundled
+console at `/console` (see [Node topology](../architecture/node-topology.md)). Idempotent: if a
+Saga instance already answers its health check on the configured port, this goal reuses it and
+just prints the console URL rather than spawning a second one — the intended everyday use, since a
+long-lived instance is what lets the flake scoreboard accumulate history across runs. `mvn
+gimle:saga-stop` tears it down again.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.saga.port` | `9096` | Ingest/read HTTP port, and where the console is served. |
+| `gimle.saga.dataRoot` | `~/.gimle/saga` | Where run event logs and the derived flake ledger persist to disk — outside the build, so `mvn clean` never touches it. |
+| `gimle.saga.host` | *(unset, loopback)* | Bind address override — Saga carries no authentication, so binding beyond loopback is a deliberate, logged choice. |
+| `gimle.saga.serverVersion` | `${plugin.version}` | Version of `gimle-saga` to resolve and spawn — defaults to this plugin's own version, since the two ship from one build. |
+
+```bash
+mvn gimle:saga
+mvn gimle:saga-stop
+```
+
+## `mvn gimle:verify`
+
+The one-command report loop: ensures a Saga server is up (reusing one already running), mints a
+run id from the current git branch/sha, launches the given Maven command as a genuine separate
+child process — never nested in the current reactor, the same reasoning `gimle:agent`'s worker
+process keeps separate — with `gimle.saga.endpoint`/`gimle.saga.runId` threaded through so every
+test JVM's own `SagaTestListener` streams live, sweeps `**/target/surefire-reports/*.xml` as a
+safety net for anything a dead test JVM never got to flush, and prints the run's console URL. The
+child always runs with `-Dmaven.build.cache.skipCache=true`: a build-cache restore skips Surefire
+entirely, which would silently report zero tests for an otherwise-real run.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.saga.port` | `9096` | Same as `gimle:saga` above. |
+| `gimle.saga.mavenArgs` | `verify` | The command line to hand to the child Maven process, e.g. `-Psmoke` or `-pl gimle-mimir -am test`. |
+| `gimle.saga.serverVersion` | `${plugin.version}` | Same as `gimle:saga` above. |
+
+```bash
+mvn gimle:verify
+mvn gimle:verify -Dgimle.saga.mavenArgs="-Psmoke"
+mvn gimle:verify -Dgimle.saga.mavenArgs="-pl gimle-mimir -am test"
+```
+
+## `mvn gimle:saga-import`
+
+Folds `**/target/surefire-reports/*.xml` into a running Saga server after the fact — the standalone
+version of `gimle:verify`'s own safety-net sweep, for CI runs or any build that didn't set
+`gimle.saga.endpoint` up front. Importing into a run id that's already live only appends the test
+results the live stream never delivered, so running this after a normal `gimle:verify` pass is a
+safe no-op rather than a duplicate.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.saga.port` | `9096` | Same as `gimle:saga` above. |
+| `gimle.saga.runId` | *(unset)* | Run id to fold the reports into. Unset derives one deterministically from the reports' own content, so re-running the import twice against unchanged reports is idempotent. |
+
+```bash
+mvn gimle:saga-import -Dgimle.saga.runId=2026-08-16T10-30-05_abc1234
+```
+
 ## `mvn gimle:docs`
 
 Builds this documentation site end to end: runs `mvn javadoc:aggregate` at the repo root, copies

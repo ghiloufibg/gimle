@@ -32,6 +32,12 @@ export default defineConfig(({ command }) => ({
     host: "::",
     port: 8110,
     strictPort: true,
+    // Dev-only proxy so src/repositories/http/apiClient.ts can use same-origin relative paths in
+    // both dev and prod, with no runtime env var for an API base URL. 9096 matches SagaMain's own
+    // gimle.saga.port default; override with GIMLE_SAGA_PORT if your local instance differs.
+    proxy: {
+      "/api": `http://localhost:${process.env["GIMLE_SAGA_PORT"] ?? "9096"}`,
+    },
   },
   preview: {
     port: 8110,

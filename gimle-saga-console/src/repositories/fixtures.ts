@@ -9,6 +9,7 @@ import type {
   SurtrPhase,
   TestResultEvent,
 } from "@/domain/types";
+import { moduleOf } from "@/lib/testId";
 
 export const MODULES = [
   "gimle-mimir",
@@ -58,7 +59,6 @@ export const ALL_TEST_IDS: string[] = Object.entries(TEST_NAMES).flatMap(([modul
   names.map((n) => `${module}:${n}`),
 );
 
-export const moduleOf = (testId: string) => testId.split(":")[0] ?? "";
 export const methodOf = (testId: string) => testId.split(":")[1] ?? testId;
 
 const FAILURES: Array<{ type: string; message: string; hash: string }> = [

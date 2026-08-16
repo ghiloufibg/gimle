@@ -22,10 +22,10 @@ import {
   MOCK_RUNS,
   MODULES,
   makeLiveEvent,
-  moduleOf,
   pendingTestIdsFor,
   type MockRun,
 } from "./fixtures";
+import { moduleOf } from "@/lib/testId";
 
 const latency = (ms = 260) => new Promise<void>((r) => setTimeout(r, ms + Math.random() * 220));
 

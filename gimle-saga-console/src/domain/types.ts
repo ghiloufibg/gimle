@@ -1,4 +1,4 @@
-export type RunStatus = "live" | "passed" | "failed";
+export type RunStatus = "live" | "passed" | "failed" | "abandoned";
 export type Outcome = "PASSED" | "FAILED" | "ABORTED" | "SKIPPED";
 
 export interface RunTotals {

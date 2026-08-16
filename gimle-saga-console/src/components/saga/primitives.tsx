@@ -43,6 +43,7 @@ export function StatusPill({ status }: { status: RunStatus }) {
     live: "border-signal/40 bg-info-bg text-signal",
     passed: "border-ok/30 bg-ok-bg text-ok",
     failed: "border-bad/30 bg-bad-bg text-bad",
+    abandoned: "border-warn/30 bg-warn-bg text-warn",
   } as const;
   return (
     <span
@@ -57,6 +58,7 @@ export function StatusPill({ status }: { status: RunStatus }) {
           status === "live" && "signal-dot bg-signal",
           status === "passed" && "bg-ok",
           status === "failed" && "bg-bad",
+          status === "abandoned" && "bg-warn",
         )}
       />
       {status}

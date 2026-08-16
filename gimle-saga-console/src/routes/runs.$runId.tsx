@@ -15,7 +15,6 @@ import {
   StatusPill,
   TestIdLabel,
 } from "@/components/saga/primitives";
-import { traceFor } from "@/repositories/fixtures";
 import { formatTimestamp, runDuration, shortSha } from "@/lib/format";
 import { toTestParam } from "@/lib/testId";
 import { useRunDetailStore } from "@/stores/runDetailStore";
@@ -229,9 +228,9 @@ function RunDetailScreen() {
                                 </li>
                               ))}
                             </ul>
-                            <HudLabel>stack trace</HudLabel>
+                            <HudLabel>failure message</HudLabel>
                             <pre className="mt-1 max-h-56 overflow-auto rounded-sm border border-border bg-background px-2 py-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                              {traceFor(group.events[0]!)}
+                              {group.message || "no failure message recorded"}
                             </pre>
                           </div>
                         ) : null}
