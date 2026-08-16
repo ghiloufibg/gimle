@@ -12,7 +12,13 @@
 x-gimle-service: &gimle-service
   image: eclipse-temurin:25-jre
   networks: [gimle]
-  entrypoint: ["/bin/sh", "/holmgang/entrypoint.sh"]
+  # Sanitizes entrypoint.sh into /tmp before running it, rather than executing the bind-mounted
+  # file directly: a script checked out on Windows with CRLF line endings (a contributor's own
+  # core.autocrlf, or a working tree from before .gitattributes normalized this repo) breaks
+  # outright under /bin/sh regardless of what .gitattributes now says, since that only governs
+  # future checkouts. This makes the container robust to the host's checkout state instead of
+  # depending on it. "$@" carries the machine name from this service's own "command:" through.
+  entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/entrypoint.sh > /tmp/entrypoint.sh && exec /bin/sh /tmp/entrypoint.sh "$$@"', "--"]
   depends_on:
     unpack:
       condition: service_completed_successfully
@@ -21,7 +27,7 @@ services:
   unpack:
     image: eclipse-temurin:25-jre
     networks: [gimle]
-    entrypoint: ["/bin/sh", "/holmgang/unpack.sh"]
+    entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/unpack.sh > /tmp/unpack.sh && exec /bin/sh /tmp/unpack.sh']
     volumes:
       - ${GIMLE_DIST_TARGET:-../../gimle-dist/target}:/dist:ro
       - ./unpack.sh:/holmgang/unpack.sh:ro
