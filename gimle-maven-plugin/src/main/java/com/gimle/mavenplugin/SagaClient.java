@@ -65,9 +65,12 @@ final class SagaClient {
 
   /** Posts one surefire report XML file to {@code /api/import} under {@code runId}. */
   void importReport(String runId, Path reportXml) throws MojoExecutionException {
-    URI uri =
-        URI.create(
-            endpoint + "/api/import?runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8));
+    String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+    String module = moduleNameFor(reportXml);
+    if (module != null) {
+      query += "&module=" + URLEncoder.encode(module, StandardCharsets.UTF_8);
+    }
+    URI uri = URI.create(endpoint + "/api/import?" + query);
     HttpRequest.BodyPublisher body;
     try {
       body = HttpRequest.BodyPublishers.ofFile(reportXml);
@@ -115,5 +118,21 @@ final class SagaClient {
       throw new MojoExecutionException(
           what + " failed: HTTP " + response.statusCode() + " from " + endpoint);
     }
+  }
+
+  /**
+   * The Maven module a report belongs to, read from its path (the segment before {@code target}) --
+   * the server receives only the XML body, which carries fully-qualified classnames but no module,
+   * and the module is the first segment of every testId. Null when the path has no {@code target}
+   * segment; the server then falls back to its own default.
+   */
+  private static String moduleNameFor(Path reportXml) {
+    Path absolute = reportXml.toAbsolutePath();
+    for (int i = 1; i < absolute.getNameCount(); i++) {
+      if ("target".equals(absolute.getName(i).toString())) {
+        return absolute.getName(i - 1).toString();
+      }
+    }
+    return null;
   }
 }

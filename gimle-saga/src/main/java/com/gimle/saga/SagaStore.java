@@ -118,6 +118,51 @@ public final class SagaStore {
     return List.copyOf(byRun.keySet());
   }
 
+  /**
+   * Folds an imported batch into {@code runId} as a safety net for a run whose events already
+   * streamed in live: the batch's own run-started/run-finished framing is dropped so a fold can
+   * never reset the run, and test events are appended only for testIds the run has no test-finished
+   * for yet (a test JVM that died before flushing its events is exactly the gap this covers). When
+   * the run doesn't exist at all, the batch is ingested unmodified, framing included, so a
+   * standalone import still produces a self-contained run. Returns the number of events actually
+   * appended.
+   */
+  public int fold(String runId, List<SagaEvent> events) {
+    validateRunId(runId);
+    ReentrantLock lock = runLocks.computeIfAbsent(runId, id -> new ReentrantLock());
+    lock.lock();
+    try {
+      if (!Files.isRegularFile(runsDir.resolve(runId).resolve(EVENTS_FILE))) {
+        ingest(events);
+        return events.size();
+      }
+      Set<String> alreadyFinished = new LinkedHashSet<>();
+      for (SagaEvent stored : decodeStoredEvents(runId)) {
+        if (stored instanceof SagaEvent.TestFinished finished) {
+          alreadyFinished.add(finished.testId());
+        }
+      }
+      List<SagaEvent> additions = new ArrayList<>();
+      for (SagaEvent event : events) {
+        boolean isNewTest =
+            switch (event) {
+              case SagaEvent.TestStarted e -> !alreadyFinished.contains(e.testId());
+              case SagaEvent.TestFinished e -> !alreadyFinished.contains(e.testId());
+              default -> false;
+            };
+        if (isNewTest) {
+          additions.add(event);
+        }
+      }
+      if (!additions.isEmpty()) {
+        ingestRun(runId, additions);
+      }
+      return additions.size();
+    } finally {
+      lock.unlock();
+    }
+  }
+
   private void ingestRun(String runId, List<SagaEvent> events) {
     validateRunId(runId);
     ReentrantLock lock = runLocks.computeIfAbsent(runId, id -> new ReentrantLock());

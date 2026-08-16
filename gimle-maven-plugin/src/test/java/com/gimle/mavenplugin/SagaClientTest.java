@@ -48,6 +48,28 @@ class SagaClientTest {
   }
 
   @Test
+  void import_report_names_the_module_derived_from_the_reports_target_path(@TempDir Path dir)
+      throws Exception {
+    Path report = dir.resolve("gimle-module/target/surefire-reports/TEST-Example.xml");
+    Files.createDirectories(report.getParent());
+    Files.writeString(report, "<testsuite tests=\"1\"/>");
+    AtomicReference<String> receivedQuery = new AtomicReference<>();
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/api/import",
+        exchange -> {
+          receivedQuery.set(exchange.getRequestURI().getQuery());
+          exchange.getRequestBody().readAllBytes();
+          exchange.sendResponseHeaders(200, -1);
+          exchange.close();
+        });
+    server.start();
+
+    clientFor(server).importReport("r1", report);
+    assertEquals("runId=r1&module=gimle-module", receivedQuery.get());
+  }
+
+  @Test
   void import_report_posts_the_file_body_under_the_run_id_query(@TempDir Path dir)
       throws Exception {
     Path report = dir.resolve("TEST-Example.xml");

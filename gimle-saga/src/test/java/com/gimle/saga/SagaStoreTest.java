@@ -290,4 +290,52 @@ class SagaStoreTest {
     assertEquals(3, store.readEvents("run-g", 0).lines().size());
     assertTrue(store.flakeObservations().isEmpty());
   }
+
+  @Test
+  void fold_appends_only_test_ids_the_live_stream_never_finished_and_drops_framing() {
+    String otherTest = "gimle-core:OtherTest#covers_the_dead_jvm_case";
+    store.ingest(
+        List.of(
+            runStarted("run-f", 1000L),
+            testStarted("run-f", TEST_ID, 1),
+            passed("run-f", TEST_ID, 1, 5L)));
+
+    int appended =
+        store.fold(
+            "run-f",
+            List.of(
+                runStarted("run-f", 1000L),
+                testStarted("run-f", TEST_ID, 1),
+                passed("run-f", TEST_ID, 1, 5L),
+                testStarted("run-f", otherTest, 1),
+                passed("run-f", otherTest, 1, 9L),
+                runFinished("run-f", 2000L, 2, 2, 0, 0)));
+
+    assertEquals(2, appended);
+    List<String> lines = store.readEvents("run-f", 0).lines();
+    assertEquals(5, lines.size());
+    long duplicates =
+        lines.stream()
+            .map(SagaEventCodec::decode)
+            .filter(e -> e instanceof SagaEvent.TestFinished f && f.testId().equals(TEST_ID))
+            .count();
+    assertEquals(1, duplicates);
+    assertEquals(RunMeta.RunStatus.LIVE, store.run("run-f").orElseThrow().status());
+  }
+
+  @Test
+  void fold_without_an_existing_run_ingests_the_batch_unmodified() {
+    int appended =
+        store.fold(
+            "run-i",
+            List.of(
+                runStarted("run-i", 1000L),
+                testStarted("run-i", TEST_ID, 1),
+                passed("run-i", TEST_ID, 1, 5L),
+                runFinished("run-i", 2000L, 1, 1, 0, 0)));
+
+    assertEquals(4, appended);
+    assertEquals(4, store.readEvents("run-i", 0).lines().size());
+    assertEquals(RunMeta.RunStatus.PASSED, store.run("run-i").orElseThrow().status());
+  }
 }

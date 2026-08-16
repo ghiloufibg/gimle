@@ -51,11 +51,22 @@ public final class SurefireXmlImporter {
 
   /** Imports a single XML document sent as the request body itself. */
   public static ImportResult fromXmlDocument(String xml, String explicitRunId) {
+    return fromXmlDocument(xml, explicitRunId, null);
+  }
+
+  /**
+   * {@code explicitModule} names the module the report belongs to -- a raw document body carries no
+   * file path to derive it from, and the module is the first segment of every testId, so a caller
+   * that knows it should say so or the tests land under a module named {@code imported}.
+   */
+  public static ImportResult fromXmlDocument(
+      String xml, String explicitRunId, String explicitModule) {
     String runId =
         explicitRunId != null
             ? explicitRunId
             : derivedRunId(List.of(xml.getBytes(StandardCharsets.UTF_8)));
-    return assemble(runId, List.of(parseDocument(xml, "imported")));
+    String module = explicitModule != null ? explicitModule : "imported";
+    return assemble(runId, List.of(parseDocument(xml, module)));
   }
 
   /**

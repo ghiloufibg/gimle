@@ -123,7 +123,7 @@ public final class SagaServer implements AutoCloseable {
       String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
       SurefireXmlImporter.ImportResult imported;
       if (body.stripLeading().startsWith("<")) {
-        imported = SurefireXmlImporter.fromXmlDocument(body, explicitRunId);
+        imported = SurefireXmlImporter.fromXmlDocument(body, explicitRunId, query.get("module"));
       } else {
         Object parsed = Json.parse(body);
         if (!(parsed instanceof Map<?, ?>)
@@ -134,10 +134,13 @@ public final class SagaServer implements AutoCloseable {
         List<Path> paths = rawPaths.stream().map(p -> Path.of(String.valueOf(p))).toList();
         imported = SurefireXmlImporter.fromPaths(paths, explicitRunId);
       }
-      store.ingest(imported.events());
+      int appended =
+          explicitRunId == null
+              ? store.ingest(imported.events()).isEmpty() ? 0 : imported.events().size()
+              : store.fold(imported.runId(), imported.events());
       Map<String, Object> result = new LinkedHashMap<>();
       result.put("runId", imported.runId());
-      result.put("events", imported.events().size());
+      result.put("events", appended);
       respondJson(exchange, 200, result);
     } catch (IllegalArgumentException | GimleCodecException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
