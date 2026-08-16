@@ -121,14 +121,10 @@ class GossipMemberDtlsTest {
 
     // A genuine DTLS rejection is silent from the caller's perspective -- the handshake never
     // completes, so the only observable effect is that neither side ever learns the other exists.
-    // Sleeping out a window comfortably longer than the positive test's own convergence time is
-    // the only way to assert a negative here.
-    Thread.sleep(3_000);
-
-    assertFalse(isAlive(a, "node-b"));
-    assertFalse(isAlive(b, "node-a"));
-    assertEquals(1, a.members().size());
-    assertEquals(1, b.members().size());
+    // Holding that "never learns" condition continuously across a window comfortably longer than
+    // the positive test's own convergence time -- failing the instant it's violated rather than
+    // sampling once at the end -- is the only way to assert a negative here.
+    assertStaysMutuallyUnaware(a, b, Duration.ofSeconds(3));
   }
 
   @Test
@@ -250,5 +246,28 @@ class GossipMemberDtlsTest {
 
   private static boolean isAlive(GossipMember member, String nodeId) {
     return member.memberState(nodeId).map(s -> s.status() == MemberStatus.ALIVE).orElse(false);
+  }
+
+  /**
+   * Polls every ~100ms for {@code window}, failing the instant either side becomes mutually aware
+   * of the other or grows its membership table beyond itself -- a genuine hold over the whole
+   * window, not a single sample taken only after sleeping it out, so an early convergence (or one
+   * that only shows up after the fixed delay a plain sleep-then-check would have used) is still
+   * caught.
+   */
+  private static void assertStaysMutuallyUnaware(GossipMember a, GossipMember b, Duration window)
+      throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + window.toNanos();
+    do {
+      assertFalse(
+          isAlive(a, "node-b"), "node-a must never learn about node-b across a different CA");
+      assertFalse(
+          isAlive(b, "node-a"), "node-b must never learn about node-a across a different CA");
+      assertEquals(
+          1, a.members().size(), "node-a must never grow its membership table beyond itself");
+      assertEquals(
+          1, b.members().size(), "node-b must never grow its membership table beyond itself");
+      Thread.sleep(100);
+    } while (System.nanoTime() < deadlineNanos);
   }
 }

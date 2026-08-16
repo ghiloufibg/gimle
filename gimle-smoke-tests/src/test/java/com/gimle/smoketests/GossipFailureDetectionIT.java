@@ -1,9 +1,21 @@
 package com.gimle.smoketests;
 
+import com.gimle.core.protocol.Json;
 import com.gimle.testkit.Await;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -26,8 +38,15 @@ import org.junit.jupiter.api.Timeout;
 @Tag("smoke")
 class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
 
+  private static final String NODE1_ID = "smoke-node-1";
   private static final String NODE2_ID = "smoke-node-2";
   private static final String NODE3_ID = "smoke-node-3";
+
+  // AgentGossipServer binds to :0, so its port is never known ahead of spawn and never registered
+  // with the control plane -- AgentMain only ever logs it, so parsing that startup line out of the
+  // agent's own redirected stdout is the only way to learn which port to poll.
+  private static final Pattern GOSSIP_HTTP_PORT_PATTERN =
+      Pattern.compile("serving gossip membership at :(\\d+)");
 
   @Test
   @Timeout(value = 4, unit = TimeUnit.MINUTES)
@@ -94,12 +113,15 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30),
         NODE3_ID + " should register with the control plane once its own gossip join completes");
 
-    // Both new nodes only ever seed off node 1 directly, never off each other -- this is real
-    // waiting time for SWIM's own periodic anti-entropy (GossipConfig.defaults()'s 1s protocol
-    // period) to propagate the full 3-node table between them, not something pollable: no HTTP
-    // endpoint anywhere in this codebase exposes gossip/membership status (confirmed by grep of
-    // ApiServer and AgentMain).
-    Thread.sleep(Duration.ofSeconds(5).toMillis());
+    // Both new nodes only ever seed off node 1 directly, never off each other -- what's being
+    // waited for here is SWIM's own periodic anti-entropy (GossipConfig.defaults()'s 1s protocol
+    // period) propagating the full 3-node table between them, observed directly through each
+    // agent's own /gossip/members endpoint rather than guessed at with a fixed sleep.
+    Await.until(
+        () -> gossipTableIncludesAllNodes(node2Log) && gossipTableIncludesAllNodes(node3Log),
+        Duration.ofSeconds(30),
+        "node 2 and node 3 should each converge, via SWIM anti-entropy seeded only through node 1,"
+            + " to a gossip table containing all three nodes before node 3 is killed");
 
     killWithDescendants(agent3);
 
@@ -124,5 +146,55 @@ class GossipFailureDetectionIT extends GreeterSmokeClusterSupport {
             + NODE3_ID
             + " as DEAD -- proving the failure was gossiped out to the whole cluster, not just"
             + " observed by whichever node happened to probe it directly");
+  }
+
+  /**
+   * True once the agent whose redirected stdout is {@code logFile} reports, via its own real {@code
+   * GET /gossip/members}, a table that already includes all three nodes -- the actual SWIM
+   * anti-entropy convergence this test needs before killing node 3, not a guessed-at fixed delay.
+   */
+  private boolean gossipTableIncludesAllNodes(Path logFile) {
+    OptionalInt port = gossipHttpPort(logFile);
+    if (port.isEmpty()) {
+      return false;
+    }
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create("http://127.0.0.1:" + port.getAsInt() + "/gossip/members"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        return false;
+      }
+      Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+      List<Map<String, Object>> members = Json.asObjectList(body.get("members"));
+      boolean sawNode1 = false;
+      boolean sawNode2 = false;
+      boolean sawNode3 = false;
+      for (Map<String, Object> member : members) {
+        String nodeId = String.valueOf(member.get("nodeId"));
+        sawNode1 = sawNode1 || NODE1_ID.equals(nodeId);
+        sawNode2 = sawNode2 || NODE2_ID.equals(nodeId);
+        sawNode3 = sawNode3 || NODE3_ID.equals(nodeId);
+      }
+      return sawNode1 && sawNode2 && sawNode3;
+    } catch (IOException | InterruptedException | RuntimeException e) {
+      return false;
+    }
+  }
+
+  private OptionalInt gossipHttpPort(Path logFile) {
+    try {
+      Matcher matcher =
+          GOSSIP_HTTP_PORT_PATTERN.matcher(Files.readString(logFile, StandardCharsets.UTF_8));
+      return matcher.find()
+          ? OptionalInt.of(Integer.parseInt(matcher.group(1)))
+          : OptionalInt.empty();
+    } catch (IOException e) {
+      return OptionalInt.empty();
+    }
   }
 }

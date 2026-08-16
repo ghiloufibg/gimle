@@ -3,9 +3,11 @@ package com.gimle.smoketests;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.testkit.Await;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -66,10 +68,17 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
         "greeter-provider-deployment's own log should show the real secret value, served live by"
             + " its owning agent");
 
-    // Headroom past AgentMain's own 5s MuninnShipper tick interval, so the line above is
-    // genuinely already shipped before the agent that shipped it is killed -- once it's dead, the
-    // shipper dies with it, and only whatever Muninn already received survives.
-    Thread.sleep(Duration.ofSeconds(8).toMillis());
+    // Confirm the line already made it into Muninn's own shipped history -- polled directly
+    // against Muninn's own /logs/instances/* read surface rather than the control plane's
+    // /logs/* proxy above, which is still served live by the agent at this point and so
+    // wouldn't distinguish "already shipped to Muninn" from "still readable from the live
+    // agent." Once that's confirmed, the agent (and, with it, its MuninnShipper) can be killed
+    // knowing only whatever Muninn already received needs to survive.
+    Await.until(
+        () -> muninnHasProviderSecretLine(cluster.muninnEndpoint()),
+        Duration.ofSeconds(30),
+        "greeter-provider-deployment's own log line should already be shipped to and directly"
+            + " readable from Muninn before its owning agent is killed");
 
     killWithDescendants(cluster.agentProcesses().get(0));
 
@@ -113,5 +122,28 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30),
         "gimle.controlplane.request.count for the deployments endpoint should be shipped to"
             + " Muninn and readable back through /metrics-history/*");
+  }
+
+  /**
+   * True once Muninn's own {@code GET /logs/instances/*} read surface -- queried directly against
+   * Muninn, not proxied through the control plane -- already has the provider's secret line in its
+   * shipped history.
+   */
+  private boolean muninnHasProviderSecretLine(String muninnEndpoint) {
+    try {
+      HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(
+                      URI.create(
+                          "http://"
+                              + muninnEndpoint
+                              + "/logs/instances/greeter-provider-deployment/0/APPLICATION"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      return response.statusCode() == 200 && response.body().contains(SECRET_VALUE);
+    } catch (IOException | InterruptedException | RuntimeException e) {
+      return false;
+    }
   }
 }

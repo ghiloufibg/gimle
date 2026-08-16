@@ -80,27 +80,56 @@ class QuotaIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30),
         "greeter-provider-deployment should be flagged quota-violating once its tenant's quota is"
             + " retroactively lowered below what's already running");
-    // Give the reconciler several more ticks' worth of headroom, then confirm it still never
-    // touched the running instance -- the actual guarantee this test exists to prove, not just
-    // that the flag can be set.
-    Thread.sleep(Duration.ofSeconds(5).toMillis());
-    // A single isActive() read can be a false negative under heavy sandbox load (a momentary
-    // heartbeat/store-read staleness, not a real eviction), so require the reading to recover
-    // within a short confirmation window before concluding anything was actually touched: a
-    // genuine eviction (the instance actually stopped,
-    // never restarted, per QuotaReconciler's own never-evict-never-restart contract) would stay
-    // non-ACTIVE throughout this whole window, not just the original single sample.
-    boolean confirmedActive = false;
-    for (int attempt = 0; attempt < 5 && !confirmedActive; attempt++) {
-      confirmedActive = isActive(baseUrl, "greeter-provider-deployment");
-      if (!confirmedActive) {
-        Thread.sleep(Duration.ofSeconds(1).toMillis());
-      }
-    }
-    assertTrue(
-        confirmedActive,
+    // Give the reconciler several more ticks' worth of headroom while continuously holding this
+    // check, rather than sleeping blind and sampling once at the end -- the actual guarantee this
+    // test exists to prove is that the instance was never evicted at any point during that
+    // headroom, not just that a single read happened to see it still active. holding tolerates a
+    // single isActive() false read (a momentary heartbeat/store-read staleness under sandbox
+    // load, not a real eviction) by giving it a short window to recover before concluding
+    // anything was actually touched; QuotaReconciler's own never-evict-never-restart contract
+    // means a genuine eviction is permanent, so a read that never recovers is what actually
+    // confirms an eviction happened, not a single isolated blip.
+    assertStaysActive(
+        baseUrl,
+        "greeter-provider-deployment",
+        Duration.ofSeconds(5),
         "a quota-violating deployment must stay untouched, never evicted, per QuotaReconciler's"
             + " own documented contract");
+  }
+
+  /**
+   * Polls {@code isActive(baseUrl, deploymentName)} every ~100ms for {@code window}, failing only
+   * if a false read fails to recover within a short confirmation window -- tolerating an isolated
+   * stale read the same way the loop this replaced did, while still holding continuously rather
+   * than sleeping blind and sampling once at the end.
+   */
+  private void assertStaysActive(
+      String baseUrl, String deploymentName, Duration window, String message)
+      throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + window.toNanos();
+    do {
+      if (!isActive(baseUrl, deploymentName)) {
+        assertTrue(recoversWithin(baseUrl, deploymentName, Duration.ofSeconds(5)), message);
+      }
+      Thread.sleep(100);
+    } while (System.nanoTime() < deadlineNanos);
+  }
+
+  /**
+   * True once {@code isActive(baseUrl, deploymentName)} reads true again within {@code window} --
+   * the confirmation window a transient stale read is given before {@link #assertStaysActive}
+   * concludes a real eviction happened.
+   */
+  private boolean recoversWithin(String baseUrl, String deploymentName, Duration window)
+      throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + window.toNanos();
+    do {
+      if (isActive(baseUrl, deploymentName)) {
+        return true;
+      }
+      Thread.sleep(500);
+    } while (System.nanoTime() < deadlineNanos);
+    return false;
   }
 
   /**
