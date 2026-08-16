@@ -1,5 +1,6 @@
 module com.gimle.hilmir {
   requires com.gimle.core;
+  requires com.gimle.mimir;
   requires java.net.http;
   requires org.yaml.snakeyaml;
   // No src/test/java/module-info.java exists, so Maven compiles test sources as part of this
@@ -16,4 +17,5 @@ module com.gimle.hilmir {
   exports com.gimle.hilmir.analyze;
   exports com.gimle.hilmir.doctor;
   exports com.gimle.hilmir.init;
+  exports com.gimle.hilmir.store;
 }
