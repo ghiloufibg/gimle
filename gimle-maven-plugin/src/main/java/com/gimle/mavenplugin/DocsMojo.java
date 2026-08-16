@@ -9,7 +9,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -53,7 +52,7 @@ public final class DocsMojo extends AbstractMojo {
     Path javadocDest = docsDir.resolve("static").resolve("javadoc");
 
     getLog().info("running: mvn javadoc:aggregate");
-    runAndWait(root, List.of(mavenExecutable(), "javadoc:aggregate"));
+    runAndWait(root, List.of(GimleProcesses.mavenExecutable(), "javadoc:aggregate"));
 
     getLog().info("copying " + javadocSource + " to " + javadocDest);
     copyJavadocOutput(javadocSource, javadocDest);
@@ -136,26 +135,5 @@ public final class DocsMojo extends AbstractMojo {
       Thread.currentThread().interrupt();
       process.destroy();
     }
-  }
-
-  /**
-   * Resolves the {@code mvn}/{@code mvn.cmd} launcher of the Maven distribution this process is
-   * already running under (via {@code maven.home}, set by the {@code mvn}/{@code mvn.cmd} launcher
-   * script itself), mirroring {@link AbstractGimleMojo#javaExecutable()}'s "run under the exact
-   * same install this process already uses" resolution style, but for {@code mvn} instead of {@code
-   * java}. Falls back to the bare command name (resolved off {@code PATH}) if {@code maven.home}
-   * isn't set, e.g. under an IDE-embedded Maven distribution not launched via the script.
-   */
-  private static String mavenExecutable() {
-    Optional<String> mavenHome = Optional.ofNullable(System.getProperty("maven.home"));
-    boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
-    String script = windows ? "mvn.cmd" : "mvn";
-    if (mavenHome.isPresent()) {
-      Path candidate = Path.of(mavenHome.get(), "bin", script);
-      if (Files.isRegularFile(candidate)) {
-        return candidate.toString();
-      }
-    }
-    return script;
   }
 }

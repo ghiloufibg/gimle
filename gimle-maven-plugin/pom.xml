@@ -46,6 +46,12 @@
   </properties>
 
   <dependencies>
+    <!-- The saga goals emit wire-contract event lines; sharing the codec keeps the plugin's
+         output byte-compatible with what the server and test listener speak. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.apache.maven</groupId>
       <artifactId>maven-plugin-api</artifactId>

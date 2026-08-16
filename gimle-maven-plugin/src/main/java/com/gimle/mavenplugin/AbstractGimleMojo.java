@@ -1,6 +1,5 @@
 package com.gimle.mavenplugin;
 
-import java.io.IOException;
 import java.util.List;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -35,7 +34,7 @@ public abstract class AbstractGimleMojo extends AbstractMojo {
     }
     List<String> command = buildCommand();
     getLog().info("launching: " + String.join(" ", command));
-    runAndWait(command);
+    GimleProcesses.runAndWaitWithShutdownHook(command, targetArtifactId());
   }
 
   /** The one reactor module this goal actually does anything in. */
@@ -43,36 +42,6 @@ public abstract class AbstractGimleMojo extends AbstractMojo {
 
   /** The full OS command line to spawn, built from this module's own resolved state. */
   protected abstract List<String> buildCommand() throws MojoExecutionException;
-
-  private void runAndWait(List<String> command)
-      throws MojoExecutionException, MojoFailureException {
-    Process process;
-    try {
-      process = new ProcessBuilder(command).inheritIO().start();
-    } catch (IOException e) {
-      throw new MojoExecutionException("failed to start " + command.get(0), e);
-    }
-    // Backup for whatever signal-propagation the OS doesn't already handle on its own (a plain
-    // Ctrl+C in a Windows console typically reaches both this process and the child directly) --
-    // belt-and-suspenders, not the only path to a clean shutdown.
-    Thread shutdownHook = new Thread(process::destroy, "gimle-mojo-shutdown-" + targetArtifactId());
-    Runtime.getRuntime().addShutdownHook(shutdownHook);
-    try {
-      int exitCode = process.waitFor();
-      if (exitCode != 0) {
-        throw new MojoFailureException(targetArtifactId() + " exited with code " + exitCode);
-      }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      process.destroy();
-    } finally {
-      try {
-        Runtime.getRuntime().removeShutdownHook(shutdownHook);
-      } catch (IllegalStateException ignored) {
-        // The JVM is already shutting down -- the hook either already ran or is redundant now.
-      }
-    }
-  }
 
   /**
    * @see GimleProcesses#javaExecutable()

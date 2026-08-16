@@ -52,6 +52,77 @@ final class GimleProcesses {
   }
 
   /**
+   * Resolves the {@code mvn}/{@code mvn.cmd} launcher of the Maven distribution this process is
+   * already running under, mirroring {@link #javaExecutable()}'s "spawn on the exact same install
+   * the developer already has active" resolution style. The {@code mvn} launcher script passes
+   * {@code -Dmaven.home} on its own {@code java} command line, so that property is the most direct
+   * record of which install is running; {@code MAVEN_HOME} and a {@code PATH} scan are
+   * progressively weaker guesses, and the bare script name is a last resort that leaves resolution
+   * to {@link ProcessBuilder} at spawn time (e.g. under an IDE-embedded Maven with none of the
+   * above set).
+   */
+  static String mavenExecutable() {
+    for (String home : List.of(propertyOrEmpty("maven.home"), envOrEmpty("MAVEN_HOME"))) {
+      Optional<Path> launcher = mavenLauncherUnder(home);
+      if (launcher.isPresent()) {
+        return launcher.get().toString();
+      }
+    }
+    Optional<Path> onPath = mavenLauncherOnPath(envOrEmpty("PATH"));
+    if (onPath.isPresent()) {
+      return onPath.get().toString();
+    }
+    return isWindows() ? "mvn.cmd" : "mvn";
+  }
+
+  static Optional<Path> mavenLauncherUnder(String mavenHome) {
+    if (mavenHome == null || mavenHome.isBlank()) {
+      return Optional.empty();
+    }
+    return firstLauncherIn(Path.of(mavenHome, "bin"));
+  }
+
+  static Optional<Path> mavenLauncherOnPath(String pathValue) {
+    if (pathValue == null || pathValue.isBlank()) {
+      return Optional.empty();
+    }
+    for (String dir : pathValue.split(File.pathSeparator)) {
+      if (dir.isBlank()) {
+        continue;
+      }
+      Optional<Path> launcher = firstLauncherIn(Path.of(dir));
+      if (launcher.isPresent()) {
+        return launcher;
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<Path> firstLauncherIn(Path directory) {
+    for (String candidate : List.of("mvn", "mvn.cmd")) {
+      Path path = directory.resolve(candidate);
+      if (Files.isRegularFile(path)) {
+        return Optional.of(path);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static String propertyOrEmpty(String name) {
+    String value = System.getProperty(name);
+    return value == null ? "" : value;
+  }
+
+  private static String envOrEmpty(String name) {
+    String value = System.getenv(name);
+    return value == null ? "" : value;
+  }
+
+  private static boolean isWindows() {
+    return System.getProperty("os.name", "").toLowerCase().contains("win");
+  }
+
+  /**
    * Resolves {@code artifactId}'s runtime classpath directly against its already-{@code mvn
    * install}ed jar via Maven's own dependency resolver, independent of reactor build order --
    * {@link AgentMojo}'s original {@code resolveWorkerClasspath()}, generalized to any module rather
@@ -115,6 +186,70 @@ final class GimleProcesses {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       process.destroy();
+    }
+  }
+
+  /**
+   * Like {@link #runAndWait(List, Log)} but with a shutdown hook destroying the child while it
+   * runs, for long-lived foreground children (a server the developer stops with Ctrl+C, a nested
+   * build): a backup for whatever signal propagation the OS doesn't already handle on its own (a
+   * plain Ctrl+C in a Windows console typically reaches both this process and the child directly)
+   * -- belt-and-suspenders, not the only path to a clean shutdown. Fails the Mojo on a non-zero
+   * exit code, naming {@code label} in the failure.
+   */
+  static void runAndWaitWithShutdownHook(List<String> command, String label)
+      throws MojoExecutionException, MojoFailureException {
+    int exitCode = startAndAwaitExit(command, null, label);
+    // An interrupted wait (flag restored by awaitExit) is a deliberate stop, not a child failure.
+    if (exitCode != 0 && !Thread.currentThread().isInterrupted()) {
+      throw new MojoFailureException(label + " exited with code " + exitCode);
+    }
+  }
+
+  /**
+   * Spawns {@code command} with inherited I/O (from {@code workingDirectory} if non-null) under the
+   * same shutdown-hook cover as {@link #runAndWaitWithShutdownHook(List, String)}, but returns the
+   * child's exit code instead of failing on it -- for callers with work left to do after a failed
+   * child (report sweeps, result publication) before deciding the build's own fate. Unlike {@link
+   * #runAndWait(List, Log)} this logs nothing itself -- each caller already announces the launch in
+   * its own words.
+   */
+  static int startAndAwaitExit(List<String> command, Path workingDirectory, String label)
+      throws MojoExecutionException {
+    Process process;
+    try {
+      ProcessBuilder builder = new ProcessBuilder(command).inheritIO();
+      if (workingDirectory != null) {
+        builder.directory(workingDirectory.toFile());
+      }
+      process = builder.start();
+    } catch (IOException e) {
+      throw new MojoExecutionException("failed to start " + command.get(0), e);
+    }
+    Thread shutdownHook = new Thread(process::destroy, "gimle-mojo-shutdown-" + label);
+    Runtime.getRuntime().addShutdownHook(shutdownHook);
+    try {
+      return awaitExit(process);
+    } finally {
+      try {
+        Runtime.getRuntime().removeShutdownHook(shutdownHook);
+      } catch (IllegalStateException ignored) {
+        // The JVM is already shutting down -- the hook either already ran or is redundant now.
+      }
+    }
+  }
+
+  /**
+   * Waits for {@code process}, translating an interrupt into "destroy the child and report failure"
+   * (-1) rather than letting the checked {@link InterruptedException} escape.
+   */
+  static int awaitExit(Process process) {
+    try {
+      return process.waitFor();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      process.destroy();
+      return -1;
     }
   }
 }
