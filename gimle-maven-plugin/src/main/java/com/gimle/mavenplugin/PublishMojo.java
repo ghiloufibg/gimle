@@ -1,6 +1,5 @@
 package com.gimle.mavenplugin;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.maven.plugin.AbstractMojo;
@@ -79,25 +78,6 @@ public final class PublishMojo extends AbstractMojo {
     command.add(server);
 
     getLog().info("publishing " + file + " to the registry behind " + server);
-    runAndWait(command);
-  }
-
-  private void runAndWait(List<String> command)
-      throws MojoExecutionException, MojoFailureException {
-    Process process;
-    try {
-      process = new ProcessBuilder(command).inheritIO().start();
-    } catch (IOException e) {
-      throw new MojoExecutionException("failed to start " + command.get(0), e);
-    }
-    try {
-      int exitCode = process.waitFor();
-      if (exitCode != 0) {
-        throw new MojoFailureException("gimle artifact push exited with code " + exitCode);
-      }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      process.destroy();
-    }
+    GimleProcesses.runAndWait(command, getLog());
   }
 }
