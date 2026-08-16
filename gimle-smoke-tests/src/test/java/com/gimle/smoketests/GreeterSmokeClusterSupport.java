@@ -1615,12 +1615,44 @@ abstract class GreeterSmokeClusterSupport {
       String muninnEndpoint,
       Path logFile)
       throws IOException {
+    return spawnAgent(
+        javaExecutable,
+        classpath,
+        nodeId,
+        gossipAddress,
+        seedsSpec,
+        controlPlaneBaseUrl,
+        fafnirEndpoint,
+        muninnEndpoint,
+        "",
+        logFile);
+  }
+
+  /**
+   * Like the nine-argument {@link #spawnAgent}, plus {@code nodeLabels} -- {@code
+   * AgentMain#nodeLabels}' own {@code -Dgimle.node.labels=a,b} flag, the existing, no-further-work
+   * mechanism an operator uses to mark a real machine as (for example) an edge node. Empty means no
+   * labels, matching the nine-argument overload's own behavior exactly.
+   */
+  Process spawnAgent(
+      String javaExecutable,
+      String classpath,
+      String nodeId,
+      String gossipAddress,
+      String seedsSpec,
+      String controlPlaneBaseUrl,
+      String fafnirEndpoint,
+      String muninnEndpoint,
+      String nodeLabels,
+      Path logFile)
+      throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
             "-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT,
+            "-Dgimle.node.labels=" + nodeLabels,
             // Same tempDir/nodeId-scoping reasoning as -Dgimle.log.root= just below: absent this,
             // AgentMain's LocalDiskVolumeManager defaults to "gimle-data" relative to the forked
             // test JVM's own CWD, so a StatefulSet instance's volume would accumulate on disk
@@ -1831,6 +1863,49 @@ abstract class GreeterSmokeClusterSupport {
         artifactPath: %s
         """
             .formatted(name, moduleName, version, jar.toAbsolutePath());
+    submitManifest(baseUrl, "/daemonsets/", name, manifest);
+  }
+
+  /**
+   * Like {@link #submitDaemonSet(String, String, String, String, Path)}, but with a caller-chosen
+   * {@code placement.requiredLabels} set and {@code tenantId} -- needed by {@code
+   * GatewayFabricRouteIT}, which deploys a real {@code gimle-gateway} DaemonSet scoped to
+   * edge-labeled nodes inside the reserved {@code gimle-system} tenant, neither of which the
+   * five-argument overload above can express.
+   */
+  void submitDaemonSet(
+      String baseUrl,
+      String name,
+      String moduleName,
+      String version,
+      Path jar,
+      List<String> requiredLabels,
+      Optional<String> tenantId)
+      throws Exception {
+    String placementBlock =
+        requiredLabels.isEmpty()
+            ? ""
+            : "placement:\n  requiredLabels:\n"
+                + requiredLabels.stream()
+                    .map(label -> "    - " + label + "\n")
+                    .reduce("", String::concat);
+    String manifest =
+        """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        %s%s
+        """
+            .formatted(
+                name,
+                moduleName,
+                version,
+                jar.toAbsolutePath(),
+                placementBlock,
+                tenantId.map(id -> "tenantId: " + id).orElse(""));
     submitManifest(baseUrl, "/daemonsets/", name, manifest);
   }
 
@@ -2096,6 +2171,26 @@ abstract class GreeterSmokeClusterSupport {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (configResponse.statusCode() != 200) {
       fail("config write failed: " + configResponse.statusCode() + " " + configResponse.body());
+    }
+  }
+
+  /**
+   * A real, plain (non-encrypted) tenant-scoped config write via {@code PUT /config/{tenantId}/
+   * {key}} -- the same API {@link #provisionTenantAndSecret} already exercises inline for {@link
+   * #PLAIN_CONFIG_KEY}, pulled out here as a reusable primitive for {@code GatewayFabricRouteIT},
+   * which needs to write two such keys ({@code gateway.port}/{@code gateway.routes}) rather than
+   * just the one this class's other callers need.
+   */
+  void putPlainConfig(String baseUrl, String tenantId, String key, String value) throws Exception {
+    String configBody = Json.write(Map.of("value", value, "encrypted", false));
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/" + tenantId + "/" + key))
+                .PUT(HttpRequest.BodyPublishers.ofString(configBody, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("config write failed: " + response.statusCode() + " " + response.body());
     }
   }
 

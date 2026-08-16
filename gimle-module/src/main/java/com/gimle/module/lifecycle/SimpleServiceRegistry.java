@@ -154,5 +154,9 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
     }
   }
 
+  // invokeByName: no override needed here -- ServiceRegistry's own default method (a plain
+  // reflective invoke against whatever lookupByInterfaceName resolves) is already exactly this
+  // class's same-worker-only behavior; see that default's own javadoc.
+
   private record Entry(ModuleId owner, Object instance, AtomicBoolean ready) {}
 }

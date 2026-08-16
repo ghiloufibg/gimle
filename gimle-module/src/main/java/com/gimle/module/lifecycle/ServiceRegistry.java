@@ -1,6 +1,9 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 /**
@@ -65,4 +68,100 @@ public interface ServiceRegistry {
 
   /** Removes everything {@code owner} registered. */
   void remove(ModuleId owner);
+
+  /**
+   * Cross-tier, name-driven invocation for a caller that only has a service's identity as plain
+   * runtime strings -- an interface name, its major version, and a method signature -- not a
+   * compile-time {@code Class<T>} a caller could reflect against directly. A route-config-driven
+   * caller (the gateway module) is the motivating case: its routes name a target service at
+   * runtime, never at compile time, so {@link #lookup}/{@link #lookupByInterfaceName} (which both
+   * hand back a typed or bare instance for the caller's own code to invoke) don't fit -- this
+   * method does the invocation itself and hands back only the result.
+   *
+   * <p>{@code paramTypeNames} names each argument's declared type (not the runtime type of {@code
+   * args}' contents), the same convention the fabric wire protocol uses, so the exact overload is
+   * resolved deterministically rather than guessed from the arguments alone.
+   *
+   * <p>Returns {@link Optional#empty()} both when nothing this registry knows about exports {@code
+   * interfaceName} at {@code majorVersion} (consistent with {@link #lookupByInterfaceName}'s own
+   * "nothing registered" convention -- an unresolvable route is reported the same way as "not
+   * registered yet," never as an exception) and when a found method's real return value is
+   * legitimately {@code null} or {@code void}; this method has no way to distinguish those two
+   * outcomes from the return value alone. An unresolvable method name or parameter-type list is a
+   * genuine failure, by contrast: it throws rather than silently matching the wrong overload.
+   *
+   * <p>{@code default}, not abstract: the implementation here is the same-worker-only behavior
+   * every implementation gets for free (a plain reflective invoke against whatever {@link
+   * #lookupByInterfaceName} already resolves, ignoring {@code majorVersion} -- this registry tracks
+   * no per-registration export-version metadata to filter by, the same reason {@link
+   * #lookupByInterfaceName} itself carries no version parameter). {@code majorVersion} is still
+   * part of the signature so a name-driven caller never has to special-case "this registry ignores
+   * version" -- a richer registry that spans more than one tier (e.g. {@code gimle-fabric}'s own)
+   * overrides this to add same-machine/remote tiers with real version filtering, without changing
+   * the contract every simpler, same-worker-only implementation (including a wrapper that merely
+   * delegates every other method, like {@code gimle-worker}'s own instance-tagging wrapper) has to
+   * satisfy.
+   */
+  default Optional<Object> invokeByName(
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable {
+    Optional<Object> instance = lookupByInterfaceName(interfaceName);
+    if (instance.isEmpty()) {
+      return Optional.empty();
+    }
+    Class<?> iface = findInterface(instance.get().getClass(), interfaceName);
+    Class<?>[] paramTypes = resolveParamTypes(paramTypeNames, iface.getClassLoader());
+    Method method = iface.getMethod(methodName, paramTypes);
+    try {
+      return Optional.ofNullable(
+          method.invoke(instance.get(), args == null ? new Object[0] : args));
+    } catch (InvocationTargetException e) {
+      throw e.getCause() != null ? e.getCause() : e;
+    }
+  }
+
+  /**
+   * The public interface {@code instanceClass} declares matching {@code interfaceName} --
+   * reflecting through this, not {@code instanceClass} itself, matters when the instance is a
+   * lambda or a dynamic-proxy wrapper (both package-private/synthetic): {@link Method#invoke}
+   * checks the *declaring class*'s accessibility, not just the method's own public modifier.
+   */
+  private static Class<?> findInterface(Class<?> instanceClass, String interfaceName) {
+    for (Class<?> candidate : instanceClass.getInterfaces()) {
+      if (candidate.getName().equals(interfaceName)) {
+        return candidate;
+      }
+    }
+    throw new NoSuchElementException(interfaceName + " is not implemented by " + instanceClass);
+  }
+
+  private static Class<?>[] resolveParamTypes(String[] paramTypeNames, ClassLoader loader)
+      throws ClassNotFoundException {
+    Class<?>[] paramTypes = new Class<?>[paramTypeNames.length];
+    for (int i = 0; i < paramTypes.length; i++) {
+      paramTypes[i] = resolveParamType(paramTypeNames[i], loader);
+    }
+    return paramTypes;
+  }
+
+  /** Mirrors the wire protocol's own primitive-name convention (see {@code FabricFrame}). */
+  private static Class<?> resolveParamType(String name, ClassLoader loader)
+      throws ClassNotFoundException {
+    return switch (name) {
+      case "boolean" -> boolean.class;
+      case "byte" -> byte.class;
+      case "short" -> short.class;
+      case "char" -> char.class;
+      case "int" -> int.class;
+      case "long" -> long.class;
+      case "float" -> float.class;
+      case "double" -> double.class;
+      case "void" -> void.class;
+      default -> Class.forName(name, false, loader);
+    };
+  }
 }

@@ -1,0 +1,27 @@
+# A worked example of deploying gimle-gateway for real. This manifest alone is not enough to bring
+# up a working gateway instance -- two tenant-scoped config keys still need to be written through
+# the control plane's own /config/{tenantId}/{key} API before (or racing) this DaemonSet's
+# instances start, since a workload manifest carries no config block of its own:
+#
+#   PUT /config/gimle-system/gateway.port
+#     {"value": "8090", "encrypted": false}
+#   PUT /config/gimle-system/gateway.routes
+#     {"value": "/greet com.gimle.examples.greeter.Greeter 1 greet STRING\n", "encrypted": false}
+#
+# See GatewayHooks's own javadoc for the two keys' exact meaning, and GatewayRouteConfig's own
+# javadoc for the route-table format the second one holds.
+#
+# tenantId: gimle-system only ever admits through a gimle:operators-group credential -- see
+# ApiServer#rejectIfReservedSystemTenant. placement.requiredLabels: [edge] matches how an operator
+# marks a machine as an edge node today: `-Dgimle.node.labels=edge` on that node's own AgentMain
+# (AgentMain#nodeLabels) -- an existing mechanism, nothing further needed here.
+kind: DaemonSet
+name: gimle-gateway
+module:
+  name: com.gimle.gateway
+  version: 1.0.0
+artifactPath: gimle-gateway/target/gimle-gateway-0.1.0-SNAPSHOT.jar
+placement:
+  requiredLabels:
+    - edge
+tenantId: gimle-system

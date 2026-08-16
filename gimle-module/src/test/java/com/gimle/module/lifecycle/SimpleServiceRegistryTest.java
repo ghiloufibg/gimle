@@ -2,6 +2,7 @@ package com.gimle.module.lifecycle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
@@ -9,6 +10,7 @@ import com.gimle.core.module.Version;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class SimpleServiceRegistryTest {
@@ -235,6 +237,145 @@ class SimpleServiceRegistryTest {
   private static Object newProxy(Class<?> iface) {
     return java.lang.reflect.Proxy.newProxyInstance(
         iface.getClassLoader(), new Class<?>[] {iface}, (proxy, method, args) -> "proxied");
+  }
+
+  // ---- invokeByName ----
+
+  private interface Echoer {
+    String echo(String value);
+
+    void ping();
+  }
+
+  /**
+   * A concrete {@link Echoer} -- needed wherever a test cares about {@code ping()} too, since a
+   * two-method interface can't be a lambda.
+   */
+  private static final class EchoerImpl implements Echoer {
+    private final AtomicBoolean pinged = new AtomicBoolean();
+
+    @Override
+    public String echo(String value) {
+      return "echo:" + value;
+    }
+
+    @Override
+    public void ping() {
+      pinged.set(true);
+    }
+  }
+
+  @Test
+  void invoke_by_name_invokes_a_registered_instance_directly() throws Throwable {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(id("com.gimle.echo"), Echoer.class, new EchoerImpl());
+
+    Optional<Object> result =
+        registry.invokeByName(
+            Echoer.class.getName(),
+            1,
+            "echo",
+            new String[] {"java.lang.String"},
+            new Object[] {"x"});
+
+    assertEquals(Optional.of("echo:x"), result);
+  }
+
+  @Test
+  void invoke_by_name_on_an_unknown_interface_returns_empty() throws Throwable {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    assertEquals(
+        Optional.empty(),
+        registry.invokeByName(
+            "com.gimle.example.NoSuchInterface", 1, "whatever", new String[0], new Object[0]));
+  }
+
+  @Test
+  void invoke_by_name_on_a_registered_but_currently_unready_instance_returns_empty()
+      throws Throwable {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    ModuleId owner = id("com.gimle.echo");
+    registry.register(owner, Echoer.class, new EchoerImpl());
+    registry.markUnready(owner);
+
+    assertEquals(
+        Optional.empty(),
+        registry.invokeByName(
+            Echoer.class.getName(),
+            1,
+            "echo",
+            new String[] {"java.lang.String"},
+            new Object[] {"x"}));
+  }
+
+  @Test
+  void invoke_by_name_with_a_wrong_method_name_throws_rather_than_matching_a_wrong_overload() {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(id("com.gimle.echo"), Echoer.class, new EchoerImpl());
+
+    assertThrows(
+        NoSuchMethodException.class,
+        () ->
+            registry.invokeByName(
+                Echoer.class.getName(),
+                1,
+                "notARealMethod",
+                new String[] {"java.lang.String"},
+                new Object[] {"x"}));
+  }
+
+  @Test
+  void invoke_by_name_with_wrong_param_type_names_throws_rather_than_matching_a_wrong_overload() {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(id("com.gimle.echo"), Echoer.class, new EchoerImpl());
+
+    assertThrows(
+        NoSuchMethodException.class,
+        () ->
+            registry.invokeByName(
+                Echoer.class.getName(), 1, "echo", new String[] {"int"}, new Object[] {1}));
+  }
+
+  @Test
+  void invoke_by_name_rethrows_an_application_exception_with_its_real_type() {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(
+        id("com.gimle.echo"),
+        Echoer.class,
+        new Echoer() {
+          @Override
+          public String echo(String value) {
+            throw new IllegalStateException("boom: " + value);
+          }
+
+          @Override
+          public void ping() {}
+        });
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                registry.invokeByName(
+                    Echoer.class.getName(),
+                    1,
+                    "echo",
+                    new String[] {"java.lang.String"},
+                    new Object[] {"x"}));
+    assertTrue(thrown.getMessage().contains("boom: x"));
+  }
+
+  @Test
+  void invoke_by_name_on_a_void_method_returns_an_empty_optional() throws Throwable {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    EchoerImpl echoer = new EchoerImpl();
+    registry.register(id("com.gimle.echo"), Echoer.class, echoer);
+
+    Optional<Object> result =
+        registry.invokeByName(Echoer.class.getName(), 1, "ping", new String[0], new Object[0]);
+
+    assertEquals(Optional.empty(), result);
+    assertTrue(echoer.pinged.get(), "the real void method should still have run");
   }
 
   /**

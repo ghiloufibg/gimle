@@ -69,6 +69,18 @@ public final class SimpleModuleContext implements ModuleContext {
   }
 
   @Override
+  public Optional<Object> invokeServiceByName(
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable {
+    return serviceRegistry.invokeByName(
+        interfaceName, majorVersion, methodName, paramTypeNames, args);
+  }
+
+  @Override
   public Optional<String> config(String key) {
     return Optional.ofNullable(configValues.get(key));
   }

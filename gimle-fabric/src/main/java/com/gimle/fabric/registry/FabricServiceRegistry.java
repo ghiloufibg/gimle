@@ -13,6 +13,7 @@ import com.gimle.fabric.trace.TraceContext;
 import com.gimle.fabric.transport.FabricClient;
 import com.gimle.fabric.transport.FabricFrame;
 import com.gimle.fabric.transport.ObjectMarshalling;
+import com.gimle.fabric.transport.ReflectiveDispatch;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import io.opentelemetry.api.baggage.Baggage;
 import io.opentelemetry.api.baggage.BaggageEntry;
@@ -22,6 +23,7 @@ import io.opentelemetry.api.trace.TraceState;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
@@ -287,6 +289,105 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return localRegistry.lookupByInterfaceName(interfaceName);
   }
 
+  /**
+   * The cross-tier counterpart to {@link #lookup(Class)} for a caller that only has a service's
+   * identity as plain runtime strings -- an interface name, its major version, and a method
+   * signature -- not a compile-time {@code Class<T>} a dynamic {@link Proxy} could reflect against.
+   * A route-config-driven caller (the gateway module) is the motivating case: its routes name a
+   * target service at runtime, never at compile time.
+   *
+   * <p>Tries the same tiers {@link #lookup(Class)} does, in the same order: (1) same-worker, served
+   * by a direct reflective invoke against the already-in-hand instance, no wire hop at all; (2)/(3)
+   * same-machine and remote, selected exactly the way {@link #lookup(Class)} selects them (locality
+   * preference with load-aware spillover, least-outstanding-requests, circuit breaking, the same
+   * {@link #permitsUnderTenantPolicy} tenant check) and dispatched over the identical wire
+   * mechanics {@link #invokeRemote} uses, just keyed by name instead of a resolved {@link Method}.
+   * Unlike {@link #lookup(Class)} -- which has no export version to filter by, since a {@code
+   * Class} carries only an interface name -- this can and does narrow catalog candidates to
+   * exporters whose {@code ServiceExport}'s major version matches {@code majorVersion}; the
+   * same-worker tier is not narrowed this way, since {@code localRegistry} tracks no export-version
+   * metadata of its own.
+   *
+   * <p>Returns {@link Optional#empty()} both when nothing anywhere exports {@code interfaceName} at
+   * {@code majorVersion} (consistent with {@link #lookupByInterfaceName}'s own "nothing registered"
+   * convention -- a bad route name is reported the same way as "not registered yet," not as an
+   * exception) and when a found method's real return value is legitimately {@code null} or {@code
+   * void} -- this signature can't distinguish those two outcomes from the return value alone. An
+   * unresolvable method name or parameter-type list, by contrast, is a genuine failure: {@code
+   * NoSuchMethodException}/{@code ClassNotFoundException} propagate rather than being swallowed
+   * into an empty result or matched against the wrong overload.
+   */
+  @Override
+  public Optional<Object> invokeByName(
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable {
+    Optional<Object> localInstance = localRegistry.lookupByInterfaceName(interfaceName);
+    if (localInstance.isPresent()) {
+      return invokeLocalByName(
+          localInstance.get(), interfaceName, methodName, paramTypeNames, args);
+    }
+
+    List<ServiceEndpoint> allKnown = endpointsForNameAndVersion(interfaceName, majorVersion);
+    if (allKnown.isEmpty()) {
+      return Optional.empty();
+    }
+
+    List<ServiceEndpoint> sameMachine = new ArrayList<>();
+    List<ServiceEndpoint> remote = new ArrayList<>();
+    for (ServiceEndpoint endpoint : allKnown) {
+      boolean isSameMachine = endpoint.node().nodeId().equals(selfNode.nodeId());
+      if (isSameMachine && endpoint.workerId().equals(workerId)) {
+        continue; // this worker's own entry: already covered by the local-registry tier above
+      }
+      if (!permitsUnderTenantPolicy(endpoint.export())) {
+        continue; // this tenant isn't on the export's allow-list
+      }
+      (isSameMachine ? sameMachine : remote).add(endpoint);
+    }
+
+    List<ServiceEndpoint> candidates = localityAwareCandidates(sameMachine, remote);
+    ServiceEndpoint chosen = selectAllowedCandidate(candidates);
+    if (chosen == null) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(
+        invokeOverWire(interfaceName, chosen, methodName, paramTypeNames, args));
+  }
+
+  private List<ServiceEndpoint> endpointsForNameAndVersion(String interfaceName, int majorVersion) {
+    return catalog.endpointsForInterface(interfaceName).stream()
+        .filter(endpoint -> endpoint.export().version().major() == majorVersion)
+        .toList();
+  }
+
+  /**
+   * Same-worker half of {@link #invokeByName}: {@code instance} is already the real, live object
+   * {@code localRegistry} handed back, so this is a plain reflective invoke -- no serialization, no
+   * wire hop -- mirroring what {@code FabricServer#invokeLocally} does for an *inbound* call, just
+   * from the caller's side instead of the dispatcher's.
+   */
+  private Optional<Object> invokeLocalByName(
+      Object instance,
+      String interfaceName,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable {
+    Class<?> iface = ReflectiveDispatch.findInterface(instance.getClass(), interfaceName);
+    Class<?>[] paramTypes =
+        ReflectiveDispatch.resolveParamTypes(paramTypeNames, iface.getClassLoader());
+    Method method = iface.getMethod(methodName, paramTypes);
+    try {
+      return Optional.ofNullable(method.invoke(instance, args == null ? new Object[0] : args));
+    } catch (InvocationTargetException e) {
+      throw e.getCause() != null ? e.getCause() : e;
+    }
+  }
+
   @Override
   public Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName) {
     return localRegistry.lookupOwnedByInterfaceName(interfaceName);
@@ -451,19 +552,36 @@ public final class FabricServiceRegistry implements ServiceRegistry {
 
   private Object invokeRemote(
       Class<?> iface, ServiceEndpoint endpoint, Method method, Object[] args) throws Throwable {
+    String[] paramTypeNames =
+        Arrays.stream(method.getParameterTypes()).map(Class::getName).toArray(String[]::new);
+    return invokeOverWire(iface.getName(), endpoint, method.getName(), paramTypeNames, args);
+  }
+
+  /**
+   * The actual wire mechanics behind both {@link #invokeRemote} (a {@link Method}-driven caller,
+   * reduced to these same plain strings) and {@link #invokeByName}'s own same-machine/remote tiers
+   * (which never had a {@link Method} to begin with) -- builds and sends one {@code
+   * FabricFrame.InvokeRequest}, then applies the identical breaker-scoring and error-unwrapping
+   * rules to whatever comes back, regardless of which caller shape produced the request.
+   */
+  private Object invokeOverWire(
+      String interfaceName,
+      ServiceEndpoint endpoint,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args)
+      throws Throwable {
     CircuitBreaker breaker = breakerFor(endpoint);
     selector.begin(endpoint);
     try {
       SocketAddress address = resolveAddress(endpoint);
-      String[] paramTypeNames =
-          Arrays.stream(method.getParameterTypes()).map(Class::getName).toArray(String[]::new);
       byte[] serializedArgs = ObjectMarshalling.serialize(args == null ? new Object[0] : args);
       FabricFrame.InvokeRequest request =
           new FabricFrame.InvokeRequest(
               ThreadLocalRandom.current().nextLong(),
               captureTrace(),
-              iface.getName(),
-              method.getName(),
+              interfaceName,
+              methodName,
               paramTypeNames,
               serializedArgs);
       FabricFrame response;
