@@ -123,6 +123,22 @@ diff the two (new failures, fixed scenarios, latency deltas). The JSON stays the
 the HTML is a rendering of it. The writer adds nothing to a plain `mvn verify`; it activates only
 when a validation run actually produces results.
 
+Pass `-Dgimle.saga.endpoint=http://127.0.0.1:9096` to also ship the run's Gherkin scenarios, Fenrir
+chaos ledgers, Surtr measurements, and booted topologies to a running **`gimle-saga`** report
+server (`mvn gimle:saga` starts one, or reuses an already-running one, on that default port), the
+same endpoint property `gimle-core`'s own `SagaTestListener` reads for shipping per-test results:
+
+```sh
+mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.saga.endpoint=http://127.0.0.1:9096
+```
+
+Shipping is best-effort and additive to the local JSON/HTML report, never a replacement for it: a
+Saga server that's down or unreachable never fails the run. By default the shipped attachments land
+under the collector's own run ID (the same one naming its `target/holmgang/saga/<run-id>/`
+directory); pass `-Dgimle.saga.runId=<id>` matching a run already open in Saga (for example one
+`SagaTestListener` is streaming the same suite's own test results into) to fold the attachments
+into that run instead.
+
 ## Failure forensics
 
 A failed condition throws the investigation: the last observed cluster view, per-instance states

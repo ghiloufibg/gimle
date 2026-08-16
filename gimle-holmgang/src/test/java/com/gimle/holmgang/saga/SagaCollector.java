@@ -20,7 +20,9 @@ import java.util.regex.Pattern;
  * from wherever they arise. Everything a run produces accumulates here across the whole failsafe
  * fork -- the Gherkin suite and the Java {@code *IT}s share one JVM -- and is flushed once to a
  * versioned {@code holmgang-report.json} at JVM shutdown, so the report captures the entire run
- * regardless of the order its parts ran in.
+ * regardless of the order its parts ran in. That same flush also hands everything to {@link
+ * SagaShipper}, which best-effort-ships it onward as attachments to a running Saga report server
+ * when one is configured -- a second output path, not a replacement for the local report.
  *
  * <p>The collector is created lazily on first use, so a plain unit build (which touches none of
  * this) never writes a report; only a real {@code -Pvalidation} run does.
@@ -171,6 +173,7 @@ public final class SagaCollector {
     }
     written = true;
     SagaWriter.write(this);
+    SagaShipper.ship(this);
   }
 
   String runId() {
