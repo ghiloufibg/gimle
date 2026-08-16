@@ -5,12 +5,14 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.hilmir.HilmirException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,14 @@ import javax.net.ssl.SSLContext;
 public final class ControlPlaneApi {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+
+  /**
+   * A whole-jar streaming upload can run far longer than any ordinary JSON call, so it gets its
+   * own, much longer timeout budget rather than sharing {@link #REQUEST_TIMEOUT} -- the same split
+   * {@code gimle-cli}'s own {@code ControlPlaneClient} makes between its JSON-call and
+   * file-transfer timeouts.
+   */
+  private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
 
   private final URI baseUri;
   private final HttpClient httpClient;
@@ -71,6 +81,28 @@ public final class ControlPlaneApi {
 
   ApiResponse delete(String path) {
     return send(HttpRequest.newBuilder(resolve(path)).timeout(REQUEST_TIMEOUT).DELETE().build());
+  }
+
+  /**
+   * Streams {@code file}'s bytes straight from disk as a PUT body (never the whole jar buffered in
+   * memory), the same {@code HttpRequest.BodyPublishers.ofFile} approach {@code gimle-cli}'s own
+   * {@code ControlPlaneClient.putFile} uses, over {@link #TRANSFER_TIMEOUT} rather than {@link
+   * #REQUEST_TIMEOUT}. Throws on any non-2xx response the same way {@link #expectSuccess} does --
+   * {@code expectSuccess} itself is package-private, so a caller outside this package (an artifact
+   * push from {@code com.gimle.hilmir.extension}, say) needs this method to already guarantee
+   * success rather than being handed a raw {@link ApiResponse} it has no way to check itself.
+   */
+  public void putFile(String path, Path file) {
+    try {
+      expectSuccess(
+          send(
+              HttpRequest.newBuilder(resolve(path))
+                  .timeout(TRANSFER_TIMEOUT)
+                  .PUT(HttpRequest.BodyPublishers.ofFile(file))
+                  .build()));
+    } catch (FileNotFoundException e) {
+      throw new HilmirException("no such file: " + file, e);
+    }
   }
 
   /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object. */

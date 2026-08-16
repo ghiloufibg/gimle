@@ -34,4 +34,9 @@ else
   java_bin=java
 fi
 
+# Lets hilmir locate this archive's own install root (in particular its modules/ directory, a
+# sibling of bin/ and lib/) without guessing from java.class.path -- see HilmirMain's own
+# --modules-dir resolution for "hilmir enable"/"hilmir disable".
+export GIMLE_HOME="$script_dir/.."
+
 exec "$java_bin" -cp "$classpath" com.gimle.hilmir.HilmirMain "$@"

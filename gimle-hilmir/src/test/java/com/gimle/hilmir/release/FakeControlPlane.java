@@ -7,7 +7,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +30,13 @@ import java.util.concurrent.Executors;
  * proves {@link ReleaseLedger}'s {@code .}-delimited key naming actually survives that filter --
  * without reproducing it here, a ledger test could pass against a stub that's more permissive than
  * the real thing.
+ *
+ * <p>Also stubs the {@code /artifacts/{name}/{version}} surface ({@code HEAD}/{@code GET}/{@code
+ * PUT}) {@code com.gimle.hilmir.extension}'s {@code hilmir enable gateway} pushes through and
+ * HEAD-checks -- public (rather than this class's original package-private shape) so that package's
+ * own tests can reuse this one stub rather than a second parallel fixture.
  */
-final class FakeControlPlane implements AutoCloseable {
+public final class FakeControlPlane implements AutoCloseable {
 
   private static final Map<String, String> KIND_PREFIXES =
       Map.of(
@@ -38,7 +46,7 @@ final class FakeControlPlane implements AutoCloseable {
           "DaemonSet", "/daemonsets/",
           "StatefulSet", "/statefulsets/");
 
-  record Recorded(String method, String path, String body) {}
+  public record Recorded(String method, String path, String body) {}
 
   private record ConfigValue(String value, boolean encrypted) {}
 
@@ -58,16 +66,17 @@ final class FakeControlPlane implements AutoCloseable {
   private final Map<String, Map<String, Object>> tenants = new LinkedHashMap<>();
   private final Map<String, Map<String, ConfigValue>> config = new LinkedHashMap<>();
   private final Map<String, Map<String, WorkloadRecord>> workloads = new LinkedHashMap<>();
-  final List<Recorded> requests = new CopyOnWriteArrayList<>();
+  private final Map<String, byte[]> artifacts = new LinkedHashMap<>();
+  public final List<Recorded> requests = new CopyOnWriteArrayList<>();
 
-  FakeControlPlane() throws IOException {
+  public FakeControlPlane() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext("/", this::dispatch);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     server.start();
   }
 
-  String address() {
+  public String address() {
     return "127.0.0.1:" + server.getAddress().getPort();
   }
 
@@ -76,18 +85,31 @@ final class FakeControlPlane implements AutoCloseable {
     server.stop(0);
   }
 
-  boolean hasTenant(String id) {
+  public boolean hasTenant(String id) {
     return tenants.containsKey(id);
   }
 
-  boolean hasWorkload(String kind, String name) {
+  public boolean hasWorkload(String kind, String name) {
     Map<String, WorkloadRecord> byName = workloads.get(kind);
     return byName != null && byName.containsKey(name);
   }
 
-  String configValue(String tenant, String key) {
+  public String configValue(String tenant, String key) {
     ConfigValue value = config.getOrDefault(tenant, Map.of()).get(key);
     return value == null ? null : value.value();
+  }
+
+  public boolean hasArtifact(String name, String version) {
+    return artifacts.containsKey(artifactKey(name, version));
+  }
+
+  /** Pre-populates a coordinate's stored bytes, for a HEAD check to report already-present. */
+  public void seedArtifact(String name, String version, byte[] bytes) {
+    artifacts.put(artifactKey(name, version), bytes);
+  }
+
+  private static String artifactKey(String name, String version) {
+    return name + "/" + version;
   }
 
   /**
@@ -122,13 +144,22 @@ final class FakeControlPlane implements AutoCloseable {
   private void dispatch(HttpExchange exchange) throws IOException {
     String method = exchange.getRequestMethod();
     String path = exchange.getRequestURI().getPath();
-    String body;
+    // Read as raw bytes first, not straight into a String: an /artifacts/* PUT body is a real
+    // (binary) jar, and a UTF-8 round trip through String would corrupt it before handleArtifact
+    // ever sees it. Every other route here only ever carries text, so decoding that same byte[]
+    // as UTF-8 for the request log and the text-shaped handlers costs nothing extra.
+    byte[] bodyBytes;
     try (InputStream in = exchange.getRequestBody()) {
-      body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+      bodyBytes = in.readAllBytes();
     }
+    String body = new String(bodyBytes, StandardCharsets.UTF_8);
     requests.add(new Recorded(method, path, body));
     try {
-      route(exchange, method, path, body);
+      if (path.startsWith("/artifacts/")) {
+        handleArtifact(exchange, method, path.substring("/artifacts/".length()), bodyBytes);
+      } else {
+        route(exchange, method, path, body);
+      }
     } finally {
       exchange.close();
     }
@@ -146,6 +177,44 @@ final class FakeControlPlane implements AutoCloseable {
       handleSecret(exchange, method);
     } else {
       handleWorkload(exchange, method, path, body);
+    }
+  }
+
+  private void handleArtifact(HttpExchange exchange, String method, String coordinate, byte[] body)
+      throws IOException {
+    switch (method) {
+      case "HEAD" -> {
+        byte[] stored = artifacts.get(coordinate);
+        if (stored == null) {
+          exchange.sendResponseHeaders(404, -1);
+          return;
+        }
+        exchange.getResponseHeaders().add("X-Gimle-Artifact-Sha256", sha256Hex(stored));
+        exchange.sendResponseHeaders(200, -1);
+      }
+      case "PUT" -> {
+        artifacts.put(coordinate, body);
+        respond(exchange, 200, "ok");
+      }
+      case "GET" -> {
+        byte[] stored = artifacts.get(coordinate);
+        if (stored == null) {
+          respond(exchange, 404, "not found: " + coordinate);
+          return;
+        }
+        exchange.getResponseHeaders().add("X-Gimle-Artifact-Sha256", sha256Hex(stored));
+        exchange.sendResponseHeaders(200, stored.length);
+        exchange.getResponseBody().write(stored);
+      }
+      default -> respond(exchange, 405, "method not allowed");
+    }
+  }
+
+  private static String sha256Hex(byte[] bytes) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 not available in this JVM", e);
     }
   }
 
