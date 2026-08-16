@@ -4,9 +4,9 @@ sidebar_position: 10
 
 # Authentication and authorization
 
-Roadmap Priority 1: [Transport security](./transport-security.md) answers *is this connection
-encrypted, and is the certificate on the other end trust-chain-valid* — it does not answer *who is
-this, and what are they allowed to do*. Before this, `ApiServer` only ever checked that *a* verified
+[Transport security](./transport-security.md) answers *is this connection encrypted, and is the
+certificate on the other end trust-chain-valid* — it does not answer *who is this, and what are
+they allowed to do*. Before this, `ApiServer` only ever checked that *a* verified
 client certificate was present; any node or operator certificate could reach every route. This layer
 adds real identity (a `Principal`, resolved from either an mTLS certificate or a console session
 cookie) and real authorization (`Role`/`RoleBinding`, resolved by `Authorizer`) in front of every
