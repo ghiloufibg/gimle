@@ -95,6 +95,51 @@ class TopologyParserTest {
   }
 
   @Test
+  void parses_use_bundled_jre_true() {
+    final Topology topology =
+        parse(
+            """
+            name: bundled
+            runtime:
+              useBundledJre: true
+            """);
+    assertEquals(true, topology.runtime().useBundledJre());
+  }
+
+  @Test
+  void parses_use_bundled_jre_false() {
+    final Topology topology =
+        parse(
+            """
+            name: bundled
+            runtime:
+              useBundledJre: false
+            """);
+    assertEquals(false, topology.runtime().useBundledJre());
+  }
+
+  @Test
+  void use_bundled_jre_defaults_to_false_when_absent() {
+    final Topology topology = parse("name: bare\nruntime:\n  javaExecutable: java\n");
+    assertEquals(false, topology.runtime().useBundledJre());
+  }
+
+  @Test
+  void rejects_a_non_boolean_use_bundled_jre() {
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () -> parse("name: bad\nruntime:\n  useBundledJre: yesplease\n"));
+    assertTrue(e.getMessage().contains("useBundledJre"));
+  }
+
+  @Test
+  void rejects_an_unknown_runtime_key_near_use_bundled_jre() {
+    assertThrows(
+        GimleManifestException.class, () -> parse("name: bad\nruntime:\n  useBundledJr: true\n"));
+  }
+
+  @Test
   void applies_the_documented_default_ports_when_a_replica_omits_them() {
     final Topology topology =
         parse(

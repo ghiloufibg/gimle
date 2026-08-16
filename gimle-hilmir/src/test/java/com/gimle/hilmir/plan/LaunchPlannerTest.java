@@ -2,19 +2,26 @@ package com.gimle.hilmir.plan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class LaunchPlannerTest {
+
+  @TempDir Path gimleHome;
 
   private static final ResolvedRuntime RUNTIME =
       new ResolvedRuntime("java", "test-classpath", Path.of("/data"));
@@ -402,5 +409,149 @@ class LaunchPlannerTest {
         only(observed, "m1", "agent-node-a")
             .command()
             .contains("-Dgimle.agent.andvariEndpoint=127.0.0.1:9094"));
+  }
+
+  /**
+   * The load-bearing safety-boundary regression test: {@code planAgents}' own command (including
+   * the {@code WORKER} command tail it appends for {@code AgentMain} to spawn) never changes based
+   * on {@code runtime.useBundledJre}. {@code planAgents} unconditionally dereferences both {@code
+   * fafnir} and {@code controlPlane}, so both sections are declared here (with a bundled-JRE
+   * fixture for each, since {@code useBundledJre} applies uniformly to every role present, not just
+   * the one under test) -- but deliberately no store/muninn/andvari section, so this assertion
+   * can't accidentally pass only because those other roles' own bundled-JRE resolution happened to
+   * succeed too.
+   */
+  @Test
+  void plan_agents_command_never_changes_based_on_use_bundled_jre() throws IOException {
+    createFakeJavaBinary("fafnir");
+    createFakeJavaBinary("controlplane");
+    final String agentTopology =
+        """
+        name: agent-only
+        machines:
+          - {name: m1, host: 127.0.0.1}
+        controlPlane:
+          replicas:
+            - {machine: m1}
+        fafnir:
+          keyFile: /key
+          replicas:
+            - {machine: m1}
+        agents:
+          - {machine: m1, nodeId: node-a, gossipPort: 9090}
+        %s
+        """;
+    final Topology withoutBundledJre = parse(String.format(agentTopology, ""));
+    final Topology withBundledJre =
+        parse(String.format(agentTopology, "runtime:\n  useBundledJre: true\n"));
+
+    final ClusterPlan planWithout =
+        LaunchPlanner.plan(withoutBundledJre, RUNTIME, gimleHome.toString());
+    final ClusterPlan planWith = LaunchPlanner.plan(withBundledJre, RUNTIME, gimleHome.toString());
+
+    final List<String> agentCommandWithout = only(planWithout, "m1", "agent-node-a").command();
+    final List<String> agentCommandWith = only(planWith, "m1", "agent-node-a").command();
+    assertEquals(agentCommandWithout, agentCommandWith);
+    assertEquals("java", agentCommandWith.get(0));
+    // The WORKER command tail AgentMain spawns is the second "java", five tokens after
+    // "com.gimle.agent.AgentMain" itself (AgentMain, nodeId, controlPlaneBaseUrl, gossipAddress,
+    // seeds, then the worker's own java).
+    assertEquals(
+        "java", agentCommandWith.get(agentCommandWith.indexOf("com.gimle.agent.AgentMain") + 5));
+    // And confirm the control plane / fafnir commands in this same plan DID pick up the bundled
+    // path, so this test isn't accidentally passing because useBundledJre had no effect at all.
+    assertEquals(
+        bundledJavaPath("controlplane").toString(),
+        only(planWith, "m1", "controlplane-0").command().get(0));
+    assertEquals(
+        bundledJavaPath("fafnir").toString(), only(planWith, "m1", "fafnir-0").command().get(0));
+  }
+
+  @Test
+  void
+      stores_muninn_andvari_fafnir_and_control_planes_resolve_their_own_bundled_java_when_use_bundled_jre_is_true()
+          throws IOException {
+    createFakeJavaBinary("mimir");
+    createFakeJavaBinary("muninn");
+    createFakeJavaBinary("andvari");
+    createFakeJavaBinary("fafnir");
+    createFakeJavaBinary("controlplane");
+
+    final Topology topology =
+        parse(
+            """
+            name: bundled
+            runtime:
+              useBundledJre: true
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1}
+            controlPlane:
+              replicas:
+                - {machine: m1}
+            fafnir:
+              keyFile: /key
+              replicas:
+                - {machine: m1}
+            muninn:
+              replicas:
+                - {machine: m1}
+            andvari:
+              replicas:
+                - {machine: m1}
+            agents:
+              - {machine: m1, nodeId: node-a}
+            """);
+    final ClusterPlan plan = LaunchPlanner.plan(topology, RUNTIME, gimleHome.toString());
+
+    assertEquals(bundledJavaPath("mimir").toString(), only(plan, "m1", "store-0").command().get(0));
+    assertEquals(
+        bundledJavaPath("muninn").toString(), only(plan, "m1", "muninn-0").command().get(0));
+    assertEquals(
+        bundledJavaPath("andvari").toString(), only(plan, "m1", "andvari-0").command().get(0));
+    assertEquals(
+        bundledJavaPath("fafnir").toString(), only(plan, "m1", "fafnir-0").command().get(0));
+    assertEquals(
+        bundledJavaPath("controlplane").toString(),
+        only(plan, "m1", "controlplane-0").command().get(0));
+    // The safety boundary holds even inside this same bundled-JRE-enabled plan: the agent (and the
+    // worker command tail it appends) still gets the plain runtime.javaExecutable(), never a
+    // resolved bundled path -- no jre/agent or jre/worker fixture was created above at all.
+    final List<String> agentCommand = only(plan, "m1", "agent-node-a").command();
+    assertEquals("java", agentCommand.get(0));
+    assertEquals("java", agentCommand.get(agentCommand.indexOf("com.gimle.agent.AgentMain") + 5));
+  }
+
+  @Test
+  void fails_clearly_when_use_bundled_jre_is_true_and_a_components_bundled_java_is_missing() {
+    final Topology topology =
+        parse(
+            """
+            name: bundled-missing
+            runtime:
+              useBundledJre: true
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1}
+            """);
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () -> LaunchPlanner.plan(topology, RUNTIME, gimleHome.toString()));
+    assertTrue(e.getMessage().contains("mimir"));
+  }
+
+  private void createFakeJavaBinary(final String component) throws IOException {
+    final Path javaBin = bundledJavaPath(component);
+    Files.createDirectories(javaBin.getParent());
+    Files.createFile(javaBin);
+  }
+
+  private Path bundledJavaPath(final String component) {
+    return gimleHome.resolve("jre").resolve(component).resolve("bin").resolve("java");
   }
 }
