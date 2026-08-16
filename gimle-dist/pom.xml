@@ -189,24 +189,39 @@
         SBOM above to each archive's own -cyclonedx.json name. Runs after both plugins above
         because Maven executes same-phase plugin executions in the order they're declared in this
         file, and this is declared last.
+
+        Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
+        producing archives an operator unpacks on their own machine, which includes Windows, where a
+        hardcoded /bin/sh has no equivalent. maven-antrun-plugin runs pure Java, no external process
+        at all, so it needs no OS-specific branching. checksum's format="MD5SUM" produces the
+        traditional "<hash> *<filename>" line a real sha256sum -c already parses (verified against
+        it), matching this execution's own name.
       -->
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
         <executions>
           <execution>
             <id>postprocess-archives</id>
             <phase>package</phase>
             <goals>
-              <goal>exec</goal>
+              <goal>run</goal>
             </goals>
             <configuration>
-              <executable>/bin/sh</executable>
-              <arguments>
-                <argument>${project.basedir}/src/main/scripts/postprocess.sh</argument>
-                <argument>${project.build.directory}</argument>
-                <argument>${project.version}</argument>
-              </arguments>
+              <target>
+                <checksum file="${project.build.directory}/gimle-platform-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <checksum file="${project.build.directory}/gimle-cli-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <checksum file="${project.build.directory}/gimle-hilmir-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <copy file="${project.build.directory}/bom.json"
+                      tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"/>
+                <copy file="${project.build.directory}/bom.json"
+                      tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
+                <copy file="${project.build.directory}/bom.json"
+                      tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
+              </target>
             </configuration>
           </execution>
         </executions>
