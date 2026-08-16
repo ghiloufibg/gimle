@@ -227,6 +227,50 @@ class HilmirMainTest {
   }
 
   @Test
+  void usage_lists_the_store_add_and_remove_verbs() {
+    final Result result = run("frobnicate");
+    assertTrue(result.err().contains("store add <peerId>"));
+    assertTrue(result.err().contains("store remove <peerId>"));
+  }
+
+  @Test
+  void store_requires_a_known_subverb() {
+    final Result result = run("store", "frobnicate");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("store add"));
+    assertTrue(result.err().contains("store remove"));
+  }
+
+  @Test
+  void store_requires_a_subverb_at_all() {
+    final Result result = run("store");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("store add"));
+  }
+
+  @Test
+  void store_add_requires_its_four_positional_arguments() {
+    final Result result = run("store", "add", "peer-1", "127.0.0.1");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("hilmir store add"));
+  }
+
+  @Test
+  void store_remove_requires_the_peer_id() {
+    final Result result = run("store", "remove");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("hilmir store remove"));
+  }
+
+  @Test
+  void store_add_requires_exactly_one_of_topology_or_server() {
+    final Result result = run("store", "add", "peer-1", "127.0.0.1", "7100", "7200");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--topology"));
+    assertTrue(result.err().contains("--server"));
+  }
+
+  @Test
   void deploy_requires_the_file_flag() {
     final Result result = run("deploy");
     assertEquals(1, result.exitCode());

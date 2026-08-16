@@ -17,6 +17,8 @@ import com.gimle.hilmir.release.ReleasesCommand;
 import com.gimle.hilmir.release.RollbackCommand;
 import com.gimle.hilmir.release.UndeployCommand;
 import com.gimle.hilmir.release.UpgradeCommand;
+import com.gimle.hilmir.store.StoreAddCommand;
+import com.gimle.hilmir.store.StoreRemoveCommand;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.validate.Finding;
@@ -42,6 +44,10 @@ import java.util.Optional;
  *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
  *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
  *   hilmir pki init -f &lt;topology.yaml&gt;
+ *   hilmir store add &lt;peerId&gt; &lt;host&gt; &lt;raftPort&gt; &lt;clientPort&gt;
+ *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
+ *   hilmir store remove &lt;peerId&gt;
+ *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
  *   hilmir deploy -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir upgrade -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir rollback --release &lt;name&gt; [--to-revision r] [--wait] [--dry-run] [-o json]
@@ -67,6 +73,15 @@ import java.util.Optional;
  * and bytecode analysis lives in {@code com.gimle.hilmir.analyze}, shared by both.
  */
 public final class HilmirMain {
+
+  private static final String STORE_USAGE =
+      """
+      usage: hilmir store add <peerId> <host> <raftPort> <clientPort>
+                 (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+                 [--pki-dir <dir>]
+             hilmir store remove <peerId>
+                 (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+                 [--pki-dir <dir>]""";
 
   private HilmirMain() {}
 
@@ -100,6 +115,7 @@ public final class HilmirMain {
       case "down" -> runDown(rest, out);
       case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
+      case "store" -> handleStore(rest, out);
       case "deploy" -> runDeploy(rest, out);
       case "upgrade" -> runUpgrade(rest, out);
       case "rollback" -> runRollback(rest, out);
@@ -167,6 +183,19 @@ public final class HilmirMain {
     final ResolvedRuntime runtime = resolveRuntime(topology);
     PkiInit.run(topology, runtime, out);
     return 0;
+  }
+
+  private static int handleStore(final List<String> args, final PrintStream out) {
+    if (args.isEmpty()) {
+      throw new HilmirException(STORE_USAGE);
+    }
+    final String subVerb = args.get(0);
+    final List<String> subArgs = args.subList(1, args.size());
+    return switch (subVerb) {
+      case "add" -> StoreAddCommand.run(subArgs, out);
+      case "remove" -> StoreRemoveCommand.run(subArgs, out);
+      default -> throw new HilmirException(STORE_USAGE);
+    };
   }
 
   private static int runDeploy(final List<String> args, final PrintStream out) {
@@ -287,6 +316,12 @@ public final class HilmirMain {
           down --machine <name> [--data-root <path>]
           status --machine <name> [--data-root <path>]
           pki init -f <topology.yaml>
+          store add <peerId> <host> <raftPort> <clientPort>
+              (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+              [--pki-dir <dir>]
+          store remove <peerId>
+              (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
+              [--pki-dir <dir>]
           deploy -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           upgrade -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           rollback --release <name> [--to-revision r] [--wait] [--dry-run] [-o json]
