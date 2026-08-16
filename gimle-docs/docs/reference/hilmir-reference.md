@@ -4,13 +4,16 @@ sidebar_position: 5
 
 # `gimle-hilmir` reference
 
-`gimle-hilmir` is two tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
+`gimle-hilmir` is three tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
 verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
 it into real, running Gimlé processes on the local machine, or the exact per-machine process
 commands the topology implies. The `deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/
 `release-status` verbs are a Helm-equivalent release lifecycle layered on top of an already-running
 cluster — they talk to the control plane's own HTTP API, the same way `gimle-cli` does, and never
-touch a topology document at all.
+touch a topology document at all. `doctor`/`init` are a third, independent concern: deployability
+diagnostics and manifest scaffolding for a single built jar, needing neither a topology document
+nor a running control plane (`doctor --server` only adds cluster-aware checks on top of its own
+static ones) — see [`doctor`/`init`](#doctorinit) below.
 
 ## Machine bootstrap verbs
 
@@ -149,3 +152,84 @@ idea Fafnir's own `key@N`/`key@meta` versioned-secret convention uses: the contr
 reads `meta` or is all digits, on the assumption that shape always means a Fafnir-managed secret row
 — a ledger key in that exact shape would be invisible to `releases`/`release-status`, which have no
 per-key `GET` to fall back on, only list-and-filter.
+
+## `doctor`/`init`
+
+```text
+hilmir doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]
+hilmir init <jar> [--out-dir <dir>]
+```
+
+Both share one analyzer (`com.gimle.hilmir.analyze`): structural jar inspection (mirroring
+`ModuleArtifactReader`'s own `JarFile`/`JarEntry` shape), a lenient `gimle-module.yaml` reader, and a
+`java.lang.classfile`-based bytecode scanner for a fixed set of hazard signals (`System.exit`,
+shutdown-hook registration, non-daemon `Thread` construction, native-library loading, server-socket
+opening, a static `ExecutorService` field with no visible shutdown call anywhere in its class). This
+is a linear instruction-stream scan for known failure classes, not a control-flow/dataflow analysis
+— reflection-driven or indirectly-invoked hazards are false negatives by design, the same "tripwire,
+not certification" posture the design already takes elsewhere.
+
+### Module-hosting vs. vessel-hosting
+
+The platform itself never sniffs a jar's structure to decide module-hosting vs. vessel-hosting — a
+deploy manifest's own `vessel:` block presence/absence is the one and only switch (see
+[Vessel workloads](./manifest-schema.md#vessel-workloads-vessel)). `doctor` mirrors that posture: it
+evaluates a jar under the module-hosting interpretation by default (the richer, more constrained
+path — real isolation-tier/resource/probe/hook validation), and only under `--vessel` does it switch
+to the smaller vessel-hosting check set. One finding, `NOT_LAYER_HOSTABLE`, is reported at a
+different severity depending on which mode was asked for: an `ERROR` under the default module intent
+(a launcher archive genuinely cannot be module-hosted), an `INFO` note under `--vessel` (confirming
+the shape is exactly what vessel-hosting expects). `init` makes the same jar-shape call for itself,
+since it has no manifest to read a `vessel:` block from yet — see below.
+
+### `doctor`'s static finding catalog
+
+| Code | Severity | Fires when |
+|---|---|---|
+| `NOT_LAYER_HOSTABLE` | `ERROR` (module intent) / `INFO` (`--vessel`) | The jar is a launcher archive (nested `BOOT-INF/`/Quarkus-fast-jar-style classpath layout) — a real Spring Boot/Quarkus launcher jar, not a flat classes-on-a-module-path shape. |
+| `UNSUPPORTED_PACKAGING` | `ERROR` | Not a plain runnable jar at all: a `.war`/`.ear`, a directory/fast-jar distribution, or a non-ZIP-shaped binary (most commonly a native-image executable). |
+| `NOT_A_MODULE` | `WARNING` | No `module-info.class`, module-hosting was intended, and the jar isn't a launcher archive either (that's `NOT_LAYER_HOSTABLE`'s case) — an ordinary flat, non-modularized jar. |
+| `DESCRIPTOR_UNREADABLE` | `ERROR` | Module-hosting intended, the jar has `module-info.class`, but its `gimle-module.yaml` is missing or missing a required field (`name`, `version`, `isolation.tier`, `resources.request`/`.limit`) — grounded directly in `ModuleArtifactReader`'s own hard failure for exactly this case, one code added beyond the originally scoped catalog. |
+| `TIER3_REQUESTED` | `ERROR` | `gimle-module.yaml` declares `isolation.tier: TIER_3` — unimplemented on every platform today, rejected outright at scheduling time. |
+| `RESOURCES_INCOHERENT` | `ERROR` | `resources.limit` < `resources.request`, or either is an unparseable quantity. |
+| `PROBE_INVALID` | `ERROR` | A class named in `health.liveness`/`health.readiness`/`lifecycle.hooks`/`lifecycle.jobHooks` is missing from the jar, doesn't directly implement the expected interface (by name — see below), or has no no-arg constructor. |
+| `VERSION_DRIFT` | `WARNING` | `gimle-module.yaml`'s own `version` doesn't match the jar manifest's `Implementation-Version` attribute. |
+| `NATIVE_CODE` | `ERROR` | Bundled `.so`/`.dll`/`.dylib` entries, or a class calling `System.load`/`System.loadLibrary`. |
+| `CALLS_SYSTEM_EXIT` | `ERROR` (module intent) / `WARNING` (`--vessel`) | A class calls `System.exit`. |
+| `LEAK_RISK` | `WARNING` | A class registers a JVM shutdown hook, constructs a `Thread` without `setDaemon(true)`, or declares a static `ExecutorService` field with no `shutdown`/`shutdownNow`/`close` call anywhere in that same class. |
+| `BINDS_OWN_PORT` | `INFO` | A class opens a `ServerSocket`/`ServerSocketChannel`/`com.sun.net.httpserver.HttpServer` — informational only, the platform has no ingress story for a plain module today. |
+| `SPLIT_PACKAGE` | `ERROR` | Two of the jars given on the command line (the primary plus any `<dep-jar>` arguments) declare the same package. |
+| `BUNDLED_LOGGING_BINDING` | `WARNING` | A `logback-classic`/`log4j-core`/`slf4j-simple` class prefix or bundled dependency jar name is found among the artifact's own entries (its own nested `lib/` layout, or an extra `<dep-jar>` argument). |
+
+`PROBE_INVALID`'s "implements the expected interface" check is a name-only comparison against the
+class's own declared (`implements`) interfaces, not a walk up its superclass chain, and its
+no-arg-constructor check doesn't verify accessibility — `doctor` cannot depend on `gimle-module` for
+the real `LivenessProbe`/`ReadinessProbe`/`ModuleLifecycleHooks`/`JobHooks` interfaces, so it
+compares binary names only.
+
+### Cluster-aware checks (`--server`)
+
+`--server host:port` (the same control-plane address the release verbs use) adds two more checks on
+top of the static catalog, both additive, never replacing anything above:
+
+| Code | Severity | Fires when |
+|---|---|---|
+| `REGISTRY_COORDINATE_NOT_FOUND` | `ERROR` | The jar's own `(name, version)` isn't present in the artifact registry behind `--server` (a plain `HEAD /artifacts/{name}/{version}` through the control plane's existing `/artifacts/*` proxy — no separate Andvari address needed). |
+| `REGISTRY_UNREACHABLE` | `WARNING` | The registry coordinate couldn't be confirmed (no registry configured on that control plane, or a transport failure). |
+| `TENANT_NOT_FOUND` | `ERROR` | `--tenant <id>` was given and that tenant doesn't exist on the control plane behind `--server`. |
+
+This is deliberately not exhaustive — quota headroom, scheduler feasibility, and similar deeper
+cluster checks are a clearly scoped-out follow-up, not something this pass tried to force in.
+
+### `init`
+
+Inspects a built jar with the same analyzer `doctor` uses and writes `deployment.yaml`, plus
+`gimle-module.yaml` when the jar is module-hosting-shaped (no `module-info.class`, or a
+launcher-archive layout, routes to the vessel form instead — the same jar-shape judgment call
+`doctor --vessel` makes explicit via a flag, made automatically here since there's no manifest yet to
+read a `vessel:` block from). Detected facts (a probe/hooks class actually found implementing the
+right interface with a no-arg constructor, the module name from `module-info.class` when present)
+are filled in directly; everything else (version, resource sizing, isolation tier) gets a
+conservative default annotated `# TODO: measure and adjust`. Never overwrites a file that already
+exists at either target path — refuses outright, listing every colliding path, rather than silently
+clobbering a hand-edited file.
