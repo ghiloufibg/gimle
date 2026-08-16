@@ -4,19 +4,22 @@ sidebar_position: 5
 
 # `gimle-hilmir` reference
 
-`gimle-hilmir` is four tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
+`gimle-hilmir` is five tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
 verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
 it into real, running Gimlé processes on the local machine, or the exact per-machine process
-commands the topology implies. `store add`/`store remove` are an operator-facing surface over the
-store's own live Raft membership change, talking directly to an already-running cluster over the
-same binary `StoreClient` protocol `gimle-mimir` itself uses — see
-[Store membership verbs](#store-membership-verbs) below. The `deploy`/`upgrade`/`rollback`/
-`undeploy`/`releases`/`release-status` verbs are a Helm-equivalent release lifecycle layered on top
-of an already-running cluster — they talk to the control plane's own HTTP API, the same way
-`gimle-cli` does, and never touch a topology document at all. `doctor`/`init` are a fourth,
-independent concern: deployability diagnostics and manifest scaffolding for a single built jar,
-needing neither a topology document nor a running control plane (`doctor --server` only adds
-cluster-aware checks on top of its own static ones) — see [`doctor`/`init`](#doctorinit) below.
+commands the topology implies. `upgrade-cluster` restarts a subset of those already-running processes
+against a newly-unpacked platform binary, one machine and one role at a time — see
+[Cluster upgrade (platform binary rollout)](#cluster-upgrade-platform-binary-rollout) below; note this
+is a **different** verb from the release `upgrade` further down, despite the shared word. `store
+add`/`store remove` are an operator-facing surface over the store's own live Raft membership change,
+talking directly to an already-running cluster over the same binary `StoreClient` protocol
+`gimle-mimir` itself uses — see [Store membership verbs](#store-membership-verbs) below. The
+`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status` verbs are a Helm-equivalent
+release lifecycle layered on top of an already-running cluster — they talk to the control plane's own
+HTTP API, the same way `gimle-cli` does, and never touch a topology document at all. `doctor`/`init`
+are a fifth, independent concern: deployability diagnostics and manifest scaffolding for a single
+built jar, needing neither a topology document nor a running control plane (`doctor --server` only
+adds cluster-aware checks on top of its own static ones) — see [`doctor`/`init`](#doctorinit) below.
 
 ## Machine bootstrap verbs
 
@@ -38,6 +41,70 @@ prerequisite (a store replica another machine hosts, say) via a plain TCP-connec
 before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
 neither needs the topology document again. `pki init` mints the cluster's certificate authority and
 every process's leaf certificate up front, for a topology that declares `tls:`.
+
+## Cluster upgrade (platform binary rollout)
+
+```text
+hilmir upgrade-cluster -f <topology.yaml> --machine <name>
+    --new-classpath <classpath-string>
+    [--new-java-executable <path>] [--data-root <path>]
+    [--role <STORE|CONTROL_PLANE|FAFNIR|MUNINN|ANDVARI>]...
+```
+
+`upgrade-cluster` rolls out a new platform binary to one machine's already-running processes: kill,
+respawn against the new classpath, wait for readiness, repeat for the next role — never `hilmir
+upgrade`, which is a completely different, bundle-workload-rollout concern (see
+[Release verbs](#release-verbs) below).
+
+**Scope: `hilmir` has no remote-execution layer.** Exactly like `up`/`down`/`status`, this verb only
+ever touches OS processes on the one machine it runs on. Rolling out a new platform binary across a
+whole cluster means an operator (or an external runbook/script) invoking `hilmir upgrade-cluster`
+once per machine, in the right order — this verb deliberately does not attempt SSH, an agent-driven
+fanout, or any other cross-machine orchestration of its own.
+
+`--new-classpath` is required and deliberately independent of both the topology's own
+`runtime.classpath` and whichever `hilmir` binary happens to be invoking the command: point it at a
+newly-unpacked `gimle-platform-<new-version>/lib/*` classpath string, and every restarted process on
+this machine launches against that new classpath, without editing the topology file or needing a
+different `hilmir` binary at all. `--new-java-executable`/`--data-root` follow the topology's own
+defaults (or `up`'s own defaults) when omitted — `--data-root` in particular must match the data root
+`hilmir up` originally used for this machine, since that's where the run ledger this verb reads and
+updates already lives.
+
+With no `--role` given, every stateless platform role this machine hosts is restarted, one at a time,
+in the platform's own fixed boot order: store, then muninn, then andvari, then fafnir, then control
+plane. `--role` (repeatable) restricts the run to a chosen subset, still always sequenced in that same
+boot order regardless of the order the flags were given in. **`AGENT` is never a valid `--role`
+value** — an agent's own jar only matters at its next natural restart, and restarting one risks
+interrupting in-flight worker instances on that machine, a materially different blast radius than
+bouncing a stateless platform process; agents and workers are out of scope for this verb entirely.
+
+A single role restart is: find that role's process in a freshly-computed plan (so it picks up the new
+classpath), find its current run-ledger entry (failing clearly, pointing at `hilmir up`, if nothing
+is recorded), kill it, spawn its replacement, wait for the replacement's own readiness, then update
+just that one ledger entry — every other process this machine hosts, and its own ledger record, is
+left completely untouched. A failure restarting any one role stops the whole run immediately; it
+never silently continues to the next role and reports success.
+
+**Store restarts are quorum-gated.** Killing a store replica can break a cluster-wide property —
+Raft quorum — not just that one machine's own state, so before (and again after) restarting a store
+role, `upgrade-cluster` polls every *other* store replica's readiness and refuses to proceed unless a
+majority of the total store replica count is reachable. This protects against an operator
+accidentally restarting two store machines "at once" via two concurrent invocations, or restarting
+the last-standing majority member. A single-replica store has no other replicas to protect and is
+always permitted to restart — refusing would make it permanently un-upgradable, not safer. Non-store
+roles have no equivalent cluster-wide property to protect; the ordinary per-process readiness wait is
+sufficient there.
+
+**Known assumption, not a proven guarantee:** a restarted store process rejoins its Raft cluster with
+the same peer id and the same static `--peers` list the topology already declares, which is an
+ordinary peer reconnecting rather than a membership change — `gimle-mimir`'s `StateStore`/`RaftLog`
+reload their state from disk on construction, and this is covered by `StateStoreTest`'s own reload
+tests. What is *not* yet covered by any single end-to-end test, in this codebase or in
+`gimle-smoke-tests`, is killing and restarting the *same* store node and asserting it rejoins as a
+follower and catches up — every existing kill test permanently removes a node from its own cluster
+instead. `upgrade-cluster`'s store-restart path currently rests on the disk-reload guarantee alone,
+not on a dedicated same-node kill-and-rejoin test.
 
 ## Store membership verbs
 
