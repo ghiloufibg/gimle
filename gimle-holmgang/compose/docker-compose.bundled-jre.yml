@@ -68,6 +68,10 @@ services:
       - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
       - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
       - andvari-data:/data
+    # AndvariServer serves both its /artifacts/* API and its bundled web console at /console on
+    # this same port (TopologyParser's DEFAULT_ANDVARI_PORT, unoverridden by topology-bundled-jre.yaml).
+    ports:
+      - "9094:9094"
 
   fafnir:
     <<: *gimle-light-service
@@ -77,6 +81,10 @@ services:
       - ./topology-bundled-jre.yaml:/config/topology.yaml:ro
       - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
       - fafnir-data:/data
+    # FafnirServer serves both its /secrets/* API and its bundled web console at /console on this
+    # same port (TopologyParser's DEFAULT_FAFNIR_PORT, unoverridden by topology-bundled-jre.yaml).
+    ports:
+      - "9092:9092"
 
   controlplane:
     <<: *gimle-light-service
