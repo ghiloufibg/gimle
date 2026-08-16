@@ -18,10 +18,21 @@ import java.util.Map;
  * Turns a {@link Topology} into the exact per-machine process commands the platform's own process
  * kinds expect -- generalizing {@code gimle-holmgang}'s {@code GimleCluster} boot logic (one
  * machine, loopback, dynamically leased ports) to many machines with statically declared hosts and
- * ports. A pure function of its arguments: no process spawning, no file writes, no network calls --
- * every command it returns is exact enough to assert on in a test, and exact enough for a launcher
- * to spawn largely as-is (see {@link ProcessCommand}'s own javadoc for the two steps a launcher
- * still owns before actually spawning one).
+ * ports. A pure function of its arguments: no process spawning, no network calls -- every command
+ * it returns is exact enough to assert on in a test, and exact enough for a launcher to spawn
+ * largely as-is (see {@link ProcessCommand}'s own javadoc for the two steps a launcher still owns
+ * before actually spawning one). The one deliberate, narrow exception: when {@code
+ * topology.runtime().useBundledJre()} is {@code true}, resolving STORE/MUNINN/ANDVARI/FAFNIR/
+ * CONTROL_PLANE's own {@code java} executable does check for a file's existence under {@code
+ * GIMLE_HOME} (see {@link BundledJreResolver}) -- {@code GIMLE_HOME} itself is still an explicit
+ * argument to this class, never read via {@code System.getenv} internally, for exactly the same
+ * testability reason {@link ResolvedRuntime}'s own javadoc gives for keeping default-resolution out
+ * of this class: the 2-arg {@link #plan(Topology, ResolvedRuntime)} overload is the real entry
+ * point (it reads {@code GIMLE_HOME} once, for real callers), and the 3-arg overload below exists
+ * so a test can supply a fake value directly instead of mutating the JVM's real environment. {@code
+ * AGENT} (and the {@code WORKER} command tail it appends) never receives a {@code gimleHomeEnv} at
+ * all -- {@link #planAgents} keeps its original 2-arg signature, so it is structurally incapable of
+ * resolving a bundled JRE, not merely conventionally excluded from doing so.
  *
  * <p>Global boot order -- stores, then Muninn, then Andvari, then Fafnir, then control planes, then
  * agents -- mirrors {@code GimleCluster.boot()} exactly (each later stage's command line references
@@ -41,12 +52,23 @@ public final class LaunchPlanner {
   private LaunchPlanner() {}
 
   public static ClusterPlan plan(final Topology topology, final ResolvedRuntime runtime) {
+    return plan(topology, runtime, System.getenv("GIMLE_HOME"));
+  }
+
+  /**
+   * Split out from {@link #plan(Topology, ResolvedRuntime)} so a test can supply a fake {@code
+   * GIMLE_HOME} directly, the same shape {@link BundledJreResolver}'s own package-private overload
+   * (and {@code com.gimle.hilmir.extension.GatewayJarLocator}'s {@code resolveModulesDir}) already
+   * established for the identical problem.
+   */
+  static ClusterPlan plan(
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<ProcessCommand> commands = new ArrayList<>();
-    commands.addAll(planStores(topology, runtime));
-    commands.addAll(planMuninn(topology, runtime));
-    commands.addAll(planAndvari(topology, runtime));
-    commands.addAll(planFafnirs(topology, runtime));
-    commands.addAll(planControlPlanes(topology, runtime));
+    commands.addAll(planStores(topology, runtime, gimleHomeEnv));
+    commands.addAll(planMuninn(topology, runtime, gimleHomeEnv));
+    commands.addAll(planAndvari(topology, runtime, gimleHomeEnv));
+    commands.addAll(planFafnirs(topology, runtime, gimleHomeEnv));
+    commands.addAll(planControlPlanes(topology, runtime, gimleHomeEnv));
     commands.addAll(planAgents(topology, runtime));
 
     final Map<String, List<ProcessCommand>> byMachine = new LinkedHashMap<>();
@@ -64,7 +86,7 @@ public final class LaunchPlanner {
   }
 
   private static List<ProcessCommand> planStores(
-      final Topology topology, final ResolvedRuntime runtime) {
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<StoreReplica> replicas = topology.store().replicas();
     final List<ProcessCommand> out = new ArrayList<>();
     for (int i = 0; i < replicas.size(); i++) {
@@ -72,7 +94,8 @@ public final class LaunchPlanner {
       final String id = "store-" + i;
       final Path dataDir = runtime.dataRoot().resolve(id);
       final List<String> command = new ArrayList<>();
-      command.add(runtime.javaExecutable());
+      command.add(
+          BundledJreResolver.resolveJavaExecutable(topology, runtime, "mimir", gimleHomeEnv));
       // No per-store leaf exists in the platform's own generated material; the store presents the
       // control-plane certificate, the same reuse GimleCluster's own tlsFlags already established.
       command.addAll(tlsFlags(topology, "controlplane"));
@@ -106,7 +129,7 @@ public final class LaunchPlanner {
   }
 
   private static List<ProcessCommand> planMuninn(
-      final Topology topology, final ResolvedRuntime runtime) {
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<ServiceReplica> replicas = topology.muninn().replicas();
     final List<ProcessCommand> out = new ArrayList<>();
     for (int i = 0; i < replicas.size(); i++) {
@@ -114,7 +137,8 @@ public final class LaunchPlanner {
       final String id = "muninn-" + i;
       final Path dataDir = runtime.dataRoot().resolve(id);
       final List<String> command = new ArrayList<>();
-      command.add(runtime.javaExecutable());
+      command.add(
+          BundledJreResolver.resolveJavaExecutable(topology, runtime, "muninn", gimleHomeEnv));
       command.addAll(tlsFlags(topology, "muninn"));
       command.addAll(topology.jvmFlags(ProcessRole.MUNINN));
       command.add(dataRootFlag(dataDir));
@@ -139,7 +163,7 @@ public final class LaunchPlanner {
   }
 
   private static List<ProcessCommand> planAndvari(
-      final Topology topology, final ResolvedRuntime runtime) {
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<ServiceReplica> replicas = topology.andvari().replicas();
     final List<ProcessCommand> out = new ArrayList<>();
     for (int i = 0; i < replicas.size(); i++) {
@@ -147,7 +171,8 @@ public final class LaunchPlanner {
       final String id = "andvari-" + i;
       final Path dataDir = runtime.dataRoot().resolve(id);
       final List<String> command = new ArrayList<>();
-      command.add(runtime.javaExecutable());
+      command.add(
+          BundledJreResolver.resolveJavaExecutable(topology, runtime, "andvari", gimleHomeEnv));
       command.addAll(tlsFlags(topology, "andvari"));
       command.addAll(topology.jvmFlags(ProcessRole.ANDVARI));
       command.add(dataRootFlag(dataDir));
@@ -176,7 +201,7 @@ public final class LaunchPlanner {
   }
 
   private static List<ProcessCommand> planFafnirs(
-      final Topology topology, final ResolvedRuntime runtime) {
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<ServiceReplica> replicas = topology.fafnir().replicas();
     final List<ProcessCommand> out = new ArrayList<>();
     for (int i = 0; i < replicas.size(); i++) {
@@ -192,7 +217,8 @@ public final class LaunchPlanner {
                       new GimleManifestException(
                           "fafnir.replicas is non-empty but fafnir.keyFile is unset"));
       final List<String> command = new ArrayList<>();
-      command.add(runtime.javaExecutable());
+      command.add(
+          BundledJreResolver.resolveJavaExecutable(topology, runtime, "fafnir", gimleHomeEnv));
       command.addAll(tlsFlags(topology, "fafnir"));
       command.addAll(topology.jvmFlags(ProcessRole.FAFNIR));
       if (!topology.muninn().replicas().isEmpty()) {
@@ -220,7 +246,7 @@ public final class LaunchPlanner {
   }
 
   private static List<ProcessCommand> planControlPlanes(
-      final Topology topology, final ResolvedRuntime runtime) {
+      final Topology topology, final ResolvedRuntime runtime, final String gimleHomeEnv) {
     final List<ServiceReplica> replicas = topology.controlPlane().replicas();
     final List<ProcessCommand> out = new ArrayList<>();
     for (int i = 0; i < replicas.size(); i++) {
@@ -228,7 +254,9 @@ public final class LaunchPlanner {
       final String id = "controlplane-" + i;
       final Path dataDir = runtime.dataRoot().resolve(id);
       final List<String> command = new ArrayList<>();
-      command.add(runtime.javaExecutable());
+      command.add(
+          BundledJreResolver.resolveJavaExecutable(
+              topology, runtime, "controlplane", gimleHomeEnv));
       command.addAll(tlsFlags(topology, "controlplane"));
       if (topology.transport() == Transport.MTLS) {
         // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap

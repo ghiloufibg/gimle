@@ -1,6 +1,7 @@
 package com.gimle.hilmir.launch;
 
 import com.gimle.hilmir.HilmirException;
+import com.gimle.hilmir.plan.BundledJreResolver;
 import com.gimle.hilmir.plan.ResolvedRuntime;
 import com.gimle.hilmir.topology.Machine;
 import com.gimle.hilmir.topology.ServiceReplica;
@@ -28,6 +29,20 @@ public final class PkiInit {
 
   public static void run(
       final Topology topology, final ResolvedRuntime runtime, final PrintStream out) {
+    run(topology, runtime, out, System.getenv("GIMLE_HOME"));
+  }
+
+  /**
+   * Split out from {@link #run(Topology, ResolvedRuntime, PrintStream)} so a test can supply a fake
+   * {@code GIMLE_HOME} directly instead of mutating the JVM's real environment -- the same shape
+   * {@link com.gimle.hilmir.plan.LaunchPlanner}'s own package-private {@code plan} overload uses
+   * for the identical problem.
+   */
+  static void run(
+      final Topology topology,
+      final ResolvedRuntime runtime,
+      final PrintStream out,
+      final String gimleHomeEnv) {
     final Path materialDir =
         topology
             .tls()
@@ -45,16 +60,31 @@ public final class PkiInit {
     createDirectories(runtime.dataRoot());
 
     final List<String> command =
-        List.of(
-            runtime.javaExecutable(),
-            "-cp",
-            runtime.classpath(),
-            "com.gimle.pki.PkiBootstrapMain",
-            materialDir.toString(),
-            caCommonName,
-            hostname);
+        buildCommand(topology, runtime, gimleHomeEnv, materialDir, caCommonName, hostname);
     runOneShot(command, runtime.dataRoot().resolve("pki-init.log"));
     out.println("wrote cluster TLS material to " + materialDir);
+  }
+
+  /**
+   * Just the command line, with no process spawning -- pulled out of {@link #run} so a test can
+   * assert on the resolved {@code java} executable directly (bundled-JRE or not) without needing
+   * {@code gimle-pki} on this module's own classpath to actually run it.
+   */
+  static List<String> buildCommand(
+      final Topology topology,
+      final ResolvedRuntime runtime,
+      final String gimleHomeEnv,
+      final Path materialDir,
+      final String caCommonName,
+      final String hostname) {
+    return List.of(
+        BundledJreResolver.resolveJavaExecutable(topology, runtime, "pki", gimleHomeEnv),
+        "-cp",
+        runtime.classpath(),
+        "com.gimle.pki.PkiBootstrapMain",
+        materialDir.toString(),
+        caCommonName,
+        hostname);
   }
 
   /**
