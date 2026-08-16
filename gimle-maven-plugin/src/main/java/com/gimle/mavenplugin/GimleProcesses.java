@@ -1,12 +1,15 @@
 package com.gimle.mavenplugin;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugin.logging.Log;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.artifact.Artifact;
@@ -87,5 +90,31 @@ final class GimleProcesses {
       paths.add(result.getArtifact().getFile().getAbsolutePath());
     }
     return String.join(File.pathSeparator, paths);
+  }
+
+  /**
+   * Spawns {@code command} as a real OS process with inherited I/O and waits for it to exit,
+   * failing the Mojo on a non-zero exit code -- the shared shape {@link PublishMojo} originally
+   * carried inline, generalized here once a second goal ({@link DoctorMojo}/{@link InitMojo})
+   * needed the identical logic rather than a third copy of it.
+   */
+  static void runAndWait(List<String> command, Log log)
+      throws MojoExecutionException, MojoFailureException {
+    log.info("running: " + String.join(" ", command));
+    Process process;
+    try {
+      process = new ProcessBuilder(command).inheritIO().start();
+    } catch (IOException e) {
+      throw new MojoExecutionException("failed to start " + command.get(0), e);
+    }
+    try {
+      int exitCode = process.waitFor();
+      if (exitCode != 0) {
+        throw new MojoFailureException(command.get(0) + " exited with code " + exitCode);
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      process.destroy();
+    }
   }
 }

@@ -144,6 +144,44 @@ on `gimle-maven-plugin`. The coordinate itself is read from the jar's own bundle
 mvn gimle:publish -pl gimle-examples/greeter-provider
 ```
 
+## `mvn gimle:doctor`
+
+A thin wrapper around a real `hilmir doctor` invocation (see the [`gimle-hilmir`
+reference](./hilmir-reference.md#doctorinit)), run from inside a module's own project directory once
+its jar is built — the same "resolve `gimle-hilmir` by coordinate, run from any project" shape
+`gimle:publish` already established for `gimle-cli`. Like `gimle:publish`, this isn't self-filtered
+to one reactor module of this repo's own: it works from any module project that depends on
+`gimle-maven-plugin`, whether or not it's this repo's own reactor.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.doctor.jar` | `${project.build.directory}/${project.build.finalName}.jar` | The jar to diagnose. |
+| `gimle.doctor.vessel` | `false` | Evaluate the jar under vessel-hosting intent instead of the default module-hosting one. |
+| `gimle.doctor.server` | *(unset)* | Control plane address for the cluster-aware checks (registry-coordinate existence, tenant existence). Unset skips them, running only the static catalog. |
+| `gimle.doctor.tenant` | *(unset)* | Tenant id to check exists on the control plane behind `gimle.doctor.server`. |
+| `gimle.doctor.hilmirVersion` | `${plugin.version}` | Version of `gimle-hilmir` to resolve and spawn — defaults to this plugin's own version, since the two ship from one build. |
+
+```bash
+mvn gimle:doctor -pl gimle-examples/greeter-provider
+mvn gimle:doctor -Dgimle.doctor.server=127.0.0.1:8080 -pl gimle-examples/greeter-provider
+```
+
+## `mvn gimle:init`
+
+A thin wrapper around a real `hilmir init` invocation (same reference section as `gimle:doctor`
+above), writing `gimle-module.yaml`/`deployment.yaml` into the project directory. Same "runs
+wherever it's invoked, not self-filtered" shape as `gimle:doctor` and `gimle:publish`.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.init.jar` | `${project.build.directory}/${project.build.finalName}.jar` | The jar to inspect. |
+| `gimle.init.outDir` | `${project.basedir}` | Where to write the generated file(s). Never overwrites a file that already exists there. |
+| `gimle.init.hilmirVersion` | `${plugin.version}` | Same meaning as `gimle:doctor`'s own property. |
+
+```bash
+mvn gimle:init -pl gimle-examples/greeter-provider
+```
+
 ## `mvn gimle:tls-init`
 
 Generates the cluster CA, the control plane's own leaf certificate, and the first human operator's
