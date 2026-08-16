@@ -47,6 +47,18 @@ subtractive.
 2. **Otherwise, collect every matching `RoleBinding`** (direct `user:` match, or `group:` match
    against any of the principal's groups), union their roles' permissions, and check for a match.
 
+A third, narrower shape of node authorization lives alongside `Authorizer#authorize` rather than
+inside it: `Authorizer#isTenantAssignedToNode(nodeId, tenantId)` answers "does this node currently
+hold at least one active instance assignment for this tenant" — read-only by construction, resolved
+by walking every `InstanceAssignment` and joining survivors back to their own `DeploymentSpec`'s
+`tenantId`, since there is no direct "assignments for this node" store query. Originally private to
+`gimle-fafnir`'s `FafnirServer` (gating a `gimle:nodes` node's read access to a tenant's secrets),
+it moved onto `Authorizer` once `gimle-controlplane`'s own `/endpoints/*` route needed the identical
+check for the same principal shape — see [Control plane](./control-plane.md) and
+[Node topology](./node-topology.md#relaying-a-hosted-modules-control-plane-reads). Both call sites
+take this path *instead of* the ordinary `RoleBinding` walk for a `gimle:nodes` caller, never in
+addition to it: a node certificate has no `Role`/`RoleBinding` of its own to check against.
+
 **`cluster-admin`** is built in — every permission, unscoped — and implicitly bound to
 `group:gimle:operators` (a constant check in `Authorizer`, not a stored `RoleBinding`). This is what
 keeps the behavior change backward-compatible for operators specifically: today, any operator
