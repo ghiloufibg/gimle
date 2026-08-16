@@ -10,6 +10,11 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -163,5 +168,52 @@ class AuthorizerTest {
     assertFalse(
         authorizer.authorize(
             frank, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void a_node_with_an_active_assignment_for_the_tenant_is_assigned() {
+    StateStore store = new StateStore(tempDir.resolve("tenant-assigned"));
+    assignDeploymentToNode(store, "node-1", "acme");
+    Authorizer authorizer = new Authorizer(store);
+
+    assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  @Test
+  void a_node_with_no_assignment_for_the_tenant_is_not_assigned() {
+    StateStore store = new StateStore(tempDir.resolve("tenant-unassigned"));
+    // "node-1" is assigned to a deployment for a different tenant -- proves this is a genuine
+    // per-tenant check, not merely "does this node have any assignment at all."
+    assignDeploymentToNode(store, "node-1", "other-tenant");
+    Authorizer authorizer = new Authorizer(store);
+
+    assertFalse(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  @Test
+  void a_node_with_no_assignments_at_all_is_not_assigned() {
+    StateStore store = new StateStore(tempDir.resolve("tenant-no-assignments"));
+    Authorizer authorizer = new Authorizer(store);
+
+    assertFalse(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  /**
+   * A single-replica deployment placed on {@code nodeId} for {@code tenantId} -- the minimal
+   * scheduler-decision shape {@link Authorizer#isTenantAssignedToNode} joins against, mirroring
+   * exactly what a real {@code DeploymentReconciler} placement would have written.
+   */
+  private static void assignDeploymentToNode(StateStore store, String nodeId, String tenantId) {
+    ModuleId moduleId = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+    store.putDeployment(
+        new DeploymentSpec(
+            "dep-" + tenantId,
+            moduleId,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of(tenantId)));
+    store.putAssignment(new InstanceAssignment("dep-" + tenantId, 0, nodeId));
   }
 }
