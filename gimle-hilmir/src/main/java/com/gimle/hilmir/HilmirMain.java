@@ -19,6 +19,7 @@ import com.gimle.hilmir.release.UndeployCommand;
 import com.gimle.hilmir.release.UpgradeCommand;
 import com.gimle.hilmir.store.StoreAddCommand;
 import com.gimle.hilmir.store.StoreRemoveCommand;
+import com.gimle.hilmir.sync.SyncCommand;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.validate.Finding;
@@ -54,6 +55,8 @@ import java.util.Optional;
  *   hilmir undeploy --release &lt;name&gt; [--keep-tenants] [-o json]
  *   hilmir releases [-o json]
  *   hilmir release-status &lt;name&gt; [-o json]
+ *   hilmir sync (-f &lt;bundle.yaml&gt; | --dir &lt;directory&gt;) [--values &lt;file&gt;] [--set k=v]...
+ *       [--wait] [--dry-run] [--prune] [-o json] [--server host:port] [--watch &lt;seconds&gt;]
  * </pre>
  *
  * {@code down}/{@code status} take {@code --data-root} rather than {@code -f}: the run ledger
@@ -65,7 +68,11 @@ import java.util.Optional;
  * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
  * {@code GIMLE_SERVER}) rather than to a topology document, so their own flag parsing and HTTP
  * calling logic live entirely in {@code com.gimle.hilmir.release}, dispatched here the same way
- * every other verb is.
+ * every other verb is. {@code sync} is a seventh, GitOps-flavored verb built on top of that same
+ * package's apply logic (see {@code com.gimle.hilmir.release.ReleaseReconciler}) but living in its
+ * own {@code com.gimle.hilmir.sync} package, since reconciling a whole directory of bundle files
+ * against the release ledger is its own concern layered on top of, not inside, the six
+ * single-bundle verbs.
  *
  * <p>{@code doctor}/{@code init} are a third, independent concern: deployability diagnostics and
  * manifest scaffolding for a single built jar, needing neither a topology document nor a running
@@ -122,6 +129,7 @@ public final class HilmirMain {
       case "undeploy" -> runUndeploy(rest, out);
       case "releases" -> runReleases(rest, out);
       case "release-status" -> runReleaseStatus(rest, out);
+      case "sync" -> runSync(rest, out);
       case "doctor" -> runDoctor(rest, out);
       case "init" -> runInit(rest, out);
       default -> throw new HilmirException(usage());
@@ -220,6 +228,10 @@ public final class HilmirMain {
 
   private static int runReleaseStatus(final List<String> args, final PrintStream out) {
     return ReleaseStatusCommand.run(args, out);
+  }
+
+  private static int runSync(final List<String> args, final PrintStream out) {
+    return SyncCommand.run(args, out);
   }
 
   private static int runDoctor(final List<String> args, final PrintStream out) {
@@ -328,6 +340,8 @@ public final class HilmirMain {
           undeploy --release <name> [--keep-tenants] [-o json]
           releases [-o json]
           release-status <name> [-o json]
+          sync (-f <bundle.yaml> | --dir <directory>) [--values <file>] [--set k=v]...
+              [--wait] [--dry-run] [--prune] [-o json] [--server host:port] [--watch <seconds>]
           doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]
           init <jar> [--out-dir <dir>]""";
   }
