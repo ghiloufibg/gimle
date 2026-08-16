@@ -1,13 +1,12 @@
-name: CI
+name: Nightly
 
 on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: ["**"]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 jobs:
-  verify:
+  nightly:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,13 +58,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # Same command a contributor runs locally (README/CLAUDE.md) -- no -pl/-am subset, so this
-      # covers every module including gimle-console's Bun build/test and gimle-docs.
-      - name: mvn verify
-        run: mvn -B verify
+      # Real subprocess-cluster smoke suite (spawns ControlPlaneMain/AgentMain/WorkerMain and
+      # friends, deploys the greeter modules, runs the console's Playwright suite against the
+      # live cluster). Slow and opt-in -- not part of the default `mvn verify` in ci.yml.
+      - name: mvn verify -Psmoke
+        id: smoke
+        continue-on-error: true
+        run: mvn -B verify -Psmoke
 
-      # Always upload, even when verify failed, so a red run still leaves the raw Surefire XML
-      # (including any rerun/flaky info surefire itself recorded) available for inspection.
+      # Functional cluster validation (Gherkin scenarios over real subprocess topologies, plus
+      # the Fenrir chaos soak and Surtr scale/churn burns). Also slow and opt-in.
+      - name: mvn verify -Pvalidation
+        id: validation
+        continue-on-error: true
+        run: mvn -B verify -Pvalidation
+
+      # Full plugin coordinate rather than the short com.gimle:flaky-tests prefix, so this needs
+      # no ~/.m2/settings.xml <pluginGroups> entry in this runner's environment.
+      - name: mvn gimle:flaky-tests
+        id: flaky-tests
+        continue-on-error: true
+        run: mvn -B com.gimle:gimle-maven-plugin:flaky-tests
+
+      # Always upload, whatever the outcome above, so the raw Surefire/Failsafe XML (including
+      # any rerun/flaky info) from all three lanes is available for inspection.
       - name: Upload Surefire reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,11 +90,29 @@ jobs:
           path: "**/target/surefire-reports/*.xml"
           if-no-files-found: ignore
 
-      # Annotates the run/PR with per-test results parsed from the Surefire XML above, including
-      # rerun/flaky detection -- runs on both pass and fail so a green run still surfaces flakes
-      # that passed on retry.
       - name: Annotate test results
         if: always()
         uses: mikepenz/action-junit-report@v6
         with:
           report_paths: "**/target/surefire-reports/*.xml"
+
+      # Each lane above ran regardless of an earlier lane's outcome (continue-on-error); this is
+      # the step that actually fails the job when any of them failed, so the workflow's own
+      # pass/fail still reflects reality.
+      - name: Fail if any lane failed
+        if: always()
+        run: |
+          status=0
+          if [ "${{ steps.smoke.outcome }}" != "success" ]; then
+            echo "::error::mvn verify -Psmoke failed"
+            status=1
+          fi
+          if [ "${{ steps.validation.outcome }}" != "success" ]; then
+            echo "::error::mvn verify -Pvalidation failed"
+            status=1
+          fi
+          if [ "${{ steps.flaky-tests.outcome }}" != "success" ]; then
+            echo "::error::mvn com.gimle:gimle-maven-plugin:flaky-tests failed"
+            status=1
+          fi
+          exit $status
