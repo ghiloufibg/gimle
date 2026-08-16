@@ -1320,7 +1320,11 @@ class ApiServerTest {
     HttpResponse<String> list =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants")).GET().build());
     assertEquals(200, list.statusCode());
-    assertEquals(1, Json.asObjectList(Json.parse(list.body())).size());
+    // Also carries the auto-seeded gimle-system tenant (see the reserved-tenant tests below) --
+    // asserting "acme" is present rather than an exact total count.
+    assertTrue(
+        Json.asObjectList(Json.parse(list.body())).stream()
+            .anyMatch(tenantJson -> "acme".equals(tenantJson.get("id"))));
 
     HttpResponse<String> delete =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).DELETE().build());
@@ -1336,6 +1340,60 @@ class ApiServerTest {
     HttpResponse<String> get =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/nope")).GET().build());
     assertEquals(404, get.statusCode());
+  }
+
+  /**
+   * {@code gimle-system} is seeded once at construction time, before {@link ApiServer#start()} is
+   * ever called and with no {@code PUT /tenants/gimle-system} from this test itself -- {@code
+   * startServer} in {@code @BeforeEach} is the only thing that ran.
+   */
+  @Test
+  void gimle_system_tenant_exists_automatically_after_startup_with_no_explicit_seed_call()
+      throws Exception {
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> tenant = Json.asObject(Json.parse(get.body()));
+    assertEquals("gimle-system", tenant.get("id"));
+    Map<String, Object> quota = Json.asObject(tenant.get("quota"));
+    // Generous defaults, not zero/absent -- proves a real ResourceQuota was actually seeded, not
+    // just a bare row.
+    assertTrue(((Number) quota.get("maxMemoryBytes")).longValue() > 0);
+    assertTrue(((Number) quota.get("maxCpuMillicores")).longValue() > 0);
+    assertTrue(((Number) quota.get("maxInstances")).intValue() > 0);
+  }
+
+  /**
+   * The idempotent half of the same seeding logic: a second {@link ApiServer} constructed against
+   * the same store -- standing in for a restarted control-plane replica -- must find the row
+   * already present and leave an operator's own since-adjusted quota untouched, not reset it back
+   * to the seed default.
+   */
+  @Test
+  void a_restart_equivalent_reseed_does_not_clobber_an_already_adjusted_quota() throws Exception {
+    HttpResponse<String> adjust =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(123, 456, 7)))
+                .build());
+    assertEquals(200, adjust.statusCode());
+
+    try (ApiServer restarted =
+        new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      restarted.start();
+      HttpResponse<String> get =
+          client.send(
+              HttpRequest.newBuilder(
+                      URI.create("http://localhost:" + restarted.port() + "/tenants/gimle-system"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, get.statusCode());
+      Map<String, Object> quota = Json.asObject(Json.asObject(Json.parse(get.body())).get("quota"));
+      assertEquals(123L, quota.get("maxMemoryBytes"));
+      assertEquals(456L, quota.get("maxCpuMillicores"));
+      assertEquals(7L, quota.get("maxInstances"));
+    }
   }
 
   // ---- tenant quota admission ----
