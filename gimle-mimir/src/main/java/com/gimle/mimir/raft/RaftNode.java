@@ -4,7 +4,9 @@ import com.gimle.core.exception.GimleRaftException;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
 import java.io.ByteArrayOutputStream;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -83,8 +85,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * Check-quorum window (Raft dissertation §6.2/etcd's {@code CheckQuorum}): a leader that hasn't
    * completed an RPC round trip -- success or reject, either proves the peer is reachable and on a
    * term this leader still recognizes; only a thrown exception (unreachable this cycle) leaves
-   * {@link #lastContactNanos} untouched -- with a majority of its own voting peers within this
-   * window steps itself down, on its own, without waiting to observe a higher term. Set to {@link
+   * {@link #lastContactAt} untouched -- with a majority of its own voting peers within this window
+   * steps itself down, on its own, without waiting to observe a higher term. Set to {@link
    * #ELECTION_TIMEOUT_MAX_MS}, the same "one election timeout" upper bound a healthy follower
    * itself tolerates before concluding its leader is gone; {@link #checkQuorumTick} runs every
    * {@link #HEARTBEAT_INTERVAL} (far more often than this window), so this is the binding bound in
@@ -105,6 +107,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final RaftLog raftLog;
   private final StateStore store;
   private final Duration proposeTimeout;
+
+  /**
+   * Read by {@link #checkQuorumTick} (via {@link #lastContactAt}) to decide whether a peer has gone
+   * stale. Not consulted anywhere {@link #propose}'s own wait blocks on real time -- see {@link
+   * #awaitAppliedThrowing}'s own comment for why that wait stays on {@code System.nanoTime()}
+   * regardless of what this is set to. Production always uses {@link Clock#systemUTC()}; a test can
+   * inject a virtual one (paired with a matching {@link #scheduler}) to exercise check-quorum
+   * self-demotion and election-timeout scheduling without waiting out the real windows.
+   */
+  private final Clock clock;
 
   /**
    * This node's live view of every peer's Raft/client network address, keyed the same as {@link
@@ -170,14 +182,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final Map<String, Thread> peerSenderThreads = new ConcurrentHashMap<>();
 
   /**
-   * Check-quorum bookkeeping (see {@link #CHECK_QUORUM_WINDOW}): per-peer {@code System.nanoTime()}
-   * of the most recent RPC round trip this leader completed with it, guarded by {@link #lock} like
+   * Check-quorum bookkeeping (see {@link #CHECK_QUORUM_WINDOW}): per-peer {@link #clock} instant of
+   * the most recent RPC round trip this leader completed with it, guarded by {@link #lock} like
    * every other per-peer table here. Cleared on every {@link #becomeLeaderLocked} (a peer's
    * staleness is only meaningful relative to *this* leadership tenure, not a previous one) and
    * simply never consulted while not leader -- {@link #checkQuorumTick} is itself only scheduled
-   * for the duration of one.
+   * for the duration of one. Read against {@link #clock} rather than {@code System.nanoTime()} so a
+   * test driving this node with an injected virtual clock/scheduler observes the same passage of
+   * time this bookkeeping does.
    */
-  private final Map<String, Long> lastContactNanos = new HashMap<>();
+  private final Map<String, Instant> lastContactAt = new HashMap<>();
 
   private ScheduledFuture<?> checkQuorumFuture;
 
@@ -205,7 +219,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private long pendingSnapshotLastIncludedTerm;
   private ByteArrayOutputStream pendingSnapshotBuffer;
 
+  /**
+   * Fires {@link #electionTimeoutFuture}/{@link #checkQuorumFuture} -- production always uses a
+   * real single-thread {@link #newTickScheduler}; a test can substitute a {@code TestScheduler}
+   * (paired with the matching {@link #clock} it fires against) to drive both deterministically via
+   * {@code advance(Duration)} instead of waiting out the real windows. {@link #peerSenderLoop}'s
+   * own heartbeat pacing and {@link #awaitAppliedThrowing}'s propose-commit wait are deliberately
+   * not routed through this seam -- see their own comments for why.
+   */
   private final ScheduledExecutorService scheduler;
+
   private ScheduledFuture<?> electionTimeoutFuture;
 
   public RaftNode(
@@ -225,6 +248,25 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       RaftLog raftLog,
       StateStore store,
       Duration proposeTimeout) {
+    this(
+        selfId, peers, raftLog, store, proposeTimeout, Clock.systemUTC(), newTickScheduler(selfId));
+  }
+
+  /**
+   * Test-only: the full legacy-constructor implementation, with the {@link #clock}/{@link
+   * #scheduler} seam also exposed -- injecting a virtual pair (a {@code TestClock} plus a {@code
+   * TestScheduler} built from it) lets a test drive election-timeout and check-quorum-tick firing
+   * with {@code advance(Duration)} rather than real sleeps. Package-private, exercised only by test
+   * code in this same package.
+   */
+  RaftNode(
+      String selfId,
+      Map<String, RaftPeerClient> peers,
+      RaftLog raftLog,
+      StateStore store,
+      Duration proposeTimeout,
+      Clock clock,
+      ScheduledExecutorService scheduler) {
     this.selfId = selfId;
     this.peers = new HashMap<>(peers);
     this.bootstrapPeerAddresses = Map.of();
@@ -239,7 +281,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     this.raftLog = raftLog;
     this.store = store;
     this.proposeTimeout = proposeTimeout;
-    this.scheduler = newTickScheduler(selfId);
+    this.clock = clock;
+    this.scheduler = scheduler;
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
@@ -288,6 +331,36 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       StateStore store,
       Consumer<Map<String, PeerAddress>> membershipListener,
       Duration proposeTimeout) {
+    this(
+        selfId,
+        selfAddress,
+        peers,
+        peerClientFactory,
+        raftLog,
+        store,
+        membershipListener,
+        proposeTimeout,
+        Clock.systemUTC(),
+        newTickScheduler(selfId));
+  }
+
+  /**
+   * Test-only: the full address-aware-constructor implementation, with the {@link #clock}/{@link
+   * #scheduler} seam also exposed -- see the short-{@code proposeTimeout} legacy-constructor
+   * overload's own javadoc for what injecting a virtual pair here buys a test. Package-private,
+   * exercised only by test code in this same package.
+   */
+  RaftNode(
+      String selfId,
+      PeerAddress selfAddress,
+      Map<String, PeerAddress> peers,
+      RaftPeerClientFactory peerClientFactory,
+      RaftLog raftLog,
+      StateStore store,
+      Consumer<Map<String, PeerAddress>> membershipListener,
+      Duration proposeTimeout,
+      Clock clock,
+      ScheduledExecutorService scheduler) {
     this.selfId = selfId;
     this.selfAddress = selfAddress;
     this.peerClientFactory = peerClientFactory;
@@ -301,7 +374,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     this.raftLog = raftLog;
     this.store = store;
     this.proposeTimeout = proposeTimeout;
-    this.scheduler = newTickScheduler(selfId);
+    this.clock = clock;
+    this.scheduler = scheduler;
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
@@ -640,6 +714,12 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private void awaitAppliedThrowing(long index) {
     lock.lock();
     try {
+      // Deliberately System.nanoTime(), not clock: the actual wait below blocks this calling
+      // thread on the Condition for real wall-clock nanoseconds regardless of what Clock the
+      // deadline math uses, so computing that deadline from an injectable clock would only be
+      // misleading -- a virtual clock that a test never advances would leave this looping on
+      // real awaitNanos calls for the real proposeTimeout anyway, not returning early the way
+      // advancing a TestClock elsewhere in this class does for the scheduler-driven timers.
       long deadlineNanos = System.nanoTime() + proposeTimeout.toNanos();
       while (lastApplied < index) {
         if (role != Role.LEADER) {
@@ -825,7 +905,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
       startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());
     }
-    lastContactNanos.clear();
+    lastContactAt.clear();
     // Started only for the duration of this leadership tenure -- see checkQuorumTick's own
     // javadoc. A fresh leader gets one full window's grace before its first check (initialDelay),
     // the same benefit of the doubt becomeLeaderLocked already gives peer replication itself.
@@ -859,11 +939,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       if (votingPeers.isEmpty()) {
         return; // a single-voter cluster (self alone) trivially always has quorum
       }
-      long earliestAcceptableNanos = System.nanoTime() - CHECK_QUORUM_WINDOW.toNanos();
+      Instant earliestAcceptable = clock.instant().minus(CHECK_QUORUM_WINDOW);
       long recentlyContacted = 0;
       for (String peerId : votingPeers.keySet()) {
-        Long last = lastContactNanos.get(peerId);
-        if (last != null && last >= earliestAcceptableNanos) {
+        Instant last = lastContactAt.get(peerId);
+        if (last != null && !last.isBefore(earliestAcceptable)) {
           recentlyContacted++;
         }
       }
@@ -948,6 +1028,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     }
   }
 
+  /**
+   * Runs on its own real background thread for as long as this node is leader, doing real blocking
+   * {@link RaftPeerClient} RPCs -- genuine concurrency across as many peers as this node has, not a
+   * single-threaded tick a test could fire deterministically. Its own pacing wait below is a real
+   * {@link Semaphore#tryAcquire}, not routed through {@link #scheduler}/{@link #clock}: unlike the
+   * election-timeout and check-quorum tasks (which the scheduler itself fires, so a virtual one can
+   * fire them on demand), this loop's own thread decides when to re-check, and virtualizing that
+   * would mean replacing the loop with something the scheduler drives instead -- a materially
+   * larger change than this seam attempts.
+   */
   private void peerSenderLoop(String peerId, RaftPeerClient client) {
     Semaphore wake = peerWake.get(peerId);
     while (running && role == Role.LEADER && !Thread.currentThread().isInterrupted()) {
@@ -1021,7 +1111,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       // this leader's own RPCs, exactly what check-quorum (see CHECK_QUORUM_WINDOW) needs to know;
       // recorded before any of the staleness checks below so even a stale-term/stale-role response
       // still counts (this leader's *previous* term successfully reached that peer, too).
-      lastContactNanos.put(peerId, System.nanoTime());
+      lastContactAt.put(peerId, clock.instant());
       if (response.term() > raftLog.currentTerm()) {
         stepDownLocked(response.term());
         return;
@@ -1092,7 +1182,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       try {
         // Same check-quorum bookkeeping as sendOnce's own response handling -- a chunk response
         // arriving at all proves this peer is reachable, regardless of what it turns out to say.
-        lastContactNanos.put(peerId, System.nanoTime());
+        lastContactAt.put(peerId, clock.instant());
         if (response.term() > raftLog.currentTerm()) {
           stepDownLocked(response.term());
           return;
