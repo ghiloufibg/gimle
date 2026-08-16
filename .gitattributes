@@ -1,0 +1,15 @@
+# This repo's whole runtime target is Linux/macOS JVM processes and Linux containers (see
+# CLAUDE.md's own node-topology section); a text file checked out with Windows CRLF line endings
+# and then executed as a POSIX shell script inside a Linux container fails outright (dash's own
+# "set -eu" parses a trailing \r as an illegal option character). Normalizing every text file to LF
+# on checkout, regardless of a contributor's own local core.autocrlf setting, avoids that class of
+# bug entirely rather than requiring every shipped shell script to defend against it individually.
+* text=auto eol=lf
+
+# Explicit even though the blanket rule above already covers extensioned scripts: these are the
+# ones actually executed with /bin/sh inside a container (gimle-holmgang/compose/*.sh) or bundled
+# straight into a shipped archive and run on an operator's own machine (gimle-dist's own launcher
+# scripts, which have no file extension at all so text=auto's own content-sniffing is the only thing
+# that would otherwise catch them).
+*.sh text eol=lf
+gimle-dist/src/main/dist/bin/* text eol=lf
