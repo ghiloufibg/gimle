@@ -54,7 +54,7 @@ describe("HttpTestHistoryRepository", () => {
   it("maps history points with branch looked up from the runs list, and no flaky-board match", async () => {
     stubFetchSequence([
       () => jsonResponse(HISTORY_ENTRIES),
-      () => jsonResponse([]),
+      () => jsonResponse({ entries: [], budgetAllowance: 120 }),
       () => jsonResponse(RUNS_FOR_BRANCH_LOOKUP),
     ]);
 
@@ -86,19 +86,23 @@ describe("HttpTestHistoryRepository", () => {
   });
 
   it("enriches a flaky-board signature's exception type and message from a sampled failing run", async () => {
-    const flakyEntry = [
-      {
-        testId: TEST_ID,
-        module: "gimle-mimir",
-        occurrences: 1,
-        runsSeen: 5,
-        flakeRate: 0.2,
-        score: 1.0,
-        signatures: { sig1: 1 },
-        firstSeen: 2_000,
-        lastSeen: 2_000,
-      },
-    ];
+    const flakyEntry = {
+      entries: [
+        {
+          testId: TEST_ID,
+          module: "gimle-mimir",
+          occurrences: 1,
+          runsSeen: 5,
+          flakeRate: 0.2,
+          score: 1.0,
+          signatures: { sig1: 1 },
+          firstSeen: 2_000,
+          lastSeen: 2_000,
+          quarantined: true,
+        },
+      ],
+      budgetAllowance: 120,
+    };
     const failingRunEvents = {
       events: [
         {
@@ -124,6 +128,7 @@ describe("HttpTestHistoryRepository", () => {
 
     const history = await new HttpTestHistoryRepository().getHistory(TEST_ID);
 
+    expect(history.quarantined).toBe(true);
     expect(history.flakeRate).toBe(0.2);
     expect(history.score).toBe(1.0);
     expect(history.signatures).toEqual([

@@ -19,6 +19,12 @@ interface RawFlakyEntry {
   flakeRate: number;
   score: number;
   signatures: Record<string, number>;
+  quarantined: boolean;
+}
+
+/** Matches `SagaServer`'s `GET /api/flaky` response shape (see `flaky.ts`'s own copy of this). */
+interface RawFlakyResponse {
+  entries: RawFlakyEntry[];
 }
 
 /** Bounds how many of a test's own failing runs get fetched to enrich signature detail -- the
@@ -65,11 +71,12 @@ async function sampleSignatures(
 
 export class HttpTestHistoryRepository implements TestHistoryRepository {
   async getHistory(testId: string): Promise<TestHistory> {
-    const [entries, flaky, branches] = await Promise.all([
+    const [entries, flakyResponse, branches] = await Promise.all([
       requestJson<RawTestHistoryEntry[]>(`/api/tests/${encodeURIComponent(testId)}/history`),
-      requestJson<RawFlakyEntry[]>(`/api/flaky?window=90`),
+      requestJson<RawFlakyResponse>(`/api/flaky?window=90`),
       branchLookup(),
     ]);
+    const flaky = flakyResponse.entries;
     const points: TestHistoryPoint[] = entries.map((e) => ({
       runId: e.runId,
       startedAt: new Date(e.startedAtEpochMilli).toISOString(),
@@ -99,7 +106,7 @@ export class HttpTestHistoryRepository implements TestHistoryRepository {
     return {
       testId,
       module: moduleOf(testId),
-      quarantined: false,
+      quarantined: flakyEntry?.quarantined ?? false,
       flakeRate: flakyEntry?.flakeRate ?? 0,
       score: flakyEntry?.score ?? 0,
       points,
