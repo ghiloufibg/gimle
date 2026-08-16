@@ -73,7 +73,8 @@ final class SagaServer {
   }
 
   static List<String> spawnCommand(String javaExecutable, String classpath, String port) {
-    return List.of(javaExecutable, "-cp", classpath, "com.gimle.saga.SagaMain", port);
+    return List.of(
+        javaExecutable, "-cp", classpath, "-Dgimle.saga.port=" + port, "com.gimle.saga.SagaMain");
   }
 
   static Process spawnDetached(List<String> command, Log log) throws MojoExecutionException {
