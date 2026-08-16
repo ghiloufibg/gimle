@@ -13,9 +13,11 @@ same binary `StoreClient` protocol `gimle-mimir` itself uses — see
 [Store membership verbs](#store-membership-verbs) below. The `deploy`/`upgrade`/`rollback`/
 `undeploy`/`releases`/`release-status` verbs are a Helm-equivalent release lifecycle layered on top
 of an already-running cluster — they talk to the control plane's own HTTP API, the same way
-`gimle-cli` does, and never touch a topology document at all. `doctor`/`init` are a fourth,
-independent concern: deployability diagnostics and manifest scaffolding for a single built jar,
-needing neither a topology document nor a running control plane (`doctor --server` only adds
+`gimle-cli` does, and never touch a topology document at all. `sync` is a seventh, GitOps-flavored
+verb built on that same release lifecycle — see
+[Sync (GitOps-style reconciliation)](#sync-gitops-style-reconciliation) below. `doctor`/`init` are a
+fourth, independent concern: deployability diagnostics and manifest scaffolding for a single built
+jar, needing neither a topology document nor a running control plane (`doctor --server` only adds
 cluster-aware checks on top of its own static ones) — see [`doctor`/`init`](#doctorinit) below.
 
 ## Machine bootstrap verbs
@@ -204,6 +206,67 @@ idea Fafnir's own `key@N`/`key@meta` versioned-secret convention uses: the contr
 reads `meta` or is all digits, on the assumption that shape always means a Fafnir-managed secret row
 — a ledger key in that exact shape would be invisible to `releases`/`release-status`, which have no
 per-key `GET` to fall back on, only list-and-filter.
+
+## Sync (GitOps-style reconciliation)
+
+```text
+hilmir sync (-f <bundle.yaml> | --dir <directory>) [--values <file>] [--set k=v]...
+    [--wait] [--dry-run] [--prune] [-o json] [--server host:port] [--watch <seconds>]
+```
+
+`sync` reconciles one bundle file (`-f`) or every bundle file in a directory (`--dir`, non-recursive,
+`*.yaml`/`*.yml`) against the release ledger `deploy`/`upgrade` already write, applying only what has
+actually changed. It is built entirely on the same rendering and apply logic those two verbs use —
+render the bundle, then compare it against the ledger's own recorded content — so a bundle that
+`sync` finds absent from the ledger gets a fresh `deploy`-equivalent apply (revision 1), and a bundle
+whose rendered content differs from its release's current revision gets an `upgrade`-equivalent apply
+(next revision, with the same intra-revision resource prune `upgrade` already performs). A bundle
+whose rendered content is *identical* to its release's current revision is reported as **already
+converged** and left untouched entirely: no apply call, no revision bump. This diff-before-apply step
+is `sync`'s own addition — `upgrade` itself still always applies and always bumps the revision, even
+for unchanged content, since introducing that check there would change `upgrade`'s existing,
+already-tested behavior.
+
+In `--dir` mode, every file is reconciled in one invocation, and two files declaring the same bundle
+`name` is a usage error naming both colliding files — nothing is applied until that check passes. Past
+that point, `sync` reconciles each bundle independently: a bundle that fails to render or apply (a bad
+`${values.*}` reference, a control-plane rejection) is recorded as failed and reconciliation continues
+with the rest of the directory, rather than aborting every other, otherwise-healthy release over one
+broken bundle — the exit code is nonzero if any bundle failed. A bundle file that fails to *parse* at
+all (malformed YAML) is the one exception: since there is no bundle name yet to report a per-bundle
+failure against, a parse failure aborts the whole invocation immediately, the same as a bad `-f` file
+already does for `deploy`/`upgrade` today.
+
+`sync` is deliberately **one-shot** — reconcile the bundles given right now, print a result, exit —
+matching every other hilmir verb's own "act, print, exit" posture rather than becoming hilmir's first
+foreground daemon/watch loop. `sync` has no notion of a git repository at all: it reconciles whatever
+bundle files are already sitting on local disk, so watching a git remote for new commits is an
+explicitly out-of-scope, separately-scriptable concern layered on top —
+`while true; do git pull && hilmir sync --dir ./checkout; sleep 30; done`, not something built into
+this verb. The optional `--watch <seconds>` flag is only a thin convenience wrapper around that exact
+same loop (reconcile, sleep, repeat, foreground, until interrupted) for a caller who wants a single
+long-running process instead of an external loop; it is not the primary design of the verb and, unlike
+every other piece of `sync`, is not covered by an automated test (a genuine infinite loop isn't
+something a unit test can assert against without hanging).
+
+`--dry-run` makes **zero** control-plane calls — not even the ledger read `sync` would otherwise need
+to tell a fresh deploy, an upgrade, and an already-converged bundle apart, mirroring `deploy
+--dry-run`'s own "nothing to check against without a call" reasoning. A sync dry-run therefore cannot
+report which of those three categories a bundle falls into; it prints the same "this is what would be
+applied" plan `deploy --dry-run` already prints, for every bundle uniformly.
+
+`--prune` additionally removes any release whose `.meta` row is on the ledger but whose bundle `name`
+is not declared by any bundle in this invocation — true orphan-removal GitOps semantics (a bundle file
+that has been deleted from the source directory), layered on top of, and distinct from, the
+intra-revision resource prune an upgraded bundle already performs. It requires `--dir` (comparing "the
+whole ledger" against a single `-f` file would make one lone sync capable of deleting every other
+release the cluster knows about) and, like everything else `--dry-run` gates, has no effect under
+`--dry-run`.
+
+`--wait`, `--values`, `--set`, `-o json`, and `--server`/`GIMLE_SERVER` all behave exactly the way they
+already do for `deploy`/`upgrade`: `--wait` polls only the bundles that actually changed (an
+already-converged bundle has nothing to wait on); `--values`/`--set` apply the identical merged
+override set to every bundle in a `--dir` run, not a per-bundle override.
 
 ## `doctor`/`init`
 
