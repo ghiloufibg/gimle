@@ -8,6 +8,8 @@ import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
+import com.gimle.core.time.TestClock;
+import com.gimle.core.time.TestScheduler;
 import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.testsupport.Await;
 import java.io.IOException;
@@ -185,7 +187,6 @@ class GossipMemberTest {
   }
 
   @Test
-  @Timeout(15)
   void a_long_dead_member_is_eventually_forgotten_not_kept_forever() throws IOException {
     // Driven directly via mergeAll (same technique the self-refutation tests below use) rather
     // than a real multi-node kill-and-detect scenario: with a second live peer still gossiping,
@@ -195,6 +196,10 @@ class GossipMemberTest {
     // (see reapExpiredDeadMembers' own javadoc: no cluster-wide coordination), not a bug this test
     // needs to chase. Injecting the DEAD claim once, with nothing else re-asserting it, isolates
     // exactly the mechanism this item adds: a node forgets an entry that's stayed DEAD long enough.
+    //
+    // No network traffic is ever exercised by this scenario (a lone node ticking against an empty
+    // peer set), so its timing is entirely internal to GossipMember -- exactly the case a
+    // TestClock/TestScheduler pair can drive deterministically instead of a real sleep.
     GossipConfig config =
         new GossipConfig(
             Duration.ofMillis(50),
@@ -204,16 +209,25 @@ class GossipMemberTest {
             6,
             Duration.ofSeconds(30),
             Duration.ofMillis(150));
-    GossipMember a = newMember("node-a", config);
+    TestClock clock = new TestClock();
+    TestScheduler scheduler = new TestScheduler(clock);
+    MemberId id = new MemberId("node-a", new InetSocketAddress("127.0.0.1", 0));
+    GossipMember a = new GossipMember(id, config, clock, scheduler);
+    members.add(a);
     a.start();
 
     MemberId longGoneNodeId = new MemberId("node-gone", new InetSocketAddress("127.0.0.1", 9));
     a.mergeAll(List.of(new MemberState(longGoneNodeId, MemberStatus.DEAD, 0)));
     assertEquals(MemberStatus.DEAD, a.memberState("node-gone").orElseThrow().status());
 
+    // Ten protocol-period ticks, comfortably past deadMemberReapAfter (150ms) -- the same
+    // production durations the real-time version of this test waited out, but costing no wall
+    // clock time.
+    scheduler.advance(Duration.ofMillis(500));
+
     // Once reaped, the entry is gone entirely -- not merely relabeled DEAD forever -- so a
     // long-running cluster's membership table doesn't grow unboundedly with node churn.
-    Await.until(() -> a.memberState("node-gone").isEmpty(), Duration.ofSeconds(5));
+    assertTrue(a.memberState("node-gone").isEmpty());
     assertTrue(a.members().stream().noneMatch(s -> s.id().nodeId().equals("node-gone")));
   }
 

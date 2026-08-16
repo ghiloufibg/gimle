@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -82,6 +83,7 @@ public final class GossipMember implements AutoCloseable {
   private final ScheduledExecutorService ticker;
   private final TransportProtocol transportProtocol;
   private final AtomicReference<SSLContext> dtlsContext;
+  private final Clock clock;
 
   private final Map<String, MemberState> members = new ConcurrentHashMap<>();
   private final Map<String, Instant> suspectedSince = new ConcurrentHashMap<>();
@@ -95,7 +97,7 @@ public final class GossipMember implements AutoCloseable {
   private final AtomicLong incarnation = new AtomicLong();
   private final AtomicLong seqCounter = new AtomicLong();
   private final AtomicInteger localHealthMultiplier = new AtomicInteger();
-  private final AtomicReference<Instant> lastAntiEntropySync = new AtomicReference<>(Instant.now());
+  private final AtomicReference<Instant> lastAntiEntropySync;
   private final AtomicInteger fullStateOffset = new AtomicInteger();
 
   /** See {@link #currentFullState}. */
@@ -117,7 +119,33 @@ public final class GossipMember implements AutoCloseable {
   private volatile PiggybackExtension catalogExtension = PiggybackExtension.NONE;
 
   public GossipMember(MemberId self, GossipConfig config) throws IOException {
+    this(self, config, Clock.systemUTC());
+  }
+
+  /**
+   * Every deadline this class compares against -- suspicion, probe, DTLS-handshake, anti-entropy,
+   * dead-member-reap -- is read from this {@link Clock} rather than {@link Instant#now()}, so a
+   * test can exercise the real production timeouts (protocol period, suspicion timeout, and so on)
+   * without waiting for them; see {@code TestClock} in {@code gimle-core}'s test-jar. The periodic
+   * tick itself still fires off the real {@link ScheduledExecutorService} this constructor builds
+   * -- pair this with the package-visible constructor below to additionally substitute a
+   * deterministic one (see {@code TestScheduler}) where the ticker's own firing needs to be driven
+   * by the test rather than a background thread.
+   */
+  public GossipMember(MemberId self, GossipConfig config, Clock clock) throws IOException {
+    this(self, config, clock, null);
+  }
+
+  /**
+   * Package-visible seam for {@code GossipMemberTest}: a non-null {@code ticker} replaces the
+   * virtual-thread-backed {@link ScheduledExecutorService} this class otherwise builds, so a test
+   * can supply a {@code TestScheduler} sharing {@code clock} and drive {@link #tick}
+   * deterministically via its own {@code advance} rather than a background thread's real firing.
+   */
+  GossipMember(MemberId self, GossipConfig config, Clock clock, ScheduledExecutorService ticker)
+      throws IOException {
     this.config = config;
+    this.clock = clock;
     this.transportProtocol = TransportProtocol.fromConfig();
     this.dtlsContext =
         new AtomicReference<>(
@@ -134,8 +162,14 @@ public final class GossipMember implements AutoCloseable {
     // reply-to-source-address hop.
     this.self = new MemberId(self.nodeId(), (InetSocketAddress) channel.getLocalAddress());
     this.ticker =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> Thread.ofVirtual().name("gimle-gossip-ticker-" + this.self.nodeId()).unstarted(r));
+        ticker != null
+            ? ticker
+            : Executors.newSingleThreadScheduledExecutor(
+                r ->
+                    Thread.ofVirtual()
+                        .name("gimle-gossip-ticker-" + this.self.nodeId())
+                        .unstarted(r));
+    this.lastAntiEntropySync = new AtomicReference<>(clock.instant());
     members.put(this.self.nodeId(), new MemberState(this.self, MemberStatus.ALIVE, 0));
   }
 
@@ -274,7 +308,7 @@ public final class GossipMember implements AutoCloseable {
    * to whoever still asks.
    */
   private void reapExpiredDeadMembers() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (Map.Entry<String, Instant> entry : List.copyOf(deadSince.entrySet())) {
       String nodeId = entry.getKey();
       if (now.isAfter(entry.getValue().plus(config.deadMemberReapAfter()))) {
@@ -300,7 +334,7 @@ public final class GossipMember implements AutoCloseable {
     if (transportProtocol != TransportProtocol.TLS) {
       return;
     }
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (Map.Entry<InetSocketAddress, DtlsPeerSession> entry :
         List.copyOf(dtlsSessions.entrySet())) {
       DtlsPeerSession session = entry.getValue();
@@ -328,7 +362,7 @@ public final class GossipMember implements AutoCloseable {
    * rather than a tick counter so it stays correct regardless of {@code protocolPeriod}.
    */
   private void maybeSyncWithRandomMember() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Instant last = lastAntiEntropySync.get();
     if (now.isBefore(last.plus(config.antiEntropyInterval()))) {
       return;
@@ -379,7 +413,7 @@ public final class GossipMember implements AutoCloseable {
       return;
     }
     long seq = nextSeq();
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Duration timeout = scaledPingTimeout();
     pendingProbes.put(
         seq, new PendingProbe(target.id(), null, 0, now.plus(timeout), now.plus(timeout)));
@@ -452,7 +486,7 @@ public final class GossipMember implements AutoCloseable {
   }
 
   private void checkProbeTimeouts() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (Map.Entry<Long, PendingProbe> entry : pendingProbes.entrySet()) {
       PendingProbe pending = entry.getValue();
       if (pending.onBehalfOf == null && !pending.escalated && now.isAfter(pending.directDeadline)) {
@@ -505,11 +539,11 @@ public final class GossipMember implements AutoCloseable {
             e.getMessage());
       }
     }
-    pending.overallDeadline = Instant.now().plus(scaledPingTimeout());
+    pending.overallDeadline = clock.instant().plus(scaledPingTimeout());
   }
 
   private void checkSuspectExpiry() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (Map.Entry<String, Instant> entry : List.copyOf(suspectedSince.entrySet())) {
       if (now.isAfter(entry.getValue().plus(scaledSuspicionTimeout()))) {
         markDead(entry.getKey());
@@ -633,7 +667,7 @@ public final class GossipMember implements AutoCloseable {
       }
       case SwimMessage.PingReq req -> {
         long relaySeq = nextSeq();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         pendingProbes.put(
             relaySeq,
             new PendingProbe(
@@ -745,7 +779,7 @@ public final class GossipMember implements AutoCloseable {
     }
     MemberState updated = new MemberState(id, MemberStatus.SUSPECT, current.incarnation());
     members.put(id.nodeId(), updated);
-    suspectedSince.put(id.nodeId(), Instant.now());
+    suspectedSince.put(id.nodeId(), clock.instant());
     markChanged(updated);
     log.info("{}: member {} is now SUSPECT", self.nodeId(), id.nodeId());
   }
@@ -758,7 +792,7 @@ public final class GossipMember implements AutoCloseable {
     MemberState updated = new MemberState(current.id(), MemberStatus.DEAD, current.incarnation());
     members.put(nodeId, updated);
     suspectedSince.remove(nodeId);
-    deadSince.putIfAbsent(nodeId, Instant.now());
+    deadSince.putIfAbsent(nodeId, clock.instant());
     markChanged(updated);
     log.info("{}: member {} is now DEAD", self.nodeId(), nodeId);
   }
@@ -791,12 +825,12 @@ public final class GossipMember implements AutoCloseable {
     MemberStatus previousStatus = current == null ? null : current.status();
     members.put(incoming.id().nodeId(), incoming);
     if (incoming.status() == MemberStatus.SUSPECT) {
-      suspectedSince.putIfAbsent(incoming.id().nodeId(), Instant.now());
+      suspectedSince.putIfAbsent(incoming.id().nodeId(), clock.instant());
     } else {
       suspectedSince.remove(incoming.id().nodeId());
     }
     if (incoming.status() == MemberStatus.DEAD) {
-      deadSince.putIfAbsent(incoming.id().nodeId(), Instant.now());
+      deadSince.putIfAbsent(incoming.id().nodeId(), clock.instant());
     } else {
       deadSince.remove(incoming.id().nodeId());
     }
