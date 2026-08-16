@@ -16,22 +16,28 @@
   <name>Gimle Gateway</name>
   <description>
     A self-hosted, Tier-2 module giving Gimle a north-south HTTP story: proxies incoming HTTP
-    requests to the platform's own service fabric via ModuleContext's name-driven invocation path
-    (com.gimle.module.lifecycle.ServiceRegistry#invokeByName), since a gateway route names its
-    target service through runtime config rather than a compile-time generic interface type.
-    Deployed as a real
-    DaemonSet onto operator-labeled edge nodes, into the reserved gimle-system tenant -- a
-    first-party platform component, not an example/sample module. v1 covers fabric routes only;
-    see this module's own package-info for the deferred vessel-route increment. com.gimle.module and
-    org.slf4j are declared `requires static`, not `requires`, for the same boot-only-platform-layer
-    reason every other hosted module in this codebase declares them that way -- see
-    ModuleLayerFactory's own javadoc in gimle-module.
+    requests either into the platform's own service fabric via ModuleContext's name-driven
+    invocation path (com.gimle.module.lifecycle.ServiceRegistry#invokeByName, a FABRIC route -- a
+    gateway route names its target service through runtime config rather than a compile-time
+    generic interface type) or, for a VESSEL route, straight through to a live instance of a named
+    deployment, resolved via ModuleContext#relayControlPlaneRead against the control plane's own
+    GET /endpoints/{name} and cached with a short TTL. Deployed as a real DaemonSet onto
+    operator-labeled edge nodes, into the reserved gimle-system tenant -- a first-party platform
+    component, not an example/sample module. com.gimle.module, com.gimle.core, and org.slf4j are
+    declared `requires static`, not `requires`, for the same boot-only-platform-layer reason every
+    other hosted module in this codebase declares them that way -- see ModuleLayerFactory's own
+    javadoc in gimle-module.
   </description>
 
   <dependencies>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
       <scope>provided</scope>
     </dependency>
     <dependency>
