@@ -150,6 +150,43 @@ class SagaTestListenerTest {
   }
 
   @Test
+  void numbers_attempts_across_separate_listener_instances_for_the_same_test() throws Exception {
+    // Surefire's own rerun-on-failure mechanism (rerunFailingTestsCount, driving
+    // failOnFlakeCount) re-invokes the JUnit Platform Launcher for each retry batch within the
+    // same forked JVM; a fresh Launcher rediscovers a brand-new SagaTestListener via
+    // ServiceLoader. The flake ledger's own rule -- a FAILED attempt N immediately followed by a
+    // PASSED attempt N+1 -- must still fire across that instance boundary, not just within one
+    // listener's lifetime (see numbers_attempts_across_re_executions_of_the_same_test above).
+    startServer(
+        exchange -> {
+          recordLines(exchange.getRequestBody().readAllBytes());
+          exchange.sendResponseHeaders(204, -1);
+          exchange.close();
+        });
+    TestIdentifier test = testIdentifier("greets_flakily_across_relaunches");
+
+    SagaTestListener first = new SagaTestListener(endpoint(), RUN_ID, MODULE, 100);
+    first.executionStarted(test);
+    first.executionFinished(test, TestExecutionResult.failed(new AssertionError("flake")));
+    // first and second ship over independent virtual threads with no ordering guarantee between
+    // them; draining first's pair before second starts is what makes the event order below
+    // deterministic, not an artifact of the fix itself.
+    awaitReceived(2);
+
+    SagaTestListener second = new SagaTestListener(endpoint(), RUN_ID, MODULE, 100);
+    second.executionStarted(test);
+    second.executionFinished(test, TestExecutionResult.successful());
+    awaitReceived(4);
+
+    assertEquals(1, assertInstanceOf(SagaEvent.TestStarted.class, decodedEvent(0)).attempt());
+    assertEquals(1, assertInstanceOf(SagaEvent.TestFinished.class, decodedEvent(1)).attempt());
+    assertEquals(2, assertInstanceOf(SagaEvent.TestStarted.class, decodedEvent(2)).attempt());
+    SagaEvent.TestFinished retry = assertInstanceOf(SagaEvent.TestFinished.class, decodedEvent(3));
+    assertEquals(2, retry.attempt());
+    assertEquals(SagaEvent.Outcome.PASSED, retry.outcome());
+  }
+
+  @Test
   void ignores_container_events() throws Exception {
     SagaTestListener listener = listenerAgainstStubServer(100);
     TestIdentifier container = containerIdentifier();

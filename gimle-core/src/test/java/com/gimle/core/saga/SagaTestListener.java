@@ -141,7 +141,15 @@ public final class SagaTestListener implements TestExecutionListener {
     private final BlockingQueue<SagaEvent> queue;
     private final HttpClient client;
     private final Map<String, StartedAttempt> started = new ConcurrentHashMap<>();
-    private final Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
+    // Static, not per-instance: Surefire's own rerun-on-failure mechanism (rerunFailingTestsCount,
+    // driving failOnFlakeCount) re-invokes the JUnit Platform Launcher for each retry batch within
+    // the same forked JVM, and a fresh Launcher rediscovers a brand-new SagaTestListener via
+    // ServiceLoader -- an instance field here would silently reset every retry back to attempt 1,
+    // and the flake ledger's own rule (a FAILED attempt N immediately followed by a PASSED attempt
+    // N+1) would never fire for exactly the in-JVM reruns it exists to catch. Scoped by testId, so
+    // unrelated tests never collide; bounded by the forked JVM's own lifetime, same as every other
+    // piece of this listener's state.
+    private static final Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
     // Events accepted into the queue but not yet through their (single) shipping attempt; lets
     // the end-of-plan flush wait for in-flight work without racing the drain thread's dequeue.
     private final AtomicLong pending = new AtomicLong();
