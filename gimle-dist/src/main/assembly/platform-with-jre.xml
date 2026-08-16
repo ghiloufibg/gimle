@@ -1,0 +1,93 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
+  <!--
+    The dist-with-jre profile's own variant of platform.xml: everything the default descriptor
+    already includes, plus one fileSet per safe component copying that component's own
+    dist-with-jre-profile-built jlink JRE (target/jre-images/<component>/jre) into the archive's own
+    jre/<component>/. Never used by the default (no-profile) build: see the dist-with-jre profile's
+    own comment in ../../../pom.xml for why this is a separate file rather than a change to
+    platform.xml itself. All eight safe components are bundled here (gimle-controlplane, gimle-mimir,
+    gimle-fafnir, gimle-muninn, gimle-andvari, gimle-pki, gimle-hilmir, gimle-cli): this archive
+    already contains every one of their own jars, plus hilmir/gimle themselves. Deliberately no
+    jre/agent/ or jre/worker/: neither is ever bundled, see the profile's own comment for why.
+
+    No fileMode is set on these fileSets, unlike the bin/ one below: an explicit fileMode would
+    overwrite the executable bit jlink already set on jre/<component>/bin/java and friends, so this
+    deliberately relies on maven-assembly-plugin's own default of preserving each source file's real
+    permissions when no fileMode is given.
+  -->
+  <id>platform</id>
+  <formats>
+    <format>tar.gz</format>
+  </formats>
+  <includeBaseDirectory>true</includeBaseDirectory>
+  <baseDirectory>gimle-platform-${project.version}</baseDirectory>
+
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <useTransitiveDependencies>true</useTransitiveDependencies>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <excludes>
+        <exclude>com.gimle:gimle-gateway</exclude>
+      </excludes>
+    </dependencySet>
+    <dependencySet>
+      <outputDirectory>modules</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <useTransitiveDependencies>false</useTransitiveDependencies>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>com.gimle:gimle-gateway</include>
+      </includes>
+    </dependencySet>
+  </dependencySets>
+
+  <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/main/dist/bin</directory>
+      <outputDirectory>bin</outputDirectory>
+      <fileMode>0755</fileMode>
+      <includes>
+        <include>hilmir</include>
+        <include>gimle</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/controlplane/jre</directory>
+      <outputDirectory>jre/controlplane</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/mimir/jre</directory>
+      <outputDirectory>jre/mimir</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/fafnir/jre</directory>
+      <outputDirectory>jre/fafnir</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/muninn/jre</directory>
+      <outputDirectory>jre/muninn</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/andvari/jre</directory>
+      <outputDirectory>jre/andvari</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/pki/jre</directory>
+      <outputDirectory>jre/pki</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/hilmir/jre</directory>
+      <outputDirectory>jre/hilmir</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/cli/jre</directory>
+      <outputDirectory>jre/cli</outputDirectory>
+    </fileSet>
+  </fileSets>
+</assembly>

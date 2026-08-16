@@ -75,6 +75,39 @@
     </dependency>
   </dependencies>
 
+  <!--
+    Per-component jlink "add-modules" lists for the dist-with-jre profile's own jlink invocations
+    (see that profile's own comment below), each one a verbatim duplicate of that component's own
+    gimle.runtimeImage.jdkModules property, defined on that module's own pom.xml and already
+    empirically verified by the root pom's own runtime-image profile. Duplicated rather than
+    referenced across the module boundary, matching this codebase's own established convention for
+    small, stable, cross-module config (see ControlPlaneApi/ExtensionFlags/ProbeInterfaces' own
+    javadoc for the precedent): gimle-dist depends on these eight modules' already-built jars only,
+    never on their POMs' own properties. gimle-agent and gimle-worker deliberately have no property
+    here at all: this feature never bundles a JRE for either (see the dist-with-jre profile's own
+    comment for why).
+  -->
+  <properties>
+    <!-- duplicated from gimle-controlplane/pom.xml's own gimle.runtimeImage.jdkModules; kept on one
+         line deliberately: Maven property values preserve literal whitespace/newlines, and this
+         value is passed verbatim as a single jlink "add-modules" argument -->
+    <gimle.dist.jre.controlplane.jdkModules>java.base,java.logging,java.xml,java.naming,jdk.httpserver,java.net.http</gimle.dist.jre.controlplane.jdkModules>
+    <!-- duplicated from gimle-mimir/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.mimir.jdkModules>java.base,java.xml,java.naming</gimle.dist.jre.mimir.jdkModules>
+    <!-- duplicated from gimle-fafnir/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.fafnir.jdkModules>java.base,jdk.httpserver,java.xml,java.naming,jdk.zipfs</gimle.dist.jre.fafnir.jdkModules>
+    <!-- duplicated from gimle-muninn/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.muninn.jdkModules>java.base,jdk.httpserver,java.xml,java.naming</gimle.dist.jre.muninn.jdkModules>
+    <!-- duplicated from gimle-andvari/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.andvari.jdkModules>java.base,java.xml,java.naming,jdk.httpserver,jdk.zipfs</gimle.dist.jre.andvari.jdkModules>
+    <!-- duplicated from gimle-pki/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.pki.jdkModules>java.base,java.net.http</gimle.dist.jre.pki.jdkModules>
+    <!-- duplicated from gimle-hilmir/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.hilmir.jdkModules>java.base,java.net.http</gimle.dist.jre.hilmir.jdkModules>
+    <!-- duplicated from gimle-cli/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.cli.jdkModules>java.base,java.net.http</gimle.dist.jre.cli.jdkModules>
+  </properties>
+
   <build>
     <plugins>
       <!--
@@ -180,4 +213,269 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Opt-in per-component jlink JRE bundling for the platform/cli/hilmir distribution archives (see
+      gimle-docs/docs/reference/distribution.md for the operator-facing writeup). Activate alongside
+      the default build, never instead of it: `mvn -pl gimle-dist -am install -P dist-with-jre`. The
+      default (no-profile) build is completely unaffected by this profile's existence: no jre/
+      directory is added to any archive unless this profile is explicitly requested.
+
+      Deliberately excludes gimle-agent and gimle-worker: both dynamically load code this feature
+      never sees ahead of time (the agent spawns arbitrary vessel jars, the worker hosts arbitrary
+      Gimlé modules inside its own JVM via ModuleLayer), so neither one's own real JDK module needs
+      were ever part of any jlink derivation the way the eight process kinds this profile *does*
+      bundle for (gimle-controlplane, gimle-mimir, gimle-fafnir, gimle-muninn, gimle-andvari,
+      gimle-pki, gimle-hilmir, gimle-cli, each of which only ever runs the platform's own code)
+      already were. A trimmed JRE for either could silently break a workload needing a JDK module
+      outside that trimmed set, with no way to detect the mismatch ahead of time.
+
+      Two plugin stages, both scoped to this profile only:
+
+      1. exec-maven-plugin invokes the real jlink binary directly, once per safe component, in
+         the prepare-package phase (i.e. before the assembly executions below run in the package
+         phase): the identical mechanism and the same "strip-debug"/"no-header-files"/"no-man-pages"
+         flags the root pom's own runtime-image profile already uses, only with the "add-modules"
+         list read from this module's own properties (see above) instead of the target module's own
+         pom.xml, since gimle-dist depends on those modules' already-built jars, never their POMs.
+         Each output lands at target/jre-images/(component)/jre, one directory per component.
+
+      2. maven-assembly-plugin's three existing executions (ids platform/cli/hilmir, matched by id
+         against the base build's own executions of the same ids above) are overridden here with a
+         descriptors element (combine.self="override") pointing at a "with-jre" variant of each
+         descriptor instead: src/main/assembly/{platform,cli,hilmir}-with-jre.xml, each an exact
+         copy of its default counterpart plus one fileSet per component copying that component's own
+         target/jre-images/(component)/jre into the archive's own jre/(component)/. The *default*
+         descriptors (platform.xml/cli.xml/hilmir.xml) are never touched by this profile at all;
+         this override-by-execution-id approach was chosen over a property-parameterized fileSet in
+         the default descriptors themselves specifically so the default (no-profile) build's own
+         descriptors, and therefore its own archive contents, stay byte-for-byte exactly what they
+         were before this profile existed.
+
+      Same jlink caveat as the runtime-image profile: each output directory must not already exist,
+      so re-running `-P dist-with-jre` a second time without `clean` first fails; run
+      `mvn clean install -pl gimle-dist -am -P dist-with-jre` to rebuild from scratch.
+
+      Not addressed here, a known and accepted limitation rather than an oversight: the CycloneDX
+      SBOM this module already generates (see the makeBom execution above) covers gimle-dist's own
+      resolved Maven dependency graph only: a jlink-produced JRE is never a Maven dependency, so it
+      was never going to appear in that SBOM regardless of this profile, the same way it never
+      appeared in the runtime-image profile's own output either.
+    -->
+    <profile>
+      <id>dist-with-jre</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>jlink-controlplane</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.controlplane.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/controlplane/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-mimir</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.mimir.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/mimir/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-fafnir</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.fafnir.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/fafnir/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-muninn</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.muninn.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/muninn/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-andvari</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.andvari.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/andvari/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-pki</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.pki.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/pki/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-hilmir</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.hilmir.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/hilmir/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-cli</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.cli.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/cli/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>platform</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors combine.self="override">
+                    <descriptor>src/main/assembly/platform-with-jre.xml</descriptor>
+                  </descriptors>
+                  <finalName>gimle-platform-${project.version}</finalName>
+                  <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+              </execution>
+              <execution>
+                <id>cli</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors combine.self="override">
+                    <descriptor>src/main/assembly/cli-with-jre.xml</descriptor>
+                  </descriptors>
+                  <finalName>gimle-cli-${project.version}</finalName>
+                  <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+              </execution>
+              <execution>
+                <id>hilmir</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors combine.self="override">
+                    <descriptor>src/main/assembly/hilmir-with-jre.xml</descriptor>
+                  </descriptors>
+                  <finalName>gimle-hilmir-${project.version}</finalName>
+                  <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
