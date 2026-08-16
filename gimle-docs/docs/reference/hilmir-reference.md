@@ -48,6 +48,61 @@ before starting anything that depends on it; `down`/`status` act on the run ledg
 neither needs the topology document again. `pki init` mints the cluster's certificate authority and
 every process's leaf certificate up front, for a topology that declares `tls:`.
 
+### Topology `runtime:` block
+
+A topology document's optional `runtime:` section carries the shared knobs `validate`/`plan`/`up`/
+`pki init` resolve once and reuse across every process the topology spawns. All four fields are
+optional; a topology that omits `runtime:` entirely still parses.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `javaExecutable` | `java` (on `PATH`) | The `java` launcher every spawned process uses, unless `useBundledJre` overrides it for a given role (see below). |
+| `classpath` | The running `hilmir` JVM's own `java.class.path` | The classpath every spawned process is launched against — see [Why `bin/hilmir up` needs no extra flag inside the platform archive](./distribution.md#why-binhilmir-up-needs-no-extra-flag-inside-the-platform-archive) for why this default is already correct inside an unpacked platform archive. |
+| `dataRoot` | `gimle-data` (relative to the current working directory) | The root directory under which every spawned process gets its own scoped `<dataRoot>/<id>` data directory and `<dataRoot>/<id>-logs` log directory. |
+| `useBundledJre` | `false` | When `true`, `up` and `pki init` launch the STORE, MUNINN, ANDVARI, FAFNIR, and CONTROL_PLANE processes against their own bundled jlink JRE instead of `javaExecutable` — see below. |
+
+```yaml
+runtime:
+  javaExecutable: java
+  classpath: /opt/gimle/0.1.0/lib/*
+  dataRoot: /var/lib/gimle
+  useBundledJre: true
+```
+
+#### `useBundledJre`
+
+Setting `useBundledJre: true` tells `hilmir up`/`hilmir pki init` to resolve
+`${GIMLE_HOME}/jre/<component>/bin/java` for each of the five roles above instead of using
+`javaExecutable` — the identical `jre/<component>/` layout (`mimir`, `fafnir`, `muninn`, `andvari`,
+`controlplane`, `pki`) a `gimle-dist` platform archive built with its `-P dist-with-jre` profile
+produces; see [Bundling a JRE into the
+archives](./distribution.md#bundling-a-jre-into-the-archives) for that layout in full.
+`GIMLE_HOME` is read from the process environment — the platform archive's own `bin/hilmir` wrapper
+script already exports it (a sibling of that archive's own `bin/`/`lib/`/`jre/` directories), so an
+operator running `hilmir up` from an unpacked platform archive needs no extra flag.
+
+Two things fail this cleanly rather than falling through to a confusing spawn error, both checked as
+early as `hilmir plan`/`hilmir up` (not deferred to a mysterious `ProcessBuilder` failure): a topology
+setting `useBundledJre: true` while `GIMLE_HOME` isn't set in the environment `hilmir` itself was
+launched with, and a topology needing a component whose own `jre/<component>/bin/java` doesn't
+actually exist under `GIMLE_HOME` (an archive built without `-P dist-with-jre`, say). Both surface as
+a clear, named error identifying exactly what's missing.
+
+**`useBundledJre` never applies to the AGENT role, under any circumstance** — nor to the WORKER
+command tail the agent itself spawns. Both dynamically load code (arbitrary vessel jars, hosted
+Gimlé modules loaded into their own `ModuleLayer`) whose own JDK module needs were never part of any
+jlink derivation; see [Which components, and why not all of
+them](./distribution.md#which-components-and-why-not-all-of-them) for the full reasoning. A topology
+with `useBundledJre: true` still launches every agent with plain `javaExecutable`, exactly as if the
+setting were `false`.
+
+This same resolution also applies to `hilmir upgrade-cluster` (below), since it plans against the
+identical topology: if `useBundledJre: true`, every role `upgrade-cluster` restarts still resolves
+its own bundled JRE from the *current* `GIMLE_HOME`, which takes precedence over that command's own
+`--new-java-executable` flag for those roles. An upgrade that also needs a different `java` should
+either point `GIMLE_HOME` at the newly-unpacked archive before running `upgrade-cluster`, or set
+`runtime.useBundledJre: false` in the topology and rely on `--new-java-executable` instead.
+
 ## Cluster upgrade (platform binary rollout)
 
 ```text
