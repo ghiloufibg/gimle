@@ -82,6 +82,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -134,6 +135,20 @@ public final class AgentMain {
    */
   private static final String LEAK_DETECTION_JFR_FLAG =
       "-XX:StartFlightRecording:name=gimle-leak-detection,disk=false,settings=profile,path-to-gc-roots=true";
+
+  /**
+   * The hard-coded whitelist a worker-relayed {@code RelayControlPlaneRead} path is checked against
+   * before this agent ever makes a real call on the module's behalf -- the trust boundary of the
+   * whole mechanism, since a worker JVM (and the hosted module running inside it) is never trusted
+   * to only ask for something this agent would have allowed. Exactly {@code GET /endpoints/{name}}
+   * today: one path segment of allowed characters, no {@code /} (rules out a smuggled second
+   * segment or a traversal attempt across segments), no {@code ?}/{@code #} (rules out a query
+   * string or fragment sneaking in extra semantics), and never a whole segment of just {@code .} or
+   * {@code ..} (the one way a single-segment path can still mean "go up a level" once resolved
+   * against this agent's own base URL).
+   */
+  private static final Pattern RELAY_WHITELIST_PATTERN =
+      Pattern.compile("^/endpoints/(?!\\.{1,2}$)[a-zA-Z0-9._-]+$");
 
   private AgentMain() {}
 
@@ -2044,11 +2059,67 @@ public final class AgentMain {
                     target.errorRatePerSecond = metrics.errorRatePerSecond();
                     target.queueDepth = metrics.queueDepth();
                   });
+        } else if (message instanceof ControlMessage.RelayControlPlaneRead relayRead) {
+          handleRelayRead(relayRead, connection, httpClient, baseUrl);
         }
       }
       log.info("instance {} control channel closed", key);
     } catch (IOException e) {
       log.warn("instance {} control channel failed: {}", key, e.getMessage());
+    }
+  }
+
+  /**
+   * The trust boundary for a hosted module's whitelisted read-back into the control plane's own
+   * HTTP API: independently re-validates {@code request.path()} against {@link
+   * #RELAY_WHITELIST_PATTERN} before making any real call -- the worker (and the module running
+   * inside it) is never trusted to only ask for something already allowed. A non-whitelisted path
+   * never reaches the control plane at all, answered locally with a synthesized {@code 403}. For an
+   * allowed path, this makes the real call the same way {@link #fetchAssignments}/{@link
+   * #fetchConfigForTenant} already do -- this agent's own current {@code httpClient}, already
+   * carrying its mTLS identity. A transport failure (control plane unreachable, timed out) is
+   * synthesized as a {@code 502} rather than left to propagate out of this method and take this
+   * connection's whole read loop down with it.
+   */
+  private static void handleRelayRead(
+      ControlMessage.RelayControlPlaneRead request,
+      WorkerConnection connection,
+      HttpClient httpClient,
+      URI baseUrl) {
+    if (!RELAY_WHITELIST_PATTERN.matcher(request.path()).matches()) {
+      log.warn("rejecting non-whitelisted control-plane relay path: {}", request.path());
+      sendRelayResult(
+          connection,
+          request.correlationId(),
+          403,
+          "path not whitelisted for control-plane relay: " + request.path());
+      return;
+    }
+    try {
+      HttpRequest httpRequest =
+          HttpRequest.newBuilder(baseUrl.resolve(request.path())).GET().build();
+      HttpResponse<String> response =
+          httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      sendRelayResult(connection, request.correlationId(), response.statusCode(), response.body());
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      log.warn("control-plane relay request to {} failed: {}", request.path(), e.getMessage());
+      sendRelayResult(
+          connection,
+          request.correlationId(),
+          502,
+          "agent could not reach the control plane: " + e.getMessage());
+    }
+  }
+
+  private static void sendRelayResult(
+      WorkerConnection connection, String correlationId, int status, String body) {
+    try {
+      connection.send(new ControlMessage.RelayControlPlaneResult(correlationId, status, body));
+    } catch (IOException e) {
+      log.warn("failed to send control-plane relay result back to worker: {}", e.getMessage());
     }
   }
 
