@@ -86,4 +86,40 @@ class RunLedgerTest {
 
     assertThrows(HilmirException.class, () -> RunLedger.read(tempDir));
   }
+
+  @Test
+  void replacing_one_entry_leaves_every_other_entry_byte_for_byte_unchanged() {
+    final RunRecord controlPlane =
+        new RunRecord(
+            "controlplane-0",
+            "CONTROL_PLANE",
+            11111L,
+            List.of("java", "-cp", "cp", "com.gimle.controlplane.ControlPlaneMain"),
+            "controlplane-0.log",
+            "127.0.0.1:8080");
+    RunLedger.write(tempDir, List.of(STORE, AGENT, controlPlane));
+
+    final RunRecord restartedStore =
+        new RunRecord(
+            "store-0",
+            "STORE",
+            99999L,
+            List.of("java", "-cp", "cp2", "com.gimle.mimir.StoreMain"),
+            "store-0.log",
+            "127.0.0.1:9091");
+    RunLedger.replace(tempDir, "store-0", restartedStore);
+
+    assertEquals(List.of(restartedStore, AGENT, controlPlane), RunLedger.read(tempDir));
+  }
+
+  @Test
+  void replacing_a_nonexistent_id_fails_clearly_and_leaves_the_ledger_untouched() {
+    RunLedger.write(tempDir, List.of(STORE, AGENT));
+
+    final HilmirException e =
+        assertThrows(HilmirException.class, () -> RunLedger.replace(tempDir, "store-99", STORE));
+
+    assertTrue(e.getMessage().contains("store-99"));
+    assertEquals(List.of(STORE, AGENT), RunLedger.read(tempDir));
+  }
 }

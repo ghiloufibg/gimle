@@ -63,6 +63,33 @@ final class RunLedger {
     }
   }
 
+  /**
+   * Read-modify-write upsert of exactly one entry: replaces the record whose {@code id} matches
+   * {@code id} with {@code newRecord}, leaving every other machine's co-located process record
+   * byte-for-byte untouched. Used by {@code MachineLauncher#restartRole} so restarting one process
+   * (e.g. a store replica) never disturbs the ledger's record of every other process this machine
+   * still has running -- the write mechanism itself stays "replace the whole file" (see {@link
+   * #write}), only the caller is spared reconstructing the full list itself.
+   */
+  static void replace(final Path dataRoot, final String id, final RunRecord newRecord) {
+    final List<RunRecord> existing = read(dataRoot);
+    final List<RunRecord> updated = new ArrayList<>();
+    boolean replaced = false;
+    for (final RunRecord record : existing) {
+      if (record.id().equals(id)) {
+        updated.add(newRecord);
+        replaced = true;
+      } else {
+        updated.add(record);
+      }
+    }
+    if (!replaced) {
+      throw new HilmirException(
+          "no run ledger entry with id '" + id + "' under " + dataRoot + " to replace");
+    }
+    write(dataRoot, updated);
+  }
+
   static void delete(final Path dataRoot) {
     final Path file = dataRoot.resolve(FILE_NAME);
     try {

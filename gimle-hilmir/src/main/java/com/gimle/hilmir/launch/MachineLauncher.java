@@ -6,6 +6,7 @@ import com.gimle.hilmir.plan.LaunchPlanner;
 import com.gimle.hilmir.plan.MachinePlan;
 import com.gimle.hilmir.plan.ProcessCommand;
 import com.gimle.hilmir.plan.ResolvedRuntime;
+import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -87,6 +88,156 @@ public final class MachineLauncher {
     out.println(
         "wrote run ledger for " + records.size() + " process(es) under " + runtime.dataRoot());
     return records;
+  }
+
+  /**
+   * Restarts exactly one already-running process on {@code machineName} -- kills it, spawns its
+   * replacement under {@code newRuntime} (typically pointing at a newly-unpacked platform binary's
+   * classpath), waits for the replacement's own readiness, and upserts just that one {@link
+   * RunLedger} entry -- leaving every other process this machine hosts, and its own ledger record,
+   * completely untouched. This is the primitive {@code hilmir upgrade-cluster} drives once per
+   * role; see that verb's own package for the per-machine orchestration loop.
+   *
+   * <p>{@code newRuntime.dataRoot()} plays the same dual role a plain {@code up}'s own {@code
+   * runtime.dataRoot()} does: it is both where this machine's run ledger already lives (so the
+   * existing entry can be found) and where the replacement process's own scoped data/log
+   * subdirectories get created -- a restart is not a chance to relocate a machine's data root, so
+   * there is deliberately no second, independent path for that.
+   */
+  public static RunRecord restartRole(
+      final Topology topology,
+      final String machineName,
+      final ProcessRole role,
+      final ResolvedRuntime newRuntime,
+      final PrintStream out) {
+    return restartRole(
+        LaunchPlanner.plan(topology, newRuntime), topology, machineName, role, newRuntime, out);
+  }
+
+  /**
+   * The {@link ClusterPlan}-driven core of {@link #restartRole}, package-visible for the same
+   * reason {@link #up(ClusterPlan, Topology, String, ResolvedRuntime, PrintStream)} is: it lets a
+   * test drive this against a synthetic plan of cheap fixture commands instead of the real Gimlé
+   * process commands {@link LaunchPlanner} always plans.
+   */
+  static RunRecord restartRole(
+      final ClusterPlan clusterPlan,
+      final Topology topology,
+      final String machineName,
+      final ProcessRole role,
+      final ResolvedRuntime newRuntime,
+      final PrintStream out) {
+    final MachinePlan myPlan = clusterPlan.byMachine().get(machineName);
+    if (myPlan == null) {
+      throw new HilmirException("no machine named '" + machineName + "' in this topology");
+    }
+    final ProcessCommand command = findRoleCommand(myPlan, role, machineName);
+    final RunRecord existing =
+        findExistingLedgerRecord(RunLedger.read(newRuntime.dataRoot()), command, machineName);
+
+    if (role == ProcessRole.STORE) {
+      requireStoreQuorumMaintained(clusterPlan, command, "before");
+    }
+
+    out.println(
+        "stopping " + role + " " + command.id() + " (pid " + existing.pid() + ") for restart...");
+    killWithDescendants(existing, out);
+
+    final RunRecord fresh = spawn(topology, newRuntime, command, out);
+
+    if (role == ProcessRole.STORE) {
+      requireStoreQuorumMaintained(clusterPlan, command, "after");
+    }
+
+    RunLedger.replace(newRuntime.dataRoot(), command.id(), fresh);
+    out.println("restarted " + role + " " + command.id() + " (pid " + fresh.pid() + ") -> ready");
+    return fresh;
+  }
+
+  private static ProcessCommand findRoleCommand(
+      final MachinePlan myPlan, final ProcessRole role, final String machineName) {
+    return myPlan.commands().stream()
+        .filter(c -> c.role() == role)
+        .findFirst()
+        .orElseThrow(
+            () ->
+                new HilmirException(
+                    "machine '"
+                        + machineName
+                        + "' does not host role "
+                        + role
+                        + " in this topology"));
+  }
+
+  private static RunRecord findExistingLedgerRecord(
+      final List<RunRecord> ledger, final ProcessCommand command, final String machineName) {
+    return ledger.stream()
+        .filter(r -> r.id().equals(command.id()))
+        .findFirst()
+        .orElseThrow(
+            () ->
+                new HilmirException(
+                    "no running "
+                        + command.role()
+                        + " "
+                        + command.id()
+                        + " recorded on machine "
+                        + machineName
+                        + " -- nothing to restart; run 'hilmir up' first"));
+  }
+
+  /**
+   * A store restart is the one case in this launcher where killing a single process can break a
+   * property spanning the whole cluster -- Raft quorum -- rather than just that one machine's own
+   * state, so it gets its own explicit gate on top of the ordinary per-process readiness wait every
+   * role already gets. Checked once before the kill (so an operator running two concurrent
+   * restarts, or restarting the last-standing majority member, is refused up front) and once more
+   * after the replacement is ready (so a majority loss that crept in mid-restart, from an unrelated
+   * concurrent fault, is not silently reported as success).
+   *
+   * <p>A single-replica store has no other replicas to protect and no quorum to speak of -- the
+   * gate is a no-op in that case, since refusing to ever restart a topology's only store node would
+   * make it un-upgradable rather than actually safer.
+   */
+  static void requireStoreQuorumMaintained(
+      final ClusterPlan clusterPlan, final ProcessCommand restarting, final String phase) {
+    final List<ProcessCommand> others = otherStoreCommands(clusterPlan, restarting);
+    if (others.isEmpty()) {
+      return;
+    }
+    final int total = others.size() + 1;
+    final int majority = total / 2 + 1;
+    final long reachable =
+        others.stream().filter(c -> ReadinessPoller.isPortOpen(c.readinessAddress())).count();
+    if (reachable < majority) {
+      throw new HilmirException(
+          "refusing to restart store "
+              + restarting.id()
+              + ": only "
+              + reachable
+              + " of "
+              + others.size()
+              + " other store replica(s) reachable "
+              + phase
+              + " restart (need "
+              + majority
+              + " of "
+              + total
+              + " total replicas for Raft quorum); restarting now risks losing quorum");
+    }
+  }
+
+  private static List<ProcessCommand> otherStoreCommands(
+      final ClusterPlan clusterPlan, final ProcessCommand restarting) {
+    final List<ProcessCommand> others = new ArrayList<>();
+    for (final MachinePlan machinePlan : clusterPlan.byMachine().values()) {
+      for (final ProcessCommand candidate : machinePlan.commands()) {
+        if (candidate.role() == ProcessRole.STORE && !candidate.id().equals(restarting.id())) {
+          others.add(candidate);
+        }
+      }
+    }
+    return others;
   }
 
   /**

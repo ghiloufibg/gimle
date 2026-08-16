@@ -21,6 +21,7 @@ import com.gimle.hilmir.store.StoreAddCommand;
 import com.gimle.hilmir.store.StoreRemoveCommand;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
+import com.gimle.hilmir.upgrade.UpgradeClusterCommand;
 import com.gimle.hilmir.validate.Finding;
 import com.gimle.hilmir.validate.Severity;
 import com.gimle.hilmir.validate.TopologyValidator;
@@ -48,6 +49,8 @@ import java.util.Optional;
  *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
  *   hilmir store remove &lt;peerId&gt;
  *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
+ *   hilmir upgrade-cluster -f &lt;topology.yaml&gt; --machine &lt;name&gt; --new-classpath &lt;cp&gt;
+ *       [--new-java-executable &lt;path&gt;] [--data-root &lt;path&gt;] [--role &lt;ROLE&gt;]...
  *   hilmir deploy -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir upgrade -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir rollback --release &lt;name&gt; [--to-revision r] [--wait] [--dry-run] [-o json]
@@ -65,7 +68,12 @@ import java.util.Optional;
  * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
  * {@code GIMLE_SERVER}) rather than to a topology document, so their own flag parsing and HTTP
  * calling logic live entirely in {@code com.gimle.hilmir.release}, dispatched here the same way
- * every other verb is.
+ * every other verb is. {@code upgrade-cluster} is unrelated to {@code upgrade} despite the shared
+ * word: {@code upgrade} rolls out a new revision of an already-deployed bundle (workloads, tenants,
+ * config) against a running control plane's own API, while {@code upgrade-cluster} restarts one
+ * machine's own platform binaries (store, muninn, andvari, fafnir, control plane) against a
+ * topology document and a newly-unpacked classpath -- a platform-binary rollout, not a workload
+ * one; see {@code com.gimle.hilmir.upgrade} for its own logic.
  *
  * <p>{@code doctor}/{@code init} are a third, independent concern: deployability diagnostics and
  * manifest scaffolding for a single built jar, needing neither a topology document nor a running
@@ -116,6 +124,7 @@ public final class HilmirMain {
       case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
       case "store" -> handleStore(rest, out);
+      case "upgrade-cluster" -> runUpgradeCluster(rest, out);
       case "deploy" -> runDeploy(rest, out);
       case "upgrade" -> runUpgrade(rest, out);
       case "rollback" -> runRollback(rest, out);
@@ -196,6 +205,10 @@ public final class HilmirMain {
       case "remove" -> StoreRemoveCommand.run(subArgs, out);
       default -> throw new HilmirException(STORE_USAGE);
     };
+  }
+
+  private static int runUpgradeCluster(final List<String> args, final PrintStream out) {
+    return UpgradeClusterCommand.run(args, out);
   }
 
   private static int runDeploy(final List<String> args, final PrintStream out) {
@@ -322,6 +335,10 @@ public final class HilmirMain {
           store remove <peerId>
               (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])
               [--pki-dir <dir>]
+          upgrade-cluster -f <topology.yaml> --machine <name> --new-classpath <classpath-string>
+              [--new-java-executable <path>] [--data-root <path>]
+              [--role <STORE|CONTROL_PLANE|FAFNIR|MUNINN|ANDVARI>]...
+              (platform binary rollout -- NOT the same as the "upgrade" bundle verb below)
           deploy -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           upgrade -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           rollback --release <name> [--to-revision r] [--wait] [--dry-run] [-o json]
