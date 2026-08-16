@@ -57,6 +57,30 @@ certificate already has unconditional full access, so defaulting the operator gr
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
 
+### The reserved `gimle-system` tenant
+
+`Tenant.RESERVED_SYSTEM_TENANT_ID` (`gimle-system`) is the `kube-system` equivalent — where the
+platform's own self-hosted extensions run — and it is guarded by the one veto in this codebase
+that an ordinary `RoleBinding` cannot grant its way around. Everywhere else, RBAC is purely
+additive: any single matching `Permission` authorizes a request, full stop. `gimle-system` is
+different on purpose — a caller needs the bootstrap-level `group:gimle:operators` credential
+itself, not merely a grant broad enough to otherwise cover `TENANT`/`DEPLOYMENT`/`JOB`/
+`DAEMONSET`/`STATEFULSET` writes, even an unscoped `cluster-admin`-style one a human operator might
+legitimately hand out for day-to-day cluster administration. `ApiServer` enforces this as a second
+check that runs only after the ordinary `requireAuthorized` check already passed: `PUT`/`DELETE
+/tenants/gimle-system`, and a `PUT` on any workload manifest (`Deployment`, `Job`, `CronJob`,
+`DaemonSet`, `StatefulSet`) naming `tenantId: gimle-system`, are rejected with `403` for any caller
+not carrying the operators group — the same generic `403` an ordinary permission denial already
+returns, so a caller with no access at all still can't distinguish "reserved" from "denied" by
+probing the name.
+
+The tenant itself is seeded once, idempotently, straight into the store at control-plane startup
+(never through the guarded `/tenants/*` path, so the guard needs no "let the bootstrap request
+through" carve-out) with a generous default `ResourceQuota` — a platform-owned tenant is not sized
+deployment-by-deployment the way a real workload tenant is. A restart re-checks for an existing row
+before proposing anything, so an operator's own later quota adjustment survives every subsequent
+restart.
+
 ### `CONFIG` vs. `SECRET`: one storage type, two permissions
 
 A tenant's `ConfigEntry` set (`/config/{tenantId}[/{key}]`) is a single storage type whose entries
