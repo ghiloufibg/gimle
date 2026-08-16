@@ -105,4 +105,9 @@ final class ControlPlaneRelay {
     }
     future.complete(result);
   }
+
+  /** How many callers are currently blocked in {@link #request} -- test-only visibility. */
+  int pendingRequestCount() {
+    return pending.size();
+  }
 }
