@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 /**
  * A condition that failed -- timed out, or failed fast because a cluster process died unexpectedly.
@@ -7,9 +7,9 @@ package com.gimle.holmgang.heimdall;
  * re-running anything. An {@link AssertionError} so every test framework reports it as a failure,
  * not an infrastructure error.
  */
-public class HolmgangConditionError extends AssertionError {
+public class HeimdallConditionError extends AssertionError {
 
-  HolmgangConditionError(final String report) {
+  HeimdallConditionError(final String report) {
     super(report);
   }
 }

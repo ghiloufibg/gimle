@@ -3,7 +3,6 @@ package com.gimle.holmgang.surtr;
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.cluster.ClusterApi;
 import com.gimle.holmgang.cluster.GimleCluster;
-import com.gimle.holmgang.heimdall.HolmgangConditionError;
 import com.gimle.holmgang.surtr.Measurements.ApiCall;
 import com.gimle.holmgang.surtr.Measurements.FailureCounts;
 import com.gimle.holmgang.surtr.Measurements.MetricPoint;
@@ -14,6 +13,7 @@ import com.gimle.holmgang.surtr.SurtrJob.ChurnSpec;
 import com.gimle.holmgang.surtr.SurtrRunResult.GateOutcome;
 import com.gimle.holmgang.surtr.SurtrRunResult.JobSummary;
 import com.gimle.holmgang.topology.QuotaSpec;
+import com.gimle.testkit.heimdall.HeimdallConditionError;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -266,7 +266,7 @@ public final class SurtrRunner {
               names.size() + " deployments reach ACTIVE",
               () -> names.stream().allMatch(api::isDeploymentActive))
           .await(timeout);
-    } catch (final HolmgangConditionError e) {
+    } catch (final HeimdallConditionError e) {
       // Swallowed on purpose: never-active instances are counted and gated, not thrown here.
     }
   }

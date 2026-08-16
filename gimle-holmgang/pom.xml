@@ -47,6 +47,13 @@
       <artifactId>gimle-core</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Heimdall (the event-driven cluster-condition watcher), Await, and PortLease all now live
+         here rather than in this module's own test sources. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>

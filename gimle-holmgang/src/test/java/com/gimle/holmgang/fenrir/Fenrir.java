@@ -5,9 +5,10 @@ import com.gimle.holmgang.cluster.GimleCluster;
 import com.gimle.holmgang.cluster.GimleProcess;
 import com.gimle.holmgang.fenrir.ChaosLedger.Entry;
 import com.gimle.holmgang.fenrir.ChaosLedger.Outcome;
-import com.gimle.holmgang.heimdall.HolmgangConditionError;
 import com.gimle.holmgang.loki.Loki;
 import com.gimle.holmgang.topology.QuotaSpec;
+import com.gimle.testkit.heimdall.HeimdallCondition;
+import com.gimle.testkit.heimdall.HeimdallConditionError;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +77,7 @@ public final class Fenrir {
     return ledger;
   }
 
-  private record StrikeResult(Entry entry, HolmgangConditionError failure) {}
+  private record StrikeResult(Entry entry, HeimdallConditionError failure) {}
 
   private StrikeResult strike(final Pool pool, final int index) {
     final long offset = elapsedMillis();
@@ -223,7 +224,7 @@ public final class Fenrir {
               "control-plane replica #" + victimIndex + " stops serving while cut",
               () -> !cluster.api(victimIndex).isServing())
           .await(plan.gateTimeout());
-    } catch (final HolmgangConditionError failure) {
+    } catch (final HeimdallConditionError failure) {
       partition.heal();
       return new StrikeResult(
           failedEntry(index, pool, offset, "controlplane-" + victimIndex + " (link)"), failure);
@@ -386,7 +387,7 @@ public final class Fenrir {
     final long gateStart = System.nanoTime();
     try {
       gate.run();
-    } catch (final HolmgangConditionError failure) {
+    } catch (final HeimdallConditionError failure) {
       return new StrikeResult(failedEntry(index, pool, offset, victim), failure);
     }
     final long recoveryMillis = (System.nanoTime() - gateStart) / 1_000_000L;
@@ -449,7 +450,7 @@ public final class Fenrir {
     }
   }
 
-  private com.gimle.holmgang.heimdall.HolmgangCondition probe(
+  private HeimdallCondition probe(
       final String description, final java.util.function.BooleanSupplier condition) {
     return cluster.when().probe(description, condition);
   }

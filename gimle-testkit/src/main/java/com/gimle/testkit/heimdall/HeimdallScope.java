@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import java.util.OptionalInt;
 
@@ -37,7 +37,7 @@ public final class HeimdallScope {
    * never a poll loop at the call site. Replica pinning does not apply: probes observe the machine,
    * not a control plane.
    */
-  public HolmgangCondition probe(
+  public HeimdallCondition probe(
       final String description, final java.util.function.BooleanSupplier condition) {
     return heimdall.registerProbeCondition(description, condition);
   }

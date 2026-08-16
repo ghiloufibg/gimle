@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.holmgang.cluster.GimleCluster;
-import com.gimle.holmgang.heimdall.HolmgangConditionError;
 import com.gimle.holmgang.junit.Holmgang;
 import com.gimle.holmgang.junit.HolmgangCluster;
+import com.gimle.testkit.heimdall.HeimdallConditionError;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -63,9 +63,9 @@ class MinimalTopologyIT {
   @Test
   @Timeout(value = 6, unit = TimeUnit.MINUTES)
   void a_failed_condition_reports_the_cluster_state_it_gave_up_on() {
-    final HolmgangConditionError error =
+    final HeimdallConditionError error =
         assertThrows(
-            HolmgangConditionError.class,
+            HeimdallConditionError.class,
             () ->
                 cluster
                     .when()

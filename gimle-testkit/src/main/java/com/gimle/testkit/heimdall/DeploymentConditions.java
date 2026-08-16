@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -19,13 +19,13 @@ public final class DeploymentConditions {
   }
 
   /** Every placed instance reports {@code ACTIVE}, and at least one instance is placed. */
-  public HolmgangCondition isActive() {
+  public HeimdallCondition isActive() {
     return register(
         "deployment " + name + " is ACTIVE",
         view -> view.deployments().containsKey(name) && view.deployments().get(name).allActive());
   }
 
-  public HolmgangCondition hasActiveReplicas(final int count) {
+  public HeimdallCondition hasActiveReplicas(final int count) {
     return register(
         "deployment " + name + " has " + count + " ACTIVE replicas",
         view ->
@@ -33,7 +33,7 @@ public final class DeploymentConditions {
                 && view.deployments().get(name).countInState("ACTIVE") == count);
   }
 
-  public HolmgangCondition allOnVersion(final String version, final int count) {
+  public HeimdallCondition allOnVersion(final String version, final int count) {
     return register(
         "all " + count + " instances of " + name + " are ACTIVE on version " + version,
         view ->
@@ -45,7 +45,7 @@ public final class DeploymentConditions {
    * At least one instance reports {@code FAILED} -- a terminal escalation with no path back to
    * {@code ACTIVE} without a fresh deploy, so one instance reaching it is the whole answer.
    */
-  public HolmgangCondition hasFailedInstance() {
+  public HeimdallCondition hasFailedInstance() {
     return register(
         "deployment " + name + " has a FAILED instance",
         view ->
@@ -53,19 +53,19 @@ public final class DeploymentConditions {
                 && view.deployments().get(name).countInState("FAILED") > 0);
   }
 
-  public HolmgangCondition isAbsent() {
+  public HeimdallCondition isAbsent() {
     return register(
         "deployment " + name + " is absent", view -> !view.deployments().containsKey(name));
   }
 
-  public HolmgangCondition reportsQuotaViolation() {
+  public HeimdallCondition reportsQuotaViolation() {
     return register(
         "deployment " + name + " reports a quota violation",
         view ->
             view.deployments().containsKey(name) && view.deployments().get(name).quotaViolating());
   }
 
-  private HolmgangCondition register(
+  private HeimdallCondition register(
       final String description, final Predicate<ClusterView> predicate) {
     final String scoped =
         description

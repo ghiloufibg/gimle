@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import com.gimle.core.protocol.Json;
 import java.time.Instant;

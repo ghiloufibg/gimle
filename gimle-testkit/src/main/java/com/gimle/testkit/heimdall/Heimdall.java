@@ -1,7 +1,7 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import com.gimle.core.protocol.Json;
-import com.gimle.holmgang.cluster.GimleProcess;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -40,7 +40,7 @@ public final class Heimdall implements AutoCloseable {
   private static final int PLATFORM_EVENTS_PER_INSTANCE = 5;
 
   private final List<String> controlPlaneBaseUrls;
-  private final List<GimleProcess> processes;
+  private final List<HeimdallProcess> processes;
   private final Path workDir;
   private final HttpClient httpClient;
   private final CopyOnWriteArrayList<ViewCondition> viewConditions = new CopyOnWriteArrayList<>();
@@ -68,7 +68,7 @@ public final class Heimdall implements AutoCloseable {
 
   public static Heimdall attach(
       final List<String> controlPlaneBaseUrls,
-      final List<GimleProcess> processes,
+      final List<HeimdallProcess> processes,
       final Path workDir,
       final HttpClient httpClient) {
     return new Heimdall(controlPlaneBaseUrls, processes, workDir, httpClient);
@@ -76,14 +76,14 @@ public final class Heimdall implements AutoCloseable {
 
   private Heimdall(
       final List<String> controlPlaneBaseUrls,
-      final List<GimleProcess> processes,
+      final List<HeimdallProcess> processes,
       final Path workDir,
       final HttpClient httpClient) {
     this.controlPlaneBaseUrls = List.copyOf(controlPlaneBaseUrls);
     this.processes = List.copyOf(processes);
     this.workDir = workDir;
     this.httpClient = httpClient;
-    for (final GimleProcess process : this.processes) {
+    for (final HeimdallProcess process : this.processes) {
       process.onExit(() -> onProcessExit(process));
     }
     Thread.ofVirtual().name("heimdall-view-poller").start(this::pollLoop);
@@ -135,7 +135,7 @@ public final class Heimdall implements AutoCloseable {
 
   // ---- registration (called by the condition builders) ----
 
-  HolmgangCondition registerViewCondition(
+  HeimdallCondition registerViewCondition(
       final String description,
       final OptionalInt replicaFilter,
       final Optional<String> deploymentHint,
@@ -148,7 +148,7 @@ public final class Heimdall implements AutoCloseable {
     if (view != null) {
       evaluate(condition, view);
     }
-    return new HolmgangCondition(this, description, deploymentHint, future);
+    return new HeimdallCondition(this, description, deploymentHint, future);
   }
 
   /**
@@ -156,16 +156,16 @@ public final class Heimdall implements AutoCloseable {
    * that no control-plane view or log stream can express. Evaluated by the shared watcher loop on
    * its own cadence -- one loop for every registered probe, never a poll loop per call site.
    */
-  HolmgangCondition registerProbeCondition(
+  HeimdallCondition registerProbeCondition(
       final String description, final java.util.function.BooleanSupplier probe) {
     final CompletableFuture<Void> future = new CompletableFuture<>();
     final ProbeCondition condition = new ProbeCondition(description, probe, future);
     probeConditions.add(condition);
     evaluate(condition);
-    return new HolmgangCondition(this, description, Optional.empty(), future);
+    return new HeimdallCondition(this, description, Optional.empty(), future);
   }
 
-  HolmgangCondition registerLogCondition(
+  HeimdallCondition registerLogCondition(
       final String description,
       final OptionalInt replicaFilter,
       final String deploymentName,
@@ -181,7 +181,7 @@ public final class Heimdall implements AutoCloseable {
             () ->
                 followLog(
                     watch, replicaFilter, deploymentName, instanceIndex, category, expectedText));
-    return new HolmgangCondition(this, description, Optional.of(deploymentName), future);
+    return new HeimdallCondition(this, description, Optional.of(deploymentName), future);
   }
 
   // ---- event delivery ----
@@ -263,7 +263,7 @@ public final class Heimdall implements AutoCloseable {
     }
   }
 
-  private void onProcessExit(final GimleProcess process) {
+  private void onProcessExit(final HeimdallProcess process) {
     recordEvent(
         "process exited: "
             + process.role()
@@ -273,7 +273,7 @@ public final class Heimdall implements AutoCloseable {
     if (process.exitWasExpected() || !running) {
       return;
     }
-    final HolmgangConditionError error =
+    final HeimdallConditionError error =
         conditionError(
             "cluster process "
                 + process.role()
@@ -410,21 +410,24 @@ public final class Heimdall implements AutoCloseable {
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       return response.statusCode() == 200 ? Optional.of(response.body()) : Optional.empty();
-    } catch (final Exception e) {
+    } catch (final IOException e) {
+      return Optional.empty();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
       return Optional.empty();
     }
   }
 
   // ---- forensics ----
 
-  HolmgangConditionError timeoutError(
+  HeimdallConditionError timeoutError(
       final String description, final Duration waited, final Optional<String> deploymentHint) {
     return conditionError(description + " (waited " + waited + ")", deploymentHint);
   }
 
-  HolmgangConditionError conditionError(
+  HeimdallConditionError conditionError(
       final String headline, final Optional<String> deploymentHint) {
-    return new HolmgangConditionError(
+    return new HeimdallConditionError(
         ForensicReport.render(
             headline,
             Optional.ofNullable(lastView),

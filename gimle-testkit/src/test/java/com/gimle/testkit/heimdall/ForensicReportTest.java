@@ -1,9 +1,7 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.holmgang.cluster.GimleProcess;
-import com.gimle.holmgang.topology.ProcessRole;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -13,35 +11,11 @@ import org.junit.jupiter.api.Test;
 
 class ForensicReportTest {
 
-  private record StubProcess(ProcessRole role, String id, boolean isAlive, boolean exitWasExpected)
-      implements GimleProcess {
-
-    @Override
-    public long pid() {
-      return 1;
-    }
-
-    @Override
-    public void kill() {}
-
-    @Override
-    public void killWithDescendants() {}
-
-    @Override
-    public void restart() {}
+  private record StubProcess(String role, String id, boolean isAlive, boolean exitWasExpected)
+      implements HeimdallProcess {
 
     @Override
     public void onExit(final Runnable callback) {}
-
-    @Override
-    public Path logFile() {
-      return Path.of("stub.log");
-    }
-
-    @Override
-    public String endpoint() {
-      return "127.0.0.1:0";
-    }
   }
 
   @Test
@@ -70,8 +44,8 @@ class ForensicReportTest {
             "condition not met: something",
             Optional.of(view),
             List.of(
-                new StubProcess(ProcessRole.STORE, "store-0", true, false),
-                new StubProcess(ProcessRole.AGENT, "node-1", false, true)),
+                new StubProcess("STORE", "store-0", true, false),
+                new StubProcess("AGENT", "node-1", false, true)),
             List.of("2026-08-14T05:00:00Z greeter: desired 1, ACTIVE=0 [...]"),
             List.of("2026-08-14T05:00:02Z greeter#0 SCHEDULED: placed on node-1"),
             workDir);

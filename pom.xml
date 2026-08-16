@@ -38,6 +38,7 @@
     <module>gimle-saga-console</module>
     <module>gimle-saga</module>
     <module>gimle-maven-plugin</module>
+    <module>gimle-testkit</module>
     <module>gimle-examples/hello-module</module>
     <module>gimle-examples/greeter-provider</module>
     <module>gimle-examples/greeter-consumer</module>
@@ -220,6 +221,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-saga</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-testkit</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

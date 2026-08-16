@@ -20,10 +20,6 @@ import com.gimle.hilmir.topology.StoreRole;
 import com.gimle.hilmir.topology.TlsMaterial;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.holmgang.HolmgangException;
-import com.gimle.holmgang.heimdall.Heimdall;
-import com.gimle.holmgang.heimdall.HeimdallScope;
-import com.gimle.holmgang.heimdall.Invariant;
-import com.gimle.holmgang.heimdall.InvariantGuard;
 import com.gimle.holmgang.loki.Loki;
 import com.gimle.holmgang.topology.AccountSeed;
 import com.gimle.holmgang.topology.ClusterSpec;
@@ -34,6 +30,11 @@ import com.gimle.holmgang.topology.Transport;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreRpc;
+import com.gimle.testkit.PortLease;
+import com.gimle.testkit.heimdall.Heimdall;
+import com.gimle.testkit.heimdall.HeimdallScope;
+import com.gimle.testkit.heimdall.Invariant;
+import com.gimle.testkit.heimdall.InvariantGuard;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -496,7 +497,12 @@ public final class GimleCluster implements AutoCloseable {
 
   private synchronized Heimdall heimdall() {
     if (heimdall == null) {
-      heimdall = Heimdall.attach(controlPlaneBaseUrls(), processes(), workDir, operatorClient);
+      heimdall =
+          Heimdall.attach(
+              controlPlaneBaseUrls(),
+              processes().stream().map(GimleProcess::asHeimdallProcess).toList(),
+              workDir,
+              operatorClient);
     }
     return heimdall;
   }

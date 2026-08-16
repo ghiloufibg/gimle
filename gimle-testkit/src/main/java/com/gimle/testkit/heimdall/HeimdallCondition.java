@@ -1,6 +1,6 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
-import com.gimle.holmgang.HolmgangException;
+import com.gimle.testkit.TestkitException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -12,18 +12,18 @@ import java.util.concurrent.TimeoutException;
  * One registered condition. {@link #await} blocks until the event satisfying it arrives; the
  * duration is a deadline for declaring failure, not a poll interval -- the call returns the moment
  * the satisfying view, log line, or process event fires. On timeout it throws a {@link
- * HolmgangConditionError} carrying the full forensic report; if a cluster process died
+ * HeimdallConditionError} carrying the full forensic report; if a cluster process died
  * unexpectedly, it fails immediately with the death as the cause instead of running out the clock.
  * {@link #future} exposes the same completion for composition.
  */
-public final class HolmgangCondition {
+public final class HeimdallCondition {
 
   private final Heimdall heimdall;
   private final String description;
   private final Optional<String> deploymentHint;
   private final CompletableFuture<Void> future;
 
-  HolmgangCondition(
+  HeimdallCondition(
       final Heimdall heimdall,
       final String description,
       final Optional<String> deploymentHint,
@@ -40,13 +40,13 @@ public final class HolmgangCondition {
     } catch (final TimeoutException e) {
       throw heimdall.timeoutError("condition not met: " + description, timeout, deploymentHint);
     } catch (final ExecutionException e) {
-      if (e.getCause() instanceof HolmgangConditionError error) {
+      if (e.getCause() instanceof HeimdallConditionError error) {
         throw error;
       }
-      throw new HolmgangException("condition failed: " + description, e.getCause());
+      throw new TestkitException("condition failed: " + description, e.getCause());
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new HolmgangException("interrupted awaiting condition: " + description, e);
+      throw new TestkitException("interrupted awaiting condition: " + description, e);
     }
   }
 

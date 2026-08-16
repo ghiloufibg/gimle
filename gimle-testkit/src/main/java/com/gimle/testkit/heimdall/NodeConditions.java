@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -22,18 +22,18 @@ public final class NodeConditions {
    * has completed, so this is a real proxy for "the agent is up and joined", not just "the process
    * started".
    */
-  public HolmgangCondition isRegistered() {
+  public HeimdallCondition isRegistered() {
     return register("node " + nodeId + " is registered", view -> view.nodes().containsKey(nodeId));
   }
 
-  public HolmgangCondition isCordoned(final boolean expected) {
+  public HeimdallCondition isCordoned(final boolean expected) {
     return register(
         "node " + nodeId + " has cordoned=" + expected,
         view ->
             view.nodes().containsKey(nodeId) && view.nodes().get(nodeId).cordoned() == expected);
   }
 
-  private HolmgangCondition register(
+  private HeimdallCondition register(
       final String description, final Predicate<ClusterView> predicate) {
     return heimdall.registerViewCondition(description, replicaFilter, Optional.empty(), predicate);
   }

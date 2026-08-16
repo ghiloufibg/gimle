@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 /** Factories for the {@link Invariant}s scenarios hold over a scoped window. */
 public final class Invariants {

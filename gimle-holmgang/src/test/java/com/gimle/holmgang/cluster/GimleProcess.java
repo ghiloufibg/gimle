@@ -1,6 +1,7 @@
 package com.gimle.holmgang.cluster;
 
 import com.gimle.holmgang.topology.ProcessRole;
+import com.gimle.testkit.heimdall.HeimdallProcess;
 import java.nio.file.Path;
 
 /**
@@ -40,4 +41,34 @@ public interface GimleProcess {
   Path logFile();
 
   String endpoint();
+
+  /** Adapts this to the minimal shape {@code gimle-testkit}'s Heimdall watcher needs. */
+  default HeimdallProcess asHeimdallProcess() {
+    return new HeimdallProcess() {
+      @Override
+      public String role() {
+        return GimleProcess.this.role().name();
+      }
+
+      @Override
+      public String id() {
+        return GimleProcess.this.id();
+      }
+
+      @Override
+      public boolean isAlive() {
+        return GimleProcess.this.isAlive();
+      }
+
+      @Override
+      public boolean exitWasExpected() {
+        return GimleProcess.this.exitWasExpected();
+      }
+
+      @Override
+      public void onExit(final Runnable callback) {
+        GimleProcess.this.onExit(callback);
+      }
+    };
+  }
 }

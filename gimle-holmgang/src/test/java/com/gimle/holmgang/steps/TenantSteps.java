@@ -1,7 +1,7 @@
 package com.gimle.holmgang.steps;
 
-import com.gimle.holmgang.heimdall.Invariants;
 import com.gimle.holmgang.topology.QuotaSpec;
+import com.gimle.testkit.heimdall.Invariants;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;

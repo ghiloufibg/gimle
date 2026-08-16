@@ -1,4 +1,4 @@
-package com.gimle.holmgang.cluster;
+package com.gimle.testkit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;

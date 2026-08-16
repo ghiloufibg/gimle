@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import java.util.OptionalInt;
 
@@ -29,7 +29,7 @@ public final class LogConditions {
     this.category = category;
   }
 
-  public HolmgangCondition contains(final String text) {
+  public HeimdallCondition contains(final String text) {
     return heimdall.registerLogCondition(
         "instance "
             + deploymentName

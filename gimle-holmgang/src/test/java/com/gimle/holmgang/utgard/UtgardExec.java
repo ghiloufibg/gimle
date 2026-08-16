@@ -6,8 +6,8 @@ import com.gimle.holmgang.HolmgangException;
  * Turns a {@link UtgardExecResult} into a forensic-quality description or a hard failure -- the
  * command, its exit code, and the whole of its captured stdout/stderr, matching this module's own
  * "a failed condition throws the investigation" ethos elsewhere (see {@code ForensicReport} in
- * {@code com.gimle.holmgang.heimdall}), scaled down to one container command's own output instead
- * of a whole cluster view.
+ * {@code com.gimle.testkit.heimdall}), scaled down to one container command's own output instead of
+ * a whole cluster view.
  */
 final class UtgardExec {
 

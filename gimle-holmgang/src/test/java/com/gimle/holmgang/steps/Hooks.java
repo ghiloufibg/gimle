@@ -2,7 +2,7 @@ package com.gimle.holmgang.steps;
 
 import com.gimle.holmgang.WorkDirs;
 import com.gimle.holmgang.cluster.GimleCluster;
-import com.gimle.holmgang.heimdall.HolmgangConditionError;
+import com.gimle.testkit.heimdall.HeimdallConditionError;
 import io.cucumber.java.After;
 import io.cucumber.java.AfterAll;
 import io.cucumber.java.Before;
@@ -48,11 +48,11 @@ public final class Hooks {
       final var partition = world.partitions.pollLast();
       bestEffort(partition::heal);
     }
-    HolmgangConditionError leftoverViolation = null;
+    HeimdallConditionError leftoverViolation = null;
     while (!world.guards.isEmpty()) {
       try {
         world.guards.pollLast().close();
-      } catch (final HolmgangConditionError violation) {
+      } catch (final HeimdallConditionError violation) {
         if (leftoverViolation == null) {
           leftoverViolation = violation;
         }

@@ -1,4 +1,4 @@
-package com.gimle.holmgang.heimdall;
+package com.gimle.testkit.heimdall;
 
 import java.util.Optional;
 
@@ -12,7 +12,7 @@ public final class InvariantGuard implements AutoCloseable {
 
   private final Heimdall heimdall;
   private final Invariant invariant;
-  private volatile HolmgangConditionError violation;
+  private volatile HeimdallConditionError violation;
 
   InvariantGuard(final Heimdall heimdall, final Invariant invariant) {
     this.heimdall = heimdall;

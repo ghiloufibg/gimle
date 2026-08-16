@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>gimle-testkit</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Testkit</name>
+  <description>
+    Reusable real-cluster test infrastructure shared across this repo's own test-only modules:
+    Heimdall (an event-driven cluster-condition watcher -- conditions complete on the satisfying
+    event instead of polling, and a timed-out or failed condition throws a forensic report of the
+    last observed cluster state), a spin-polling Await primitive, and PortLease (kernel-assigned
+    loopback port reservation so concurrent real-cluster fixtures never collide). Originally built
+    inside gimle-holmgang and extracted here once gimle-smoke-tests needed the same machinery.
+  </description>
+
+  <properties>
+    <!-- Test infrastructure, not part of Gimle's platform API surface: excluded from the
+         aggregate Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin
+         pluginManagement entry). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+  </dependencies>
+</project>
