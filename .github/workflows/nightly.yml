@@ -74,14 +74,38 @@ jobs:
         run: mvn -B verify -Pvalidation
 
       # Full plugin coordinate rather than the short com.gimle:flaky-tests prefix, so this needs
-      # no ~/.m2/settings.xml <pluginGroups> entry in this runner's environment.
+      # no ~/.m2/settings.xml <pluginGroups> entry in this runner's environment. Repeated several
+      # times in a row (not just once) -- the point of a nightly-only lane for known-flaky tests
+      # is to keep accumulating real pass/fail evidence run over run, not a single snapshot.
       - name: mvn gimle:flaky-tests
         id: flaky-tests
         continue-on-error: true
-        run: mvn -B com.gimle:gimle-maven-plugin:flaky-tests
+        run: mvn -B com.gimle:gimle-maven-plugin:flaky-tests -Dgimle.flakyTests.repeat=10
+
+      # Seeded ClassOrderer.Random pass over the default `mvn verify` scope (deliberately not
+      # -Psmoke/-Pvalidation -- out of scope for this lane) to flush test-class order-dependence
+      # bugs that a fixed declaration order never exercises. The seed is generated and logged
+      # here, not left to JUnit's own default-seed log line (which needs elevated
+      # java.util.logging configuration to even see), so a failure is reproducible by rerunning
+      # with the same -Djunit.jupiter.execution.order.random.seed value. Surefire forwards -D
+      # system properties given on this command line straight into each forked test JVM's own
+      # system properties, and `junit.jupiter.testclass.order.default`/
+      # `junit.jupiter.execution.order.random.seed` aren't already fixed in the root pom's own
+      # hardcoded Surefire `configurationParameters` block (only the parallel-execution keys are),
+      # so JUnit Platform's own configuration-parameter lookup falls through to these system
+      # properties for both -- verified locally against this repo's own pinned JUnit 5.11.4.
+      - name: mvn verify (seeded class order)
+        id: seeded-order
+        continue-on-error: true
+        run: |
+          seed="$(date +%s%N)"
+          echo "ClassOrderer.Random seed: $seed"
+          mvn -B verify \
+            -Djunit.jupiter.testclass.order.default='org.junit.jupiter.api.ClassOrderer$Random' \
+            -Djunit.jupiter.execution.order.random.seed="$seed"
 
       # Always upload, whatever the outcome above, so the raw Surefire/Failsafe XML (including
-      # any rerun/flaky info) from all three lanes is available for inspection.
+      # any rerun/flaky info) from all four lanes is available for inspection.
       - name: Upload Surefire reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -113,6 +137,10 @@ jobs:
           fi
           if [ "${{ steps.flaky-tests.outcome }}" != "success" ]; then
             echo "::error::mvn com.gimle:gimle-maven-plugin:flaky-tests failed"
+            status=1
+          fi
+          if [ "${{ steps.seeded-order.outcome }}" != "success" ]; then
+            echo "::error::mvn verify (seeded class order) failed"
             status=1
           fi
           exit $status
