@@ -60,4 +60,20 @@ public interface ModuleContext {
    * this context is even created.
    */
   Optional<Path> dataDirectory();
+
+  /**
+   * A narrow, whitelisted read-back into the control plane's own HTTP API, relayed through this
+   * instance's worker and its supervising agent -- a worker JVM has no outbound network identity of
+   * its own, only its agent does, so a hosted module can never make this call directly. {@code
+   * path} names an HTTP path only (e.g. {@code /endpoints/my-deployment}); the agent alone decides
+   * whether it's one of the paths this mechanism is allowed to reach, so this method is generic
+   * over any future whitelisted path rather than hard-coded to one route. Never throws for an
+   * ordinary relay failure (rejected by the whitelist, or the agent couldn't reach the control
+   * plane) -- those come back as an ordinary {@link RelayResult} carrying a synthesized status
+   * code, the same "modules see values, not exceptions" posture {@link #config} already has.
+   */
+  RelayResult relayControlPlaneRead(String path);
+
+  /** The outcome of one {@link #relayControlPlaneRead} call: an HTTP status code and body. */
+  record RelayResult(int status, String body) {}
 }

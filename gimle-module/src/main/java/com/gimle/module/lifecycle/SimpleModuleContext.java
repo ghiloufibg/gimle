@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Default {@link ModuleContext}: an atomic in-flight counter, a thin delegate onto a shared {@link
@@ -17,10 +18,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class SimpleModuleContext implements ModuleContext {
 
+  /**
+   * The default {@code relay} for a caller that doesn't wire the real agent-backed collaborator
+   * (every pre-existing constructor below, and any test building a context directly) -- a
+   * consistent, synthesized "not available" result rather than a {@code NullPointerException} the
+   * first time a module calls {@link #relayControlPlaneRead}.
+   */
+  private static final Function<String, RelayResult> NO_OP_RELAY =
+      path -> new RelayResult(501, "control-plane relay is not available on this context");
+
   private final ModuleId id;
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
   private final Optional<Path> dataDirectory;
+  private final Function<String, RelayResult> relay;
   private final AtomicInteger inFlight = new AtomicInteger();
 
   public SimpleModuleContext(ModuleId id, ServiceRegistry serviceRegistry) {
@@ -37,10 +48,20 @@ public final class SimpleModuleContext implements ModuleContext {
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Optional<Path> dataDirectory) {
+    this(id, serviceRegistry, configValues, dataDirectory, NO_OP_RELAY);
+  }
+
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Optional<Path> dataDirectory,
+      Function<String, RelayResult> relay) {
     this.id = id;
     this.serviceRegistry = serviceRegistry;
     this.configValues = configValues;
     this.dataDirectory = dataDirectory;
+    this.relay = relay;
   }
 
   @Override
@@ -88,5 +109,10 @@ public final class SimpleModuleContext implements ModuleContext {
   @Override
   public Optional<Path> dataDirectory() {
     return dataDirectory;
+  }
+
+  @Override
+  public RelayResult relayControlPlaneRead(String path) {
+    return relay.apply(path);
   }
 }
