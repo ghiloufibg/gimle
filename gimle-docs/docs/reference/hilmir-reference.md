@@ -4,7 +4,7 @@ sidebar_position: 5
 
 # `gimle-hilmir` reference
 
-`gimle-hilmir` is four tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
+`gimle-hilmir` is five tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
 verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
 it into real, running Gimlé processes on the local machine, or the exact per-machine process
 commands the topology implies. `store add`/`store remove` are an operator-facing surface over the
@@ -17,6 +17,10 @@ of an already-running cluster — they talk to the control plane's own HTTP API,
 independent concern: deployability diagnostics and manifest scaffolding for a single built jar,
 needing neither a topology document nor a running control plane (`doctor --server` only adds
 cluster-aware checks on top of its own static ones) — see [`doctor`/`init`](#doctorinit) below.
+`enable`/`disable` are a fifth concern layered directly on top of the release verbs: turning a named
+platform extension (today, only `gateway`) on or off against an already-running cluster, without an
+operator ever hand-writing its bundle file — see
+[Extensions (`hilmir enable`/`hilmir disable`)](#extensions-hilmir-enablehilmir-disable) below.
 
 ## Machine bootstrap verbs
 
@@ -204,6 +208,74 @@ idea Fafnir's own `key@N`/`key@meta` versioned-secret convention uses: the contr
 reads `meta` or is all digits, on the assumption that shape always means a Fafnir-managed secret row
 — a ledger key in that exact shape would be invisible to `releases`/`release-status`, which have no
 per-key `GET` to fall back on, only list-and-filter.
+
+## Extensions (`hilmir enable`/`hilmir disable`)
+
+```text
+hilmir enable gateway --server <host:port> [--modules-dir <dir>] [--values <file>]
+    [--set k=v]... [--wait] [--dry-run] [-o json]
+hilmir disable gateway --server <host:port> [-o json]
+```
+
+A platform **extension** is an optional, platform-owned module shipped inside every
+`gimle-platform-<version>` archive's own `modules/` directory (a sibling of `bin/` and `lib/`) rather
+than something an operator builds or packages themselves. `enable`/`disable` turn one on or off
+against an already-running cluster without an operator ever hand-writing a bundle file for it — under
+the hood, both are thin wrappers over the same release-verb machinery `deploy`/`upgrade`/`undeploy`
+already provide (see [Release verbs](#release-verbs) above): no separate apply logic, no separate
+ledger. Today the only extension is `gateway`; the verb shape (`hilmir enable <extension>`/`hilmir
+disable <extension>`) leaves room for more without changing this one's own flags.
+
+### `enable gateway`
+
+1. Resolves a **modules directory** and finds the single `gimle-gateway-*.jar` inside it (zero or
+   more than one match is a clear error).
+2. Reads that jar's own `gimle-module.yaml` to derive its push coordinate — `(name, version)`.
+3. HEAD-checks the artifact registry for that exact coordinate (through the control plane's existing
+   `/artifacts/*` proxy, the same check `doctor --server` uses); pushes the jar only if the registry
+   doesn't already have it under an identical sha256, so re-running `enable` after nothing has
+   changed does no redundant upload.
+4. Deploys (first time) or upgrades (an existing `gimle-gateway` release found) a **synthesized**
+   bundle reproducing `gimle-gateway`'s real manifest shape: a `DaemonSet` named `gimle-gateway`,
+   `tenantId: gimle-system`, `placement.requiredLabels: [edge]`, `module: {name, version}` with no
+   `artifactPath` set (admission resolves it through the registry coordinate just pushed — the
+   production path every node actually takes, not a local dev-tree file path), plus the two
+   `gimle-system/gateway.port`/`gateway.routes` config keys `GatewayHooks` reads at startup,
+   defaulted to `8090`/`""` (no routes) and overridable through the same `--values <file>`/`--set
+   k=v` mechanism every other release verb uses.
+
+Enabling again after the jar under `--modules-dir` has been rebuilt at a new version re-derives the
+coordinate from that new jar, pushes it, and takes the **upgrade** path against the existing
+`gimle-gateway` release — the same "point it at the new artifact and re-run" workflow `deploy`/
+`upgrade` already give every other release.
+
+### Modules-directory resolution
+
+`--modules-dir <dir>` is the explicit override; absent that, the default is `<GIMLE_HOME>/modules`,
+where `GIMLE_HOME` is an environment variable the platform archive's own `bin/hilmir` wrapper script
+exports automatically (the install root, a sibling of `bin/`, `lib/`, and `modules/`). There is no
+third, silent fallback: `hilmir` launched directly (a hand-built classpath, or from the standalone
+`gimle-hilmir-<version>.tar.gz` archive, which has no `modules/` directory of its own at all) fails
+with a clear error naming both the environment variable and the flag, rather than guessing from
+`java.class.path`.
+
+### `disable gateway`
+
+Undeploys the release named `gimle-gateway` — `undeploy --release gimle-gateway` under the hood, with
+nothing else to do: the synthesized bundle `enable` applies declares no `tenants:` entries of its own
+(`gimle-system` is a reserved tenant the control plane seeds automatically at startup), so there is
+never a tenant for `undeploy`'s own `--keep-tenants` behavior to act on for this particular release,
+and `disable` doesn't expose that flag.
+
+### Operator credentials are required
+
+`gimle-system` is a reserved tenant: the control plane only accepts a write against it from an mTLS
+caller in the `gimle:operators` group, and the artifact registry's own push authorization checks the
+same group on the forwarded identity. Both `enable` and `disable` therefore need the same operator PKI
+material (`-Dgimle.tls.certFile/keyFile/caFile` pointing at a `gimle:operators`-group leaf) an
+operator already needs for `hilmir deploy`/`upgrade` against any `gimle-system`-scoped bundle. A
+401/403 from either the registry push or the release apply is reported with that requirement spelled
+out directly, rather than the control plane's own opaque status-code message.
 
 ## `doctor`/`init`
 
