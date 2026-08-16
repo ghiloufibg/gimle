@@ -214,4 +214,43 @@ class HilmirMainTest {
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("tls.materialDir"));
   }
+
+  @Test
+  void usage_lists_every_release_verb() {
+    final Result result = run("frobnicate");
+    assertTrue(result.err().contains("deploy -f"));
+    assertTrue(result.err().contains("upgrade -f"));
+    assertTrue(result.err().contains("rollback --release"));
+    assertTrue(result.err().contains("undeploy --release"));
+    assertTrue(result.err().contains("releases [-o json]"));
+    assertTrue(result.err().contains("release-status <name>"));
+  }
+
+  @Test
+  void deploy_requires_the_file_flag() {
+    final Result result = run("deploy");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("-f"));
+  }
+
+  @Test
+  void undeploy_requires_the_release_flag() {
+    final Result result = run("undeploy");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--release"));
+  }
+
+  @Test
+  void rollback_requires_the_release_flag() {
+    final Result result = run("rollback");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--release"));
+  }
+
+  @Test
+  void release_status_requires_a_release_name() {
+    final Result result = run("release-status");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("release name"));
+  }
 }

@@ -53,6 +53,7 @@ graph LR
     controlplane --> mimir
     cli[gimle-cli] --> core
     cli --> pki
+    hilmir[gimle-hilmir] --> core
     mavenplugin[gimle-maven-plugin]
 ```
 
@@ -103,6 +104,7 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-gateway` | The north-south HTTP gateway — a real, deployable `TIER_2` hosted module (not a new process kind), proxying inbound HTTP requests into the service fabric via `ModuleContext#invokeServiceByName`. Deployed as a `DaemonSet` onto edge-labeled nodes inside the reserved `gimle-system` tenant. v1 is fabric-routes only. See [Service fabric § the gateway module](../architecture/service-fabric.md#the-gateway-module). |
 | `gimle-pki` | Certificate authority and CSR generation/signing for `gimle.transport.protocol=tls`, via Bouncy Castle (the JDK has no public API for certificate *issuance*). See [Transport security](../architecture/transport-security.md). |
 | `gimle-cli` | Control-plane HTTP client and the `gimle` command-line tool (`get`/`apply`/`delete`/`set`/`logs`/`cert`). |
+| `gimle-hilmir` | Multi-machine cluster bootstrap (declarative topology → real processes: `validate`/`plan`/`up`/`down`/`status`/`pki init`) plus a Helm-equivalent release lifecycle over a `Bundle` manifest kind (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`), talking to the control plane over its own small HTTP client rather than depending on `gimle-cli`. See [`gimle-hilmir` reference](../reference/hilmir-reference.md). |
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
 | `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |
