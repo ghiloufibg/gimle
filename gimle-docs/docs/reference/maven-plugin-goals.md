@@ -262,6 +262,23 @@ safe no-op rather than a duplicate.
 mvn gimle:saga-import -Dgimle.saga.runId=2026-08-16T10-30-05_abc1234
 ```
 
+## `mvn gimle:flaky-tests`
+
+Runs every `@Tag("flaky")` test (see the repo's own `FLAKY_TESTS.md`), one listed module at a
+time, each as its own genuinely separate `mvn -pl <module> test -Dgroups=flaky` child process --
+never nested inside this build's own reactor. `@Tag("flaky")` tests are excluded from every
+module's default `mvn verify` (root `pom.xml`'s Surefire `excludedGroups=flaky`); this goal is how
+they still get run, with nothing else in the reactor to contend with.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.flakyTests.modules` | `gimle-mimir` | Comma-separated artifactIds known to carry `@Tag("flaky")` tests -- a small, manually-maintained list, run strictly in order, one module at a time. |
+
+```bash
+mvn gimle:flaky-tests
+mvn gimle:flaky-tests -Dgimle.flakyTests.modules=gimle-mimir,gimle-fabric
+```
+
 ## `mvn gimle:docs`
 
 Builds this documentation site end to end: runs `mvn javadoc:aggregate` at the repo root, copies

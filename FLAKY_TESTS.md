@@ -179,7 +179,7 @@ can't reach):
 - `RaftClusterTest#removing_a_server_shrinks_the_quorum_requirement_so_writes_still_succeed_after_losing_a_node`
 - `StoreClientClusterTest#a_client_keeps_writing_successfully_across_a_forced_leader_failover`
 
-## Proposed fix: a sequential flaky-test runner goal (not yet implemented)
+## Implemented fix: a sequential flaky-test runner goal
 
 The two entries above are confirmed non-bugs, root-caused to cross-*module* Surefire-JVM
 contention from `.mvn/maven.config`'s `-T 1C` (multiple modules' own forks competing for CPU at
@@ -205,28 +205,27 @@ rejected approaches, for the record:
   modules may still be mid-flight elsewhere in the same `-T 1C` reactor, silently reintroducing the
   exact contention it's meant to remove. Looks fixed, isn't reliably fixed.
 
-**What's actually proposed:** the real fix is procedural, not code-level -- run the flaky-tagged
+**What's implemented:** the real fix is procedural, not code-level -- run the flaky-tagged
 tests in a genuinely separate, single-module Maven invocation, so there is nothing else in that
-reactor to contend with, *by construction*. `gimle-maven-plugin` (`mvn gimle:*`) already has the
+reactor to contend with, *by construction*. `gimle-maven-plugin` (`mvn gimle:*`) already had the
 right shape for this: every existing goal (`gimle:store`, `gimle:controlplane`, etc.) spawns a
 real, standalone OS process and is deliberately never bound to a lifecycle phase, so it only ever
 runs when explicitly invoked as its own command -- never nested inside `mvn verify`.
 
-Proposed shape:
+Shape:
 
-1. **A repo-wide `@Tag("flaky")`** (not a Raft-specific tag) on any test moved into this bucket,
-   in whichever module it lives in.
+1. **A repo-wide `@Tag("flaky")`** (not a Raft-specific tag) on the two tests above, in
+   `gimle-mimir`.
 2. **`<excludedGroups>flaky</excludedGroups>`** added to the *root* `pom.xml`'s Surefire
    `pluginManagement` (inherited by every module for free) -- tagging a test `@Tag("flaky")`
    anywhere automatically excludes it from that module's default `mvn verify`, no per-module pom
    edit needed for future entries.
-3. **A new `AbstractGimleRootMojo`** sibling to the existing `AbstractGimleMojo`: guarded by
+3. **`AbstractGimleRootMojo`**, a sibling to the existing `AbstractGimleMojo`: guarded by
    `project.isExecutionRoot()` (true exactly once per reactor invocation, regardless of `-T` or
    module count) instead of `AbstractGimleMojo`'s "self-filter to one target module" check --
    this orchestrator needs to run once and potentially touch several modules, not exactly one.
-   The existing "spawn a process, wait, check exit code" logic in `AbstractGimleMojo` moves into
-   `GimleProcesses` (already the shared-mechanics home for `javaExecutable()`) so both base classes
-   reuse it.
+   The shared "spawn a process, wait, check exit code" logic lives in `GimleProcesses` (already
+   the shared-mechanics home for `javaExecutable()`) so both base classes reuse it.
 4. **`FlakyTestsMojo extends AbstractGimleRootMojo`**, `mvn gimle:flaky-tests`: a `@Parameter`
    lists the module artifactIds known to carry `@Tag("flaky")` tests (`List.of("gimle-mimir")`
    today -- a small, manually-maintained list, deliberately, matching this file already being a
@@ -235,13 +234,12 @@ Proposed shape:
    `waitFor()`, check its exit code, only then move to the next module. Two flaky-tagged tests
    never run concurrently with each other either, not just with the rest of the reactor -- each
    gets the whole machine to itself, one at a time.
-5. **A `mavenExecutable()` resolver** in `GimleProcesses`, mirroring `javaExecutable()`'s own
-   robustness (checks the running process's own command first, falls back through
-   `MAVEN_HOME`/PATH).
+5. **`mavenExecutable()`** in `GimleProcesses`, mirroring `javaExecutable()`'s own robustness
+   (checks the running process's own command first, falls back through `MAVEN_HOME`/PATH).
 6. **Docs**: a `mvn gimle:flaky-tests` entry in
    `gimle-docs/docs/reference/maven-plugin-goals.md`, and this file's own "Process" section
-   updated to describe tagging a test `@Tag("flaky")` plus adding its module to
-   `FlakyTestsMojo`'s list, instead of the current ad hoc `-Dtest='!A,!B,...'` convention.
+   describing tagging a test `@Tag("flaky")` plus adding its module to `FlakyTestsMojo`'s list,
+   instead of the old ad hoc `-Dtest='!A,!B,...'` convention.
 
 Net effect: `mvn verify` never runs (or flakes on) `@Tag("flaky")` tests at all; `mvn
 gimle:flaky-tests` runs every one of them, strictly one module at a time, each with a clean
@@ -259,3 +257,9 @@ strategy, a version-dependent CLI output format, a JMM visibility gap, a fixed w
 wearing a "flaky" label only because nobody had looked closely yet. Only promote an entry to the
 standing exclusion list once it's shown up across more than one unrelated session, and only after
 confirming it isn't something a closer look would actually fix.
+
+Promoting an entry to the standing exclusion list means tagging the method `@Tag("flaky")` and,
+if its module isn't already listed, adding its artifactId to `FlakyTestsMojo`'s module list in
+`gimle-maven-plugin` -- not an ad hoc `-Dtest='!A,!B,...'` exclusion on the verify command line.
+`mvn verify` then skips it for free (root `pom.xml`'s `excludedGroups=flaky`), and `mvn
+gimle:flaky-tests` runs it on its own, one module at a time.

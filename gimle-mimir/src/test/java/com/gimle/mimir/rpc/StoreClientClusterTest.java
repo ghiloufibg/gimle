@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -296,6 +297,7 @@ class StoreClientClusterTest {
   }
 
   @Test
+  @Tag("flaky")
   @Timeout(30)
   void a_client_keeps_writing_successfully_across_a_forced_leader_failover() throws Exception {
     List<ClusterNode> cluster = buildCluster(3);

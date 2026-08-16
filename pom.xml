@@ -57,6 +57,12 @@
          exec-maven-plugin has no built-in notion of "this is a test" the way surefire does;
          without an explicit binding, -DskipTests silently has no effect on it at all. -->
     <skipTests>false</skipTests>
+    <!-- Bound to Surefire's own excludedGroups below via this indirection (rather than a literal
+         "flaky" string) so gimle:flaky-tests can clear it with -Dgimle.excludedGroups= on its own
+         child mvn invocation: an explicit POM value always wins over the CLI's ${excludedGroups}
+         expression baked into Surefire's own plugin descriptor, so overriding requires going
+         through a property this POM itself defines. -->
+    <gimle.excludedGroups>flaky</gimle.excludedGroups>
     <junit.version>5.11.4</junit.version>
     <snakeyaml.version>2.3</snakeyaml.version>
     <micrometer.version>1.16.3</micrometer.version>
@@ -281,6 +287,17 @@
                  genuine transient flakiness (timing, network, port-reuse-style races), not mask
                  a real bug by retrying it into passing. -->
             <rerunFailingTestsCount>1</rerunFailingTestsCount>
+            <!-- Tests carrying @Tag("flaky") (see FLAKY_TESTS.md) are quarantined out of every
+                 module's default verify run here, once, rather than per-module; `mvn
+                 gimle:flaky-tests` runs them separately, one module at a time. -->
+            <excludedGroups>${gimle.excludedGroups}</excludedGroups>
+            <!-- rerunFailingTestsCount above already tolerates a single flaky rerun per test, but
+                 without a ceiling that tolerance is unlimited: a real regression that flakes
+                 rather than fails outright could pass every run forever. 20 is a deliberately
+                 generous starting budget for this sandbox's known shared-CPU noise, not a target;
+                 ratchet it down as flakes get root-caused and fixed (see FLAKY_TESTS.md), rather
+                 than starting at 0 and immediately blocking on today's known flakes. -->
+            <failOnFlakeCount>20</failOnFlakeCount>
             <properties>
               <configurationParameters>
                 junit.jupiter.execution.parallel.enabled=true

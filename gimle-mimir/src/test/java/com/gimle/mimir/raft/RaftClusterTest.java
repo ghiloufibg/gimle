@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -512,6 +513,7 @@ class RaftClusterTest {
   }
 
   @Test
+  @Tag("flaky")
   @Timeout(20)
   void
       removing_a_server_shrinks_the_quorum_requirement_so_writes_still_succeed_after_losing_a_node()
