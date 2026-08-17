@@ -31,17 +31,21 @@ FPS = 24
 CUT_FADE = 0.35  # video+audio fade in/out per clip, seconds -- softens each scene boundary
                  # into a cross-fade-like cut without the multi-input xfade filter graph's
                  # complexity of tracking every clip's absolute concat-timeline offset.
-END_HOLD = 0.6   # silence-hold appended after narration ends, before the next cut
+END_HOLD = 0.9   # silence-hold appended after narration ends, before the next cut -- gives a
+                 # viewer a moment to actually look at the settled diagram, not just hear about it
 
 CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 PIPER = os.path.expanduser("~/tools/piper/piper") if os.path.exists(
     os.path.expanduser("~/tools/piper/piper")) else "/root/tools/piper/piper"
 VOICE_MODEL = os.path.expanduser("~/tools/voices/en-us-ryan-high.onnx") if os.path.exists(
     os.path.expanduser("~/tools/voices/en-us-ryan-high.onnx")) else "/root/tools/voices/en-us-ryan-high.onnx"
-# Slightly slower than Piper's own default cadence (1.0) -- more deliberate pacing suits narrated
-# technical explanation better than conversational speed. noise_scale/noise_w left at Piper's own
-# defaults: lower values flatten prosody into something noticeably more robotic.
-PIPER_ARGS = ["--length_scale", "1.05", "--sentence_silence", "0.15"]
+# Noticeably slower than Piper's own default cadence (1.0) and than this pipeline's first pass
+# (1.05) -- viewer feedback was that dense technical narration at anything close to conversational
+# speed is hard to follow, especially back-to-back with reading the diagram at the same time.
+# sentence_silence is a real pause, not just a slower rate, so a sentence boundary reads as one.
+# noise_scale/noise_w left at Piper's own defaults: lower values flatten prosody into something
+# noticeably more robotic, which would fight the slower pace rather than help it.
+PIPER_ARGS = ["--length_scale", "1.28", "--sentence_silence", "0.45"]
 
 # Split into two layers so the Ken Burns zoom (build_scene_clip) can push in on the diagram alone
 # without progressively cropping the edge-anchored title bar / progress counter out of frame: a

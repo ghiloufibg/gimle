@@ -15,7 +15,7 @@ constants, no hand-waving.
   src="/video/raft-consensus-explainer.webm"
   poster="/video/raft-consensus-explainer-poster.png"
   captions="/video/raft-consensus-explainer.vtt"
-  caption="Consensus in gimle-mimir: Raft, explained (1m50s)"
+  caption="Consensus in gimle-mimir: Raft, explained (2m15s)"
 />
 
 <details>

@@ -15,7 +15,7 @@ simple until you try to do it at scale.
   src="/video/swim-gossip-explainer.webm"
   poster="/video/swim-gossip-explainer-poster.png"
   captions="/video/swim-gossip-explainer.vtt"
-  caption="Failure detection: SWIM gossip in gimle-fabric, explained (1m53s)"
+  caption="Failure detection: SWIM gossip in gimle-fabric, explained (2m16s)"
 />
 
 <details>
