@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.tenant.Tenant;
 import com.gimle.testkit.Await;
+import com.gimle.testkit.PortLease;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -37,7 +38,12 @@ import org.junit.jupiter.api.Timeout;
 class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
 
   private static final String EDGE_NODE_ID = "smoke-node-edge";
-  private static final int GATEWAY_PORT = 19095;
+
+  // Leased rather than hardcoded, matching every other port this suite's own cluster processes
+  // use -- gimle-gateway itself is already config-driven (GatewayHooks#onStart reads gateway.port
+  // via ctx.config, never a fixed constant), so a genuinely dynamic port was already one config
+  // write away; only this test's own literal needed to change.
+  private int gatewayPort;
 
   @Test
   @Timeout(value = 6, unit = TimeUnit.MINUTES)
@@ -103,12 +109,23 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
 
+    // Leased and released right here, immediately before the DaemonSet submission just below that
+    // triggers the real bind -- unlike this fixture's own cluster-process ports (all bound within
+    // milliseconds of release, at process spawn), the gap between a config write and gimle-gateway
+    // actually calling HttpServer#create is real wall-clock time (deployment admission, agent
+    // install, hook invocation), so releasing any earlier than this widens PortLease's normally-
+    // tiny close-to-bind race into a real one.
+    try (PortLease gatewayLease = PortLease.reserve(1)) {
+      gatewayPort = gatewayLease.ports().get(0);
+      gatewayLease.release(gatewayPort);
+    }
+
     // Written before the DaemonSet below is submitted: AgentMain#deliverConfig fetches this
     // tenant's plain config once, synchronously, as part of that single instance's own
     // install-then-start sequence -- there is no later re-delivery to pick up a key written after
     // the instance has already started.
     putPlainConfig(
-        baseUrl, Tenant.RESERVED_SYSTEM_TENANT_ID, "gateway.port", String.valueOf(GATEWAY_PORT));
+        baseUrl, Tenant.RESERVED_SYSTEM_TENANT_ID, "gateway.port", String.valueOf(gatewayPort));
     putPlainConfig(
         baseUrl,
         Tenant.RESERVED_SYSTEM_TENANT_ID,
@@ -151,7 +168,7 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
     try {
       HttpResponse<String> response =
           httpClient.send(
-              HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + GATEWAY_PORT + "/greet"))
+              HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + gatewayPort + "/greet"))
                   .POST(HttpRequest.BodyPublishers.ofString(name, StandardCharsets.UTF_8))
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
