@@ -3,12 +3,55 @@ sidebar_position: 1
 ---
 
 import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+import DocVideo from '@site/src/components/DocVideo';
 
 # Consensus and replication
 
 If you're new to distributed systems: this page explains *why* a cluster needs consensus at all,
 then shows exactly how `gimle-mimir`'s `RaftNode` implements it — real class names, real
 constants, no hand-waving.
+
+<DocVideo
+  src="/video/raft-consensus-explainer.webm"
+  poster="/video/raft-consensus-explainer-poster.png"
+  caption="Consensus in gimle-mimir: Raft, explained (1m52s)"
+/>
+
+<details>
+<summary>Video transcript</summary>
+
+How does a cluster of machines agree on one shared truth, even when a node crashes or the network
+splits them apart? This is Raft, the consensus algorithm behind gimle-mimir, Gimlé's replicated
+state store.
+
+Every node starts out as a follower. Each one runs its own randomized election timer, between 150
+and 300 milliseconds. If node A doesn't hear from a leader before its timer fires, it assumes there
+isn't one, becomes a candidate, and asks its peers to vote for it.
+
+Node B and Node C don't just vote blindly. Each one checks that Node A's log is at least as
+up to date as its own. Only then does it grant its vote. This is what stops a node with stale data
+from ever taking over as leader.
+
+Two votes out of three is a majority, so Node A becomes the leader. From now on, it sends a
+heartbeat to every follower every 50 milliseconds, asserting that it's still in charge. A follower
+stuck in a network partition, unable to reach a majority, can never elect itself leader alone.
+
+Now a client proposes a write — say, registering a new deployment. Only the leader accepts writes.
+It appends the entry to its own log first.
+
+Next, the leader replicates that log entry out to every follower, over the same `AppendEntries`
+message its heartbeats already use.
+
+Once a majority of nodes — not all of them, just a majority — have acknowledged the entry, it's
+considered committed. It's applied to the state machine, and only then is the client finally
+unblocked. A minority can never commit anything alone, and that single rule is what makes split
+brain impossible.
+
+That's leader election and log replication in Raft, and exactly how gimle-mimir implements both.
+The rest of this page goes further: snapshotting, live membership changes, and a real split-brain
+bug this project's own test suite caught and fixed.
+
+</details>
 
 ## The problem consensus solves
 

@@ -3,12 +3,56 @@ sidebar_position: 2
 ---
 
 import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+import DocVideo from '@site/src/components/DocVideo';
 
 # Failure detection and gossip
 
 Consensus (previous page) answers "how does a cluster agree on the truth." This page answers a
 different question: "how does a node even know which other nodes are still alive?" It sounds
 simple until you try to do it at scale.
+
+<DocVideo
+  src="/video/swim-gossip-explainer.webm"
+  poster="/video/swim-gossip-explainer-poster.png"
+  caption="Failure detection: SWIM gossip in gimle-fabric, explained"
+/>
+
+<details>
+<summary>Video transcript</summary>
+
+How does every machine in a growing cluster know which other machines are still alive, without the
+amount of network chatter exploding as the cluster grows? This is SWIM, the gossip protocol behind
+failure detection in Gimlé's service fabric.
+
+Every node runs on a steady one-second cycle. Each tick, it picks one other member and pings it
+directly. If an acknowledgement comes back in time, that member is confirmed alive, and nothing
+else happens.
+
+But this time, Node B doesn't answer within its ping timeout. That alone doesn't mean Node B is
+down — it could just as easily be a bad network path between only these two nodes.
+
+So instead of giving up, Node A asks a handful of other members — here Node C and Node D — to
+relay-probe Node B on its behalf. Each of them sends its own direct ping to B and reports back what
+it finds.
+
+Only when the direct probe and every indirect relay all fail does Node A mark Node B as
+suspect — not dead yet, just suspect.
+
+A suspected node gets a real chance to prove it's still there. If Node B were actually fine, just
+briefly overloaded, it could refute the suspicion at any point during this window. Only once the
+suspicion timeout — about three seconds — elapses with no refutation does Node A finally mark it
+dead.
+
+That new status doesn't need a broadcast. It piggybacks on whatever ordinary gossip traffic Node A
+was already sending, spreading through the cluster the way a rumor spreads through casual
+conversation. And every 30 seconds, a full anti-entropy sync acts as a backstop, in case any node
+missed the news.
+
+That's direct pings, indirect probes, suspicion, and gossip dissemination — the core of SWIM. The
+rest of this page covers the local health multiplier that adapts these timeouts under load, and why
+this same mechanism is what actually triggers Gimlé's self-healing, not just a status dashboard.
+
+</details>
 
 ## The problem: you can't just ask everyone
 

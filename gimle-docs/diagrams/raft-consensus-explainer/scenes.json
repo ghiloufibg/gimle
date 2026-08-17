@@ -1,0 +1,58 @@
+[
+  {
+    "type": "title",
+    "tag": "gimle-mimir · concepts",
+    "title": "Consensus in gimle-mimir: Raft, Explained",
+    "subtitle": "How a three node cluster agrees on one truth, even when nodes fail or the network splits.",
+    "narration": "How does a cluster of machines agree on one shared truth, even when a node crashes or the network splits them apart? This is Raft, the consensus algorithm behind gimle mimir, Gimle's replicated state store."
+  },
+  {
+    "caption": "Election timer fires, Node A becomes a candidate.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.1",
+    "narration": "Every node starts out as a follower. Each one runs its own randomized election timer, between 150 and 300 milliseconds. If node A doesn't hear from a leader before its timer fires, it assumes there isn't one, becomes a candidate, and asks its peers to vote for it."
+  },
+  {
+    "caption": "Peers grant their vote if the candidate's log is at least as current.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.2",
+    "narration": "Node B and Node C don't just vote blindly. Each one checks that Node A's log is at least as up to date as its own. Only then does it grant its vote. This is what stops a node with stale data from ever taking over as leader."
+  },
+  {
+    "caption": "Two of three votes is a majority, Node A becomes leader.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.3",
+    "narration": "Two votes out of three is a majority, so Node A becomes the leader. From now on, it sends a heartbeat to every follower every 50 milliseconds, asserting that it's still in charge. A follower stuck in a network partition, unable to reach a majority, can never elect itself leader alone."
+  },
+  {
+    "caption": "A client proposes a write; the leader appends it to its own log.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.4",
+    "narration": "Now a client proposes a write, say, registering a new deployment. Only the leader accepts writes. It appends the entry to its own log first."
+  },
+  {
+    "caption": "The leader replicates the entry to every follower.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.5",
+    "narration": "Next, the leader replicates that log entry out to every follower, over the same append entries message its heartbeats already use."
+  },
+  {
+    "caption": "Majority acknowledges; the entry is committed and applied.",
+    "module": "mimir",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/raft-consensus.d2",
+    "d2_target": "steps.6",
+    "narration": "Once a majority of nodes, not all of them, just a majority, have acknowledged the entry, it's considered committed. It's applied to the state machine, and only then is the client finally unblocked. A minority can never commit anything alone, and that single rule is what makes split brain impossible."
+  },
+  {
+    "type": "title",
+    "tag": "gimle-mimir · concepts",
+    "title": "Read the full breakdown",
+    "subtitle": "docs/concepts/consensus-and-replication.md — leader election, log replication, snapshotting, live membership change, and a real split-brain bug this project's own test suite caught and fixed.",
+    "narration": "That's leader election and log replication in Raft, and exactly how gimle mimir implements both. The full concepts page goes further: snapshotting, live membership changes, and a real split brain bug this project's own tests caught and fixed. Link in the docs."
+  }
+]
