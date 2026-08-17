@@ -61,9 +61,9 @@ cd gimle
 mvn install -DskipTests
 ```
 
-One command builds every Java module and the web console (Bun install, Vite build, `bun test`),
-then bundles the built SPA into `gimle-console`'s own jar so `gimle-controlplane` can serve it
-with no separate build/copy step.
+One command builds every Java module and the web console (Bun install, Vite build — `-DskipTests`
+skips both Surefire and the console's own `bun test` step), then bundles the built SPA into
+`gimle-console`'s own jar so `gimle-controlplane` can serve it with no separate build/copy step.
 
 ## 2. Launch a store, a control plane, and a node agent
 
