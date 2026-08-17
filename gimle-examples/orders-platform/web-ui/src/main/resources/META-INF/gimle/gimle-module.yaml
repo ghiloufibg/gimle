@@ -1,0 +1,27 @@
+# No exports: -- web-ui is a pure fabric consumer, same as orders-report-job, publishing nothing
+# of its own on the fabric. Its own surface (the static page, the REST API) is HTTP, served
+# directly by the embedded server WebUiHooks boots -- outside the fabric entirely.
+#
+# 1.1.0: gates POST /api/orders behind a real Fafnir-delivered secret (see WebUiHooks' own
+# javadoc) -- the first orders-platform module to use ctx.config(...)/tenant scoping at all, and
+# (once deployed over a running 1.0.0 instance) the first real version-bumped hot redeploy this
+# app has ever exercised. GET /api/inventory is unaffected -- still open, still fabric-backed.
+# 1.1.1: index.html bugfix -- the admin-token field's CSS never matched (a type="password" input
+# against a type="number"-only selector), leaving it shorter than its siblings and visibly
+# misaligned against the Place order button in the same row.
+name: com.example.webui
+version: 1.1.1
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 96Mi
+    cpu: 50m
+  limit:
+    memory: 192Mi
+    cpu: 200m
+lifecycle:
+  hooks: com.example.webui.provider.WebUiHooks
+health:
+  liveness: com.example.webui.provider.WebUiLivenessProbe
+  readiness: com.example.webui.provider.WebUiReadinessProbe

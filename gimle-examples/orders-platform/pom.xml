@@ -34,6 +34,7 @@
     <module>orders-service</module>
     <module>inventory-service</module>
     <module>orders-report-job</module>
+    <module>web-ui</module>
   </modules>
 
   <properties>

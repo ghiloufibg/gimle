@@ -1,0 +1,21 @@
+# kind: Deployment -- serves a small static HTML/JS page plus a tiny JSON REST API
+# (GET /api/inventory, POST /api/orders) over a real embedded HTTP server
+# (com.sun.net.httpserver.HttpServer, the same "hand-roll it, it's small" JDK-only posture
+# gimle-controlplane's own ApiServer already uses), consuming orders-service/inventory-service
+# purely over the fabric the same way orders-report-job does. See ../README.md for how to reach
+# it from outside a docker-compose cluster.
+#
+# tenantId -- required for ctx.config(...) delivery to reach this instance at all (an untenanted
+# instance gets none, ever: see AgentMain#deliverConfig's own early return on an empty tenantId).
+# Only web-ui is tenant-scoped; orders-service/inventory-service/orders-report-job stay untenanted,
+# on purpose -- this is the one module in the app that actually reads delivered config/secrets, so
+# it's the one that needs a tenant. See ../README.md for the gimle set tenant / gimle secret set
+# commands this manifest depends on having already been run.
+kind: Deployment
+name: web-ui-deployment
+tenantId: orders-platform
+module:
+  name: com.example.webui
+  version: 1.1.1
+artifactPath: gimle-examples/orders-platform/web-ui/target/web-ui.jar
+replicas: 1

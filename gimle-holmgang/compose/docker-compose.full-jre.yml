@@ -96,6 +96,13 @@ services:
       - ./topology-full-jre.yaml:/config/topology.yaml:ro
       - ./entrypoint.sh:/holmgang/entrypoint.sh:ro
       - agent-data:/data
+    # A hosted module's own HTTP port (gimle-examples/orders-platform's web-ui, port 8090) lives
+    # inside a worker JVM subprocess of this container, sharing its network namespace -- unlike
+    # andvari/fafnir/controlplane above, which are each their own platform process with their own
+    # container. Publishing it here is what makes it reachable from the docker host at all; see
+    # that module's own WebUiHooks javadoc for why the port is fixed rather than allocated.
+    ports:
+      - "8090:8090"
 
 networks:
   gimle: {}

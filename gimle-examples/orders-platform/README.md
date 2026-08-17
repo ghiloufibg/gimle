@@ -8,10 +8,11 @@ see that file's own comment, and this directory's own `pom.xml`, for why. Never 
 
 ## What it is
 
-Three real Java modules, each a genuine Spring `AnnotationConfigApplicationContext` doing real
+Four real Java modules, each a genuine Spring `AnnotationConfigApplicationContext` doing real
 dependency injection, packaged as real Gimlé module jars and talking to each other over Gimlé's
 own fabric `ServiceRegistry` — not a second HTTP layer bolted on top of the platform's own service
-mesh:
+mesh (the one exception, deliberately, is `web-ui`'s own outward-facing HTTP surface — see its own
+entry below):
 
 - **`orders-service`** — a Spring-managed `OrderBook` bean (constructor-injected with an
   `OrderIdGenerator` collaborator) publishing the fabric service `com.example.orders.OrderCatalog`.
@@ -27,6 +28,19 @@ mesh:
   `OrderCatalog` and `InventoryLevels`, logs a consolidated report, and returns
   `CompletionStatus.SUCCEEDED` — rendering "unavailable" for whichever collaborator it couldn't
   reach rather than failing the whole job over one missing dependency.
+- **`web-ui`** — a plain-HTML/CSS/JS page plus a small JSON REST API
+  (`GET /api/inventory`, `POST /api/orders`), served by a real embedded
+  `com.sun.net.httpserver.HttpServer` `WebUiHooks` boots on a fixed port (no servlet container, no
+  web framework — the same "hand-roll it, it's small" posture `gimle-controlplane`'s own
+  `ApiServer` already uses). Every request looks up `OrderCatalog`/`InventoryLevels` over the
+  fabric fresh, the same graceful-degradation pattern `orders-report-job` already establishes —
+  this is the one client in the app a person outside the cluster can drive directly from a
+  browser, instead of another hosted module's own code. See
+  [Reaching the web UI from outside the cluster](#reaching-the-web-ui-from-outside-the-cluster)
+  below for why its port needs a different publishing story than the other three modules'.
+  Also the only module in this app that's tenant-scoped and reads delivered config at all:
+  `POST /api/orders` requires an `X-Admin-Token` header matching a real secret Fafnir delivers —
+  see [Placing orders requires a real secret](#placing-orders-requires-a-real-secret) below.
 
 Each module bundles its own literal, independently-compiled copy of any fabric interface it
 consumes (see `OrderCatalog.java`'s own javadoc in `orders-service`) — the same "structural
@@ -82,12 +96,80 @@ stand one up locally: store, control plane, one agent):
 mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/orders-platform/orders-service/deployment.yaml
 mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/orders-platform/inventory-service/statefulset.yaml
 mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/orders-platform/orders-report-job/cronjob.yaml
+mvn gimle:deploy -Dgimle.deploy.file=gimle-examples/orders-platform/web-ui/deployment.yaml
 ```
+
+`web-ui`'s own manifest declares `tenantId: orders-platform` — create that tenant, and set the
+secret it reads, *before* applying it (see
+[Placing orders requires a real secret](#placing-orders-requires-a-real-secret) below); applying
+it against a tenant that doesn't exist yet is rejected at admission, the same way an unpushed
+artifact coordinate is.
 
 Then watch it happen: the console's Logs screen, or `gimle-cli`'s own `logs --follow`. You should
 see orders-service seed its two demo orders, inventory-service start logging reconciliation lines
 once orders-service is up, and (every 5 minutes, or immediately if you deploy `job.yaml` instead
 for an on-demand run) orders-report-job log a consolidated report of both.
+
+## Reaching the web UI from outside the cluster
+
+`web-ui` binds a fixed port (`8090`) rather than an agent-allocated one: a plain Gimlé module has
+no port-allocation mechanism of its own — that exists only for `VesselSpec`-hosted processes,
+which in turn have no fabric access at all (confirmed: no `ModuleContext`, no `ctx.lookupService`,
+nothing — see `VesselSpec`'s own javadoc in `gimle-core`). Neither hosting mode offers both a
+fabric connection and platform-managed ports, so a fixed port is the deliberate, simplest choice
+here, not a gap.
+
+- **Local `mvn gimle:*` cluster** (`gimle-console/LOCAL_DEV.md`): the agent runs directly on your
+  own machine, so `http://localhost:8090/` is already reachable the moment `web-ui-deployment`
+  reaches `ACTIVE` — nothing extra to configure.
+- **`docker-compose.full-jre.yml`** (`gimle-holmgang/compose/`): the worker JVM hosting `web-ui`
+  runs as a subprocess inside the `agent` container, sharing its network namespace — unlike
+  andvari/fafnir/controlplane, each their own platform process with their own container and their
+  own already-published port. The compose file's own `agent` service publishes `8090:8090` for
+  exactly this reason; `http://localhost:8090/` reaches it from the docker host the same way
+  `http://localhost:8080/console` already reaches the control plane's own console.
+
+Either way, once it's up:
+
+```sh
+curl http://localhost:8090/api/inventory
+curl -X POST http://localhost:8090/api/orders -H 'Content-Type: application/json' \
+  -d '{"sku":"widget","quantity":2}'
+```
+
+or just open `http://localhost:8090/` in a browser for the page itself.
+
+## Placing orders requires a real secret
+
+`web-ui` is the one module in this app that's tenant-scoped and reads delivered config at all --
+`GET /api/inventory` stays open (no tenant needed for a read that never touches `ctx.config`), but
+`POST /api/orders` requires a real secret, delivered by Fafnir, not a hardcoded check:
+
+```sh
+gimle set tenant orders-platform --max-memory-bytes 268435456 --max-cpu-millicores 500 --max-instances 5
+gimle secret set orders-platform orders.admin-token --value <pick-any-token>
+```
+
+Run both **before** applying `web-ui/deployment.yaml` (or redeploying it): its own `tenantId:
+orders-platform` is submitted with the manifest, and `TenantQuotaPlugin` rejects admission
+outright for a `tenantId` nothing has registered yet -- the same "push before apply" ordering
+`gimle artifact push` already needs for a coordinate-only manifest. Config/secret delivery is
+itself tenant-gated one level deeper than that: `AgentMain#deliverConfig` returns immediately, no
+Fafnir call at all, for an *untenanted* instance -- which is exactly why `orders-service`/
+`inventory-service`/`orders-report-job` (none of which reads `ctx.config`) stay untenanted on
+purpose, and why `web-ui`, the one module that does, is the one that needs a tenant.
+
+Once both commands above have run, paste the same token into the page's own "Admin token" field
+(or send it as `X-Admin-Token`):
+
+```sh
+curl -X POST http://localhost:8090/api/orders -H 'Content-Type: application/json' \
+  -H 'X-Admin-Token: <the same token>' -d '{"sku":"widget","quantity":2}'
+```
+
+A missing/wrong header answers `401`; a cluster where the secret was never set (or `web-ui` was
+deployed without a `tenantId` at all) fails closed with `503` rather than silently letting every
+order through.
 
 ## What was, and wasn't, verified building this
 

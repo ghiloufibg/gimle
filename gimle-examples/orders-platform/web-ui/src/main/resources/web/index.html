@@ -1,0 +1,318 @@
+<!--
+  A plain, framework-free static page -- no build step, no bundler, matching this whole app's
+  "smallest real surface" posture. The color tokens, font stack, and hud-label/hud-panel utilities
+  below are copied from gimle-console's own src/styles.css (OKLCH tokens, Work Sans/JetBrains Mono)
+  so this page reads as a natural extension of the real web console rather than a mismatched
+  one-off -- translated to plain CSS since there's no Tailwind build here to generate utilities
+  from. System font fallbacks only (no webfont loading): this page has to render correctly with no
+  network access at all, the same "reachable from outside the cluster, nothing else assumed"
+  posture WebUiHooks's own javadoc describes.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gimlé Orders Platform</title>
+<style>
+  :root {
+    --radius: 0.25rem;
+    --background: oklch(0.985 0.005 170);
+    --foreground: oklch(0.22 0.03 220);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.22 0.03 220);
+    --primary: oklch(0.55 0.13 172);
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.955 0.015 175);
+    --secondary-foreground: oklch(0.26 0.04 210);
+    --muted: oklch(0.955 0.012 180);
+    --muted-foreground: oklch(0.48 0.03 200);
+    --accent: oklch(0.93 0.04 172);
+    --border: oklch(0.9 0.015 185);
+    --input: oklch(0.9 0.015 185);
+    --hud: oklch(0.45 0.05 205);
+    --status-ok: oklch(0.52 0.14 165);
+    --status-warn: oklch(0.62 0.17 70);
+    --status-bad: oklch(0.55 0.21 20);
+    --status-ok-bg: oklch(0.94 0.05 165);
+    --status-warn-bg: oklch(0.94 0.08 80);
+    --status-bad-bg: oklch(0.95 0.05 20);
+    --font-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: oklch(0.2 0.035 248);
+      --foreground: oklch(0.92 0.07 158);
+      --card: oklch(0.245 0.035 235);
+      --card-foreground: oklch(0.92 0.07 158);
+      --primary: oklch(0.79 0.14 172);
+      --primary-foreground: oklch(0.2 0.035 248);
+      --secondary: oklch(0.3 0.04 200);
+      --secondary-foreground: oklch(0.92 0.07 158);
+      --muted: oklch(0.27 0.035 220);
+      --muted-foreground: oklch(0.72 0.05 172);
+      --accent: oklch(0.33 0.05 180);
+      --border: oklch(0.34 0.04 195);
+      --input: oklch(0.34 0.04 195);
+      --hud: oklch(0.72 0.09 175);
+      --status-ok: oklch(0.82 0.15 165);
+      --status-warn: oklch(0.83 0.16 80);
+      --status-bad: oklch(0.7 0.19 18);
+      --status-ok-bg: oklch(0.32 0.07 165);
+      --status-warn-bg: oklch(0.33 0.08 80);
+      --status-bad-bg: oklch(0.32 0.1 18);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    /* Centers .page via flexbox rather than relying solely on its own margin: 0 auto -- two
+       independent centering mechanisms agreeing is more robust than one. */
+    display: flex;
+    justify-content: center;
+  }
+  .page { width: 100%; max-width: 900px; margin: 0 auto; padding: 24px 20px 48px; }
+  .hud-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-weight: 700;
+    color: var(--hud);
+  }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { font-size: 28px; font-weight: 300; letter-spacing: -0.01em; margin: 6px 0 4px; }
+  .subtitle { font-size: 12px; color: var(--muted-foreground); font-family: var(--font-mono); }
+  .hud-panel {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .hud-panel-header {
+    background: color-mix(in oklab, var(--primary) 10%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--primary) 15%, transparent);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .hud-panel-header .hud-label { color: var(--primary); }
+  .hud-panel-body { padding: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td { padding: 8px; border-bottom: 1px solid var(--border); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: var(--font-mono); }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .badge-ok { background: var(--status-ok-bg); color: var(--status-ok); border-color: color-mix(in oklab, var(--status-ok) 30%, transparent); }
+  .badge-warn { background: var(--status-warn-bg); color: var(--status-warn); border-color: color-mix(in oklab, var(--status-warn) 30%, transparent); }
+  .badge-bad { background: var(--status-bad-bg); color: var(--status-bad); border-color: color-mix(in oklab, var(--status-bad) 30%, transparent); }
+  .badge-muted { background: var(--muted); color: var(--muted-foreground); border-color: var(--border); }
+  form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground); }
+  /* .field-input, not a type selector: type="number"/type="password" and any future field type
+     all need identical sizing, or align-items: flex-end on the form below misaligns them against
+     the button next to them (an unstyled input falls back to the browser's own shorter default
+     height). */
+  select, .field-input {
+    box-sizing: border-box;
+    width: 100%;
+    font: inherit;
+    font-family: var(--font-mono);
+    background: var(--background);
+    color: var(--foreground);
+    border: 1px solid var(--input);
+    border-radius: 6px;
+    padding: 7px 10px;
+    height: 36px;
+  }
+  button {
+    font: inherit;
+    font-weight: 500;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: none;
+    border-radius: 6px;
+    height: 36px;
+    padding: 0 16px;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #order-status { margin-top: 12px; font-size: 12px; font-family: var(--font-mono); min-height: 16px; }
+  .hint { margin: 12px 0 0; font-size: 11px; color: var(--muted-foreground); line-height: 1.6; }
+  .hint .mono { font-family: var(--font-mono); }
+  #order-status.ok { color: var(--status-ok); }
+  #order-status.bad { color: var(--status-bad); }
+  footer { margin-top: 32px; font-size: 11px; color: var(--muted-foreground); font-family: var(--font-mono); }
+  footer a { color: var(--primary); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="hud-label">Gimlé // Orders Platform</div>
+    <h1>Orders &amp; Inventory</h1>
+    <div class="subtitle">web-ui-deployment · com.example.webui · fabric-backed, no mocks</div>
+  </header>
+
+  <section class="hud-panel">
+    <div class="hud-panel-header">
+      <span class="hud-label">Inventory</span>
+      <span class="hud-label" id="refresh-indicator">·</span>
+    </div>
+    <div class="hud-panel-body">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th class="mono">Stock</th>
+            <th class="mono">Ordered</th>
+            <th class="mono">Remaining</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="inventory-body">
+          <tr><td colspan="5">loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="hud-panel">
+    <div class="hud-panel-header">
+      <span class="hud-label">Place Order</span>
+    </div>
+    <div class="hud-panel-body">
+      <form id="order-form">
+        <div class="field">
+          <label for="sku">SKU</label>
+          <select id="sku" name="sku">
+            <option value="widget">widget</option>
+            <option value="gadget">gadget</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="quantity">Quantity</label>
+          <input class="field-input" type="number" id="quantity" name="quantity" min="1" value="1" required />
+        </div>
+        <div class="field">
+          <label for="admin-token">Admin token</label>
+          <input class="field-input" type="password" id="admin-token" name="admin-token" placeholder="X-Admin-Token" />
+        </div>
+        <button type="submit">Place order</button>
+      </form>
+      <div id="order-status"></div>
+      <p class="hint">Placing an order is gated behind a real Fafnir-delivered secret &mdash; set
+        one with <span class="mono">gimle secret set orders-platform orders.admin-token --value
+        &lt;token&gt;</span> (see ../README.md) and paste that same value above.</p>
+    </div>
+  </section>
+
+  <footer>
+    calls <span class="mono">OrderCatalog.placeOrder</span> / <span class="mono">totalUnitsOrdered</span> and
+    <span class="mono">InventoryLevels.stockLevel</span> over Gimlé's own fabric on every request &mdash;
+    same demo cluster orders-report-job reads from.
+  </footer>
+</div>
+
+<script>
+  const inventoryBody = document.getElementById('inventory-body');
+  const refreshIndicator = document.getElementById('refresh-indicator');
+  const orderForm = document.getElementById('order-form');
+  const orderStatus = document.getElementById('order-status');
+
+  function statusBadge(stock, ordered) {
+    if (stock < 0 || ordered < 0) return '<span class="badge badge-muted">unavailable</span>';
+    const remaining = stock - ordered;
+    if (remaining < 0) return '<span class="badge badge-bad">oversold</span>';
+    if (remaining < 10) return '<span class="badge badge-warn">low</span>';
+    return '<span class="badge badge-ok">ok</span>';
+  }
+
+  async function loadInventory() {
+    refreshIndicator.textContent = '···';
+    try {
+      const res = await fetch('/api/inventory');
+      const rows = await res.json();
+      inventoryBody.innerHTML = rows.map(row => {
+        const remaining = row.stock < 0 || row.ordered < 0 ? '&mdash;' : (row.stock - row.ordered);
+        const stockText = row.stock < 0 ? 'unavailable' : row.stock;
+        const orderedText = row.ordered < 0 ? 'unavailable' : row.ordered;
+        return `<tr>
+          <td>${row.sku}</td>
+          <td class="mono">${stockText}</td>
+          <td class="mono">${orderedText}</td>
+          <td class="mono">${remaining}</td>
+          <td>${statusBadge(row.stock, row.ordered)}</td>
+        </tr>`;
+      }).join('');
+      refreshIndicator.textContent = new Date().toLocaleTimeString();
+    } catch (err) {
+      inventoryBody.innerHTML = `<tr><td colspan="5">failed to load: ${err}</td></tr>`;
+      refreshIndicator.textContent = 'error';
+    }
+  }
+
+  orderForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const sku = document.getElementById('sku').value;
+    const quantity = parseInt(document.getElementById('quantity').value, 10);
+    const adminToken = document.getElementById('admin-token').value;
+    orderStatus.className = '';
+    orderStatus.textContent = 'placing order…';
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        body: JSON.stringify({ sku, quantity }),
+      });
+      const body = await res.json();
+      if (res.ok) {
+        orderStatus.className = 'ok';
+        orderStatus.textContent = `order placed: ${body.orderId}`;
+        loadInventory();
+      } else {
+        orderStatus.className = 'bad';
+        orderStatus.textContent = `error (${res.status}): ${body.error}`;
+      }
+    } catch (err) {
+      orderStatus.className = 'bad';
+      orderStatus.textContent = `error: ${err}`;
+    }
+  });
+
+  loadInventory();
+  setInterval(loadInventory, 5000);
+</script>
+</body>
+</html>
