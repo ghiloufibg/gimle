@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A per-module, bounded virtual-thread scheduler: submitted tasks queue behind a {@link Semaphore}
@@ -77,6 +78,15 @@ public final class BoundedModuleScheduler implements AutoCloseable {
 
   @Override
   public void close() {
-    executor.close();
+    // By the time a caller reaches close(), its own bounded drain deadline has already elapsed
+    // (see ModuleController.stop's drainTimeout) -- waiting indefinitely for in-flight tasks here,
+    // as executor.close() does, would let one hung module task wedge the worker's whole control
+    // loop forever. Interrupt in-flight tasks and cap the wait instead.
+    executor.shutdownNow();
+    try {
+      executor.awaitTermination(2, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 }

@@ -152,6 +152,12 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
     for (List<Entry> entries : entriesByInterface.values()) {
       entries.removeIf(entry -> entry.owner().equals(owner));
     }
+    // An interface Class emptied of entries is still a strong key in entriesByInterface; for an
+    // interface loaded by the just-disposed module's own ModuleLayer, that key would pin the
+    // classloader forever and defeat hot-redeploy leak detection. Drop empty lists (and their
+    // now-orphaned round-robin cursors) so nothing keeps the Class -- and its loader -- reachable.
+    entriesByInterface.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+    cursors.keySet().removeIf(iface -> !entriesByInterface.containsKey(iface));
   }
 
   // invokeByName: no override needed here -- ServiceRegistry's own default method (a plain
