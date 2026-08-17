@@ -97,8 +97,11 @@ class JobHooksExecutionTest {
 
   @Test
   void a_failing_job_reaches_failed() {
-    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.fails");
+    // Set before starting the fixture, not after: WorkerRuntime#onActive dispatches JobHooks#run
+    // onto its own virtual thread as part of controller.start() below, which can read this field
+    // before a post-start set() would ever land.
     RecordingJobHooks.STATUS_TO_RETURN.set(CompletionStatus.FAILED);
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.fails");
 
     Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
@@ -110,8 +113,11 @@ class JobHooksExecutionTest {
 
   @Test
   void a_job_hooks_run_that_throws_is_treated_as_failed() {
-    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.throws");
+    // Set before starting the fixture, not after: WorkerRuntime#onActive dispatches JobHooks#run
+    // onto its own virtual thread as part of controller.start() below, which can read this field
+    // before a post-start set() would ever land.
     RecordingJobHooks.THROW_INSTEAD.set(new IllegalStateException("boom"));
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.job.throws");
 
     Await.until(
         () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
