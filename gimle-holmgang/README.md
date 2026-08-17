@@ -228,25 +228,36 @@ have their own fast unit tests that need no Docker at all, so they run under the
 
 ## Docker Compose manual validation
 
-`compose/` holds two hand-run Docker Compose files for manually eyeballing the two ways a real
-`gimle-platform` archive can be deployed, distinct from Utgard above: Utgard is an automated JUnit
-suite asserting specific platform behaviors from Java, while these compose files are for a person to
-`docker compose up` and poke at with their own eyes and their own `curl`/`hilmir` commands. Both
-files drive the exact same real `hilmir up`/`hilmir status` verbs an operator would run by hand
-(`compose/entrypoint.sh`) against a real topology document (`compose/topology-*.yaml`, in the actual
-`gimle-hilmir` `TopologyParser` schema) -- neither file hand-crafts `StoreMain`/`FafnirMain`/etc.
-command lines itself.
+`compose/` holds three hand-run Docker Compose files for manually eyeballing a real `gimle-platform`
+archive, distinct from Utgard above: Utgard is an automated JUnit suite asserting specific platform
+behaviors from Java, while these compose files are for a person to `docker compose up` and poke at
+with their own eyes and their own `curl`/`hilmir` commands. All three drive the exact same real
+`hilmir` verbs an operator would run by hand against a real topology document
+(`compose/topology-*.yaml`, in the actual `gimle-hilmir` `TopologyParser` schema) -- none of them
+hand-crafts `StoreMain`/`FafnirMain`/etc. command lines itself.
 
 - `docker-compose.full-jre.yml` -- the baseline: every service runs `eclipse-temurin:25-jre`, and
   `topology-full-jre.yaml` sets `runtime.useBundledJre: false`. Matches a `gimle-platform` archive
-  built the default way (no `jre/<component>/` directory in it).
+  built the default way (no `jre/<component>/` directory in it). Each service's own
+  `compose/entrypoint.sh` calls `hilmir up` the moment its container starts, then polls `hilmir
+  status` every 10s for as long as the container runs -- a whole cluster is live within seconds of
+  `docker compose up`.
 - `docker-compose.bundled-jre.yml` -- store/muninn/andvari/fafnir/controlplane run on a bare
   `debian:bookworm-slim` base with no JRE of their own at all, launching entirely off the
   `jre/<component>/bin/java` that `gimle-dist`'s `dist-with-jre` profile bundled into the mounted
   archive (`topology-bundled-jre.yaml` sets `runtime.useBundledJre: true`). `agent` keeps a real
   `eclipse-temurin:25-jre` image, matching `LaunchPlanner.planAgents`' structural exclusion from
   `useBundledJre` -- agent spawns arbitrary vessel workloads and the worker JVMs it supervises host
-  arbitrary Gimlé modules, neither of which jlink's own derivation ever saw.
+  arbitrary Gimlé modules, neither of which jlink's own derivation ever saw. Same `entrypoint.sh`
+  auto-boot as `full-jre` above.
+- `docker-compose.naked-infra.yml` -- the odd one out: every service is a bare `eclipse-temurin:25-jre`
+  container with `/opt/gimle` populated the same way as the other two, but nothing auto-starts --
+  each container just idles (`sleep infinity`) so a person can `docker compose exec <service>
+  /opt/gimle/bin/hilmir up -f /config/topology.yaml --machine <service>` themselves, then `status`,
+  `down`, and re-`up` it by hand. For experimenting with `hilmir` itself -- its flags, its failure
+  modes, what a fresh `status`/`down`/re-`up` cycle actually leaves behind in a machine's own
+  `/data` -- not for eyeballing an already-running cluster, which is what the other two files are
+  for. See the compose file's own header comment for the full manual command sequence.
 
 Prerequisites -- build the archive, nothing else:
 
@@ -258,6 +269,10 @@ docker compose -f compose/docker-compose.full-jre.yml up
 # bundled-jre scenario -- note the extra profile
 mvn -pl gimle-dist -am install -P dist-with-jre
 docker compose -f compose/docker-compose.bundled-jre.yml up
+
+# naked-infra scenario -- same plain archive as full-jre, containers just don't boot it themselves
+mvn -pl gimle-dist -am install
+docker compose -f compose/docker-compose.naked-infra.yml up -d
 ```
 
 Each file's own `unpack` service extracts whichever `gimle-platform-<version>.tar.gz` it finds under
@@ -268,12 +283,47 @@ about to run actually needs first. Building out of a different checkout (or a pr
 elsewhere) is still possible: `GIMLE_DIST_TARGET` overrides the mounted directory, e.g.
 `GIMLE_DIST_TARGET=/path/to/gimle-dist/target docker compose -f compose/docker-compose.full-jre.yml up`.
 
-The control plane's HTTP API is published at `localhost:8080` in both files. Each service polls its
-own `hilmir status` every 10s and exits non-zero the moment any process it hosts reports
-`alive=false`, so `docker compose ps`/a non-zero exit is itself a signal something died -- watch
-`docker compose logs -f` for which one and why. Tear down with `docker compose down -v` (the `-v`
-matters: each service keeps its own `dataRoot` in a named volume, so a stale Fafnir key or Raft log
-survives a plain `down` otherwise).
+The control plane's HTTP API is published at `localhost:8080` in all three files. In `full-jre`/
+`bundled-jre`, each service polls its own `hilmir status` every 10s and exits non-zero the moment any
+process it hosts reports `alive=false`, so `docker compose ps`/a non-zero exit is itself a signal
+something died -- watch `docker compose logs -f` for which one and why. `naked-infra` has no such
+loop (nothing is running to poll until you start it) -- run `hilmir status` yourself, the same
+`docker compose exec` way you ran `hilmir up`. All three files share the same directory-derived
+Compose project name, so their named volumes collide by design if you switch between them without
+tearing down first -- tear down with `docker compose down -v` (the `-v` matters: each service keeps
+its own `dataRoot` in a named volume, so a stale Fafnir key or Raft log survives a plain `down`, and
+would otherwise leak into whichever scenario you run next).
+
+### Port publishing vs. a real server
+
+Every compose file here publishes exactly the ports a human, sitting at a shell *outside* Docker
+entirely, would want to reach directly: controlplane's API (`8080`), fafnir's (`9092`), andvari's
+(`9094`) -- each one with its own bundled web console worth opening in a browser, not just an API
+worth `curl`ing. store, muninn, and agent publish nothing, on purpose: store's raft/client ports and
+agent's gossip port are consumed only by other cluster members, and muninn has a real HTTP API of
+its own (`/status`, `/logs/*`, `/metrics/*`, `/traces/*`) but no console -- an operator's normal path
+to its data is through controlplane's own `/logs/*`/`/metrics-history/*`/`/traces-history/*` proxy,
+not a direct call to muninn's own port.
+
+That split matters because "publishing" a port is a Docker-specific concept with no equivalent on a
+real machine. On a real server, a process that binds to a network interface is simply reachable by
+anything that can route to that machine's IP -- there is no separate "make this reachable" step.
+Inside `docker compose`, every container instead gets its own private network namespace on the
+`gimle` bridge network: two containers on that same network already reach each other directly by
+service name (`controlplane:8080`, `fafnir:9092`, ...) exactly the way two real machines would reach
+each other by hostname over a real LAN -- no publishing, no NAT, nothing extra to configure. That's
+why `hilmir` itself, and every cluster-internal call it wires up (agent → controlplane, controlplane
+→ store, agent → fafnir, ...), needs zero `ports:` entries anywhere in these files: from inside the
+`gimle` network, this already looks exactly like a real fleet of machines on a real subnet.
+
+`ports:` only comes into play for the one hop that has no real-server equivalent at all: a shell
+running on the Docker *host* is not on the `gimle` network, so without an explicit `"8080:8080"`
+mapping it cannot reach `controlplane:8080` no matter how you address it -- `localhost:8080` on the
+host means the host's own loopback, not the container's. `ports:` punches a hole through the bridge
+(a NAT/port-forward rule, `dockerd`'s userland proxy or `iptables` under the hood) from a host port
+to a container port, purely so that outside-Docker shell can pretend it has the same access a client
+on the real LAN would already have for free. It changes nothing about how the containers reach each
+other -- only whether *you*, outside the network, can reach one of them too.
 
 Not run automatically anywhere (no CI, not part of Utgard's own Testcontainers fleet) -- these are
 for a person to run by hand. Utgard itself deliberately stays on its own programmatic

@@ -1,0 +1,124 @@
+# The naked-infra scenario: every machine is nothing but a bare eclipse-temurin:25-jre container
+# with the unpacked gimle-platform archive sitting at /opt/gimle -- no process is ever auto-started.
+# Contrast docker-compose.full-jre.yml/docker-compose.bundled-jre.yml, whose own entrypoint.sh calls
+# "hilmir up" the moment the container starts and then polls "hilmir status" forever: here, each
+# container just idles ("sleep infinity") once /opt/gimle is populated, so the cluster stays six
+# empty machines until a person drives hilmir against them by hand, the same commands an operator
+# would type against a real fleet:
+#
+#   docker compose -f docker-compose.naked-infra.yml up -d
+#   docker compose -f docker-compose.naked-infra.yml exec store \
+#     /opt/gimle/bin/hilmir up -f /config/topology.yaml --machine store
+#   docker compose -f docker-compose.naked-infra.yml exec store \
+#     /opt/gimle/bin/hilmir status --machine store --data-root /data
+#   ...repeat per machine, in the same order LaunchPlanner's own BootOrder would use: store first,
+#   then muninn/andvari/fafnir, then controlplane, then agent last...
+#   docker compose -f docker-compose.naked-infra.yml exec store \
+#     /opt/gimle/bin/hilmir down --machine store --data-root /data
+#
+# This is for experimenting with hilmir itself -- its own flags, its failure modes, what a fresh
+# "status"/"down"/re-"up" cycle actually leaves behind in a machine's own /data -- not for
+# eyeballing an already-running cluster, which is what the other two compose files are for.
+#
+# Prerequisite (see ../README.md#docker-compose-manual-validation): build the archive the same
+# plain way full-jre's own scenario does, nothing else --
+#   mvn -pl gimle-dist -am install
+#   docker compose -f compose/docker-compose.naked-infra.yml up -d
+#
+# Port publishing below (see ../README.md's own "Port publishing vs. a real server" section) exists
+# only so a shell on the *host* machine -- outside every container, outside the "gimle" network
+# entirely -- can reach a service the same way an operator's own laptop would reach a real machine
+# sitting on a real network: controlplane's API at localhost:8080, fafnir's at localhost:9092,
+# andvari's at localhost:9094 -- each one has its own console, worth opening in a browser directly.
+# store, muninn, and agent publish nothing on purpose: store's raft/client ports and agent's gossip
+# port are consumed only by other cluster members, and muninn's own port is meant to be reached only
+# through controlplane's own logs/metrics/traces proxy, not directly -- all three stay reachable from
+# inside the "gimle" network under their own service name regardless, the exact same way real
+# machines reach each other by hostname on a real LAN with no forwarding involved at all.
+
+x-gimle-naked-service: &gimle-naked-service
+  image: eclipse-temurin:25-jre
+  networks: [gimle]
+  command: ["sleep", "infinity"]
+  depends_on:
+    unpack:
+      condition: service_completed_successfully
+
+services:
+  unpack:
+    image: eclipse-temurin:25-jre
+    networks: [gimle]
+    entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/unpack.sh > /tmp/unpack.sh && exec /bin/sh /tmp/unpack.sh']
+    volumes:
+      - ${GIMLE_DIST_TARGET:-../../gimle-dist/target}:/dist:ro
+      - ./unpack.sh:/holmgang/unpack.sh:ro
+      - gimle-install:/opt/gimle
+
+  store:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - store-data:/data
+
+  muninn:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - muninn-data:/data
+    # No published port, matching the other two compose files: unlike fafnir/andvari, muninn
+    # serves no console of its own -- an operator's normal path to its logs/metrics/traces is
+    # always through controlplane's own /logs/*, /metrics-history/*, /traces-history/* proxy, not
+    # a direct call to MuninnServer's own port. Reachable from inside the "gimle" network under its
+    # own name (muninn:9093) exactly like store/agent are, just never published to the host.
+
+  andvari:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - andvari-data:/data
+    # AndvariServer serves both its /artifacts/* API and its bundled web console at /console on
+    # this same port (TopologyParser's DEFAULT_ANDVARI_PORT, unoverridden by topology-naked-infra.yaml).
+    ports:
+      - "9094:9094"
+
+  fafnir:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - fafnir-data:/data
+    # FafnirServer serves both its /secrets/* API and its bundled web console at /console on this
+    # same port (TopologyParser's DEFAULT_FAFNIR_PORT, unoverridden by topology-naked-infra.yaml).
+    ports:
+      - "9092:9092"
+
+  controlplane:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - controlplane-data:/data
+    ports:
+      - "8080:8080"
+
+  agent:
+    <<: *gimle-naked-service
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./topology-naked-infra.yaml:/config/topology.yaml:ro
+      - agent-data:/data
+
+networks:
+  gimle: {}
+
+volumes:
+  gimle-install: {}
+  store-data: {}
+  muninn-data: {}
+  andvari-data: {}
+  fafnir-data: {}
+  controlplane-data: {}
+  agent-data: {}

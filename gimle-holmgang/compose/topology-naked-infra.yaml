@@ -1,0 +1,53 @@
+name: compose-naked-infra
+transport: plaintext
+
+# Identical shape to topology-full-jre.yaml -- same machines, same default ports, same
+# useBundledJre: false -- because docker-compose.naked-infra.yml's own containers are the same
+# plain eclipse-temurin:25-jre image. The difference is entirely on the compose side, not here: a
+# naked-infra container never runs "hilmir up" itself, so this file exists only for a person to
+# hand to their own "hilmir validate/plan/up/status/down -f" while poking at a live container from
+# inside it (see the compose file's own header comment).
+
+machines:
+  - name: store
+    host: store
+  - name: muninn
+    host: muninn
+  - name: andvari
+    host: andvari
+  - name: fafnir
+    host: fafnir
+  - name: controlplane
+    host: controlplane
+  - name: agent
+    host: agent
+
+runtime:
+  classpath: /opt/gimle/lib/*
+  dataRoot: /data
+  useBundledJre: false
+
+store:
+  replicas:
+    - machine: store
+
+muninn:
+  replicas:
+    - machine: muninn
+
+andvari:
+  replicas:
+    - machine: andvari
+
+fafnir:
+  keyFile: /data/fafnir.key
+  replicas:
+    - machine: fafnir
+
+controlPlane:
+  replicas:
+    - machine: controlplane
+
+agents:
+  - machine: agent
+    nodeId: agent-0
