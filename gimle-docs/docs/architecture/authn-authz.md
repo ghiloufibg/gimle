@@ -136,7 +136,7 @@ sequenceDiagram
     participant CP as Control plane
     CLI->>CP: mTLS client certificate (CN=, O=)
     B->>CP: POST /auth/login {username, password}
-    CP-->>B: Set-Cookie: gimle_session=...; HttpOnly; Secure; SameSite=Strict
+    CP-->>B: Set-Cookie gimle_session=... (HttpOnly, Secure, SameSite=Strict)
     B->>CP: every later request carries the cookie
     CP->>CP: resolve Principal (cert or cookie) -> Authorizer.authorize(...)
 ```
