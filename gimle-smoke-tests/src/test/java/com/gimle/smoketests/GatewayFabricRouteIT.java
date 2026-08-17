@@ -130,7 +130,7 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
         baseUrl,
         Tenant.RESERVED_SYSTEM_TENANT_ID,
         "gateway.routes",
-        "/greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
+        "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
 
     submitDaemonSetWithRetry(
         baseUrl,
