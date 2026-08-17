@@ -1,0 +1,43 @@
+# Build-up of how logs/metrics/traces reach Muninn and get read back out. Render:
+#   .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/observability-shipping-pipeline.d2
+direction: right
+
+classes: {
+  new: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  settled: {style: {opacity: 0.85}}
+  ghost: {style: {opacity: 0.35}}
+}
+
+steps: {
+  1: {
+    worker: "Worker JVM\n(WorkerMetrics, RelayingSpanExporter)" {class: new}
+    agent: "Node Agent" {class: new}
+    worker -> agent: MetricsSnapshot / TracesSnapshot\nover the control channel {style.animated: true}
+  }
+  2: {
+    worker.class: settled
+    agent.class: settled
+    muninn: "Muninn\n(MuninnDayFileStore)" {class: new}
+    agent -> muninn: relays byte-for-byte\nas processKind=WORKER {style.animated: true}
+  }
+  3: {
+    muninn.class: settled
+    cp: "Control Plane" {class: new}
+    fafnir: "Fafnir" {class: new}
+    mimir: "gimle-mimir" {class: new}
+    andvari: "Andvari" {class: new}
+    cp -> muninn: own request metrics/traces\n(MuninnShipper) {style.animated: true}
+    fafnir -> muninn: own metrics/traces {style.animated: true}
+    mimir -> muninn: own RPC metrics/traces {style.animated: true}
+    andvari -> muninn: own metrics/traces {style.animated: true}
+  }
+  4: {
+    cp.class: settled
+    fafnir.class: settled
+    mimir.class: settled
+    andvari.class: settled
+    reader: "Operator\n(console / gimle-cli)" {class: new}
+    reader -> cp: "GET /metrics-history/*\nGET /traces-history/*\nGET /logs/* (fallback)" {style.animated: true}
+    cp -> muninn: proxies read,\nMuninn re-checks RBAC itself {style.animated: true}
+  }
+}

@@ -32,6 +32,27 @@ client port.
 mvn gimle:store -Dgimle.store.clientPort=9091
 ```
 
+## `mvn gimle:fafnir`
+
+Launches a real `FafnirMain` process — the secrets vault as its own process (see [Node
+topology](../architecture/node-topology.md#fafnir)), talking to a `gimle-mimir` store cluster over
+the network exactly the way `gimle:controlplane`'s process does. Run this *before* any process that
+proxies to it or reads secrets from it directly (the control plane, and any agent with
+`gimle.agent.fafnirEndpoint` set). Its own default `storeEndpoints` already points at `mvn
+gimle:store`'s default client port.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.fafnir.port` | `9092` | Secrets API port — distinct from the store's Raft (`9080`)/client (`9091`) ports, the agent's gossip default (`9090`), and the control plane's own default (`8080`). |
+| `gimle.fafnir.secretKeyPath` | `${project.build.directory}/gimle-fafnir-state/secret.key` | Where this replica's own AES-256 master key ring persists to disk. |
+| `gimle.fafnir.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
+| `gimle.fafnir.csrEndpoint` | *(unset)* | `host:port` of a reachable `ApiServer` to submit this replica's own certificate-rotation CSRs to — only meaningful in TLS mode. |
+| `gimle.fafnir.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
+
+```bash
+mvn gimle:fafnir -Dgimle.fafnir.port=9092
+```
+
 ## `mvn gimle:muninn`
 
 Launches a real `MuninnMain` process — the logs/metrics/traces sink as its own process (see [Node
@@ -109,6 +130,35 @@ itself](../architecture/node-topology.md)). Requires `mvn install` to have alrea
 ```bash
 # A second agent alongside the first, on the same machine
 mvn gimle:agent -Dgimle.agent.nodeId=node-2 -Dgimle.agent.gossipAddress=127.0.0.1:9091
+```
+
+## `mvn gimle:bootstrap`
+
+Collapses the multi-terminal local-dev walkthrough (`tls-init` if TLS, `store`, `muninn`,
+`andvari`, `fafnir`, `controlplane`, `agent`, then a bootstrap-token `apply` per manifest if TLS)
+into one foreground command: brings up a single-node cluster with every process kind, deploys each
+`gimle-examples` module once the cluster is ready, prints a summary, then blocks until interrupted
+and tears the whole cluster back down. Unlike every other goal here, it isn't self-filtered to one
+reactor module — it needs nine modules' runtime classpaths and supervises six long-running
+processes together, so it runs only from the root aggregator project.
+
+`gimle.bootstrap.baseDir` (Raft state, secret key files, Muninn's day files, TLS material) survives
+between runs by design — stopping and restarting this goal resumes the same cluster rather than
+starting from scratch. `-Dgimle.bootstrap.clean=true` wipes it first for a guaranteed-fresh
+cluster instead.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.bootstrap.protocol` | `plaintext` | `plaintext` or `tls`. |
+| `gimle.bootstrap.baseDir` | `${project.basedir}/gimle-bootstrap` | Where all spawned processes' state, logs, and (in TLS mode) certificates persist to disk. |
+| `gimle.bootstrap.deployExamples` | `true` | Deploy every `gimle-examples` module once the cluster is ready. |
+| `gimle.bootstrap.clean` | `false` | Wipe `gimle.bootstrap.baseDir` before spawning anything. |
+| `gimle.bootstrap.readyTimeoutSeconds` | `120` | How long to wait for each process/condition (port open, node registered, deployment `ACTIVE`) before giving up. |
+
+```bash
+mvn gimle:bootstrap
+mvn gimle:bootstrap -Dgimle.bootstrap.protocol=tls
+mvn gimle:bootstrap -Dgimle.bootstrap.clean -Dgimle.bootstrap.deployExamples=false
 ```
 
 ## `mvn gimle:deploy`
@@ -221,6 +271,13 @@ gimle:saga-stop` tears it down again.
 mvn gimle:saga
 mvn gimle:saga-stop
 ```
+
+### `mvn gimle:saga-stop`
+
+Best-effort shutdown of the local Saga server: asks it to stop over its own `POST /api/shutdown`
+first, falling back to signalling the pid `gimle:saga` recorded at spawn time if that's
+unreachable. Never fails the build — "nothing was running" is a fine outcome for a stop command.
+Takes the same `gimle.saga.port` property as `gimle:saga` above, no others.
 
 ## `mvn gimle:verify`
 

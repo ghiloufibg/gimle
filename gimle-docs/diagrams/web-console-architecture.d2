@@ -1,0 +1,32 @@
+# Single-board diagram: how the console and CLI both read/write through one API surface, and how
+# that surface proxies out to the three dedicated services. Render:
+#   .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/web-console-architecture.d2
+direction: right
+
+classes: {
+  accent: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+}
+
+console: "gimle-console\n(Bun/Vite/React SPA)\nembedded in the control plane's own jar" {class: accent}
+cli: "gimle-cli" {class: accent}
+
+cp: "Control Plane\n(ApiServer)" {class: accent}
+
+store: "gimle-mimir" {shape: cylinder}
+fafnir: Fafnir {shape: cylinder}
+muninn: Muninn {shape: cylinder}
+andvari: Andvari {shape: cylinder}
+
+console -> cp: "session cookie\n(/login)" {style.animated: true}
+cli -> cp: "mTLS client cert\nor plaintext" {style.animated: true}
+
+cp -> store: "scheduler, reconcilers,\ndeployments/nodes/tenants/roles" {style.animated: true}
+cp -> fafnir: "proxies /secrets/*" {style.animated: true}
+cp -> muninn: "proxies /logs/*, /metrics-history/*,\n/traces-history/*" {style.animated: true}
+cp -> andvari: "proxies /artifacts/*" {style.animated: true}
+
+note: "Nineteen console screens and every gimle CLI verb\nread and write this same API -- never a parallel\nsource of truth." {
+  shape: text
+  style.italic: true
+  style.font-size: 14
+}
