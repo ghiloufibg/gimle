@@ -21,10 +21,13 @@ external orchestrator, no non-Java runtime dependencies.
 ## Where to go next
 
 - New to the codebase? Start with [Getting started](./tutorials/getting-started.md).
-- New to distributed systems generally? [Concepts](./concepts/consensus-and-replication.md) explains
-  consensus, gossip-based failure detection, and circuit breaking from first principles — each one
-  paired with a short narrated video and traced straight into the exact Gimlé class that implements
-  it — before the Architecture section below dives into Gimlé's own components.
+- New to distributed systems generally? [Concepts](./concepts/consensus-and-replication.md) covers
+  consensus, gossip-based failure detection, health probes and self-healing, level-triggered
+  reconciliation, load balancing and circuit breaking, idempotency and content-addressing, and CAP
+  theorem tradeoffs — each explained from first principles, then traced straight into the exact
+  Gimlé class and line that implements it (with real code excerpts, animated diagrams, and — for
+  the first two — a short narrated video) — before the Architecture section below dives into
+  Gimlé's own components.
 - Want the mental model first? Read [Tiered isolation](./architecture/tiered-isolation.md) —
   the central architectural idea everything else builds on.
 - Looking for a specific class or interface? See the [API Reference](pathname:///javadoc/)

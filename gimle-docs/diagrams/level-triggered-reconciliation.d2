@@ -1,0 +1,33 @@
+# Two scenarios sharing one base: a reconciler tick always re-reads desired + observed state from
+# scratch, so the SAME tick logic converges whether nothing changed or the control plane just lost
+# every in-memory fact it had. Render:
+#   .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/level-triggered-reconciliation.d2
+direction: right
+
+classes: {
+  calm: {style: {fill: "#ffffff"; stroke: "#2a5a8c"}}
+  accent: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  drift: {style: {fill: "#e0c07f"; font-color: "#1b1b1d"; stroke: "#a6822f"}}
+  fixed: {style: {fill: "#7cbf8e"; font-color: "#1b1b1d"; stroke: "#4f8a60"}}
+}
+
+desired: "Desired state\n(StateStore: replicas=3)" {shape: cylinder; class: calm}
+observed: "Observed state\n(real instances, queried fresh)" {shape: cylinder; class: calm}
+reconciler: Reconciler {class: accent}
+desired -> reconciler: read {style.animated: true}
+observed -> reconciler: read {style.animated: true}
+
+scenarios: {
+  normal-tick: {
+    reconciler -> verdict: "diff = 0" {style.animated: true}
+    verdict: "no action --\nalready converged" {class: calm}
+  }
+  process-restarted-mid-outage: {
+    reconciler.tooltip: "just restarted -- holds\nzero in-memory state\nfrom before the crash"
+    observed: "Observed state\n(one instance crashed\nwhile the reconciler was down)" {class: drift}
+    reconciler -> verdict: "diff = 1 missing replica" {style.animated: true}
+    verdict: "schedule a replacement" {class: calm}
+    verdict -> fixed: "next tick" {style.animated: true}
+    fixed: "diff = 0 --\nconverged, same as any\nother tick" {class: fixed}
+  }
+}

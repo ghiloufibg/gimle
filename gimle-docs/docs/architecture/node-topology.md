@@ -167,6 +167,9 @@ not a borrowed one.
 
 ## Andvari
 
+New to distributed systems? [Idempotency and content-addressing](../concepts/idempotency-and-content-addressing.md)
+explains why an immutable, content-addressed store makes retries and caching trivially safe.
+
 One or more stateless JVMs (`gimle-andvari`) — the module artifact registry: an immutable,
 content-addressed store of module jars behind a push/pull/list HTTP API (`/artifacts/*`). A pushed
 coordinate (`moduleId` + `version`) can never be overwritten — an identical re-push is an
@@ -258,6 +261,9 @@ the same "local, trusted process" posture it always had.
 :::
 
 ## Three failure domains, three recovery costs
+
+New to distributed systems? [Health probes and self-healing](../concepts/health-probes-and-self-healing.md)
+walks through the liveness/readiness distinction and the shared backoff behind this ladder.
 
 Node failure, worker failure, and module failure are distinct events, reconciled at distinct
 costs — this is why the tiered self-healing model exists, not an accident of implementation:

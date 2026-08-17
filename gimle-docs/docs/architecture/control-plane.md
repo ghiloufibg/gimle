@@ -179,6 +179,9 @@ constraint doesn't provide by itself.
 
 ## Reconcilers
 
+New to distributed systems? [Level-triggered reconciliation](../concepts/level-triggered-reconciliation.md)
+explains why this matters from first principles, with a real reconstruct-mid-flight test as proof.
+
 One control loop per resource kind, each comparing desired state to observed state and emitting
 actions. This is **level-triggered, not edge-triggered**: the loop below always reasons from
 "what is desired vs. what is observed right now," never "what event just arrived" — so it
