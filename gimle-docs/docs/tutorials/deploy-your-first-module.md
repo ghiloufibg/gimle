@@ -2,12 +2,38 @@
 sidebar_position: 4
 ---
 
+import DocVideo from '@site/src/components/DocVideo';
+
 # Deploy your first module
 
 Built around the real `gimle-examples/greeter-provider` and `greeter-consumer` pair — a genuine
 cross-worker fabric service call, not a toy example. Both are `TIER_2` (dedicated worker each),
 so the lookup between them can't take the same-worker shortcut; it genuinely goes over the wire.
 See [Service fabric](../architecture/service-fabric.md) for why that guarantee matters here.
+
+The screencast below is a real, unscripted terminal session against a real local cluster (`gimle
+get nodes`, two `gimle apply -f`s, `gimle get deployments`, and `gimle logs`) — every line of
+output is what the CLI actually printed, not a mockup. Watch it for the shape of the workflow,
+then follow the numbered steps below at your own pace:
+
+<DocVideo
+  src="/video/deploy-first-module.webm"
+  poster="/video/deploy-first-module-poster.jpg"
+  caption="Deploying greeter-provider and greeter-consumer with gimle-cli against a real local cluster"
+/>
+
+<details>
+<summary>Text transcript (every command run in the recording)</summary>
+
+```bash
+gimle get nodes
+gimle apply -f gimle-examples/greeter-provider/deployment.yaml
+gimle apply -f gimle-examples/greeter-consumer/deployment.yaml
+gimle get deployments
+gimle logs instance/greeter-consumer-deployment/0
+```
+
+</details>
 
 ## What happens when you deploy a module
 
@@ -76,7 +102,7 @@ receive loop that delivers the service-catalog updates the lookup depends on.
 
 ```bash
 gimle get deployments
-gimle logs greeter-consumer-deployment
+gimle logs instance/greeter-consumer-deployment/0
 ```
 
 Both deployments should reach `ACTIVE`, and the consumer's own log should show the real greeting

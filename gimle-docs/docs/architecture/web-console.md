@@ -11,8 +11,11 @@ served at `/console` with no separate deploy step (see
 
 ## Screens
 
-Seventeen routes, each backed by a real `Http*Repository` hitting the control plane's own API — the
-same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth:
+Nineteen screens, each backed by a real `Http*Repository` hitting the control plane's own API —
+the same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth.
+Seventeen live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
+instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
+"System" nav group, separate from the rest:
 
 | Screen | Shows |
 |---|---|
@@ -30,9 +33,11 @@ same data the [CLI](../reference/cli-reference.md) reads, not a parallel source 
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
 | Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker, soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
+| Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
 | Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
 | Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
 | Logs | Live log tailing and crash-dump listing, below. |
+| Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
 
 ## Metrics history, traces, and audit trail
 

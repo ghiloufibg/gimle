@@ -2,6 +2,8 @@
 sidebar_position: 5
 ---
 
+import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+
 # Service fabric
 
 `gimle-fabric` is how one module instance calls another — modules publish and consume services
@@ -19,6 +21,15 @@ graph TD
     Machine -->|yes| UDS["Unix domain socket<br/>compact binary codec (FabricCodec/FabricFrame)"]
     Machine -->|no| TCP["TCP, virtual-thread-per-connection<br/>same codec, cross-machine"]
 ```
+
+The same decision tree, animated one branch at a time, with the path actually taken picked out in
+green (source: `diagrams/service-fabric-call-path.d2`):
+
+<ZoomableDiagram
+  src="/diagrams/service-fabric-call-path.svg"
+  alt="Fabric call path decision tree: same-worker calls resolve as a direct in-JVM invocation; otherwise same-machine calls use a Unix domain socket; otherwise the call goes over TCP with virtual-thread-per-connection handling"
+  width={520}
+/>
 
 - **Same-worker** — a direct in-JVM call, resolved through `FabricServiceRegistry`/
   `ServiceRegistry`. Costs a virtual method dispatch. Nothing routed through a network stack can

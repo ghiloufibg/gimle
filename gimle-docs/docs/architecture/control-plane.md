@@ -2,6 +2,8 @@
 sidebar_position: 4
 ---
 
+import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+
 # Control plane
 
 Gimlé's control plane is the declarative-state side of the system — it never runs a module and
@@ -174,7 +176,16 @@ constraint doesn't provide by itself.
 ## Reconcilers
 
 One control loop per resource kind, each comparing desired state to observed state and emitting
-actions:
+actions. This is **level-triggered, not edge-triggered**: the loop below always reasons from
+"what is desired vs. what is observed right now," never "what event just arrived" — so it
+converges even after missing every event in between (source:
+`diagrams/control-plane-reconcile-loop.d2`):
+
+<ZoomableDiagram
+  src="/diagrams/control-plane-reconcile-loop.svg"
+  alt="Reconcile loop: ApiServer writes desired state to gimle-mimir, a Reconciler reads desired state and node agents' observed state, compares them, and on drift emits a placement directive back to the node agents — the next tick re-verifies regardless of what triggered it"
+  width={640}
+/>
 
 - `DeploymentReconciler`
 - `ReplicaCountReconciler`

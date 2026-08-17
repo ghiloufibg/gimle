@@ -120,7 +120,7 @@ gimle get deployments --server 127.0.0.1:8080
 gimle get deployments greeter-provider-deployment --server 127.0.0.1:8080
 
 # Tail a target's logs live -- the CLI-side equivalent of the console's own Logs screen
-gimle logs greeter-consumer-deployment --follow --server 127.0.0.1:8080
+gimle logs instance/greeter-consumer-deployment/0 --follow --server 127.0.0.1:8080
 
 # Inspect which node an instance landed on, and what else is scheduled there
 gimle get nodes --server 127.0.0.1:8080

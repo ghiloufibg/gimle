@@ -32,10 +32,66 @@ scoped to that one instance.
 
 ## Lifecycle
 
-See [Module lifecycle](../reference/module-lifecycle.md) for the full
-`INSTALLED → RESOLVED → STARTING → ACTIVE → STOPPING → UNINSTALLED` state machine
-(`ModuleController`/`ModuleRegistry`/`ModuleState`/`LifecycleEvent`) and hook points
+See [Module lifecycle](../reference/module-lifecycle.md) for the full happy-path state machine
+(`INSTALLED → RESOLVED → STARTING → ACTIVE → STOPPING → UNINSTALLED`), its two failure/completion
+terminals (`FAILED`, `COMPLETED`), the classes behind them
+(`ModuleController`/`ModuleRegistry`/`ModuleState`/`LifecycleEvent`), and hook points
 (`ModuleLifecycleHooks`, `LivenessProbe`/`ReadinessProbe`).
+
+### A real hook and probe pair
+
+Not a sketch — this is the actual, complete
+`gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/` source that
+[Deploy your first module](../tutorials/deploy-your-first-module.md) deploys. `onStart` registers
+the fabric service and flips a shared `ready` flag; the readiness probe reads that same flag rather
+than duplicating the check, so the instance can never report `ACTIVE` before its service is
+actually reachable:
+
+```java title="GreeterProviderHooks.java"
+public final class GreeterProviderHooks implements ModuleLifecycleHooks {
+
+  static final AtomicBoolean ready = new AtomicBoolean(false);
+
+  @Override
+  public void onStart(ModuleContext ctx) {
+    ctx.registerService(Greeter.class, name -> "Hello, " + name + "! (from provider)");
+    ready.set(true);
+    log.info("greeter-provider registered its Greeter service on the fabric");
+  }
+
+  @Override
+  public void onStop(ModuleContext ctx) {
+    ready.set(false);
+  }
+}
+```
+
+```java title="GreeterReadinessProbe.java"
+/** Ready only once {@link GreeterProviderHooks#onStart} has actually registered the service. */
+public final class GreeterReadinessProbe implements ReadinessProbe {
+
+  @Override
+  public boolean isReady() {
+    return GreeterProviderHooks.ready.get();
+  }
+}
+```
+
+The worker's `ProbeLoop` calls `isReady()`/`isAlive()` directly — no HTTP, no sidecar, no
+serialization — which is why a probe implementation can be this small: it's an ordinary method
+call inside the same JVM, not a network endpoint to stand up. A liveness probe with genuinely
+nothing to check can be just as short:
+
+```java title="GreeterLivenessProbe.java"
+/** This module has no failure mode of its own to report -- always alive once loaded. */
+public final class GreeterLivenessProbe implements LivenessProbe {
+
+  @Override
+  public boolean isAlive() {
+    return true;
+  }
+}
+```
 
 ## Classloader leak detection
 
