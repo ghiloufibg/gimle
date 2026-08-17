@@ -111,6 +111,18 @@ public final class AgentMain {
   private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
   /**
+   * How long {@link #stopInstance} waits for a worker to confirm {@code UNINSTALLED} after {@code
+   * StopModule} before giving up and force-killing it anyway -- see that method's own javadoc for
+   * why this wait exists at all. Generous relative to the sub-second, same-machine IPC round trip a
+   * graceful stop ordinarily takes (send StopModule, run any {@code onStop} hook, drain, send
+   * {@code ServiceUnregistered} then {@code ModuleStateChanged}), while still bounding how long a
+   * genuinely wedged worker can stall this agent's single-threaded tick loop.
+   */
+  private static final Duration STOP_GRACE_PERIOD = Duration.ofSeconds(5);
+
+  private static final Duration STOP_GRACE_POLL_INTERVAL = Duration.ofMillis(100);
+
+  /**
    * Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared worker JVM
    * before preferring a fresh one -- a simple constant to start, not a configurable knob yet. See
    * {@link #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly,
@@ -2274,9 +2286,13 @@ public final class AgentMain {
       Map<String, WorkerShipperPair> workerShippers,
       VolumeManager volumeManager,
       boolean releaseVolume) {
-    SupervisedInstance instance = supervised.remove(key);
-    stopShippingInstanceLogs(instanceShippers, key);
+    // Not removed from `supervised` until after the graceful-uninstall wait below: the
+    // connection's own readLoop finds this instance (to apply an incoming ModuleStateChanged)
+    // by searching `supervised`, so evicting it here would make that wait unable to ever observe
+    // the UNINSTALLED confirmation it's polling for.
+    SupervisedInstance instance = supervised.get(key);
     if (instance == null) {
+      stopShippingInstanceLogs(instanceShippers, key);
       return;
     }
     if (releaseVolume) {
@@ -2290,10 +2306,13 @@ public final class AgentMain {
         // UninstallModule follow-up needed or wanted here.
         connection.send(
             new ControlMessage.StopModule(nextCorrelationId(), instance.assigned.moduleId()));
+        awaitGracefulUninstall(instance, key);
       } catch (IOException e) {
         log.warn("failed to send StopModule to instance {}: {}", key, e.getMessage());
       }
     }
+    supervised.remove(key);
+    stopShippingInstanceLogs(instanceShippers, key);
     // Tier 1 density: a worker hosting more than one instance must survive this one's teardown --
     // killing the process would take every sibling down with it. Only the last instance on a
     // worker (the common case, density or not) actually tears the process down.
@@ -2315,6 +2334,48 @@ public final class AgentMain {
       stopShippingWorkerMetricsAndTraces(workerShippers, instance.fabricWorkerId);
     }
     capacityTracker.release(key);
+  }
+
+  /**
+   * Blocks up to {@link #STOP_GRACE_PERIOD}, polling {@link SupervisedInstance#lifecycleState}
+   * every {@link #STOP_GRACE_POLL_INTERVAL}, for the worker to report {@code UNINSTALLED} in
+   * response to the {@code StopModule} {@link #stopInstance} just sent it.
+   *
+   * <p>Without this wait, {@link #stopInstance} used to force-kill the worker process in the same
+   * breath it sent {@code StopModule} -- essentially always before {@code ModuleController#stop}'s
+   * own drain wait, {@code WorkerRuntime#onUninstalled}, and {@code FabricServiceRegistry#remove}'s
+   * resulting {@code ServiceUnregistered} message (sent back over this exact connection, strictly
+   * before the {@code ModuleStateChanged("UNINSTALLED")} this method polls for -- see {@code
+   * WorkerMain#handleLifecycleEvent}'s own send order) had any real chance to complete. The worker
+   * process died mid-shutdown essentially every time, so that deregistration message was never sent
+   * or never read -- leaving this instance's exports permanently stuck in this agent's shared
+   * {@link ServiceCatalog} pointing at a worker that no longer exists, for every future lookup to
+   * keep resolving to and failing against. Every rolling update or scale-down of a Tier 2 module
+   * hit this, not just a Job-kind one.
+   *
+   * <p>Gives up past the deadline and returns anyway, logging a warning -- {@link #stopInstance}
+   * force-kills the worker either way; this only decides whether that kill has a fair chance to
+   * lose the race against a graceful shutdown already well underway, not whether one happens at
+   * all. A worker that's simply gone (crashed, never connected) is handled by {@code connection ==
+   * null} in the caller and never reaches this method to begin with.
+   */
+  private static void awaitGracefulUninstall(SupervisedInstance instance, String key) {
+    Instant deadline = Instant.now().plus(STOP_GRACE_PERIOD);
+    while (!"UNINSTALLED".equals(instance.lifecycleState) && Instant.now().isBefore(deadline)) {
+      try {
+        Thread.sleep(STOP_GRACE_POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+    if (!"UNINSTALLED".equals(instance.lifecycleState)) {
+      log.warn(
+          "instance {} did not confirm graceful uninstall within {}; force-killing its worker"
+              + " anyway",
+          key,
+          STOP_GRACE_PERIOD);
+    }
   }
 
   /**
