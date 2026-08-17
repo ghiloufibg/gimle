@@ -28,11 +28,13 @@ curl -fsSL -o piper.tar.gz \
 tar xzf piper.tar.gz -C ~/tools/
 
 # A voice model -- Hugging Face is the canonical source but is blocked by some egress policies;
-# the same model is also attached to a piper GitHub release, which usually isn't:
+# the same models are also attached to a piper GitHub release, which usually isn't. en-us-ryan-high
+# is the voice this pipeline actually uses (22.05kHz); en-us-lessac-medium (16kHz) also works and
+# is smaller, if Ryan-high's ~100MB download isn't worth it for a lower-stakes render:
 curl -fsSL -o voice.tar.gz \
-  https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-lessac-medium.tar.gz
+  https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-ryan-high.tar.gz
 mkdir -p ~/tools/voices && tar xzf voice.tar.gz -C ~/tools/voices/
-# (or, if reachable: https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/)
+# (or, if reachable: https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/)
 
 # ffmpeg: the one bundled under /opt/pw-browsers/ffmpeg-*/ is Playwright's silent-recording-only
 # build (no audio encoders) -- install a full one instead.
@@ -40,8 +42,8 @@ apt-get install -y ffmpeg
 ```
 
 `render.py` looks for the Piper binary/model at `~/tools/piper/piper` and
-`/root/tools/voices/en-us-lessac-medium.onnx` — adjust the `PIPER`/`VOICE_MODEL` constants at the
-top of the script if yours land elsewhere.
+`~/tools/voices/en-us-ryan-high.onnx` — adjust the `PIPER`/`VOICE_MODEL` constants at the top of
+the script if yours land elsewhere.
 
 ## Rendering
 
@@ -89,9 +91,28 @@ for the same concept.
 - **1280×720, house colors, no background music** — narration carries the pacing; a static frame
   held for exactly the narration's own duration (plus a 0.6s hold) avoids needing separate timing
   authored by hand.
+- **Voice: Ryan (high quality, 22.05kHz)**, not the medium-quality Lessac voice this pipeline
+  started with — a real fidelity upgrade (Lessac-medium is 16kHz), fetched from the same GitHub
+  release. `--length_scale 1.05` paces it slightly slower than Piper's own default cadence, more
+  deliberate for narrated technical explanation than conversational speed.
 - **Piper over espeak-ng**: both installed cleanly in this environment; Piper's neural voice is far
   more listenable for anything longer than a few seconds. espeak-ng remains a reasonable fallback
   if a future environment can't reach Piper's release artifacts at all.
+- **Two-layer compositing per content scene** (`render_frame`'s `STAGE_HTML`/`CHROME_HTML`,
+  `build_scene_clip`'s `overlay` filter): the title bar and scene-progress counter are rendered
+  separately from the diagram and composited back on *after* the Ken Burns zoom, not zoomed
+  themselves. A single-layer zoom crops in from every edge equally, and both of those elements sit
+  flush against an edge by design -- zooming them along with the diagram progressively clipped
+  them. Rendering the diagram alone at 2x resolution and zooming into that gives the zoom real
+  pixel headroom too, so it never magnifies an already-1x raster past its native detail.
+- **loudnorm (EBU R128, -16 LUFS / -1.5 dBTP)** on every narration clip — Piper's own output level
+  varies scene to scene; without this, playback volume audibly steps up and down between cuts.
+- **WebVTT captions**, sentence-split with duration allocated proportional to each sentence's
+  character count (`split_into_caption_cues`) — Piper gives no per-word/per-sentence timestamps, so
+  this is a lightweight heuristic, not forced alignment, but it tracks speech pace far better than
+  holding the whole scene's narration on screen as one block. Passed to `DocVideo`'s `captions`
+  prop, which renders a real `<track kind="captions">` -- not burned into the video, so a viewer can
+  toggle them and screen readers/search engines can index the text.
 - **Why not Motion Canvas/Revideo for this**: those suit hand-choreographed motion graphics: this
   content is "the same diagram the doc page already has, narrated," so reusing the D2 source
   directly (one render path, zero drift between the still diagram and the video) was the better

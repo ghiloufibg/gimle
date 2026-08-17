@@ -14,7 +14,8 @@ simple until you try to do it at scale.
 <DocVideo
   src="/video/swim-gossip-explainer.webm"
   poster="/video/swim-gossip-explainer-poster.png"
-  caption="Failure detection: SWIM gossip in gimle-fabric, explained"
+  captions="/video/swim-gossip-explainer.vtt"
+  caption="Failure detection: SWIM gossip in gimle-fabric, explained (1m53s)"
 />
 
 <details>

@@ -13,6 +13,8 @@ type Props = {
   poster?: string;
   /** Short figcaption shown under the video. */
   caption?: string;
+  /** WebVTT path under static/ for a captions track, e.g. "/video/deploy-first-module.vtt". */
+  captions?: string;
   loop?: boolean;
   autoPlay?: boolean;
   width?: number | string;
@@ -22,12 +24,14 @@ export default function DocVideo({
   src,
   poster,
   caption,
+  captions,
   loop = false,
   autoPlay = false,
   width = '100%',
 }: Props): React.ReactNode {
   const resolvedSrc = useBaseUrl(src);
   const resolvedPoster = useBaseUrl(poster ?? '');
+  const resolvedCaptions = useBaseUrl(captions ?? '');
   const [reducedMotion, setReducedMotion] = React.useState(false);
 
   React.useEffect(() => {
@@ -60,7 +64,11 @@ export default function DocVideo({
           loop={loop}
           preload={autoPlay ? 'auto' : 'metadata'}
           style={{width, maxWidth: '100%', borderRadius: 8}}
-        />
+        >
+          {captions !== undefined && (
+            <track kind="captions" src={resolvedCaptions} srcLang="en" label="English" default />
+          )}
+        </video>
       )}
       {caption !== undefined && (
         <figcaption style={{fontSize: '0.85rem', opacity: 0.75, marginTop: '0.5rem'}}>

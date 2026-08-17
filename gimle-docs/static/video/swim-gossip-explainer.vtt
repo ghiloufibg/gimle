@@ -1,0 +1,62 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:08.363
+How does every machine in a growing cluster know which other machines are still alive, without the amount of network chatter exploding as the cluster grows?
+
+00:00:08.363 --> 00:00:12.920
+This is SWIM, the gossip protocol behind failure detection in Gimle's service fabric.
+
+00:00:13.520 --> 00:00:16.160
+Every node runs on a steady one second cycle.
+
+00:00:16.160 --> 00:00:19.621
+Each tick, it picks one other member and pings it directly.
+
+00:00:19.621 --> 00:00:25.429
+If an acknowledgement comes back in time, that member is confirmed alive, and nothing else happens.
+
+00:00:26.029 --> 00:00:29.719
+But this time, Node B doesn't answer within its ping timeout.
+
+00:00:29.719 --> 00:00:32.078
+That alone doesn't mean Node B is down.
+
+00:00:32.078 --> 00:00:36.614
+It could just as easily be a bad network path between only these two nodes.
+
+00:00:37.214 --> 00:00:45.710
+So instead of giving up, Node A asks a handful of other members, here Node C and Node D, to relay probe Node B on its behalf.
+
+00:00:45.710 --> 00:00:50.808
+Each of them sends its own direct ping to B and reports back what it finds.
+
+00:00:51.408 --> 00:00:59.360
+Only when the direct probe and every indirect relay all fail does Node A mark Node B as suspect, not dead yet, just suspect.
+
+00:00:59.960 --> 00:01:03.610
+A suspected node gets a real chance to prove it's still there.
+
+00:01:03.610 --> 00:01:10.498
+If Node B were actually fine, just briefly overloaded, it could refute the suspicion at any point during this window.
+
+00:01:10.498 --> 00:01:17.209
+Only once the suspicion timeout, about three seconds, elapses with no refutation does Node A finally mark it dead.
+
+00:01:17.809 --> 00:01:20.164
+That new status doesn't need a broadcast.
+
+00:01:20.164 --> 00:01:29.351
+It piggybacks on whatever ordinary gossip traffic Node A was already sending, spreading through the cluster the way a rumor spreads through casual conversation.
+
+00:01:29.351 --> 00:01:35.094
+And every 30 seconds, a full anti entropy sync acts as a backstop, in case any node missed the news.
+
+00:01:35.694 --> 00:01:41.242
+That's direct pings, indirect probes, suspicion, and gossip dissemination, the core of SWIM.
+
+00:01:41.242 --> 00:01:51.616
+The full concepts page covers the local health multiplier that adapts these timeouts under load, and why this same mechanism is what actually triggers Gimle's self-healing.
+
+00:01:51.616 --> 00:01:52.641
+Link in the docs.
+
