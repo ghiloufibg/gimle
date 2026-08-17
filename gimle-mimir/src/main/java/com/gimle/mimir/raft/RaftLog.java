@@ -127,7 +127,9 @@ public final class RaftLog {
         AtomicFiles.deleteQuietly(entryFile(key));
       } catch (UncheckedIOException e) {
         log.warn(
-            "failed to delete truncated Raft log entry file {}: {}", entryFile(key), e.getMessage());
+            "failed to delete truncated Raft log entry file {}: {}",
+            entryFile(key),
+            e.getMessage());
       }
       entries.remove(key);
     }
@@ -151,7 +153,9 @@ public final class RaftLog {
         AtomicFiles.deleteQuietly(entryFile(key));
       } catch (UncheckedIOException e) {
         log.warn(
-            "failed to delete compacted Raft log entry file {}: {}", entryFile(key), e.getMessage());
+            "failed to delete compacted Raft log entry file {}: {}",
+            entryFile(key),
+            e.getMessage());
       }
       entries.remove(key);
     }

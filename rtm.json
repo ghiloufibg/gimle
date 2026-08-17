@@ -544,9 +544,20 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CsrSubmission with purpose=OPERATOR_CLIENT, When submitted, Then CsrResult status=PENDING with a requestId, never auto-approved.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Builds a real CsrSubmission (purpose/csrPem/bootstrapToken) and POSTs it to /bootstrap/csr, then decodes the response into a real CsrResult (status/certificatePem/caCertificatePem) using the same gimle-core protocol records production code uses."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A CSR whose signature does not match its own declared key is rejected",
+          "whyThisCounts": "Drives the identical CsrSubmission/CsrResult wire protocol for the rejection path: a structurally valid but cryptographically bogus CSR is submitted and the resulting CsrResult status is asserted never to reach APPROVED."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/CsrSubmission.java`",
@@ -614,9 +625,20 @@
       "category": "Config / Secrets",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Every secret write/read/delete in this scenario is a real ConfigEntry row in the tenant-scoped store, exercised end to end through Fafnir's own versioned surface."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Plants a ConfigEntry directly (tenantId/key/value/encrypted) in the exact legacy ciphertext layout Fafnir's own writer no longer produces, proving the tenant-scoped entry model reads back correctly regardless of which era wrote it."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java`"
@@ -1116,9 +1138,20 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "The whole mtls topology's PKI trust chain -- including this scenario's own successfully-signed certificate -- depends on CertificateAuthority.generateSelfSignedCa having produced a real, working cluster CA at cluster boot."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "The rotated certificate is signed by, and chains to, the same self-signed cluster CA generated at boot."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (generated_ca_is_self_signed_and_marked_as_a_ca, generated_ca_can_be_loaded_back_via_of)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1131,9 +1164,25 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "A real CSR is signed into a leaf certificate by CertificateAuthority.signCertificateRequest, with a genuine RSA signature the CA verifies before signing."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A CSR whose signature does not match its own declared key is rejected",
+          "whyThisCounts": "A CSR whose declared public key does not match the key that signed it is submitted; CertificateAuthority's own isSignatureValid check rejects it with a 400 before any signing happens -- the negative half of signature verification."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "Exercises the CA's identical signing code path a second way: a rotation request authenticated by the caller's own still-valid certificate rather than a bootstrap token."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (signed leaf chains to CA, signing rejects bad self-signature, leaf doesn't verify against unrelated CA)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1146,9 +1195,15 @@
       "category": "PKI / Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Submits a NODE_CLIENT CSR self-declaring O=gimle:operators and asserts the issued certificate's real organization is the server-stamped O=gimle:nodes instead, never the self-declared privileged group."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (subject_override_wins, still rejects bad self-signature)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1161,9 +1216,15 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR built with dnsNames=[\"node1.local\",\"localhost\"], When verified with its own public key, Then succeeds, and the SAN extension request is present.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Builds the CSR via CertificateSigningRequests.generate with a requested subjectAltName (localhost) and asserts the issued certificate actually carries it, proving the SAN request round-trips through signing."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateSigningRequests.java`"
@@ -1206,9 +1267,15 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "Runs the real `gimle cert renew --force` CLI flow as a node's own mTLS identity -- the identical same-subject rotation-CSR-over-current-mTLS-connection protocol OwnCertificateRotator/AgentMain drive on their own periodic renewal check -- and asserts the renewed certificate keeps its subject but gets a new serial number."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/OwnCertificateRotator.java`"
@@ -1221,9 +1288,20 @@
       "category": "PKI / Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,\"gimle:nodes\") is called, Then result is O=gimle:nodes,CN=node-1.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "The server-side O= stamping half: Subjects.withOrganization is what ApiServer#handleNodeJoinRequest calls to override a self-declared organization."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "The Principal-derivation half: Fafnir's own resolvePrincipal calls Subjects.principalFrom on the node's peer certificate for both the allowed and the denied direct read."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SubjectsTest` (replaces existing organization, adds organization to one with none, rejects subject with no common name)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java`"
@@ -4347,9 +4425,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Calls POST /secrets/rotate-key through the real control-plane proxy twice and asserts each call returns a different active key id."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key`",
       "sourceLocations": [
         "`ApiServer.handleRotateSecretsKey`; `FafnirClient.rotateKey`; `FafnirCrypto.rotate`"
@@ -4556,9 +4640,20 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Two versions of a secret are written and read back correctly, a real AES-256-GCM round trip through Fafnir's own encrypt/decrypt path."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Directly inspects the raw stored ciphertext's own key-id byte before and after two rotations, proving the versioned key id is real, not just that decryption happens to still work."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SecretCipher.java`"
@@ -4571,9 +4666,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a blob encrypted before the version/keyId prefix existed; When decrypt() runs; Then the new-format decode fails GCM verification and falls back to the legacy iv||ciphertext layout under key id 0.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Plants a secret encrypted in the exact legacy pre-key-id layout (iv || ciphertext-with-tag, no version/key-id prefix) under Fafnir's real key id 0 and asserts it still decrypts correctly through the real read API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretCipherTest` (legacy-format coverage per class javadoc)",
       "sourceLocations": [
         "`SecretCipher.decrypt`"
@@ -4586,9 +4687,20 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Every secret round trip in this scenario depends on Fafnir's own KeyFileManager.loadOrCreate having generated and loaded a real local AES-256 key at process startup."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Loads the same on-disk key file Fafnir itself created (KeyFileManager.loadOrCreate) to construct a legacy ciphertext, proving the loaded key material genuinely matches what the running process uses."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java`"
@@ -4601,9 +4713,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ring holding key id 0; When rotate() runs; Then a new key id 1 file is written, .active repointed, key id 0 remains loadable.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Rotates the key twice and confirms the secret written before either rotation still decrypts correctly afterward -- only possible because KeyFileManager.rotate keeps every prior key file on disk in the ring rather than discarding it."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`KeyFileManagerTest#rotate_adds_a_new_active_key_while_keeping_the_old_one_loadable`",
       "sourceLocations": [
         "`KeyFileManager.rotate`"
@@ -4631,9 +4749,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "After each rotation, the secret's own stored ciphertext is inspected directly and asserted to now carry the newly active key id -- proof FafnirCrypto.rotate's re-encryption walk actually re-encrypted the existing entry, not merely that the old key remained available."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirCrypto.java`"
@@ -4646,9 +4770,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Writes two versions of one secret, lists its versions, and reads back both the latest and an explicit historical version -- the whole key@N/key@meta convention layered over ConfigEntry, driven end to end through the real API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretStoreTest#list_returns_metadata_only_for_every_written_secret_in_the_tenant`; `FafnirServerTest#versions_lists_every_claimed_version_number`, `an_explicit_version_query_parameter_reads_that_historical_value`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java`"
@@ -4676,9 +4806,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Soft-deletes a secret and asserts the latest read is gone while an explicit historical version stays readable, then hard-deletes it (?destroy=true) and asserts even the historical version is gone -- the two delete modes' real, distinct behavior."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretStoreTest#soft_delete_marks_the_secret_deleted_but_keeps_every_version_readable_by_number`, `hard_delete_removes_every_version_and_the_metadata_entry_itself`; `FafnirServerTest#soft_deleting_a_secret_hides_it_from_a_default_get_but_versions_remain_readable`",
       "sourceLocations": [
         "`SecretStore.softDelete`/`hardDelete`; `FafnirServer.handleDeleteSecret`"
@@ -4691,9 +4827,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a forwarded principal claims access but doesn't actually hold the permission; When Fafnir independently re-checks Authorizer.authorize; Then denied with 403 regardless of the forwarder's decision.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "Hits Fafnir's own port directly, bypassing gimle-controlplane's /secrets/* proxy entirely, so the resulting allow/deny decisions can only come from Fafnir's own independent Authorizer.authorize/isTenantAssignedToNode check, never a forwarded claim."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirSecretsAuthzTest#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`"
@@ -4706,9 +4848,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "A node's own certificate reads a secret for the tenant it currently has an active instance assignment for (allowed) and a secret for a tenant it has no assignment for (denied with 403), driving Authorizer.isTenantAssignedToNode's real decision both ways."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
       "sourceLocations": [
         "`FafnirServer.decideAllowed`; `Authorizer.isTenantAssignedToNode`"
@@ -4768,9 +4916,15 @@
       "category": "API Server",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir's console session login round-trips and the plaintext session falls back to anonymous",
+          "whyThisCounts": "A real seeded account logs in to Fafnir's own /auth/login, the session cookie is verified via /auth/session to report that account as logged in, and /auth/logout is confirmed to end the session -- the full login/logout/session round trip."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "sourceLocations": [
         "`FafnirServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`"
@@ -4783,9 +4937,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given plaintext mode with no session cookie and no TLS; When GET /auth/session; Then a synthetic \"anonymous: true\" principal is returned rather than 401.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir's console session login round-trips and the plaintext session falls back to anonymous",
+          "whyThisCounts": "Before any login and again after logout, /auth/session on a plaintext-transport Fafnir reports an anonymous session (never 401) -- the plaintext-mode carve-out, distinguished from the real logged-in state the same scenario also exercises."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "Implicit in `FafnirServerAuthTest`'s plaintext-mode coverage",
       "sourceLocations": [
         "`FafnirServer.handleAuthSession`"

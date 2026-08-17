@@ -40,12 +40,15 @@ import java.util.Optional;
  * specifically; {@link GetNodeHeartbeat} is a leader-only *read* for a different reason -- node
  * heartbeats are deliberately never replicated through the log, so a follower's local copy is never
  * anything but empty, and answering from it the way every other read here does would be silently
- * wrong, not just stale. Every other request may be served by any {@code StoreNode} -- reads stay
- * exactly as loose as today, no linearizability requirement. Every leader-only request shares one
- * {@link NotLeader} response for the same reason {@link com.gimle.mimir.raft.RaftNode#propose}
- * already rejects a non-leader immediately rather than silently forwarding: {@code StoreClient}
- * follows the returned leader address and retries once, rather than a {@code StoreNode} proxying
- * the write internally.
+ * wrong, not just stale. {@link ListConfigEntriesForLinearizable} is a third, narrower leader-only
+ * *read*: unlike {@link GetNodeHeartbeat} its data is fully replicated, so any replica's answer is
+ * eventually correct, but a caller whose own correctness depends on immediately reading back a
+ * write it just made cannot tolerate "eventually." Every other request may be served by any {@code
+ * StoreNode} -- reads stay exactly as loose as today, no linearizability requirement. Every
+ * leader-only request shares one {@link NotLeader} response for the same reason {@link
+ * com.gimle.mimir.raft.RaftNode#propose} already rejects a non-leader immediately rather than
+ * silently forwarding: {@code StoreClient} follows the returned leader address and retries once,
+ * rather than a {@code StoreNode} proxying the write internally.
  */
 public sealed interface StoreRpc {
 
@@ -96,6 +99,7 @@ public sealed interface StoreRpc {
           ListRollingIndices,
           ListSurgeIndices,
           GetNodeHeartbeat,
+          ListConfigEntriesForLinearizable,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
           ListInstanceEvents,
@@ -177,6 +181,18 @@ public sealed interface StoreRpc {
    * the answer actually correct instead of merely available.
    */
   record GetNodeHeartbeat(String nodeId) implements Request {}
+
+  /**
+   * Same query and same {@link ConfigEntryListResult} response shape as {@link
+   * ListConfigEntriesFor}, but leader-routed: a caller whose own correctness depends on reading
+   * back a write it just made through this same client (see {@code SecretStore.put}'s optimistic
+   * before/after version check) cannot rely on {@link ListConfigEntriesFor}'s round-robin routing,
+   * which may land on a follower that has not yet replicated that write -- silently stale, not
+   * merely slow, the same failure mode {@link GetNodeHeartbeat} exists to avoid for a different
+   * reason. {@link ListConfigEntriesFor} itself stays any-node-servable and unchanged for every
+   * other caller, which has no such requirement.
+   */
+  record ListConfigEntriesForLinearizable(String tenantId) implements Request {}
 
   // ---- reads: served by any StoreNode ----
 

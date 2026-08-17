@@ -231,7 +231,10 @@ public final class CertCommand {
         return;
       }
       KeyPair keyPair = generateRsaKeyPair();
-      X500Name subject = new X500Name(current.getSubjectX500Principal().getName());
+      // See OwnCertificateRotator's identical fix: X500Name.getInstance(...getEncoded()) preserves
+      // the certificate's own RDN order, unlike reconstructing from the RFC 2253 string rendering,
+      // which reorders a multi-RDN subject and would fail the server's byte-for-byte subject check.
+      X500Name subject = X500Name.getInstance(current.getSubjectX500Principal().getEncoded());
       PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
       Map<String, Object> submission = new LinkedHashMap<>();
       submission.put("purpose", CsrPurpose.OPERATOR_CLIENT.name());

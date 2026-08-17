@@ -537,7 +537,15 @@ public final class AgentMain {
       }
       log.info("agent certificate due for renewal, requesting rotation");
       KeyPair keyPair = generateRsaKeyPair();
-      X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());
+      // X500Name.getInstance(...getEncoded()), never new X500Name(...getName()): the latter
+      // round-trips through X500Principal's RFC 2253 string rendering, which reorders a multi-RDN
+      // subject (most-specific RDN first, i.e. CN before O) relative to the certificate's own
+      // ASN.1 encoding order (O before CN, per Subjects.withOrganization) -- every node subject
+      // carries both. A reordered CSR subject here fails ApiServer#handleRotationRequest's own
+      // byte-for-byte comparison against the presented certificate's real encoding, so every real
+      // rotation attempt would be rejected with 403 and this tick's renewal would silently retry
+      // forever.
+      X500Name subject = X500Name.getInstance(certificate.getSubjectX500Principal().getEncoded());
       PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
       Map<String, Object> body =
           csrSubmissionToJson(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr)));
