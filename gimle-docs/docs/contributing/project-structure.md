@@ -5,8 +5,11 @@ sidebar_position: 1
 # Project structure
 
 Gimlé is a multi-module Maven build. Each module below is production code — the platform itself,
-not tests or samples. (`gimle-examples/*`, `gimle-smoke-tests`, and `gimle-holmgang` exist in the
-repo too, but are sample/test-only and deliberately left out of this map.)
+not tests or samples. (`gimle-examples/*`, `gimle-smoke-tests`, `gimle-holmgang`, and
+`gimle-testkit` exist in the repo too, but are sample/test-only and deliberately left out of this
+map. `gimle-testkit` specifically holds shared real-cluster test infrastructure — `Heimdall`, the
+event-driven cluster-condition watcher; `Await`; `PortLease` — factored out once `gimle-smoke-tests`
+needed the same machinery `gimle-holmgang` had already built.)
 
 ## Dependency graph
 
@@ -131,6 +134,6 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
 | `gimle-saga` | The test-report server (`SagaMain`) — a standalone local development tool, not a cluster process kind: ingests `SagaEvent` NDJSON streams (or imports Surefire XML), stores each run as an append-only event file plus derived metadata, maintains a cross-run flake ledger, and serves runs/live event tails/flaky scoreboard/per-test history over a JSON HTTP API with the bundled console at `/console`. Deliberately unauthenticated and loopback-bound by default. |
 | `gimle-saga-console` | Saga's own web console SPA — same no-Java Bun/Vite pattern as the other consoles, embedded into `gimle-saga`'s jar and served from there. |
-| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`) — dev tooling, not part of the running platform. |
+| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`, `mvn gimle:doctor`, `mvn gimle:init`, `mvn gimle:saga`, `mvn gimle:saga-stop`, `mvn gimle:saga-import`, `mvn gimle:flaky-tests`, `mvn gimle:verify`) — dev tooling, not part of the running platform. See [`gimle-maven-plugin` goal reference](../reference/maven-plugin-goals.md) for what every goal does. |
 | `gimle-dist` | Packages the platform's already-built jars into three audience-specific distribution tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone `gimle-hilmir` archive) via `maven-assembly-plugin`, each with a checksum file and a CycloneDX SBOM. No Java sources — assembly descriptors and two shell wrapper scripts only. See [Distribution archives](../reference/distribution.md). |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |

@@ -1,0 +1,45 @@
+# Tiered self-healing: repeated failures at one level escalate to the next, CrashLoopBackOff-style
+# at each level. Render: .claude/skills/bragi/scripts/render-diagrams.sh
+#   gimle-docs/diagrams/self-healing-escalation.d2
+direction: right
+
+classes: {
+  active: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  past: {style: {opacity: 0.45}}
+  fail: {style: {fill: "#b3541e"; font-color: "#ffffff"; stroke: "#7a3813"}}
+}
+
+steps: {
+  1: {
+    module: "Module fails" {class: fail}
+  }
+  2: {
+    module.class: past
+    fix1: "Dispose ModuleLayer,\nre-instantiate" {class: active; tooltip: "milliseconds"}
+    module -> fix1: recover {style.animated: true}
+  }
+  3: {
+    fix1.class: past
+    module -> fix1: recover {class: past}
+    repeat1: "keeps failing\n(CrashLoopBackOff)" {class: fail}
+    fix1 -> repeat1: retry budget exhausted
+  }
+  4: {
+    repeat1.class: past
+    fix1 -> repeat1: retry budget exhausted {class: past}
+    fix2: "destroyForcibly,\nrespawn worker JVM\n(AppCDS-accelerated)" {class: active; tooltip: "sub-second"}
+    repeat1 -> fix2: escalate {style.animated: true}
+  }
+  5: {
+    fix2.class: past
+    repeat1 -> fix2: escalate {class: past}
+    repeat2: "keeps failing\n(CrashLoopBackOff)" {class: fail}
+    fix2 -> repeat2: retry budget exhausted
+  }
+  6: {
+    repeat2.class: past
+    fix2 -> repeat2: retry budget exhausted {class: past}
+    fix3: "reschedule module\nonto another machine" {class: active; tooltip: "seconds"}
+    repeat2 -> fix3: escalate {style.animated: true}
+  }
+}

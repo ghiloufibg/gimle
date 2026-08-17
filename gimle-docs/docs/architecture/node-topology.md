@@ -2,9 +2,22 @@
 sidebar_position: 2
 ---
 
+import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+
 # Node topology
 
-Seven Java process roles run across a cluster — no other runtime, no containers, no sidecars:
+Seven Java process roles run across a cluster — no other runtime, no containers, no sidecars. The
+animation below builds the cluster up one process kind at a time; it gets dense once every kind is
+present, so use the frame's own zoom controls (or scroll/drag once zoomed, or the fullscreen
+button) to read the labels once it settles (source: `diagrams/node-topology-cluster.d2`; the
+complete picture alone is at
+[`/diagrams/node-topology-cluster-static.svg`](pathname:///diagrams/node-topology-cluster-static.svg)):
+
+<ZoomableDiagram
+  src="/diagrams/node-topology-cluster.svg"
+  alt="Cluster build-up: a Machine (Node Agent supervising two Worker JVMs) joins a Control Plane and gimle-mimir Store, then Fafnir, then Muninn, then Andvari each connect to the same store and to the node agent"
+  width={720}
+/>
 
 ```mermaid
 graph TD
@@ -257,4 +270,11 @@ costs — this is why the tiered self-healing model exists, not an accident of i
 
 Repeated module restarts escalate to a worker restart; repeated worker restarts escalate to
 rescheduling elsewhere, with `CrashLoopBackOff`-style backoff at each level — the same escalation
-shape Kubernetes uses, implemented directly in Java rather than delegated to a container runtime.
+shape Kubernetes uses, implemented directly in Java rather than delegated to a container runtime
+(source: `diagrams/self-healing-escalation.d2`):
+
+<ZoomableDiagram
+  src="/diagrams/self-healing-escalation.svg"
+  alt="Self-healing escalation: a failing module is disposed and re-instantiated first; if it keeps failing the worker JVM is destroyed and respawned; if that keeps failing the module is rescheduled onto another machine"
+  width={640}
+/>

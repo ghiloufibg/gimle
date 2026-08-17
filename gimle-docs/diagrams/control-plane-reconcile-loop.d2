@@ -1,0 +1,44 @@
+# Level-triggered reconcile loop: the loop always compares desired vs. *whatever the observed
+# state currently is*, never "the last event received" -- so it converges even after missing
+# every event in between. Render: .claude/skills/bragi/scripts/render-diagrams.sh
+#   gimle-docs/diagrams/control-plane-reconcile-loop.d2
+direction: right
+
+classes: {
+  active: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  past: {style: {opacity: 0.45}}
+  drift: {style: {fill: "#b3541e"; font-color: "#ffffff"; stroke: "#7a3813"}}
+}
+
+steps: {
+  1: {
+    api: ApiServer {tooltip: "accepts a manifest describing desired state"; class: active}
+    store: gimle-mimir {shape: cylinder}
+    api -> store: write desired state {style.animated: true}
+  }
+  2: {
+    api.class: past
+    recon: Reconciler {tooltip: "one control loop per resource kind"; class: active}
+    store -> recon: read desired state
+    agents: Node Agents
+    agents -> recon: report observed state
+  }
+  3: {
+    recon.class: drift
+    diff: "desired != observed" {shape: diamond; class: drift}
+    recon -> diff: compare
+  }
+  4: {
+    diff.class: past
+    recon.class: past
+    recon -> agents: placement directive {class: active; style.animated: true}
+  }
+  5: {
+    agents.class: active
+    note: "converged -- next tick re-verifies\nregardless of what triggered it" {
+      shape: text
+      style.italic: true
+      style.font-size: 14
+    }
+  }
+}

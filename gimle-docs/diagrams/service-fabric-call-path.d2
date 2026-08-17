@@ -1,0 +1,48 @@
+# The fabric picks the cheapest available call path, in order. Render:
+#   .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/service-fabric-call-path.d2
+direction: down
+
+classes: {
+  active: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  past: {style: {opacity: 0.45}}
+  chosen: {style: {fill: "#1e6b3a"; font-color: "#ffffff"; stroke: "#154d29"}}
+}
+
+steps: {
+  1: {
+    caller: "Calling module instance" {class: active}
+  }
+  2: {
+    caller.class: past
+    same-worker: "Callee in the\nsame worker?" {shape: diamond; class: active}
+    caller -> same-worker: resolve
+  }
+  3: {
+    same-worker.class: past
+    direct: "Direct in-JVM call\n(virtual method dispatch)" {class: chosen}
+    same-worker -> direct: yes {style.animated: true}
+  }
+  4: {
+    direct.class: past
+    same-machine: "Callee on the\nsame machine?" {shape: diamond; class: active}
+    same-worker -> same-machine: no
+  }
+  5: {
+    same-machine.class: past
+    uds: "Unix domain socket\nFabricCodec / FabricFrame" {class: chosen}
+    same-machine -> uds: yes {style.animated: true}
+  }
+  6: {
+    uds.class: past
+    tcp: "TCP, virtual-thread-per-connection\nsame codec, cross-machine" {class: chosen}
+    same-machine -> tcp: no {style.animated: true}
+  }
+  7: {
+    tcp.class: past
+    note: "least-outstanding-requests picks among\nremote replicas; same-machine spills over\nonce every local replica is busier than the\nleast-loaded remote one" {
+      shape: text
+      style.italic: true
+      style.font-size: 13
+    }
+  }
+}

@@ -1,0 +1,53 @@
+# Full cluster build-up, one process kind at a time. Deliberately dense once complete -- this is
+# the diagram the ZoomableDiagram viewer on the node-topology page exists for. Render:
+#   .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/node-topology-cluster.d2
+direction: down
+
+classes: {
+  new: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  settled: {style: {opacity: 0.85}}
+}
+
+steps: {
+  1: {
+    machine: Machine {
+      class: new
+      agent: "Node Agent\n(gimle-agent)"
+      worker1: "Worker JVM\n(gimle-worker)"
+      worker2: "Worker JVM\n(gimle-worker)"
+      agent -> worker1: spawns/supervises
+      agent -> worker2: spawns/supervises
+    }
+  }
+  2: {
+    machine.class: settled
+    cp: "Control Plane\n(gimle-controlplane, N)" {class: new}
+    store: "Store\n(gimle-mimir, M)" {shape: cylinder; class: new}
+    machine.agent -> cp: reports capacity/state {style.animated: true}
+    cp <-> store: StoreRpc, TCP
+  }
+  3: {
+    cp.class: settled
+    store.class: settled
+    fafnir: "Fafnir\n(gimle-fafnir, K)" {class: new}
+    machine.agent -> fafnir: fetches secrets, mTLS {style.animated: true}
+    cp -> fafnir: proxies /secrets/*, mTLS
+    fafnir <-> store: StoreRpc, TCP
+  }
+  4: {
+    fafnir.class: settled
+    muninn: "Muninn\n(logs/metrics/traces sink)" {class: new}
+    machine.agent -> muninn: ships own + workers' logs/metrics/traces {style.animated: true}
+    cp -> muninn: ships own metrics/traces
+    fafnir -> muninn: ships own metrics/traces
+    store -> muninn: ships own metrics/traces
+    muninn <-> store: StoreRpc, TCP, read-only
+  }
+  5: {
+    muninn.class: settled
+    andvari: "Andvari\n(module artifact registry)" {class: new}
+    machine.agent -> andvari: pulls module jars {style.animated: true}
+    cp -> andvari: proxies /artifacts/*
+    andvari <-> store: StoreRpc, TCP
+  }
+}
