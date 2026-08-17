@@ -35,8 +35,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given \"[1.0.0,2.0.0)\", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper).",
       "otherTestCoverage": "`VersionRangeTest` (inclusive/exclusive bounds, unbounded above, rejects lower>upper)",
       "sourceLocations": [
@@ -50,8 +52,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A manifest that fails its own validation never gets placed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values.",
       "otherTestCoverage": "`ModuleDescriptorTest` (accepts_request_within_limit, rejects_memory/cpu_request_exceeding_limit, rejects_blank_name, id_combines_name_and_version)",
       "sourceLocations": [
@@ -65,8 +69,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present (TIER_1 worker-sharing density)",
+        "self-healing.feature: A killed worker JVM is respawned and the deployment returns to ACTIVE (TIER_2 dedicated worker, independent crash domain)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
@@ -126,8 +133,10 @@
       "category": "Module System / Health",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A liveness probe's initial delay is honored before the first tick"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
       "sourceLocations": [
@@ -176,8 +185,10 @@
       "category": "Security / RBAC",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given Permission scoped to (DEPLOYMENT,WRITE,tenant=\"acme\"), When covers(DEPLOYMENT,WRITE,Optional.of(\"acme\")), Then true; a different tenant, false.",
       "otherTestCoverage": "`PermissionTest` (unscoped covers any tenant, scoped only own tenant, mismatch never covers), `RoleBindingTest` (well-formed subject accepted, malformed rejected)",
       "sourceLocations": [
@@ -196,8 +207,12 @@
       "category": "Security / RBAC",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one",
+        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone",
+        "mtls.feature: A tenant write is recorded in the durable audit trail"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination.",
       "otherTestCoverage": "`BuiltinRolesTest` (cluster_admin_covers_every_resource_and_verb_unscoped, group_names_match_what_the_pki_layer_stamps)",
       "sourceLocations": [
@@ -211,8 +226,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original.",
       "otherTestCoverage": "`PasswordHashesTest` (hash_then_verify_round_trips, verify_rejects_wrong_password, two_hashes_differ_due_to_random_salt, verify_rejects_truncated_hash)",
       "sourceLocations": [
@@ -248,8 +265,11 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature's six scenarios (topology \"minimal\", plaintext)",
+        "console-security.feature and mtls.feature's audit scenario (topology \"mtls\", TLS)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws.",
       "otherTestCoverage": "`TransportProtocolTest`, `TlsSettingsTest` (defaults to plaintext, case-insensitive, rejects unrecognized value, fails fast on unset property)",
       "sourceLocations": [
@@ -264,8 +284,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty.",
       "otherTestCoverage": "`SessionTokensTest` (issue_then_verify round trips, expired rejected, wrong-key rejected, tampered rejected, garbage input rejected not thrown)",
       "sourceLocations": [
@@ -294,8 +316,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: Repeated failed logins are throttled with a Retry-After backoff"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap.",
       "otherTestCoverage": "`LoginThrottleTest` (delay doubles up to cap, success clears history, keys tracked independently)",
       "sourceLocations": [
@@ -529,8 +553,10 @@
       "category": "Security / Audit",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "mtls.feature: A tenant write is recorded in the durable audit trail"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one.",
       "otherTestCoverage": "`AuditEventTest` (denied represented same as allowed, null groups/tenant/target coalesce to empty, blank id rejected)",
       "sourceLocations": [
@@ -712,8 +738,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle.",
       "otherTestCoverage": "`ModuleResolverTest` (wires to highest satisfying version, candidate must be resolved/active, unsatisfied requirement reported, 2/3-length cycle detected, diamond dependency not a cycle, independent dependents wire independently)",
       "sourceLocations": [
@@ -742,8 +770,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A hook that always throws on start never reaches ACTIVE"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException.",
       "otherTestCoverage": "`ModuleControllerTest` (full happy path, start before resolve illegal, stop before active illegal, resolve failure marks failed, uninstall rejects active module, force_failed transitions to failed, complete_succeeded/failed paths)",
       "sourceLocations": [
@@ -870,8 +900,12 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version",
+        "module-system.feature: Stopping a module with a perpetually in-flight request still completes",
+        "deployment-lifecycle.feature: A tenant-scoped module deploys, reads its secret, and is cleanly removed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0.",
       "otherTestCoverage": "`SimpleModuleContextTest` (invoke_service_by_name delegates/empty-on-unknown/propagates exception); `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
@@ -886,8 +920,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry.",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (round robins, prefers highest ready version, falls back while highest has none ready, round robins within preferred version, mark_unready excludes without removing); `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring`",
       "sourceLocations": [
@@ -901,8 +937,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a registered Greeter provider with method greet(String), When invokeByName(\"...Greeter\",1,\"greet\",[\"java.lang.String\"],[\"world\"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload.",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (invokes directly by name, unknown interface returns empty, wrong method name throws, rethrows application exception with real type, void method returns empty Optional)",
       "sourceLocations": [
@@ -917,8 +956,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly.",
       "otherTestCoverage": "`ServiceRegistryIntegrationTest` (consumer finds service, consumer finds nothing without a provider)",
       "sourceLocations": [
@@ -933,8 +975,10 @@
       "category": "Module System / Self-Healing",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: Stopping a module with a perpetually in-flight request still completes"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes.",
       "otherTestCoverage": "`DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
@@ -964,8 +1008,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A manifest that fails its own validation never gets placed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (various); indirectly via TestModuleBuilderTest",
       "sourceLocations": [
@@ -1030,8 +1076,11 @@
       "category": "Module System / Health",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A liveness probe's initial delay is honored before the first tick",
+        "self-healing.feature: A module that never passes liveness is escalated to FAILED for good"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
@@ -4650,8 +4699,10 @@
       "category": "API Server / Orchestration",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A hook that always throws on start never reaches ACTIVE (explicit node-registered check)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments.",
       "otherTestCoverage": "`ApiServerTest` (transitive); `gimle-agent` integration tests",
       "sourceLocations": [

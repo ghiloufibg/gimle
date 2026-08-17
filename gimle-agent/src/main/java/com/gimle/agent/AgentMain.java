@@ -225,7 +225,19 @@ public final class AgentMain {
           .startShippingMetrics(agentMetrics.registry());
     }
 
-    AgentLogServer logServer = new AgentLogServer(logRoot, 0);
+    // Created here rather than at its previous spot further down, so AgentLogServer's own
+    // resolver lambda below can already close over the real, live map instead of a snapshot: a
+    // Tier 1 density-packed instance's logs live under a different instance's own worker
+    // directory (see SupervisedInstance#workerKey), and this is how a log request finds it.
+    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    AgentLogServer logServer =
+        new AgentLogServer(
+            logRoot,
+            0,
+            key -> {
+              SupervisedInstance instance = supervised.get(key);
+              return instance != null && instance.workerKey != null ? instance.workerKey : key;
+            });
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
@@ -243,7 +255,6 @@ public final class AgentMain {
             Path.of(System.getProperty("gimle.data.root", "gimle-data")).resolve("artifact-cache"));
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
-    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
     // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
     // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
@@ -1521,7 +1532,8 @@ public final class AgentMain {
       Path logRoot,
       VolumeManager volumeManager) {
     SupervisedInstance instance =
-        new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
+        new SupervisedInstance(
+            assigned, existing.supervisor, existing.server, descriptor, existing.workerKey);
     instance.connection = existing.connection;
     instance.fabricWorkerId = existing.fabricWorkerId;
     instance.fabricUdsPath = existing.fabricUdsPath;
@@ -1605,7 +1617,8 @@ public final class AgentMain {
                     muninnEndpoint,
                     workerShippers));
 
-    SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, supervisor, server, descriptor, key);
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());

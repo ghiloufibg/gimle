@@ -11,9 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Scenario-facing client for one control-plane replica's HTTP API: submissions fail loudly on any
@@ -85,13 +87,45 @@ public final class ClusterApi {
   }
 
   /**
-   * {@code true} once {@code GET /roles/{name}} answers 200 -- the read side of {@link #putRole}.
+   * One scoped permission for the {@link #putRole(String, List)} overload: an unscoped grant has
+   * {@code tenantScope} empty.
+   */
+  public record PermissionSpec(String resource, String verb, Optional<String> tenantScope) {}
+
+  /**
+   * Like {@link #putRole(String, String, String)}, but for a role granting more than one
+   * permission, and/or a tenant-scoped one -- {@code tenantScope} present narrows the grant to that
+   * tenant, matching {@code Permission}'s own optional scope.
+   */
+  public void putRole(final String name, final List<PermissionSpec> permissions) {
+    final List<Map<String, Object>> permissionMaps = new ArrayList<>();
+    for (final PermissionSpec permission : permissions) {
+      final Map<String, Object> map = new LinkedHashMap<>();
+      map.put("resource", permission.resource());
+      map.put("verb", permission.verb());
+      permission.tenantScope().ifPresent(scope -> map.put("tenantScope", scope));
+      permissionMaps.add(map);
+    }
+    expectOk(
+        "PUT",
+        "/roles/" + name,
+        Json.write(Map.of("permissions", permissionMaps)),
+        "role creation");
+  }
+
+  /**
+   * {@code true} once {@code GET /roles/{name}} answers 200 -- the read side of {@link
+   * #putRole(String, String, String)}.
    */
   public boolean roleExists(final String name) {
     final Optional<HttpResponse<String>> response = tryGet("/roles/" + name);
     return response.isPresent() && response.get().statusCode() == 200;
   }
 
+  /**
+   * {@code subject} is {@code "user:<name>"} or {@code "group:<name>"}, matching {@code
+   * RoleBinding}.
+   */
   public void putRoleBinding(final String id, final String subject, final String roleName) {
     final String body = Json.write(Map.of("subject", subject, "roleName", roleName));
     expectOk("PUT", "/rolebindings/" + id, body, "role binding creation");
@@ -103,10 +137,110 @@ public final class ClusterApi {
     return response.isPresent() && response.get().statusCode() == 200;
   }
 
-  /** The read side of {@link #putAccount}, {@code true} once {@code GET} answers 200. */
+  /**
+   * True once {@code GET /accounts/{username}} answers 200 -- the account write is committed
+   * through this same replica's own read path, not just accepted by the store leader. A caller
+   * about to attempt a login should poll this first: {@code putAccount}'s 200 only means the write
+   * was accepted, not that a read immediately afterward against the state machine is guaranteed to
+   * observe it yet.
+   */
   public boolean accountExists(final String username) {
     final Optional<HttpResponse<String>> response = tryGet("/accounts/" + username);
     return response.isPresent() && response.get().statusCode() == 200;
+  }
+
+  /** The outcome of one {@code POST /auth/login}: status, and a session cookie if it succeeded. */
+  public record LoginResult(
+      int status, Optional<String> sessionCookie, Optional<Long> retryAfterSeconds) {}
+
+  public LoginResult login(final String username, final String password) {
+    try {
+      final HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/auth/login"))
+                  .header("Content-Type", "application/json")
+                  .POST(
+                      HttpRequest.BodyPublishers.ofString(
+                          Json.write(Map.of("username", username, "password", password)),
+                          StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      final Optional<String> cookie =
+          response.headers().firstValue("Set-Cookie").map(ClusterApi::sessionCookieValue);
+      final OptionalLong retryAfterHeader = response.headers().firstValueAsLong("Retry-After");
+      final Optional<Long> retryAfter =
+          retryAfterHeader.isPresent()
+              ? Optional.of(retryAfterHeader.getAsLong())
+              : Optional.empty();
+      return new LoginResult(response.statusCode(), cookie, retryAfter);
+    } catch (final Exception e) {
+      throw new HolmgangException("login attempt failed against " + baseUrl, e);
+    }
+  }
+
+  /** The {@code username} {@code GET /auth/session} resolves for {@code sessionCookie}, if any. */
+  public Optional<String> sessionUsername(final String sessionCookie) {
+    try {
+      final HttpResponse<String> response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/auth/session"))
+                  .header("Cookie", sessionCookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        return Optional.empty();
+      }
+      final Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+      if (Boolean.TRUE.equals(body.get("anonymous"))) {
+        return Optional.empty();
+      }
+      return Optional.ofNullable((String) body.get("username"));
+    } catch (final Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * A tenant write attempted under a session cookie rather than this client's own mTLS identity.
+   */
+  public int tryPutTenantAsSession(
+      final String sessionCookie, final String tenantId, final QuotaSpec quota) {
+    try {
+      return httpClient
+          .send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+                  .header("Cookie", sessionCookie)
+                  .method(
+                      "PUT",
+                      HttpRequest.BodyPublishers.ofString(
+                          tenantBody(quota), StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new HolmgangException(
+          "session-scoped tenant write attempt failed against " + baseUrl, e);
+    }
+  }
+
+  private static String sessionCookieValue(final String setCookieHeader) {
+    final int semicolon = setCookieHeader.indexOf(';');
+    return semicolon < 0 ? setCookieHeader : setCookieHeader.substring(0, semicolon);
+  }
+
+  /** Durable audit events matching {@code resourceKind}/{@code tenantId}, newest last. */
+  public List<Map<String, Object>> auditEvents(final String resourceKind, final String tenantId) {
+    final Optional<HttpResponse<String>> response =
+        tryGet("/audit?resource=" + resourceKind + "&tenant=" + tenantId);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return List.of();
+    }
+    try {
+      return Json.asObjectList(Json.parse(response.get().body()));
+    } catch (final RuntimeException e) {
+      return List.of();
+    }
   }
 
   public void putSecret(final String tenantId, final String key, final String value) {

@@ -1,6 +1,7 @@
 package com.gimle.holmgang.steps;
 
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.holmgang.cluster.ClusterApi;
 import com.gimle.holmgang.cluster.GimleCluster;
 import com.gimle.holmgang.fenrir.ChaosLedger;
 import com.gimle.holmgang.loki.Loki;
@@ -40,6 +41,7 @@ public final class ScenarioWorld {
   final List<Process> loadProcesses = new ArrayList<>();
   final Map<String, Long> workerPids = new HashMap<>();
   Integer lastSubmissionStatus;
+  ClusterApi.LoginResult lastLogin;
   RecordingWorkload workload;
   ChaosLedger chaosLedger;
   String scenarioName = "scenario";

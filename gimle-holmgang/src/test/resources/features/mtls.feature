@@ -22,3 +22,9 @@ Feature: Mutual TLS operation
     And a tenant "audit-tenant-b" with quota 1048576 bytes memory, 100 millicores and 5 instances
     Then the audit trail for tenant "audit-tenant-a" contains a "TENANT" entry
     And the audit trail for tenant "audit-tenant-a" excludes tenant "audit-tenant-b"
+
+  @module-lifecycle-coverage
+  Scenario: A tenant write is recorded in the durable audit trail
+    Given a running cluster from topology "mtls"
+    And a tenant "audit-tenant" with quota 268435456 bytes memory, 1000 millicores and 10 instances
+    Then within 30s the audit trail records an allowed WRITE on TENANT for tenant "audit-tenant"
