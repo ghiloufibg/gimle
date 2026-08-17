@@ -79,10 +79,11 @@ elsewhere on that machine.
 
 ## What v1 deliberately leaves out
 
-- **No git-tag-driven versioning.** Every module in this repo builds as `0.1.0-SNAPSHOT` today —
-  there's no tag or release process to key a version off of. `gimle-dist` names every archive after
-  whatever `${project.version}` the reactor currently resolves to, SNAPSHOT included. Real
-  release-tag-driven versioning is a genuine follow-up, not built here.
+- **No git-tag-driven versioning.** Every module in this repo builds as `0.1.0-alpha.1` today, a
+  hand-bumped pre-release string — there's no tag or release process to key a version off of yet.
+  `gimle-dist` names every archive after whatever `${project.version}` the reactor currently
+  resolves to, pre-release qualifier included. Real release-tag-driven versioning is a genuine
+  follow-up, not built here.
 - **No cryptographic signing.** Each archive gets a `sha256sum`-compatible checksum file, not a
   signature — who signs a real release and where that key lives is an operational/security decision
   left for later, not a placeholder step invented here.

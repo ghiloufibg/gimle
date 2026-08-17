@@ -67,7 +67,7 @@ workflows), they don't recompile on their own.
 mvn -pl gimle-examples/hello-module package
 ```
 
-Produces `gimle-examples/hello-module/target/hello-module-0.1.0-SNAPSHOT.jar` — a real jar containing
+Produces `gimle-examples/hello-module/target/hello-module-0.1.0-alpha.1.jar` — a real jar containing
 both `module-info.class` and `META-INF/gimle/gimle-module.yaml`, exactly what `ModuleArtifactReader`
 requires. `gimle-examples/hello-module/deployment.yaml` (checked in) already points at it.
 

@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Timeout;
 @Holmgang(topology = "topologies/minimal.yaml")
 class MinimalTopologyIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
   private static final String TENANT = "holmgang-tenant";
   private static final String SECRET_VALUE = "holmgang-secret-value";
 

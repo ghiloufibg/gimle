@@ -8,7 +8,7 @@ import java.util.Map;
 /** Resolves the committed example modules feature files name by their artifact id. */
 final class ExampleModules {
 
-  private static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
 
   private static final Map<String, String> MODULE_NAMES =
       Map.of(

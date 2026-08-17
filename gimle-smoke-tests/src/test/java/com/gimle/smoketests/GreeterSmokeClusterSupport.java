@@ -126,7 +126,7 @@ abstract class GreeterSmokeClusterSupport {
     gossipAddressNode3 = "127.0.0.1:" + leased.next();
   }
 
-  static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
+  static final String GIMLE_VERSION = "0.1.0-alpha.1";
 
   // The one tenant this suite exercises the real secret round trip for: an untenanted deployment
   // never has config/secrets delivered at all (AgentMain#deliverConfig returns immediately when

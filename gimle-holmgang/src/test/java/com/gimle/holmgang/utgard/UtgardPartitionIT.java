@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Timeout;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UtgardPartitionIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-SNAPSHOT";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
   private static final String SERVER_MACHINE = "helm-1";
   private static final String AGENT_MACHINE_A = "helm-2";
   private static final String AGENT_MACHINE_B = "helm-3";

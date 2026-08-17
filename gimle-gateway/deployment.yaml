@@ -20,7 +20,7 @@ name: gimle-gateway
 module:
   name: com.gimle.gateway
   version: 1.0.0
-artifactPath: gimle-gateway/target/gimle-gateway-0.1.0-SNAPSHOT.jar
+artifactPath: gimle-gateway/target/gimle-gateway-0.1.0-alpha.1.jar
 placement:
   requiredLabels:
     - edge
