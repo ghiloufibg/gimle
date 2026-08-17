@@ -35,8 +35,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given \"[1.0.0,2.0.0)\", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper).",
       "otherTestCoverage": "`VersionRangeTest` (inclusive/exclusive bounds, unbounded above, rejects lower>upper)",
       "sourceLocations": [
@@ -50,8 +52,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A manifest that fails its own validation never gets placed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values.",
       "otherTestCoverage": "`ModuleDescriptorTest` (accepts_request_within_limit, rejects_memory/cpu_request_exceeding_limit, rejects_blank_name, id_combines_name_and_version)",
       "sourceLocations": [
@@ -65,8 +69,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present (TIER_1 worker-sharing density)",
+        "self-healing.feature: A killed worker JVM is respawned and the deployment returns to ACTIVE (TIER_2 dedicated worker, independent crash domain)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
@@ -126,8 +133,10 @@
       "category": "Module System / Health",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A liveness probe's initial delay is honored before the first tick"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
       "sourceLocations": [
@@ -176,8 +185,10 @@
       "category": "Security / RBAC",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given Permission scoped to (DEPLOYMENT,WRITE,tenant=\"acme\"), When covers(DEPLOYMENT,WRITE,Optional.of(\"acme\")), Then true; a different tenant, false.",
       "otherTestCoverage": "`PermissionTest` (unscoped covers any tenant, scoped only own tenant, mismatch never covers), `RoleBindingTest` (well-formed subject accepted, malformed rejected)",
       "sourceLocations": [
@@ -196,8 +207,12 @@
       "category": "Security / RBAC",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one",
+        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone",
+        "mtls.feature: A tenant write is recorded in the durable audit trail"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination.",
       "otherTestCoverage": "`BuiltinRolesTest` (cluster_admin_covers_every_resource_and_verb_unscoped, group_names_match_what_the_pki_layer_stamps)",
       "sourceLocations": [
@@ -211,8 +226,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original.",
       "otherTestCoverage": "`PasswordHashesTest` (hash_then_verify_round_trips, verify_rejects_wrong_password, two_hashes_differ_due_to_random_salt, verify_rejects_truncated_hash)",
       "sourceLocations": [
@@ -248,8 +265,11 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature's six scenarios (topology \"minimal\", plaintext)",
+        "console-security.feature and mtls.feature's audit scenario (topology \"mtls\", TLS)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws.",
       "otherTestCoverage": "`TransportProtocolTest`, `TlsSettingsTest` (defaults to plaintext, case-insensitive, rejects unrecognized value, fails fast on unset property)",
       "sourceLocations": [
@@ -264,8 +284,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty.",
       "otherTestCoverage": "`SessionTokensTest` (issue_then_verify round trips, expired rejected, wrong-key rejected, tampered rejected, garbage input rejected not thrown)",
       "sourceLocations": [
@@ -294,8 +316,10 @@
       "category": "Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "console-security.feature: Repeated failed logins are throttled with a Retry-After backoff"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap.",
       "otherTestCoverage": "`LoginThrottleTest` (delay doubles up to cap, success clears history, keys tracked independently)",
       "sourceLocations": [
@@ -529,8 +553,10 @@
       "category": "Security / Audit",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "mtls.feature: A tenant write is recorded in the durable audit trail"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one.",
       "otherTestCoverage": "`AuditEventTest` (denied represented same as allowed, null groups/tenant/target coalesce to empty, blank id rejected)",
       "sourceLocations": [
@@ -544,9 +570,20 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CsrSubmission with purpose=OPERATOR_CLIENT, When submitted, Then CsrResult status=PENDING with a requestId, never auto-approved.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Builds a real CsrSubmission (purpose/csrPem/bootstrapToken) and POSTs it to /bootstrap/csr, then decodes the response into a real CsrResult (status/certificatePem/caCertificatePem) using the same gimle-core protocol records production code uses."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A CSR whose signature does not match its own declared key is rejected",
+          "whyThisCounts": "Drives the identical CsrSubmission/CsrResult wire protocol for the rejection path: a structurally valid but cryptographically bogus CSR is submitted and the resulting CsrResult status is asserted never to reach APPROVED."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/CsrSubmission.java`",
@@ -614,9 +651,20 @@
       "category": "Config / Secrets",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Every secret write/read/delete in this scenario is a real ConfigEntry row in the tenant-scoped store, exercised end to end through Fafnir's own versioned surface."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Plants a ConfigEntry directly (tenantId/key/value/encrypted) in the exact legacy ciphertext layout Fafnir's own writer no longer produces, proving the tenant-scoped entry model reads back correctly regardless of which era wrote it."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java`"
@@ -690,8 +738,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle.",
       "otherTestCoverage": "`ModuleResolverTest` (wires to highest satisfying version, candidate must be resolved/active, unsatisfied requirement reported, 2/3-length cycle detected, diamond dependency not a cycle, independent dependents wire independently)",
       "sourceLocations": [
@@ -720,8 +770,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A hook that always throws on start never reaches ACTIVE"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException.",
       "otherTestCoverage": "`ModuleControllerTest` (full happy path, start before resolve illegal, stop before active illegal, resolve failure marks failed, uninstall rejects active module, force_failed transitions to failed, complete_succeeded/failed paths)",
       "sourceLocations": [
@@ -848,8 +900,12 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version",
+        "module-system.feature: Stopping a module with a perpetually in-flight request still completes",
+        "deployment-lifecycle.feature: A tenant-scoped module deploys, reads its secret, and is cleanly removed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0.",
       "otherTestCoverage": "`SimpleModuleContextTest` (invoke_service_by_name delegates/empty-on-unknown/propagates exception); `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
@@ -864,8 +920,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry.",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (round robins, prefers highest ready version, falls back while highest has none ready, round robins within preferred version, mark_unready excludes without removing); `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring`",
       "sourceLocations": [
@@ -879,8 +937,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a registered Greeter provider with method greet(String), When invokeByName(\"...Greeter\",1,\"greet\",[\"java.lang.String\"],[\"world\"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload.",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (invokes directly by name, unknown interface returns empty, wrong method name throws, rethrows application exception with real type, void method returns empty Optional)",
       "sourceLocations": [
@@ -895,8 +956,11 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
+        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly.",
       "otherTestCoverage": "`ServiceRegistryIntegrationTest` (consumer finds service, consumer finds nothing without a provider)",
       "sourceLocations": [
@@ -911,8 +975,10 @@
       "category": "Module System / Self-Healing",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: Stopping a module with a perpetually in-flight request still completes"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes.",
       "otherTestCoverage": "`DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
@@ -942,8 +1008,10 @@
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A manifest that fails its own validation never gets placed"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (various); indirectly via TestModuleBuilderTest",
       "sourceLocations": [
@@ -1008,8 +1076,11 @@
       "category": "Module System / Health",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A liveness probe's initial delay is honored before the first tick",
+        "self-healing.feature: A module that never passes liveness is escalated to FAILED for good"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
@@ -1116,9 +1187,20 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "The whole mtls topology's PKI trust chain -- including this scenario's own successfully-signed certificate -- depends on CertificateAuthority.generateSelfSignedCa having produced a real, working cluster CA at cluster boot."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "The rotated certificate is signed by, and chains to, the same self-signed cluster CA generated at boot."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (generated_ca_is_self_signed_and_marked_as_a_ca, generated_ca_can_be_loaded_back_via_of)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1131,9 +1213,25 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "A real CSR is signed into a leaf certificate by CertificateAuthority.signCertificateRequest, with a genuine RSA signature the CA verifies before signing."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A CSR whose signature does not match its own declared key is rejected",
+          "whyThisCounts": "A CSR whose declared public key does not match the key that signed it is submitted; CertificateAuthority's own isSignatureValid check rejects it with a 400 before any signing happens -- the negative half of signature verification."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "Exercises the CA's identical signing code path a second way: a rotation request authenticated by the caller's own still-valid certificate rather than a bootstrap token."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (signed leaf chains to CA, signing rejects bad self-signature, leaf doesn't verify against unrelated CA)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1146,9 +1244,15 @@
       "category": "PKI / Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Submits a NODE_CLIENT CSR self-declaring O=gimle:operators and asserts the issued certificate's real organization is the server-stamped O=gimle:nodes instead, never the self-declared privileged group."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateAuthorityTest` (subject_override_wins, still rejects bad self-signature)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`"
@@ -1161,9 +1265,15 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR built with dnsNames=[\"node1.local\",\"localhost\"], When verified with its own public key, Then succeeds, and the SAN extension request is present.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "Builds the CSR via CertificateSigningRequests.generate with a requested subjectAltName (localhost) and asserts the issued certificate actually carries it, proving the SAN request round-trips through signing."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/CertificateSigningRequests.java`"
@@ -1206,9 +1316,15 @@
       "category": "PKI",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node rotates its own certificate over mTLS and keeps its identity",
+          "whyThisCounts": "Runs the real `gimle cert renew --force` CLI flow as a node's own mTLS identity -- the identical same-subject rotation-CSR-over-current-mTLS-connection protocol OwnCertificateRotator/AgentMain drive on their own periodic renewal check -- and asserts the renewed certificate keeps its subject but gets a new serial number."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/OwnCertificateRotator.java`"
@@ -1221,9 +1337,20 @@
       "category": "PKI / Security",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,\"gimle:nodes\") is called, Then result is O=gimle:nodes,CN=node-1.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A node-join CSR that self-declares a privileged group is stamped with the node group instead",
+          "whyThisCounts": "The server-side O= stamping half: Subjects.withOrganization is what ApiServer#handleNodeJoinRequest calls to override a self-declared organization."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "The Principal-derivation half: Fafnir's own resolvePrincipal calls Subjects.principalFrom on the node's peer certificate for both the allowed and the denied direct read."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SubjectsTest` (replaces existing organization, adds organization to one with none, rejects subject with no common name)",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java`"
@@ -2209,9 +2336,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a candidate whose log lags the current leader's log; When its RequestVote arrives elsewhere first; Then the vote is denied because the candidate's log isn't at least as up to date.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A stale, partitioned follower cannot win an election despite outracing the cluster's term",
+          "whyThisCounts": "Partitions a genuinely non-leader store away from its peers (resolved dynamically, never the leader itself) while a background writer keeps committing through the surviving majority, letting the isolated node's own term climb via repeated failed elections while its log falls behind; once healed, asserts the first leader reported afterward is never the stale node -- proving RequestVote's candidate-log-up-to-date check rejected its vote despite its higher term."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftNodeSafetyMechanicsTest#a_candidate_with_a_stale_log_never_wins_even_when_its_request_vote_arrives_first`",
       "sourceLocations": [
         "`RaftNode#onRequestVote` (`candidateUpToDate` check)"
@@ -2276,9 +2409,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/partition-tolerance.feature",
+          "scenario": "A leader's write proposed while partitioned is truncated and never resurfaces",
+          "whyThisCounts": "Proposes a tenant write directly against the isolated (still self-believing) leader's own client port -- not the pooled, any-endpoint API client -- guaranteeing the proposal actually reaches the node under test; asserts the proposal is refused within the propose timeout (never hangs) and that the tenant never becomes readable even after the partition heals and the cluster recovers, proving the ghost write was truncated from the leader's own log rather than silently resurfacing."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftNodeSafetyMechanicsTest#a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns`, `#a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated`",
       "sourceLocations": [
         "`RaftNode#awaitAppliedThrowing`",
@@ -2292,9 +2431,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "Writes 10,500 entries directly through the real StoreClient production API, forcing the leader's log past its own compaction threshold before a brand-new, empty-log store joins as a learner; the joining node can only catch up via a chunked InstallSnapshot transfer at that point (plain AppendEntries replay is impossible past the compacted floor), and the scenario later confirms the bulk-written data (including the very last entry) is genuinely readable after the new store rejoins the working cluster."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`, `RaftNodeSafetyMechanicsTest#an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives`, `#a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered`, `#an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one`",
       "sourceLocations": [
         "`RaftNode#sendInstallSnapshot`",
@@ -2309,9 +2454,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "The same 10,500-entry direct write forces RaftNode's own SNAPSHOT_THRESHOLD compaction to run automatically; the scenario's later steps (a store restart in the persistence scenario, and the joining learner's own forced snapshot-only catch-up here) are only possible because compaction genuinely ran and discarded entries below the floor, observed indirectly through the platform continuing to serve every bulk-written tenant correctly afterward."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftLogTest#install_snapshot_persists_and_discards_compacted_entries`",
       "sourceLocations": [
         "`RaftNode#maybeCompactLocked`",
@@ -2372,9 +2523,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "After the new store joins as a non-voting learner, the scenario immediately kills two of the three original voters (leaving only one original voter and the still-catching-up learner alive) and asserts the cluster refuses every write for a real window -- a majority of the original three-voter configuration is unreachable, and the learner's own vote/ack cannot substitute for a real voter's, proving it genuinely does not count toward quorum until promoted. Restarting one original voter afterward restores quorum and confirms recovery."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftMembershipChangeTest#a_freshly_added_learner_does_not_block_or_count_toward_commit_quorum`, `#a_learner_is_promoted_to_a_full_voting_member_once_its_log_catches_up`, `#a_never_caught_up_learner_stays_non_voting_indefinitely`",
       "sourceLocations": [
         "`RaftNode#learners`",
@@ -2416,9 +2573,20 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The cluster functions end to end over mutual TLS",
+          "whyThisCounts": "Boots a genuine 3-replica store cluster entirely over mutual TLS and drives a real deployment to ACTIVE plus a real secret round-trip -- neither is reachable without real Raft leader election and log replication succeeding across every mTLS-secured RaftTransport/PeerConnection hop."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The audit trail records and filters real authorization decisions over mutual TLS",
+          "whyThisCounts": "Two real tenant writes against the same mTLS store cluster succeed and are independently observable via the audit trail, reinforcing that election and replication over mTLS are working, not merely assumed."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftClusterTlsTest#leader_election_and_write_replication_work_over_mtls`, `#leader_crash_triggers_re_election_over_mtls`, `#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_transport`, `#a_peer_cert_not_signed_by_the_configured_ca_is_rejected_at_handshake`",
       "sourceLocations": [
         "`com.gimle.mimir.raft.RaftTransport`",
@@ -2462,9 +2630,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable from the freshly-opened StateStore instance -- a genuine process restart against the same directory, not an in-process reopen."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
       "sourceLocations": [
         "`com.gimle.mimir.store.StateStore`"
@@ -2477,9 +2651,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "The 10,500 direct writes exceed RaftNode's own compaction threshold before the restart, so the respawned store process can only rebuild its pre-restart state from its own persisted snapshot (the log below the compaction floor no longer exists to replay) -- and every resource kind written before the restart, including the snapshot-covered bulk tenants, comes back identical."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_snapshot_carries_reconciler_instance_state_and_restores_it`, `#a_snapshot_carries_instance_events_and_restores_them`, `#a_snapshot_carries_audit_events_and_restores_them`, `RaftCodecTest#round_trips_a_state_snapshot`",
       "sourceLocations": [
         "`StateStore#snapshot`",
@@ -2509,9 +2689,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "Node heartbeats update continuously for a live node",
+          "whyThisCounts": "Confirms a real node agent's own heartbeat is observed and tracked (GET /nodes reflecting putNodeHeartbeat/getNodeHeartbeat) and that it continues to advance over real wall-clock time, proving the mechanism is a live, continuously-updated read path rather than a one-shot registration."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StoreNodeTest#a_leader_reads_back_a_heartbeat_it_just_accepted`, `rpc/StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower`",
       "sourceLocations": [
         "`StateStore#putNodeHeartbeat`",
@@ -2526,9 +2712,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "A lease is exclusive to its holder until it expires",
+          "whyThisCounts": "Drives the real StoreClient#tryAcquireOrRenewLease/#releaseLease production API directly: one holder acquires a lease, a second is denied while it is still held, and the second holder succeeds only once the TTL has actually expired -- the full grant/contention/expiry lifecycle against a live cluster."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_free_lease_is_granted_to_the_first_caller`, `#the_current_holder_can_renew_its_own_lease`, `#a_different_holder_is_denied_while_the_lease_is_still_valid`, `#a_different_holder_is_granted_once_the_lease_has_expired`, `rpc/StoreClientClusterTest#leases_are_acquired_renewed_and_released_through_the_client`",
       "sourceLocations": [
         "`StateStore#tryAcquireOrRenewLease`",
@@ -2544,9 +2736,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "An instance's event log is capped and returns newest first",
+          "whyThisCounts": "Relays 55 real InstanceEvents through the same POST /nodes/{nodeId}/events route a real node agent uses, pushing a live instance's event log past StateStore's MAX_EVENTS_PER_INSTANCE cap, then confirms exactly 50 events remain and are strictly newest-first -- proving both the retention prune and the ordering."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`",
       "sourceLocations": [
         "`StateStore#putInstanceEvent`",
@@ -2561,9 +2759,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given events across different principals/resources/tenants; When listAuditEvents is called with filters; Then only matching events are returned newest-first, and concurrent appends never lose/duplicate/exceed the cap.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The audit trail records and filters real authorization decisions over mutual TLS",
+          "whyThisCounts": "Audit recording only happens over an authenticated (HTTPS) exchange, so this runs under the real mTLS topology: two tenant writes for two different tenants produce real audit events, and GET /audit filtered by tenant id both finds the matching entry and excludes the other tenant's -- proving listAuditEvents' own filtering against real, distinguishing data."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#audit_events_filter_by_principal_resource_kind_tenant_and_since_independently`, `#audit_events_beyond_the_retention_cap_prune_the_oldest_first`, `#concurrent_audit_event_appends_never_exceed_the_cap_or_lose_or_duplicate_an_event`",
       "sourceLocations": [
         "`StateStore#putAuditEvent`",
@@ -2601,9 +2805,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an index never placed before; When first placed on node A via putStatefulSetIndexNode; Then a later rolling-update replacement of that index is placed on node A again; the binding survives ordinary assignment removal, cleared only on permanent index removal.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "A StatefulSet ordinal index stays bound to the node it first lands on",
+          "whyThisCounts": "Deploys a real StatefulSet, records which of the topology's two nodes its sole ordinal index first landed on, kills the worker hosting it, and confirms the self-healing replacement instance is rescheduled onto the identical node -- putStatefulSetIndexNode's own sticky binding surviving a real reschedule, not just its own unit-level round trip."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`StateStore#putStatefulSetIndexNode`/`#getStatefulSetIndexNode`",
@@ -2663,9 +2873,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "A custom Role, RoleBinding, and Account are each created through the real /roles, /rolebindings, and /accounts HTTP surface, then confirmed readable again after the store process is fully restarted against the same on-disk directory -- all three round-tripping through a real process restart, not merely an in-memory read-back."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
       "sourceLocations": [
         "`StateStore#putRole`/`#putRoleBinding`/`#putAccount`"
@@ -2802,9 +3018,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cron expression restricting both day-of-month and day-of-week; When mostRecentDueInstant is evaluated; Then a moment matching either restricted field counts as due; an invalid expression is rejected at parse time.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A CronJob schedule fires on the day-of-month/day-of-week OR quirk",
+          "whyThisCounts": "Builds a schedule from today's own real UTC date -- today's weekday but a deliberately different day of month, both fields restricted -- and confirms the CronJobReconciler actually schedules a run from it, which is only possible if CronSchedule.mostRecentDueInstant applies the documented OR quirk (either restricted field matching is enough) rather than requiring both."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CronScheduleTest#day_of_month_and_day_of_week_both_restricted_combine_with_or`, `#range_and_step_combine`, `#comma_list_matches_any_listed_value`, `#wrong_field_count_throws`, `#inverted_range_throws`, `#zero_step_throws`",
       "sourceLocations": [
         "`com.gimle.mimir.cron.CronSchedule`"
@@ -2817,9 +3039,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with a weighted autoscale block; When DeploymentManifestParser.parse is called; Then a DeploymentSpec carrying the exact weighted AutoscalePolicy is produced; maxUnavailable=0 with no maxSurge is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A weighted autoscale policy is accepted, an unreplaceable disruption budget is rejected",
+          "whyThisCounts": "Submits a Deployment manifest with a full weighted autoscale block (mode, per-signal weights) through the real /deployments admission surface and confirms it is accepted, then submits maxUnavailable: 0, maxSurge: 0 on another and confirms the real 400 rejection -- both DeploymentManifestParser's weighted-policy parsing and DisruptionBudget's own invariant, against the real HTTP API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`DeploymentManifestParserTest#parses_a_weighted_autoscale_block_with_per_signal_weights`, `#accepts_a_nonzero_max_surge`, `#rejects_max_unavailable_0_with_no_max_surge_to_rescue_it`, `#accepts_max_unavailable_0_paired_with_a_nonzero_max_surge_for_a_pure_surge_rollout`, `DisruptionBudgetTest#max_unavailable_and_max_surge_must_not_both_be_0`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.DeploymentManifestParser`",
@@ -2835,9 +3063,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given placement.antiAffinity: true; When DaemonSetManifestParser.parse is called; Then parsing throws; a nonzero disruption.maxSurge is likewise rejected while 0 is accepted.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A DaemonSet rejects anti-affinity and nonzero surge but accepts zero surge",
+          "whyThisCounts": "Submits three DaemonSet manifests through the real /daemonsets admission surface: placement.antiAffinity: true and disruption.maxSurge: 1 are each rejected with 400, while maxSurge: 0 is accepted -- exercising DaemonSetManifestParser's own reject-outright posture for both fields against the real API, not just its unit tests."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`DaemonSetManifestParserTest#placement_anti_affinity_field_is_rejected_outright`, `#disruption_max_surge_field_is_rejected_outright_if_nonzero`, `#disruption_max_surge_field_set_to_0_is_accepted`, `#rejects_a_max_unavailable_of_0`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.DaemonSetManifestParser`",
@@ -2851,9 +3085,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A CronJob applies sensible defaults and rejects an invalid schedule or concurrency policy",
+          "whyThisCounts": "Submits a CronJob manifest with no explicit backoffLimit through the real /cronjobs admission surface and confirms it is accepted (the parser's own default applies), then confirms a malformed cron expression and an unknown concurrencyPolicy value are each rejected with a real 400."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CronJobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_and_concurrency_policy`, `#invalid_cron_schedule_throws`, `#unknown_concurrency_policy_throws`, `JobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_to_six`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.CronJobManifestParser`",
@@ -2869,9 +3109,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A StatefulSet accepts zero replicas and rejects a negative count",
+          "whyThisCounts": "Submits a StatefulSet manifest with replicas: 0 through the real /statefulsets admission surface and confirms it is accepted, then confirms replicas: -1 is rejected with a real 400 -- StatefulSetSpec's own boundary against the real HTTP API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StatefulSetManifestParserTest#parses_a_minimal_manifest`, `#zero_replicas_is_legal`, `#negative_replicas_throws`, `#parses_a_vessel_block`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.StatefulSetManifestParser`",
@@ -2885,9 +3131,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "An unrecognized manifest kind is rejected via the dispatching parser",
+          "whyThisCounts": "Submits a manifest with kind: Bogus through the real /deployments admission surface and confirms the real 400 rejection, which can only come from ManifestParser's own kind-dispatch switch falling through to GimleManifestException.unknownKind."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`ManifestParserTest#kind_deployment_dispatches_to_deployment_manifest_parser`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.ManifestParser`"
@@ -4347,9 +4599,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Calls POST /secrets/rotate-key through the real control-plane proxy twice and asserts each call returns a different active key id."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key`",
       "sourceLocations": [
         "`ApiServer.handleRotateSecretsKey`; `FafnirClient.rotateKey`; `FafnirCrypto.rotate`"
@@ -4441,8 +4699,10 @@
       "category": "API Server / Orchestration",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        "module-system.feature: A hook that always throws on start never reaches ACTIVE (explicit node-registered check)"
+      ],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments.",
       "otherTestCoverage": "`ApiServerTest` (transitive); `gimle-agent` integration tests",
       "sourceLocations": [
@@ -4556,9 +4816,20 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Two versions of a secret are written and read back correctly, a real AES-256-GCM round trip through Fafnir's own encrypt/decrypt path."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Directly inspects the raw stored ciphertext's own key-id byte before and after two rotations, proving the versioned key id is real, not just that decryption happens to still work."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SecretCipher.java`"
@@ -4571,9 +4842,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a blob encrypted before the version/keyId prefix existed; When decrypt() runs; Then the new-format decode fails GCM verification and falls back to the legacy iv||ciphertext layout under key id 0.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Plants a secret encrypted in the exact legacy pre-key-id layout (iv || ciphertext-with-tag, no version/key-id prefix) under Fafnir's real key id 0 and asserts it still decrypts correctly through the real read API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretCipherTest` (legacy-format coverage per class javadoc)",
       "sourceLocations": [
         "`SecretCipher.decrypt`"
@@ -4586,9 +4863,20 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Every secret round trip in this scenario depends on Fafnir's own KeyFileManager.loadOrCreate having generated and loaded a real local AES-256 key at process startup."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A legacy pre-key-id secret ciphertext still decrypts correctly",
+          "whyThisCounts": "Loads the same on-disk key file Fafnir itself created (KeyFileManager.loadOrCreate) to construct a legacy ciphertext, proving the loaded key material genuinely matches what the running process uses."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java`"
@@ -4601,9 +4889,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ring holding key id 0; When rotate() runs; Then a new key id 1 file is written, .active repointed, key id 0 remains loadable.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "Rotates the key twice and confirms the secret written before either rotation still decrypts correctly afterward -- only possible because KeyFileManager.rotate keeps every prior key file on disk in the ring rather than discarding it."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`KeyFileManagerTest#rotate_adds_a_new_active_key_while_keeping_the_old_one_loadable`",
       "sourceLocations": [
         "`KeyFileManager.rotate`"
@@ -4631,9 +4925,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Rotating the secrets key re-encrypts an existing secret under the new key id",
+          "whyThisCounts": "After each rotation, the secret's own stored ciphertext is inspected directly and asserted to now carry the newly active key id -- proof FafnirCrypto.rotate's re-encryption walk actually re-encrypted the existing entry, not merely that the old key remained available."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirCrypto.java`"
@@ -4646,9 +4946,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Writes two versions of one secret, lists its versions, and reads back both the latest and an explicit historical version -- the whole key@N/key@meta convention layered over ConfigEntry, driven end to end through the real API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretStoreTest#list_returns_metadata_only_for_every_written_secret_in_the_tenant`; `FafnirServerTest#versions_lists_every_claimed_version_number`, `an_explicit_version_query_parameter_reads_that_historical_value`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java`"
@@ -4676,9 +4982,15 @@
       "category": "Secrets Management",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "A secret's versions round-trip and a soft delete behaves differently from a hard one",
+          "whyThisCounts": "Soft-deletes a secret and asserts the latest read is gone while an explicit historical version stays readable, then hard-deletes it (?destroy=true) and asserts even the historical version is gone -- the two delete modes' real, distinct behavior."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SecretStoreTest#soft_delete_marks_the_secret_deleted_but_keeps_every_version_readable_by_number`, `hard_delete_removes_every_version_and_the_metadata_entry_itself`; `FafnirServerTest#soft_deleting_a_secret_hides_it_from_a_default_get_but_versions_remain_readable`",
       "sourceLocations": [
         "`SecretStore.softDelete`/`hardDelete`; `FafnirServer.handleDeleteSecret`"
@@ -4691,9 +5003,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a forwarded principal claims access but doesn't actually hold the permission; When Fafnir independently re-checks Authorizer.authorize; Then denied with 403 regardless of the forwarder's decision.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "Hits Fafnir's own port directly, bypassing gimle-controlplane's /secrets/* proxy entirely, so the resulting allow/deny decisions can only come from Fafnir's own independent Authorizer.authorize/isTenantAssignedToNode check, never a forwarded claim."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirSecretsAuthzTest#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`"
@@ -4706,9 +5024,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir independently authorizes node-scoped secret reads by tenant assignment",
+          "whyThisCounts": "A node's own certificate reads a secret for the tenant it currently has an active instance assignment for (allowed) and a secret for a tenant it has no assignment for (denied with 403), driving Authorizer.isTenantAssignedToNode's real decision both ways."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
       "sourceLocations": [
         "`FafnirServer.decideAllowed`; `Authorizer.isTenantAssignedToNode`"
@@ -4768,9 +5092,15 @@
       "category": "API Server",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir's console session login round-trips and the plaintext session falls back to anonymous",
+          "whyThisCounts": "A real seeded account logs in to Fafnir's own /auth/login, the session cookie is verified via /auth/session to report that account as logged in, and /auth/logout is confirmed to end the session -- the full login/logout/session round trip."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "sourceLocations": [
         "`FafnirServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`"
@@ -4783,9 +5113,15 @@
       "category": "Authorization",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given plaintext mode with no session cookie and no TLS; When GET /auth/session; Then a synthetic \"anonymous: true\" principal is returned rather than 401.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/secrets-and-pki.feature",
+          "scenario": "Fafnir's console session login round-trips and the plaintext session falls back to anonymous",
+          "whyThisCounts": "Before any login and again after logout, /auth/session on a plaintext-transport Fafnir reports an anonymous session (never 401) -- the plaintext-mode carve-out, distinguished from the real logged-in state the same scenario also exercises."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "Implicit in `FafnirServerAuthTest`'s plaintext-mode coverage",
       "sourceLocations": [
         "`FafnirServer.handleAuthSession`"

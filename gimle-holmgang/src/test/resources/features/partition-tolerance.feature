@@ -22,3 +22,13 @@ Feature: Partition tolerance
     Then the submitted write completes within 30s instead of hanging
     When the partition heals
     Then within 60s the cluster accepts writes again
+
+  @raft-store-coverage
+  Scenario: A leader's write proposed while partitioned is truncated and never resurfaces
+    Given a running cluster from topology "ha-proxied"
+    When the store leader is partitioned from its peers
+    And a tenant write is proposed directly to the isolated leader
+    Then the proposal to the isolated leader is refused within 10s
+    When the partition heals
+    Then within 60s the cluster accepts writes again
+    And the ghost-written tenant is never readable

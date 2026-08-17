@@ -31,6 +31,21 @@ public final class FaultSteps {
     world.partitions.addLast(world.cluster().faults().cutStoreFromPeers(leaderIndex));
   }
 
+  /**
+   * The follower counterpart to {@link #theStoreLeaderIsPartitionedFromItsPeers}: resolves the
+   * currently-leading store first and isolates a different index -- never the leader itself -- so
+   * the isolated node is guaranteed to be a follower that falls behind while cut off, not whichever
+   * role happened to be leading at the time. What a scenario proving the candidate log up-to-date
+   * election check needs: a stale node that later campaigns with a high term but an outdated log.
+   */
+  @When("a non-leader store is partitioned from its peers")
+  public void aNonLeaderStoreIsPartitionedFromItsPeers() {
+    final int leaderIndex = world.cluster().storeLeaderIndex();
+    final int nonLeaderIndex = (leaderIndex + 1) % world.cluster().storeCount();
+    world.isolatedStoreIndex = nonLeaderIndex;
+    world.partitions.addLast(world.cluster().faults().cutStoreFromPeers(nonLeaderIndex));
+  }
+
   @When("the partition heals")
   public void thePartitionHeals() {
     if (world.partitions.isEmpty()) {
@@ -48,6 +63,41 @@ public final class FaultSteps {
             "control plane " + controlPlaneIndex + " stops serving",
             () -> !world.cluster().api(controlPlaneIndex).isServing())
         .await(Duration.ofSeconds(seconds));
+  }
+
+  /**
+   * The election-safety proof: waits for any store to be reported as leader again (a mid-election
+   * gap first, necessarily), then asserts that leader is not the isolated node -- the Raft log
+   * up-to-date check means a candidate whose log lags can never win a vote, however high its own
+   * term has climbed while cut off, so the first leader reported after recovery already settles
+   * this; no bounded observation window is needed the way a liveness property would.
+   */
+  @Then("within {int}s the isolated store never wins the election that follows")
+  public void withinSecondsTheIsolatedStoreNeverWinsTheElectionThatFollows(final int seconds) {
+    if (world.isolatedStoreIndex == null) {
+      throw new HolmgangException("no store was partitioned in this scenario");
+    }
+    final int storeIndex = world.isolatedStoreIndex;
+    world
+        .cluster()
+        .when()
+        .probe(
+            "a store leader is reported again", () -> world.cluster().storeLeaderId().isPresent())
+        .await(Duration.ofSeconds(seconds));
+    final String leaderId =
+        world
+            .cluster()
+            .storeLeaderId()
+            .orElseThrow(() -> new HolmgangException("no store leader is currently known"));
+    final String staleId = world.cluster().storeRaftId(storeIndex);
+    if (staleId.equals(leaderId)) {
+      throw new HolmgangException(
+          "store "
+              + storeIndex
+              + " (the stale, partitioned-then-healed node) won the election as "
+              + leaderId
+              + " -- the candidate log up-to-date check should have rejected its vote");
+    }
   }
 
   /**

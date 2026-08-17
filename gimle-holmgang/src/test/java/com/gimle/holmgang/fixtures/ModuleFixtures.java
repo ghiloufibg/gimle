@@ -135,9 +135,11 @@ public final class ModuleFixtures {
    * The jars the in-process compilation needs on its module path ({@code com.gimle.module}, {@code
    * org.slf4j}), scanned off this test JVM's own classpath -- matching either an installed jar or a
    * reactor-build {@code target/classes} directory, since which shape is present depends on how
-   * this module was built.
+   * this module was built. Package-private (not {@code private}) so {@link ModuleSystemFixtures}, a
+   * sibling fixture-building class in this same package, can reuse it rather than re-scanning the
+   * classpath a second way.
    */
-  private static List<Path> findCompileModulePathJars() {
+  static List<Path> findCompileModulePathJars() {
     final List<Path> result = new ArrayList<>();
     final String classpath = System.getProperty("java.class.path");
     for (final String entry : classpath.split(File.pathSeparator)) {

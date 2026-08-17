@@ -79,7 +79,14 @@ public final class OwnCertificateRotator {
   private static void rotate(TlsSettings settings, X509Certificate current, URI csrEndpoint)
       throws IOException {
     KeyPair keyPair = generateRsaKeyPair();
-    X500Name subject = new X500Name(current.getSubjectX500Principal().getName());
+    // X500Name.getInstance(...getEncoded()), never new X500Name(...getName()): the latter
+    // round-trips through X500Principal's RFC 2253 string rendering, which reorders a multi-RDN
+    // subject (most-specific RDN first, i.e. CN before O) relative to the certificate's own ASN.1
+    // encoding order (O before CN, per Subjects.withOrganization). Every node and operator subject
+    // carries both O= and CN=, so a reordered CSR subject here would fail
+    // ApiServer#handleRotationRequest's own byte-for-byte comparison against the presented
+    // certificate's real encoding, rejecting the rotation outright.
+    X500Name subject = X500Name.getInstance(current.getSubjectX500Principal().getEncoded());
     PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
     HttpClient client =
         HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();

@@ -1,6 +1,7 @@
 package com.gimle.holmgang.steps;
 
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.holmgang.cluster.ClusterApi;
 import com.gimle.holmgang.cluster.GimleCluster;
 import com.gimle.holmgang.fenrir.ChaosLedger;
 import com.gimle.holmgang.loki.Loki;
@@ -9,6 +10,7 @@ import com.gimle.testkit.heimdall.InvariantGuard;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.cert.X509Certificate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -31,6 +33,7 @@ public final class ScenarioWorld {
       String moduleName, String version, int replicas, Optional<String> tenantId) {}
 
   final Map<String, DeployedModule> deployments = new LinkedHashMap<>();
+  final List<String> statefulSets = new ArrayList<>();
   final List<String> tenants = new ArrayList<>();
   final List<String> cordonedNodes = new ArrayList<>();
   final Deque<InvariantGuard> guards = new ArrayDeque<>();
@@ -38,9 +41,34 @@ public final class ScenarioWorld {
   final List<Process> loadProcesses = new ArrayList<>();
   final Map<String, Long> workerPids = new HashMap<>();
   Integer lastSubmissionStatus;
+  ClusterApi.LoginResult lastLogin;
   RecordingWorkload workload;
   ChaosLedger chaosLedger;
   String scenarioName = "scenario";
+
+  /** Active key ids returned by each {@code secrets key is rotated} step, in rotation order. */
+  final List<Integer> rotatedSecretsKeyIds = new ArrayList<>();
+
+  /** The status of the most recent Fafnir {@code /auth/login} attempt. */
+  Integer lastFafnirAuthStatus;
+
+  /**
+   * The raw {@code name=value} pair carved out of a successful Fafnir login's own {@code
+   * Set-Cookie} response header, reattached by hand on every later {@code /auth/*} request in the
+   * scenario -- {@code java.net.http.HttpClient}'s own automatic {@link CookieManager} integration
+   * does not reliably round-trip a {@code SameSite=Strict} cookie the way a real browser does, the
+   * same reason {@code FafnirServerAuthTest} manages this cookie by hand rather than relying on it.
+   */
+  String fafnirSessionCookie;
+
+  /** The status of the most recent direct {@code POST /bootstrap/csr} submission. */
+  Integer lastCsrSubmissionStatus;
+
+  /** The certificate a CSR submission most recently got back, once approved. */
+  X509Certificate lastIssuedCertificate;
+
+  /** A node's own certificate, captured just before this scenario rotated it. */
+  X509Certificate originalNodeCertificate;
 
   /** A write submitted on a background thread, so a step can bound its wait instead of hanging. */
   CompletableFuture<Integer> pendingWrite;
@@ -49,6 +77,17 @@ public final class ScenarioWorld {
    * Which store index a partition step isolated, remembered since the cluster's leader moves on.
    */
   Integer isolatedStoreIndex;
+
+  /** The tenant id a ghost-write step proposed directly to an isolated leader, and its outcome. */
+  String ghostWriteTenantId;
+
+  CompletableFuture<Void> ghostWriteOutcome;
+
+  /** Whether the most recent lease acquire/renew attempt was granted. */
+  Boolean lastLeaseGranted;
+
+  /** The node id a StatefulSet sticky-binding scenario captured before a reschedule. */
+  String rememberedNodeId;
 
   private GimleCluster cluster;
   private boolean destructive;

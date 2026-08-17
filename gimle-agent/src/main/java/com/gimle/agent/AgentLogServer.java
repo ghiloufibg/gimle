@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,9 +49,26 @@ final class AgentLogServer implements AutoCloseable {
 
   private final Path logRoot;
   private final HttpServer server;
+  private final Function<String, String> workerKeyResolver;
 
+  /** No density-aware resolution -- every {@code deploymentName#instanceIndex} maps to itself. */
   AgentLogServer(Path logRoot, int port) throws IOException {
+    this(logRoot, port, Function.identity());
+  }
+
+  /**
+   * {@code workerKeyResolver} maps a requested instance's own {@code deploymentName#instanceIndex}
+   * to the worker directory actually hosting it -- ordinarily itself, but a different key when
+   * {@code AgentMain} packed that instance onto an already-running Tier 1 worker for density
+   * instead of spawning a dedicated one for it (see {@code SupervisedInstance#workerKey}). Without
+   * this, a log request for a density-packed instance would look under a {@code workers/}
+   * subdirectory that was never created, since no worker was ever spawned under that instance's own
+   * name.
+   */
+  AgentLogServer(Path logRoot, int port, Function<String, String> workerKeyResolver)
+      throws IOException {
     this.logRoot = logRoot;
+    this.workerKeyResolver = workerKeyResolver;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/logs/nodes/", this::handleNodeLogs);
     server.createContext("/logs/instances/", this::handleInstanceLogs);
@@ -187,7 +205,9 @@ final class AgentLogServer implements AutoCloseable {
       // AgentMain's per-worker key (workers/<key>/), vs. InstanceSiftingFileAppender's own
       // dash-joined key for the sifted file itself (see gimle-core's InstanceSiftingFileAppender)
       // -- both derived from the same deploymentName/instanceIndex, but not the same separator.
-      String workerKey = deploymentName + "#" + instanceIndex;
+      // Resolved through workerKeyResolver, not used verbatim: a Tier 1 density-packed instance's
+      // own key names no worker directory of its own at all (see that field's own javadoc).
+      String workerKey = workerKeyResolver.apply(deploymentName + "#" + instanceIndex);
       Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
 
       if (subPath != null && subPath.startsWith("crashdumps")) {

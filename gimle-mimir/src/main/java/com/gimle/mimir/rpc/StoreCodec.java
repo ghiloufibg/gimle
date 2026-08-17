@@ -143,6 +143,7 @@ public final class StoreCodec {
   private static final byte TAG_INT_INT_MAP_RESULT = 90;
   private static final byte TAG_STATUS = 91;
   private static final byte TAG_STATUS_RESULT = 92;
+  private static final byte TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE = 93;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -317,6 +318,10 @@ public final class StoreCodec {
         case StoreRpc.GetNodeHeartbeat v -> {
           out.writeByte(TAG_GET_NODE_HEARTBEAT);
           out.writeUTF(v.nodeId());
+        }
+        case StoreRpc.ListConfigEntriesForLinearizable v -> {
+          out.writeByte(TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE);
+          out.writeUTF(v.tenantId());
         }
         case StoreRpc.GetReconcilerInstanceState v -> {
           out.writeByte(TAG_GET_RECONCILER_INSTANCE_STATE);
@@ -691,6 +696,8 @@ public final class StoreCodec {
         case TAG_LIST_ROLLING_INDICES -> new StoreRpc.ListRollingIndices(in.readUTF());
         case TAG_LIST_SURGE_INDICES -> new StoreRpc.ListSurgeIndices(in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
+        case TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE ->
+            new StoreRpc.ListConfigEntriesForLinearizable(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
             new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
         case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();

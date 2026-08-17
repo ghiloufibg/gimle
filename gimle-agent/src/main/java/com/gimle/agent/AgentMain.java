@@ -225,7 +225,19 @@ public final class AgentMain {
           .startShippingMetrics(agentMetrics.registry());
     }
 
-    AgentLogServer logServer = new AgentLogServer(logRoot, 0);
+    // Created here rather than at its previous spot further down, so AgentLogServer's own
+    // resolver lambda below can already close over the real, live map instead of a snapshot: a
+    // Tier 1 density-packed instance's logs live under a different instance's own worker
+    // directory (see SupervisedInstance#workerKey), and this is how a log request finds it.
+    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    AgentLogServer logServer =
+        new AgentLogServer(
+            logRoot,
+            0,
+            key -> {
+              SupervisedInstance instance = supervised.get(key);
+              return instance != null && instance.workerKey != null ? instance.workerKey : key;
+            });
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
@@ -243,7 +255,6 @@ public final class AgentMain {
             Path.of(System.getProperty("gimle.data.root", "gimle-data")).resolve("artifact-cache"));
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
-    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
     // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
     // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
@@ -537,7 +548,15 @@ public final class AgentMain {
       }
       log.info("agent certificate due for renewal, requesting rotation");
       KeyPair keyPair = generateRsaKeyPair();
-      X500Name subject = new X500Name(certificate.getSubjectX500Principal().getName());
+      // X500Name.getInstance(...getEncoded()), never new X500Name(...getName()): the latter
+      // round-trips through X500Principal's RFC 2253 string rendering, which reorders a multi-RDN
+      // subject (most-specific RDN first, i.e. CN before O) relative to the certificate's own
+      // ASN.1 encoding order (O before CN, per Subjects.withOrganization) -- every node subject
+      // carries both. A reordered CSR subject here fails ApiServer#handleRotationRequest's own
+      // byte-for-byte comparison against the presented certificate's real encoding, so every real
+      // rotation attempt would be rejected with 403 and this tick's renewal would silently retry
+      // forever.
+      X500Name subject = X500Name.getInstance(certificate.getSubjectX500Principal().getEncoded());
       PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
       Map<String, Object> body =
           csrSubmissionToJson(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr)));
@@ -1513,7 +1532,8 @@ public final class AgentMain {
       Path logRoot,
       VolumeManager volumeManager) {
     SupervisedInstance instance =
-        new SupervisedInstance(assigned, existing.supervisor, existing.server, descriptor);
+        new SupervisedInstance(
+            assigned, existing.supervisor, existing.server, descriptor, existing.workerKey);
     instance.connection = existing.connection;
     instance.fabricWorkerId = existing.fabricWorkerId;
     instance.fabricUdsPath = existing.fabricUdsPath;
@@ -1597,7 +1617,8 @@ public final class AgentMain {
                     muninnEndpoint,
                     workerShippers));
 
-    SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, supervisor, server, descriptor, key);
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());

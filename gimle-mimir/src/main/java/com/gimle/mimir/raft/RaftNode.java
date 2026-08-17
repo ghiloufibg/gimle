@@ -283,6 +283,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     this.proposeTimeout = proposeTimeout;
     this.clock = clock;
     this.scheduler = scheduler;
+    // A reopened RaftLog already covers everything up to its own persisted snapshot floor (that
+    // floor is exactly the lastApplied index at the moment it was taken -- see
+    // maybeCompactLocked); starting these at 0 instead would make applyCommittedLocked walk from
+    // index 1 the moment this node next advances its commit index, which throws once any entry
+    // below the floor has been physically discarded by compaction. Mirrors the floor bump
+    // onInstallSnapshot already applies when a snapshot arrives from a live peer instead of disk.
+    this.commitIndex = raftLog.snapshotLastIncludedIndex();
+    this.lastApplied = raftLog.snapshotLastIncludedIndex();
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
@@ -376,6 +384,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     this.proposeTimeout = proposeTimeout;
     this.clock = clock;
     this.scheduler = scheduler;
+    // A reopened RaftLog already covers everything up to its own persisted snapshot floor (that
+    // floor is exactly the lastApplied index at the moment it was taken -- see
+    // maybeCompactLocked); starting these at 0 instead would make applyCommittedLocked walk from
+    // index 1 the moment this node next advances its commit index, which throws once any entry
+    // below the floor has been physically discarded by compaction. Mirrors the floor bump
+    // onInstallSnapshot already applies when a snapshot arrives from a live peer instead of disk.
+    this.commitIndex = raftLog.snapshotLastIncludedIndex();
+    this.lastApplied = raftLog.snapshotLastIncludedIndex();
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
