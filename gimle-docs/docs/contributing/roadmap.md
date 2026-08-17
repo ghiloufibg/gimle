@@ -14,8 +14,10 @@ actually teaches, not by a feature-parity checklist.
 1. **Priority and preemption.** No notion of a higher-priority deployment evicting a lower-priority
    one under resource pressure — a genuinely hard fairness-versus-urgency scheduling problem.
 2. **Prometheus/OTLP-compatible read translation for Muninn.** Muninn's own first-party ingest/read
-   APIs (`GET /metrics-history/*`, `GET /traces-history/*`) are deliberately not wire-compatible
-   with a Prometheus scrape or an OTLP collector — a considered trade-off (see
+   APIs (`/ingest/metrics/*`, `/metrics/*`, `/ingest/traces/*`, `/traces/*` — what
+   `gimle-controlplane`'s `GET /metrics-history/*`/`GET /traces-history/*` proxy onto, see [Web
+   console](../architecture/web-console.md#metrics-history-traces-and-audit-trail)) are deliberately
+   not wire-compatible with a Prometheus scrape or an OTLP collector — a considered trade-off (see
    [Observability](../architecture/observability.md)), not an oversight: staying dependency-free
    and self-contained (no `micrometer-registry-prometheus`/`opentelemetry-exporter-otlp`, no
    operator-run collector) was preferred over out-of-the-box Grafana/Jaeger compatibility. Deferred
