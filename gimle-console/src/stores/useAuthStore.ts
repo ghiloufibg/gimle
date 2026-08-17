@@ -22,11 +22,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   async init() {
     if (get().initialized) return;
     set({ initialized: true });
-    const principal = await authRepo.session();
-    set({
-      principal,
-      status: principal ? "authenticated" : "unauthenticated",
-    });
+    try {
+      const principal = await authRepo.session();
+      set({
+        principal,
+        status: principal ? "authenticated" : "unauthenticated",
+      });
+    } catch {
+      set({ principal: null, status: "unauthenticated" });
+    }
   },
   async login(username, password) {
     set({ error: null });
@@ -34,18 +38,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const principal = await authRepo.login(username, password);
       set({ principal, status: "authenticated", error: null });
       return true;
-    } catch {
+    } catch (e) {
       set({
         principal: null,
         status: "unauthenticated",
-        error: "invalid username or password",
+        error: e instanceof Error ? e.message : "login failed",
       });
       return false;
     }
   },
   async logout() {
-    await authRepo.logout();
-    set({ principal: null, status: "unauthenticated", error: null });
+    try {
+      await authRepo.logout();
+    } finally {
+      set({ principal: null, status: "unauthenticated", error: null });
+    }
   },
   /** Called by apiClient.ts's send() on any 401 -- a session expiring mid-use (or never having
    * existed) clears local auth state so the root route guard redirects to /login. */

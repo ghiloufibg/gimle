@@ -1,4 +1,3 @@
-import "./lib/error-capture";
 // Self-hosted, bundled into the jar alongside everything else -- the console is served from
 // gimle-controlplane's own classpath specifically so there's no external artifact to fetch; a
 // runtime Google Fonts CDN dependency would defeat that, and block first paint entirely on an

@@ -87,14 +87,18 @@ function LogsPage() {
   useEffect(() => {
     if (state.lines.length === 0) state.loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.kind, (target as any).deploymentName, (target as any).nodeId, target.category]);
+  }, [
+    target.kind,
+    target.kind === "instance" ? target.deploymentName : undefined,
+    target.kind === "node" ? target.nodeId : undefined,
+    target.category,
+  ]);
 
   useEffect(() => {
     return () => {
-      state.unfollow();
+      store.getState().unfollow();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [store]);
 
   // handle new lines: scroll or count them
   useEffect(() => {
@@ -131,9 +135,14 @@ function LogsPage() {
   useEffect(() => {
     let cancelled = false;
     if (target.kind === "instance") {
-      logsRepo.listCrashDumps(target).then((dumps) => {
-        if (!cancelled) setCrashDumps(dumps);
-      });
+      logsRepo
+        .listCrashDumps(target)
+        .then((dumps) => {
+          if (!cancelled) setCrashDumps(dumps);
+        })
+        .catch(() => {
+          if (!cancelled) setCrashDumps([]);
+        });
     } else {
       setCrashDumps([]);
     }
@@ -141,7 +150,11 @@ function LogsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.kind, (target as any).deploymentName, (target as any).instanceIndex]);
+  }, [
+    target.kind,
+    target.kind === "instance" ? target.deploymentName : undefined,
+    target.kind === "instance" ? target.instanceIndex : undefined,
+  ]);
 
   return (
     <PageContainer>

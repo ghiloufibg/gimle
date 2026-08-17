@@ -65,15 +65,6 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
 
   useEffect(() => () => stopLive(), [stopLive]);
 
-  if (!target.processId) {
-    return (
-      <p className="font-mono text-xs text-muted-foreground">
-        enter a {target.processKind.toLowerCase()} address (host:port) above to load its metrics
-        history
-      </p>
-    );
-  }
-
   const series: Series[] = useMemo(() => {
     const byName = new Map<string, MetricsHistoryLine[]>();
     for (const l of lines) {
@@ -111,6 +102,15 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
       return { name, type: ls[0].type, key, points, hasPercentiles };
     });
   }, [lines]);
+
+  if (!target.processId) {
+    return (
+      <p className="font-mono text-xs text-muted-foreground">
+        enter a {target.processKind.toLowerCase()} address (host:port) above to load its metrics
+        history
+      </p>
+    );
+  }
 
   return (
     <div>
