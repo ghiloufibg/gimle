@@ -110,8 +110,7 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   }
 
   /**
-   * Thrown by {@link #handle} once a request body has streamed past {@code
-   * MAX_REQUEST_BODY_BYTES}.
+   * Thrown by {@link #handle} once a request body has streamed past {@code MAX_REQUEST_BODY_BYTES}.
    */
   private static final class RequestTooLargeException extends RuntimeException {
     RequestTooLargeException(long maxBytes) {

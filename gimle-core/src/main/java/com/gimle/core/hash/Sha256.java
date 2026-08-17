@@ -12,7 +12,8 @@ import java.util.HexFormat;
  * Shared SHA-256 digest/hex-encoding boilerplate: every process that needs to verify or fingerprint
  * bytes -- Andvari's artifact store, the module/vessel artifact readers, Fafnir's key ring, Saga's
  * run-id derivation, Hilmir's gateway-enablement command -- otherwise reimplements the identical
- * {@code MessageDigest.getInstance("SHA-256")}/{@code NoSuchAlgorithmException} handling on its own.
+ * {@code MessageDigest.getInstance("SHA-256")}/{@code NoSuchAlgorithmException} handling on its
+ * own.
  */
 public final class Sha256 {
 
@@ -38,8 +39,7 @@ public final class Sha256 {
   }
 
   /**
-   * The hex-encoded SHA-256 digest of {@code file}'s contents, streamed rather than buffered
-   * whole.
+   * The hex-encoded SHA-256 digest of {@code file}'s contents, streamed rather than buffered whole.
    */
   public static String sha256Hex(Path file) throws IOException {
     MessageDigest digest = sha256Digest();

@@ -15,8 +15,8 @@ import java.util.Optional;
  * submission for a *tenanted* deployment specifically (unlike {@code DeploymentReconciler}, which
  * just retries next tick with nothing yet at stake), since admission can't safely let a submission
  * through it has no way to verify against the tenant's quota. {@code artifactResolver} is the same
- * shared instance every reconciler resolves through, so an existing tenant deployment resolved
- * from an Andvari registry coordinate is summed correctly here too, not silently read as zero.
+ * shared instance every reconciler resolves through, so an existing tenant deployment resolved from
+ * an Andvari registry coordinate is summed correctly here too, not silently read as zero.
  */
 public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> {
 

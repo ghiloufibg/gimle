@@ -13,9 +13,9 @@ import java.util.Optional;
  * two copies that could drift. Reads each tenant deployment's module descriptor from its artifact
  * through the same {@link ArtifactResolver} every reconciler already uses (local path or
  * registry-coordinate alike -- a blank {@code artifactPath} resolved through Andvari is a
- * documented, fully-wired deployment shape, not a corner case); an unreadable/unresolvable
- * artifact is skipped (not a resource this calculation can charge against a tenant) the same way
- * {@code DeploymentReconciler} itself tolerates one and simply retries next tick.
+ * documented, fully-wired deployment shape, not a corner case); an unreadable/unresolvable artifact
+ * is skipped (not a resource this calculation can charge against a tenant) the same way {@code
+ * DeploymentReconciler} itself tolerates one and simply retries next tick.
  */
 public final class TenantUsage {
 

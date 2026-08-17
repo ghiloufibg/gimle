@@ -37,9 +37,9 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
    *
    * <p>A reading below the current running minimum is re-confirmed with one immediate re-read
    * before being folded in, rather than trusting a single raw HTTP read outright -- a lone
-   * momentary heartbeat/store-read staleness under sandbox load would otherwise be indistinguishable
-   * from a real drop, and the 2-replica scenario's whole assertion rests on that minimum never being
-   * spuriously dragged down by one stale sample.
+   * momentary heartbeat/store-read staleness under sandbox load would otherwise be
+   * indistinguishable from a real drop, and the 2-replica scenario's whole assertion rests on that
+   * minimum never being spuriously dragged down by one stale sample.
    */
   private Thread startMinActiveSampler(
       String baseUrl,

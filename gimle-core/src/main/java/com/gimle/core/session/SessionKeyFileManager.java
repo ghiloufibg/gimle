@@ -77,14 +77,13 @@ public final class SessionKeyFileManager {
    * Creates {@code path} atomically with owner-only permissions already applied on a POSIX
    * filesystem, so the key file is never briefly visible at default (often world-readable)
    * permissions between creation and a separate chmod call -- and never left behind at those
-   * default permissions if the process crashes between the two. Falls back to a plain create plus
-   * a logged warning where POSIX permissions aren't available.
+   * default permissions if the process crashes between the two. Falls back to a plain create plus a
+   * logged warning where POSIX permissions aren't available.
    */
   private static void createKeyFile(Path path) throws IOException {
     if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
       Files.createFile(
-          path,
-          PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+          path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
     } else {
       Files.createFile(path);
       log.warn(

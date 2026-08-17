@@ -12,9 +12,9 @@ import java.util.function.LongFunction;
  * (Andvari's artifact uploads, Muninn's ingest batches, Saga's ingest/import bodies) rather than
  * each carrying its own copy of the same counting {@link FilterInputStream}.
  *
- * <p>{@code onExceeded} is invoked with the byte count that triggered the limit and must return
- * the {@link RuntimeException} to throw, so each call site can still surface its own local
- * exception type unchanged.
+ * <p>{@code onExceeded} is invoked with the byte count that triggered the limit and must return the
+ * {@link RuntimeException} to throw, so each call site can still surface its own local exception
+ * type unchanged.
  */
 public final class SizeLimitedInputStream extends FilterInputStream {
 

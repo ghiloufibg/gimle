@@ -216,8 +216,7 @@ public final class FabricServer implements AutoCloseable {
           connection.setOption(StandardSocketOptions.TCP_NODELAY, true);
         }
       } catch (IOException e) {
-        log.warn(
-            "failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
+        log.warn("failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
         closeQuietly(connection);
         continue;
       }
@@ -246,8 +245,7 @@ public final class FabricServer implements AutoCloseable {
       try {
         connection.setTcpNoDelay(true); // see FabricClient: the response half of the round trip
       } catch (IOException e) {
-        log.warn(
-            "failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
+        log.warn("failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
         closeQuietly(connection);
         continue;
       }

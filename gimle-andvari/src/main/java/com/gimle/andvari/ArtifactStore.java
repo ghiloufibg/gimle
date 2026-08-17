@@ -169,7 +169,9 @@ public final class ArtifactStore {
       try (DigestInputStream digesting =
           new DigestInputStream(
               new SizeLimitedInputStream(
-                  body, maxArtifactBytes, exceeded -> new ArtifactTooLargeException(maxArtifactBytes)),
+                  body,
+                  maxArtifactBytes,
+                  exceeded -> new ArtifactTooLargeException(maxArtifactBytes)),
               digest)) {
         sizeBytes = Files.copy(digesting, tempFile, StandardCopyOption.REPLACE_EXISTING);
       }
