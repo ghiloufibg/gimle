@@ -7,6 +7,7 @@ import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.cluster.MemberStatus;
+import com.gimle.testkit.Await;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -15,10 +16,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -94,7 +93,7 @@ class AgentGossipServerTest {
     peer.start();
     peer.join(List.of(gossipMember.self().gossipAddress()));
 
-    await(
+    Await.until(
         () -> {
           try {
             List<Map<String, Object>> members =
@@ -109,17 +108,6 @@ class AgentGossipServerTest {
           }
         },
         Duration.ofSeconds(10));
-  }
-
-  private static void await(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    Instant deadline = Instant.now().plus(timeout);
-    while (!condition.getAsBoolean()) {
-      if (Instant.now().isAfter(deadline)) {
-        throw new AssertionError("condition not met within " + timeout);
-      }
-      Thread.sleep(50);
-    }
   }
 
   @Test

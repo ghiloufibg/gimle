@@ -2,10 +2,10 @@ package com.gimle.observability;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.testkit.Await;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import java.time.Duration;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,10 +43,10 @@ class GimleTracingInstallTest {
     Tracer tracer = GlobalOpenTelemetry.get().getTracer("test");
     tracer.spanBuilder("swapped-in").startSpan().end();
 
-    // BatchSpanProcessor's own default export interval is 5s -- a 5s awaitUntil races that exact
+    // BatchSpanProcessor's own default export interval is 5s -- a 5s await races that exact
     // deadline and flakes under system load (a full reactor build, e.g.). 15s gives real headroom
     // without masking a genuine regression, well within this test's own @Timeout above it.
-    awaitUntil(() -> !capturingExporter.captured().isEmpty(), Duration.ofSeconds(15));
+    Await.until(() -> !capturingExporter.captured().isEmpty(), Duration.ofSeconds(15));
     assertTrue(
         capturingExporter.captured().stream()
             .anyMatch(span -> "swapped-in".equals(span.getName())));
@@ -74,16 +74,5 @@ class GimleTracingInstallTest {
     // resetForTesting() (run in @BeforeEach) clears any prior installation -- flush() must not
     // throw when nothing has ever been installed.
     GimleTracing.flush();
-  }
-
-  private static void awaitUntil(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.getAsBoolean()) {
-      if (System.nanoTime() > deadline) {
-        throw new AssertionError("condition not met within " + timeout);
-      }
-      Thread.sleep(20);
-    }
   }
 }

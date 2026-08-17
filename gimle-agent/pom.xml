@@ -95,5 +95,12 @@
       <artifactId>gimle-fafnir</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Await and PortLease: shared test infrastructure so this module's own tests don't
+         reimplement condition-polling or port-leasing helpers already canonical there. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

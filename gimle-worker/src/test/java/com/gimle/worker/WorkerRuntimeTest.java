@@ -263,10 +263,15 @@ class WorkerRuntimeTest {
     Await.until(() -> uninstalledCount(f.events()) >= 2, Duration.ofSeconds(10));
 
     ControllableLivenessProbe.ALIVE.set(true);
-    // Long enough for the in-flight restart to finish, the module to reach ACTIVE, and the
-    // stability confirmation (300ms) to actually fire and reset the tracker.
+    // Wait for the in-flight restart to actually finish and the module to reach ACTIVE first --
+    // only then does the 300ms stability clock start -- rather than betting a flat sleep covers
+    // both the restart and the confirmation window, which flakes on a stalled CI box.
+    Await.until(
+        () -> f.registry().state(f.id()) == ModuleState.ACTIVE, Duration.ofSeconds(10));
+    // Hold comfortably past the 300ms stability threshold so the confirmation actually fires and
+    // resets the tracker before the second failure spell begins.
     try {
-      Thread.sleep(1000);
+      Thread.sleep(500);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }

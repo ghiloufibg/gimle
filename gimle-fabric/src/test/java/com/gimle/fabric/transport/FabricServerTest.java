@@ -12,9 +12,11 @@ import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.observability.WorkerMetrics;
+import com.gimle.testkit.Await;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.opentelemetry.api.baggage.Baggage;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -237,9 +239,12 @@ class FabricServerTest {
             clientThreads.submit(() -> FabricClient.call(address, invokeGreet("b"))),
             clientThreads.submit(() -> FabricClient.call(address, invokeGreet("c"))));
 
-    // Bounded to 1: at any instant while all three client calls are outstanding, only one should
-    // ever be inside the service method -- give the (deliberately unbounded, if the fix
-    // regresses) alternative a real chance to show itself before asserting.
+    // First wait for at least one call to have actually reached the service -- under load, zero
+    // of the three client calls may have gotten there yet within a bare fixed sleep. Then hold
+    // briefly: bounded to 1, at any instant while all three client calls are outstanding, only
+    // one should ever be inside the service method -- give the (deliberately unbounded, if the
+    // fix regresses) alternative a real chance to show itself before asserting.
+    Await.until(() -> concurrent.get() >= 1, Duration.ofSeconds(5));
     Thread.sleep(200);
     assertEquals(1, concurrent.get());
 

@@ -18,6 +18,8 @@ import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
+import com.gimle.testkit.Await;
+import com.gimle.testkit.PortLease;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -34,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -63,6 +64,11 @@ class ControlPlaneAgentWorkerIntegrationTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  // Leased up front (two loopback ports: node-a's and node-b's gossip binds) rather than
+  // hardcoded, so this test's cluster can't collide with a concurrently-running sibling on the
+  // same machine. Each port is released immediately before the agent process that will bind it
+  // spawns, mirroring gimle-smoke-tests' own GreeterSmokeClusterSupport usage.
+  private final PortLease portLease = PortLease.reserve(2);
   private final List<Process> agentProcesses = new ArrayList<>();
   private RaftNode storeRaftNode;
   private StoreTransport storeTransport;
@@ -100,6 +106,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
     if (storeRaftNode != null) {
       storeRaftNode.close();
     }
+    portLease.close();
   }
 
   /**
@@ -185,29 +192,37 @@ class ControlPlaneAgentWorkerIntegrationTest {
     String javaExecutable = javaExecutable();
     String classpath = System.getProperty("java.class.path");
 
+    List<Integer> gossipPorts = portLease.ports();
+    int gossipPortA = gossipPorts.get(0);
+    int gossipPortB = gossipPorts.get(1);
+    String gossipAddressA = "127.0.0.1:" + gossipPortA;
+    String gossipAddressB = "127.0.0.1:" + gossipPortB;
+
+    portLease.release(gossipPortA);
     agentProcesses.add(
         spawnAgent(
             javaExecutable,
             classpath,
             "node-a",
             baseUrl,
-            "127.0.0.1:17946",
+            gossipAddressA,
             "-",
             tempDir.resolve("node-a.log")));
+    portLease.release(gossipPortB);
     agentProcesses.add(
         spawnAgent(
             javaExecutable,
             classpath,
             "node-b",
             baseUrl,
-            "127.0.0.1:17947",
-            "127.0.0.1:17946",
+            gossipAddressB,
+            gossipAddressA,
             tempDir.resolve("node-b.log")));
 
     HttpClient httpClient = HttpClient.newHttpClient();
     submitDeployment(httpClient, baseUrl, "fixture-deployment", jar, 2);
 
-    await(
+    Await.until(
         () -> activeInstanceCountQuietly(httpClient, baseUrl, "fixture-deployment") >= 2,
         Duration.ofSeconds(90),
         "both replicas should reach ACTIVE");
@@ -226,7 +241,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
     // the kill once ReplicaCountReconciler's dark-timeout/grace-period elapses and re-places the
     // orphaned instance, so the real assertion is "both ACTIVE *and* neither still on the node
     // whose agent just died."
-    await(
+    Await.until(
         () -> allActiveAndOnNode(httpClient, baseUrl, "fixture-deployment", 2, survivingNodeId),
         Duration.ofSeconds(90),
         "both replicas should recover to ACTIVE on the surviving node after the agent hosting one of them is killed");
@@ -315,8 +330,8 @@ class ControlPlaneAgentWorkerIntegrationTest {
   }
 
   /**
-   * {@link BooleanSupplier} can't declare checked exceptions; a transient HTTP hiccup mid-poll
-   * should keep the {@link #await} loop retrying, not fail the test outright.
+   * A {@code BooleanSupplier} can't declare checked exceptions; a transient HTTP hiccup mid-poll
+   * should keep {@link Await#until} retrying, not fail the test outright.
    */
   private static long activeInstanceCountQuietly(
       HttpClient httpClient, String baseUrl, String name) {
@@ -358,21 +373,6 @@ class ControlPlaneAgentWorkerIntegrationTest {
       return true;
     } catch (Exception e) {
       return false;
-    }
-  }
-
-  private static void await(BooleanSupplier condition, Duration timeout, String description) {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.getAsBoolean()) {
-      if (System.nanoTime() > deadline) {
-        throw new AssertionError("condition not met within " + timeout + ": " + description);
-      }
-      try {
-        Thread.sleep(500);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new AssertionError("interrupted while waiting for: " + description, e);
-      }
     }
   }
 

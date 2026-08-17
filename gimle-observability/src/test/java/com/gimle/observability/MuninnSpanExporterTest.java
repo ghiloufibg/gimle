@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.testkit.Await;
 import com.sun.net.httpserver.HttpServer;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -22,7 +23,6 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -82,7 +82,7 @@ class MuninnSpanExporterTest {
       tracerProvider.forceFlush().join(5, TimeUnit.SECONDS);
       tracerProvider.close();
 
-      awaitUntil(() -> !receivedBodies.isEmpty(), Duration.ofSeconds(5));
+      Await.until(() -> !receivedBodies.isEmpty(), Duration.ofSeconds(5));
       Map<String, Object> line = Json.asObject(Json.parse(receivedBodies.get(0).trim()));
       assertEquals("do-something", line.get("name"));
       assertEquals("GET", line.get("http.method"));
@@ -118,16 +118,5 @@ class MuninnSpanExporterTest {
     tracer.spanBuilder("ephemeral").startSpan().end();
     tracerProvider.close();
     return capturingExporter.captured();
-  }
-
-  private static void awaitUntil(BooleanSupplier condition, Duration timeout)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.getAsBoolean()) {
-      if (System.nanoTime() > deadline) {
-        throw new AssertionError("condition not met within " + timeout);
-      }
-      Thread.sleep(20);
-    }
   }
 }

@@ -18,6 +18,8 @@ import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
+import com.gimle.testkit.Await;
+import com.gimle.testkit.PortLease;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -34,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -65,6 +66,11 @@ class FabricCrossProcessIntegrationTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  // Leased up front (two loopback ports: node-a's and node-b's gossip binds) rather than
+  // hardcoded, so this test's cluster can't collide with a concurrently-running sibling on the
+  // same machine. Each port is released immediately before the agent process that will bind it
+  // spawns, mirroring gimle-smoke-tests' own GreeterSmokeClusterSupport usage.
+  private final PortLease portLease = PortLease.reserve(2);
   private final List<Process> agentProcesses = new ArrayList<>();
   private RaftNode storeRaftNode;
   private StoreTransport storeTransport;
@@ -102,6 +108,7 @@ class FabricCrossProcessIntegrationTest {
     if (storeRaftNode != null) {
       storeRaftNode.close();
     }
+    portLease.close();
   }
 
   private static void killWithDescendants(Process process) {
@@ -182,19 +189,26 @@ class FabricCrossProcessIntegrationTest {
     String classpath = System.getProperty("java.class.path");
     HttpClient httpClient = HttpClient.newHttpClient();
 
+    List<Integer> gossipPorts = portLease.ports();
+    int gossipPortA = gossipPorts.get(0);
+    int gossipPortB = gossipPorts.get(1);
+    String gossipAddressA = "127.0.0.1:" + gossipPortA;
+    String gossipAddressB = "127.0.0.1:" + gossipPortB;
+
     // node-a hosts the provider; started and placed first, alone, so it's the only candidate.
+    portLease.release(gossipPortA);
     agentProcesses.add(
         spawnAgent(
             javaExecutable,
             classpath,
             "node-a",
             baseUrl,
-            "127.0.0.1:17970",
+            gossipAddressA,
             "-",
             List.of(),
             tempDir.resolve("node-a.log")));
     submitDeployment(httpClient, baseUrl, "fabric-provider", providerJar, 1);
-    await(
+    Await.until(
         () -> activeInstanceCountQuietly(httpClient, baseUrl, "fabric-provider") >= 1,
         Duration.ofSeconds(60),
         "provider should reach ACTIVE");
@@ -202,20 +216,21 @@ class FabricCrossProcessIntegrationTest {
     // node-b hosts the consumer; by the time it's registered, node-a's free capacity is already
     // (slightly) reduced by the provider instance, so the scheduler deterministically prefers
     // node-b -- untouched -- for this second deployment.
+    portLease.release(gossipPortB);
     agentProcesses.add(
         spawnAgent(
             javaExecutable,
             classpath,
             "node-b",
             baseUrl,
-            "127.0.0.1:17971",
-            "127.0.0.1:17970",
+            gossipAddressB,
+            gossipAddressA,
             List.of("-Dgimle.test.outputFile=" + outputFile.toAbsolutePath()),
             tempDir.resolve("node-b.log")));
     // Wait for node-b to actually be a placement candidate (registered *and* heartbeated) before
     // submitting the consumer -- otherwise the reconcile loop's very next tick would place it on
     // node-a (still the only candidate) well before node-b's JVM has even finished starting up.
-    await(
+    Await.until(
         () -> store.getNodeHeartbeat("node-b").isPresent(),
         Duration.ofSeconds(30),
         "node-b should have registered and heartbeated");
@@ -225,7 +240,7 @@ class FabricCrossProcessIntegrationTest {
     // whole lookup-retry-then-call-loop duration (gating-hook semantics -- onStart runs
     // synchronously as part of the STARTING -> ACTIVE transition), so ACTIVE is only reported
     // once that entire routine returns. Poll the output file directly instead.
-    await(
+    Await.until(
         () -> outputContainsQuietly(outputFile, "OK:hello world from provider"),
         Duration.ofSeconds(90),
         "consumer should successfully call the provider over a real cross-machine fabric hop; log:"
@@ -236,7 +251,7 @@ class FabricCrossProcessIntegrationTest {
     // calls to start failing over -- never hanging -- once the catalog/breaker notice.
     killWithDescendants(agentProcesses.get(0));
 
-    await(
+    Await.until(
         () -> outputHasAFailureAfterASuccessQuietly(outputFile),
         Duration.ofSeconds(45),
         "consumer should observe a failure once the provider's node is killed; output so far: "
@@ -416,21 +431,6 @@ class FabricCrossProcessIntegrationTest {
       return String.join("\n", lines.subList(from, lines.size()));
     } catch (IOException e) {
       return "(failed to read log: " + e.getMessage() + ")";
-    }
-  }
-
-  private static void await(BooleanSupplier condition, Duration timeout, String description) {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.getAsBoolean()) {
-      if (System.nanoTime() > deadline) {
-        throw new AssertionError("condition not met within " + timeout + ": " + description);
-      }
-      try {
-        Thread.sleep(500);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new AssertionError("interrupted while waiting for: " + description, e);
-      }
     }
   }
 

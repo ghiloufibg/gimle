@@ -21,9 +21,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,7 +73,11 @@ class FafnirObservabilityTest {
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
         assertEquals(200, response.statusCode());
-        assertEquals(1.0, metrics.requestCount("secrets", "GET"));
+        // Awaited, not asserted immediately: the client's send() completes the moment the
+        // response body arrives, while FafnirServer#instrument records into the registry in a
+        // finally that runs just *after* the handler wrote that body -- a genuine,
+        // timing-dependent gap.
+        awaitMetric(() -> metrics.requestCount("secrets", "GET"), 1.0);
         assertEquals(0.0, metrics.errorCount("secrets", "GET"));
       }
     }
@@ -95,7 +101,8 @@ class FafnirObservabilityTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-        assertEquals(1.0, metrics.errorCount("secrets", "GET"));
+        // Same post-response recording gap as the request-count await above.
+        awaitMetric(() -> metrics.errorCount("secrets", "GET"), 1.0);
       }
     }
   }
@@ -216,6 +223,18 @@ class FafnirObservabilityTest {
         assertTrue(response.body().contains("value"));
       }
     }
+  }
+
+  private static void awaitMetric(DoubleSupplier metric, double expected)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+    while (System.nanoTime() < deadline) {
+      if (metric.getAsDouble() == expected) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    assertEquals(expected, metric.getAsDouble());
   }
 
   private static void grantSecretRead(StateStore store, String username) {
