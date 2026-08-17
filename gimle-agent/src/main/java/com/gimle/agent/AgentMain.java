@@ -402,6 +402,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/register"))
+            .timeout(Duration.ofSeconds(10))
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -437,9 +438,10 @@ public final class AgentMain {
 
   private static HttpClient buildHttpClient() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return HttpClient.newHttpClient();
+      return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     }
     return HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(5))
         .sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()))
         .build();
   }
@@ -476,13 +478,15 @@ public final class AgentMain {
             keyPair, new X500Name("CN=" + nodeId), List.of(resolveAdvertisedHost()));
 
     SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
-    HttpClient bootstrapClient = HttpClient.newBuilder().sslContext(trustOnly).build();
+    HttpClient bootstrapClient =
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).sslContext(trustOnly).build();
     Map<String, Object> body =
         csrSubmissionToJson(
             new CsrSubmission(
                 CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), Optional.of(bootstrapToken)));
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
+            .timeout(Duration.ofSeconds(10))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
@@ -539,6 +543,7 @@ public final class AgentMain {
           csrSubmissionToJson(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr)));
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
+              .timeout(Duration.ofSeconds(10))
               .header("Content-Type", "application/json")
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
@@ -651,6 +656,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/heartbeat"))
+            .timeout(Duration.ofSeconds(10))
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -675,6 +681,7 @@ public final class AgentMain {
     try {
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/events"))
+              .timeout(Duration.ofSeconds(10))
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
       httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -753,7 +760,10 @@ public final class AgentMain {
   private static List<AssignedInstance> fetchAssignments(
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
-        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments")).GET().build();
+        HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     List<Object> raw = Json.asArray(Json.parse(response.body()));
@@ -792,7 +802,10 @@ public final class AgentMain {
       HttpClient httpClient, URI baseUrl, String tenantId)
       throws IOException, InterruptedException {
     HttpRequest request =
-        HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId)).GET().build();
+        HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     // Checked before parsing: an error body is plain text ("forbidden"), and parsing it as JSON
@@ -827,7 +840,10 @@ public final class AgentMain {
       HttpClient httpClient, URI fafnirBaseUrl, String tenantId)
       throws IOException, InterruptedException {
     HttpRequest listRequest =
-        HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId)).GET().build();
+        HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
     HttpResponse<String> listResponse =
         httpClient.send(listRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     // Same status-before-parse reasoning as fetchConfigForTenant.
@@ -846,10 +862,21 @@ public final class AgentMain {
       String key = (String) map.get("key");
       HttpRequest valueRequest =
           HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId + "/" + key))
+              .timeout(Duration.ofSeconds(10))
               .GET()
               .build();
       HttpResponse<String> valueResponse =
           httpClient.send(valueRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      // Same status-before-parse reasoning as the listing call above: a soft-deleted-between-list-
+      // and-fetch or otherwise-unreadable secret must not abort the whole tenant's config load.
+      if (valueResponse.statusCode() != 200) {
+        log.warn(
+            "secret value fetch for {}/{} failed with status {}, skipping",
+            tenantId,
+            key,
+            valueResponse.statusCode());
+        continue;
+      }
       Map<String, Object> valueBody = Json.asObject(Json.parse(valueResponse.body()));
       byte[] decoded = Base64.getDecoder().decode((String) valueBody.get("value"));
       result.add(new ConfigValue(key, new String(decoded, StandardCharsets.UTF_8), true));
@@ -1572,9 +1599,24 @@ public final class AgentMain {
 
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, server, descriptor);
     supervised.put(key, instance);
-    capacityTracker.tryAssign(key, descriptor.resourceRequest());
-    startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
-    supervisor.start();
+    try {
+      capacityTracker.tryAssign(key, descriptor.resourceRequest());
+      startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+      supervisor.start();
+    } catch (IOException | RuntimeException e) {
+      // Undo everything registered above so a start failure leaves no trace behind -- mirrors
+      // installIntoExistingWorker's own failure cleanup, plus closing the control channel server
+      // this method (unlike that one) freshly bound.
+      supervised.remove(key);
+      capacityTracker.release(key);
+      stopShippingInstanceLogs(instanceShippers, key);
+      try {
+        server.close();
+      } catch (IOException closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
+      throw e;
+    }
 
     Thread.ofVirtual()
         .name("gimle-instance-starter-" + key)
@@ -2101,7 +2143,10 @@ public final class AgentMain {
     }
     try {
       HttpRequest httpRequest =
-          HttpRequest.newBuilder(baseUrl.resolve(request.path())).GET().build();
+          HttpRequest.newBuilder(baseUrl.resolve(request.path()))
+              .timeout(Duration.ofSeconds(10))
+              .GET()
+              .build();
       HttpResponse<String> response =
           httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       sendRelayResult(connection, request.correlationId(), response.statusCode(), response.body());

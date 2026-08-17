@@ -14,6 +14,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -109,7 +110,8 @@ public final class ArtifactPullCache {
     try {
       HttpResponse<InputStream> response =
           httpClient.send(
-              HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.ofInputStream());
+              HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+              HttpResponse.BodyHandlers.ofInputStream());
       if (response.statusCode() == 404) {
         throw new GimleManifestException(
             "artifact " + coordinate(moduleId) + " is not in the registry at " + andvariBaseUrl);
