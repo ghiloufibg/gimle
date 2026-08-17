@@ -29,18 +29,15 @@ import java.util.Optional;
  * StateStore}, dispatching every request either straight to a {@code StateStore} getter (any node
  * may answer) or, for {@link StoreRpc.Propose}/{@link StoreRpc.PutHeartbeat}/{@link
  * StoreRpc.AcquireOrRenewLease}/{@link StoreRpc.ReleaseLease}/{@link StoreRpc.AddServer}/{@link
- * StoreRpc.RemoveServer}/{@link StoreRpc.GetNodeHeartbeat}, through a leader check first,
- * translating a non-leader into {@link StoreRpc.NotLeader} carrying the leader's *client* address
- * rather than its Raft ID -- resolved via {@code raftIdToClientAddress}. {@link
- * StoreRpc.GetNodeHeartbeat} is the one *read* in this leader-only group: node heartbeats are
- * deliberately never replicated through the Raft log (too high-frequency, and tolerant of a brief
- * gap after a leader change -- see {@code StateStore.putNodeHeartbeat}'s own javadoc), so a
- * follower's local copy is never anything but empty. Treating it like every other any-node read
- * would silently answer "no heartbeat" from a replica that never held leadership, forever -- this
- * routes it the same leader-only way as everything else that's leader-local state. Unlike every
- * other field here, {@code raftIdToClientAddress} is a *live* reference the caller ({@code
- * StoreMain}) keeps mutating as membership changes -- {@code StoreNode} takes no defensive copy of
- * it on purpose, so a peer added after this node was constructed still resolves correctly.
+ * StoreRpc.RemoveServer}/{@link StoreRpc.GetNodeHeartbeat}/{@link
+ * StoreRpc.ListConfigEntriesForLinearizable}, through a leader check first, translating a
+ * non-leader into {@link StoreRpc.NotLeader} carrying the leader's *client* address rather than its
+ * Raft ID -- resolved via {@code raftIdToClientAddress}. {@link StoreRpc.GetNodeHeartbeat} and
+ * {@link StoreRpc.ListConfigEntriesForLinearizable} are the two *reads* in this leader-only group,
+ * for two different reasons -- see each type's own javadoc. Unlike every other field here, {@code
+ * raftIdToClientAddress} is a *live* reference the caller ({@code StoreMain}) keeps mutating as
+ * membership changes -- {@code StoreNode} takes no defensive copy of it on purpose, so a peer added
+ * after this node was constructed still resolves correctly.
  */
 public final class StoreNode implements StoreRpcHandler {
 
@@ -128,6 +125,7 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListSurgeIndices r ->
           surgeIndicesResult(store.getSurgeIndices(r.deploymentName()));
       case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
+      case StoreRpc.ListConfigEntriesForLinearizable r -> handleListConfigEntriesForLinearizable(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
               store.getReconcilerInstanceState(r.deploymentName(), r.instanceIndex()));
@@ -194,6 +192,22 @@ public final class StoreNode implements StoreRpcHandler {
       return notLeaderResponse();
     }
     return heartbeatResult(store.getNodeHeartbeat(request.nodeId()));
+  }
+
+  /**
+   * Leader-only for a different reason than {@link #handleGetNodeHeartbeat}: this data is fully
+   * replicated, so a follower's answer is never wrong, only possibly not-yet-caught-up with a write
+   * the calling client just made through this same connection. Answering only from the leader --
+   * which has already applied its own just-committed writes to its own local state by the time it
+   * responds to them -- is what gives a caller like {@code SecretStore.put} a read-your-own-write
+   * guarantee {@link StoreRpc.ListConfigEntriesFor}'s round-robin routing cannot.
+   */
+  private StoreRpc.Response handleListConfigEntriesForLinearizable(
+      StoreRpc.ListConfigEntriesForLinearizable request) {
+    if (!raftNode.isLeader()) {
+      return notLeaderResponse();
+    }
+    return new StoreRpc.ConfigEntryListResult(store.listConfigEntriesFor(request.tenantId()));
   }
 
   /**

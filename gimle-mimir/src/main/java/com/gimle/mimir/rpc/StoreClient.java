@@ -300,6 +300,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
+  /**
+   * Same query as {@link #listConfigEntriesFor}, but routed only to the current leader -- see
+   * {@link StoreRpc.ListConfigEntriesForLinearizable}'s own javadoc for why a caller like {@code
+   * SecretStore.put}'s own before/after version check needs this instead of the round-robin
+   * default.
+   */
+  public List<ConfigEntry> listConfigEntriesForLinearizable(String tenantId) {
+    return ((StoreRpc.ConfigEntryListResult)
+            sendLeaderOnly(
+                "listConfigEntriesForLinearizable",
+                new StoreRpc.ListConfigEntriesForLinearizable(tenantId)))
+        .values();
+  }
+
   public List<Role> listRoles() {
     return ((StoreRpc.RoleListResult) sendRead(new StoreRpc.ListRoles())).values();
   }

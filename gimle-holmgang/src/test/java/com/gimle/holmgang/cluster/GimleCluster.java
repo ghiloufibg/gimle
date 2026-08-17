@@ -1,7 +1,9 @@
 package com.gimle.holmgang.cluster;
 
+import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.fafnir.secret.KeyFileManager;
 import com.gimle.hilmir.plan.ClusterPlan;
 import com.gimle.hilmir.plan.LaunchPlanner;
 import com.gimle.hilmir.plan.MachinePlan;
@@ -28,6 +30,7 @@ import com.gimle.holmgang.topology.ProcessRole;
 import com.gimle.holmgang.topology.TenantSeed;
 import com.gimle.holmgang.topology.Transport;
 import com.gimle.mimir.raft.PeerAddress;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreRpc;
 import com.gimle.testkit.PortLease;
@@ -139,6 +142,125 @@ public final class GimleCluster implements AutoCloseable {
   /** How many Fafnir replicas this topology booted. */
   public int fafnirCount() {
     return fafnirs.size();
+  }
+
+  /**
+   * One Fafnir replica's own base URL -- for scenarios that must hit Fafnir directly (bypassing
+   * {@code gimle-controlplane}'s {@code /secrets/*} proxy entirely) to prove Fafnir's own
+   * independent authorization re-check actually runs, not merely that the proxy's check does.
+   */
+  public String fafnirBaseUrl(final int index) {
+    return scheme() + "://" + fafnirs.get(index).endpoint();
+  }
+
+  /**
+   * The shared secrets master-key file every Fafnir replica in this cluster was launched with (see
+   * {@link #buildTopology}'s own {@code FafnirRole} construction) -- exposed so a scenario can load
+   * the identical key material Fafnir itself uses, the only way to plant a ciphertext in a known
+   * format (e.g. the legacy pre-key-id layout) that Fafnir will actually decrypt correctly.
+   */
+  public Path fafnirKeyFilePath() {
+    return workDir.resolve("fafnir-secret.key");
+  }
+
+  /**
+   * A client trusting the cluster CA but presenting no certificate of its own -- what an
+   * unauthenticated CSR submission (a node's very first join, an operator's initial request) uses
+   * before it has an identity of its own. Identical to the default (identity-free) client in
+   * plaintext mode, since there is nothing to distrust there either way.
+   */
+  public HttpClient trustOnlyHttpClient() {
+    return mtls
+        ? HttpClient.newBuilder()
+            .sslContext(SslContexts.forServerTrustOnly(tlsDir.resolve("ca.crt")))
+            .build()
+        : HttpClient.newHttpClient();
+  }
+
+  /**
+   * An mTLS client presenting node {@code nodeId}'s own already-bootstrapped leaf certificate --
+   * the identical identity {@code gimle-agent} itself presents, letting a scenario call a service
+   * (Fafnir) directly as that node rather than through any proxy. mTLS-only: a node has no identity
+   * of its own to present under plaintext.
+   */
+  public HttpClient nodeIdentityHttpClient(final String nodeId) {
+    if (!mtls) {
+      throw new HolmgangException("a node identity client requires an mtls topology");
+    }
+    return HttpClient.newBuilder()
+        .sslContext(
+            SslContexts.forMutualTls(
+                new TlsSettings(
+                    nodeCertificateFile(nodeId), nodeKeyFile(nodeId), tlsDir.resolve("ca.crt"))))
+        .build();
+  }
+
+  /**
+   * Where node {@code nodeId}'s own leaf certificate lives, in the naming {@code LaunchPlanner}
+   * spawned it under.
+   */
+  public Path nodeCertificateFile(final String nodeId) {
+    return tlsDir.resolve("node-" + nodeId + ".crt");
+  }
+
+  private Path nodeKeyFile(final String nodeId) {
+    return tlsDir.resolve("node-" + nodeId + ".key");
+  }
+
+  /**
+   * The real {@code gimle cert renew --force} CLI flow, run as node {@code nodeId}'s own identity:
+   * a same-subject rotation CSR submitted over that node's *current* mTLS connection, exactly the
+   * wire protocol {@code OwnCertificateRotator}/{@code AgentMain}'s own periodic renewal check
+   * drives. Overwrites that node's cert/key files on disk in place with the freshly rotated pair --
+   * the same side effect a real rotation has.
+   */
+  public void renewNodeCertificate(final String nodeId) {
+    if (!mtls) {
+      throw new HolmgangException("certificate rotation requires an mtls topology");
+    }
+    final List<String> command = new ArrayList<>();
+    command.add(javaExecutablePath);
+    command.addAll(tlsFlags("node-" + nodeId));
+    command.addAll(List.of("-cp", classpath, "com.gimle.cli.GimleCli"));
+    command.addAll(List.of("cert", "renew", "--force"));
+    command.addAll(List.of("--server", controlPlanes.get(0).endpoint()));
+    runOneShot(
+        command,
+        workDir.resolve("cli-cert-renew-" + nodeId + ".log"),
+        Duration.ofSeconds(60),
+        "certificate renewal for " + nodeId);
+  }
+
+  /**
+   * The real CLI-driven bootstrap-token mint ({@code gimle cert token create}) this class already
+   * uses internally to join every agent -- exposed so a scenario can mint one of its own, for a CSR
+   * submission it drives itself rather than through a spawned agent.
+   */
+  public String mintBootstrapToken() {
+    return mintBootstrapToken(javaExecutablePath, classpath);
+  }
+
+  /**
+   * Proposes a raw {@link com.gimle.core.config.ConfigEntry} straight into the store, bypassing
+   * every higher-level API -- the only way a scenario can plant a value in a byte-exact format
+   * (e.g. Fafnir's legacy pre-key-id ciphertext layout) that no current write path produces
+   * anymore, to prove the read path still decodes it correctly.
+   */
+  public void proposeConfigEntry(final ConfigEntry entry) {
+    withStoreClient(
+        client -> {
+          client.propose(new StateMutation.PutConfigEntry(entry));
+          return null;
+        });
+  }
+
+  /**
+   * Every raw {@link ConfigEntry} a tenant owns -- the only way a scenario can inspect a secret's
+   * own stored ciphertext (e.g. the key id its second byte names) rather than the plaintext
+   * Fafnir's own read API always decrypts to.
+   */
+  public List<ConfigEntry> configEntriesFor(final String tenantId) {
+    return withStoreClient(client -> client.listConfigEntriesFor(tenantId));
   }
 
   /** The first Muninn replica -- the common case for a topology with just one. */
@@ -1002,6 +1124,20 @@ public final class GimleCluster implements AutoCloseable {
       final MachinePlan machinePlan, final PortPlan ports, final PortLease lease) {
     final List<ProcessCommand> planned =
         commandsForRole(machinePlan, com.gimle.hilmir.topology.ProcessRole.FAFNIR);
+    if (!planned.isEmpty()) {
+      // Pre-provisions the shared secrets key file exactly once, from this harness process, before
+      // any Fafnir replica's own JVM starts -- KeyFileManager.loadOrCreate's own javadoc requires
+      // "every Fafnir replica ... started with the same keyFilePath pointing at identically-
+      // provisioned key material" as an operational precondition it does not itself enforce. Two
+      // replicas spawned back-to-back (below) both cold-booting against a not-yet-existing file
+      // would otherwise race the same check-then-create window, each generating and writing its own
+      // random key: whichever process's write lands last "wins" the file, silently leaving the
+      // other replica's own in-memory key id 0 permanently diverged from what the file (and every
+      // other replica loading the file after it) actually holds -- a real cluster's operator avoids
+      // this by placing the key file before starting any replica, which is exactly what this call
+      // reproduces for a topology booted here from nothing.
+      KeyFileManager.loadOrCreate(fafnirKeyFilePath());
+    }
     for (int i = 0; i < planned.size(); i++) {
       lease.release(ports.fafnirPorts.get(i));
       final ManagedProcess fafnir = spawn(planned.get(i));

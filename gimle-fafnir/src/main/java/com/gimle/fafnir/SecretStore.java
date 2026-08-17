@@ -139,6 +139,15 @@ public final class SecretStore {
    * key@next} and advancing {@code @meta}, {@code @meta} still names the old version and the
    * orphaned {@code key@next} stays invisible to every read path forever -- a crash mid-write can
    * never make {@code @meta} point at a value that didn't finish landing.
+   *
+   * <p>Both the "before" and "after" reads below use {@link #readMetaLinearizable}, never the
+   * plain round-robin {@link #readMeta} every other method here uses: {@code StoreClient}'s reads
+   * are deliberately not leader-aware (any replica may answer, possibly one that has not yet
+   * replicated a previous {@code put} call's own {@code @meta} advance), so a plain read landing on
+   * a lagging replica would see the *same* stale value both times, make the "unchanged since
+   * before" check trivially pass, and silently overwrite an existing version instead of creating a
+   * new one -- a real, durable corruption, not just a slow-to-converge read, since the write that
+   * follows commits under that wrong version number too.
    */
   public int put(String tenantId, String key, byte[] plaintext) {
     validateKey(key);
@@ -148,7 +157,7 @@ public final class SecretStore {
     // "already held by this holderId" renewal rule would let both of them hold the lease at once.
     String holderId = UUID.randomUUID().toString();
     for (int attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
-      Meta before = readMeta(tenantId, key).orElse(Meta.EMPTY);
+      Meta before = readMetaLinearizable(tenantId, key).orElse(Meta.EMPTY);
       int next = before.latestVersion() + 1;
       byte[] ciphertext = crypto.encrypt(plaintext);
       storeClient.propose(
@@ -161,7 +170,7 @@ public final class SecretStore {
         continue;
       }
       try {
-        Meta after = readMeta(tenantId, key).orElse(Meta.EMPTY);
+        Meta after = readMetaLinearizable(tenantId, key).orElse(Meta.EMPTY);
         if (after.latestVersion() == before.latestVersion()) {
           writeMeta(tenantId, key, new Meta(next, false));
           return next;
@@ -201,15 +210,23 @@ public final class SecretStore {
   }
 
   private Optional<Meta> readMeta(String tenantId, String key) {
-    return findEntry(tenantId, metaKey(key))
-        .map(
-            e -> {
-              try {
-                return Meta.fromBytes(e.value());
-              } catch (RuntimeException ex) {
-                throw GimleSecretsException.malformedMetaEntry(tenantId, key, ex);
-              }
-            });
+    return decodeMeta(tenantId, key, findEntry(tenantId, metaKey(key)));
+  }
+
+  /** Only {@link #put}'s own before/after check needs this -- see that method's own javadoc. */
+  private Optional<Meta> readMetaLinearizable(String tenantId, String key) {
+    return decodeMeta(tenantId, key, findEntryLinearizable(tenantId, metaKey(key)));
+  }
+
+  private Optional<Meta> decodeMeta(String tenantId, String key, Optional<ConfigEntry> entry) {
+    return entry.map(
+        e -> {
+          try {
+            return Meta.fromBytes(e.value());
+          } catch (RuntimeException ex) {
+            throw GimleSecretsException.malformedMetaEntry(tenantId, key, ex);
+          }
+        });
   }
 
   private void writeMeta(String tenantId, String key, Meta meta) {
@@ -220,6 +237,12 @@ public final class SecretStore {
 
   private Optional<ConfigEntry> findEntry(String tenantId, String rawKey) {
     return storeClient.listConfigEntriesFor(tenantId).stream()
+        .filter(e -> e.key().equals(rawKey))
+        .findFirst();
+  }
+
+  private Optional<ConfigEntry> findEntryLinearizable(String tenantId, String rawKey) {
+    return storeClient.listConfigEntriesForLinearizable(tenantId).stream()
         .filter(e -> e.key().equals(rawKey))
         .findFirst();
   }

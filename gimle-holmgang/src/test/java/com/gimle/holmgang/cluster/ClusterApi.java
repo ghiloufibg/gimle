@@ -123,6 +123,68 @@ public final class ClusterApi {
     expectOk("PUT", "/config/" + tenantId + "/" + key, body, "config write");
   }
 
+  /**
+   * {@code GET /secrets/{tenantId}/{key}[?version=N]}, decoded from base64 -- empty for a 404
+   * (never written, or soft-deleted at the latest version with no {@code version} given), matching
+   * this class's own "single-shot readers swallow transport/not-found, never a hard failure" style.
+   */
+  public Optional<String> getSecret(
+      final String tenantId, final String key, final Optional<Integer> version) {
+    final String path =
+        "/secrets/" + tenantId + "/" + key + version.map(v -> "?version=" + v).orElse("");
+    final Optional<HttpResponse<String>> response = tryGet(path);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return Optional.empty();
+    }
+    final Map<String, Object> body = Json.asObject(Json.parse(response.get().body()));
+    final byte[] decoded = Base64.getDecoder().decode((String) body.get("value"));
+    return Optional.of(new String(decoded, StandardCharsets.UTF_8));
+  }
+
+  /** {@code GET /secrets/{tenantId}/{key}/versions} -- the version numbers currently stored. */
+  public List<Integer> secretVersions(final String tenantId, final String key) {
+    final Optional<HttpResponse<String>> response =
+        tryGet("/secrets/" + tenantId + "/" + key + "/versions");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return List.of();
+    }
+    final Map<String, Object> body = Json.asObject(Json.parse(response.get().body()));
+    return Json.asArray(body.get("versions")).stream().map(v -> ((Number) v).intValue()).toList();
+  }
+
+  /** Soft delete: {@code DELETE /secrets/{tenantId}/{key}} -- historical versions stay readable. */
+  public void softDeleteSecret(final String tenantId, final String key) {
+    expectOkNoBody("DELETE", "/secrets/" + tenantId + "/" + key, "secret soft delete");
+  }
+
+  /**
+   * Hard delete: {@code DELETE /secrets/{tenantId}/{key}?destroy=true} -- every version is gone.
+   */
+  public void hardDeleteSecret(final String tenantId, final String key) {
+    expectOkNoBody(
+        "DELETE", "/secrets/" + tenantId + "/" + key + "?destroy=true", "secret hard delete");
+  }
+
+  /**
+   * {@code POST /secrets/rotate-key}, proxied to Fafnir -- generates a new active secrets master
+   * key and re-encrypts every existing entry under it. Returns the newly active key id.
+   */
+  public int rotateSecretsKey() {
+    final HttpResponse<String> response;
+    try {
+      response =
+          httpClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/rotate-key"))
+                  .POST(HttpRequest.BodyPublishers.noBody())
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    } catch (final Exception e) {
+      throw new HolmgangException("secrets key rotation failed against " + baseUrl, e);
+    }
+    requireOk(response, "/secrets/rotate-key", "secrets key rotation");
+    return ((Number) Json.asObject(Json.parse(response.body())).get("activeKeyId")).intValue();
+  }
+
   /** A deployment's {@code disruption:} budget; absent implies the platform's own default. */
   public record Disruption(int maxUnavailable, int maxSurge) {}
 
