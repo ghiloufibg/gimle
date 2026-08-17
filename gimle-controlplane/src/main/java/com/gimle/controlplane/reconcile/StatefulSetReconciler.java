@@ -136,7 +136,14 @@ public final class StatefulSetReconciler {
     }
 
     for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
-      reconcileStatefulSet(spec);
+      try {
+        reconcileStatefulSet(spec);
+      } catch (RuntimeException e) {
+        // One statefulset's failure (e.g. a GimleRaftException from mutations.propose during a
+        // store leader-election gap) must never abort the rest of this tick's statefulsets -- the
+        // next tick retries this one from the same full snapshot.
+        log.warn("reconcile of statefulset {} failed: {}", spec.name(), e.getMessage(), e);
+      }
     }
   }
 

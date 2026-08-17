@@ -1,5 +1,6 @@
 package com.gimle.controlplane.admission;
 
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.tenant.Tenant;
@@ -13,9 +14,22 @@ import java.util.Optional;
  * com.gimle.core.tenant.ResourceQuota} all reject outright. An unreadable artifact rejects the
  * submission for a *tenanted* deployment specifically (unlike {@code DeploymentReconciler}, which
  * just retries next tick with nothing yet at stake), since admission can't safely let a submission
- * through it has no way to verify against the tenant's quota.
+ * through it has no way to verify against the tenant's quota. {@code artifactResolver} is the same
+ * shared instance every reconciler resolves through, so an existing tenant deployment resolved
+ * from an Andvari registry coordinate is summed correctly here too, not silently read as zero.
  */
 public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> {
+
+  private final ArtifactResolver artifactResolver;
+
+  /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
+  public TenantQuotaPlugin() {
+    this(ArtifactResolver.localOnly());
+  }
+
+  public TenantQuotaPlugin(ArtifactResolver artifactResolver) {
+    this.artifactResolver = artifactResolver;
+  }
 
   @Override
   public AdmissionDecision<DeploymentSpec> review(AdmissionRequest<DeploymentSpec> request) {
@@ -40,7 +54,8 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
     // admission outcome once a submission's disruption budget surges -- not a no-op.
     int committed = spec.maxCommittedInstances();
     TenantUsage.Usage existing =
-        TenantUsage.currentlyAssigned(request.store(), tenantId, Optional.of(spec.name()));
+        TenantUsage.currentlyAssigned(
+            request.store(), artifactResolver, tenantId, Optional.of(spec.name()));
     TenantUsage.Usage withThisSubmission =
         existing.plus(
             descriptor.resourceRequest().memoryBytes() * committed,

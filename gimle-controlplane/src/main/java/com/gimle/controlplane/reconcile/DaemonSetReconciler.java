@@ -149,7 +149,14 @@ public final class DaemonSetReconciler {
     }
 
     for (DaemonSetSpec spec : store.listDaemonSetSpecs()) {
-      reconcileDaemonSet(spec);
+      try {
+        reconcileDaemonSet(spec);
+      } catch (RuntimeException e) {
+        // One daemonset's failure (e.g. a GimleRaftException from mutations.propose during a
+        // store leader-election gap) must never abort the rest of this tick's daemonsets -- the
+        // next tick retries this one from the same full snapshot.
+        log.warn("reconcile of daemonset {} failed: {}", spec.name(), e.getMessage(), e);
+      }
     }
   }
 

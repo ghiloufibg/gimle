@@ -161,7 +161,14 @@ public final class JobReconciler {
     }
 
     for (JobSpec spec : store.listJobSpecs()) {
-      reconcileJob(spec);
+      try {
+        reconcileJob(spec);
+      } catch (RuntimeException e) {
+        // One job's failure (e.g. a GimleRaftException from mutations.propose during a store
+        // leader-election gap) must never abort the rest of this tick's jobs -- the next tick
+        // retries this one from the same full snapshot.
+        log.warn("reconcile of job {} failed: {}", spec.name(), e.getMessage(), e);
+      }
     }
   }
 

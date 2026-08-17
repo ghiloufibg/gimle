@@ -1,5 +1,6 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -31,69 +32,106 @@ public final class QuotaReconciler {
 
   private final StoreReader store;
   private final MutationSink mutations;
+  private final ArtifactResolver artifactResolver;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public QuotaReconciler(StateStore store) {
     this(store, mutation -> mutation.applyTo(store));
   }
 
+  /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
   public QuotaReconciler(StoreReader store, MutationSink mutations) {
+    this(store, mutations, ArtifactResolver.localOnly());
+  }
+
+  public QuotaReconciler(
+      StoreReader store, MutationSink mutations, ArtifactResolver artifactResolver) {
     this.store = store;
     this.mutations = mutations;
+    this.artifactResolver = artifactResolver;
   }
 
   public void reconcileOnce() {
     Map<String, TenantUsage.Usage> usageByTenant = new HashMap<>();
     for (DeploymentSpec spec : store.listDeployments()) {
-      spec.tenantId()
-          .ifPresent(
-              tenantId -> {
-                TenantUsage.Usage contribution = TenantUsage.contributionOf(store, spec);
-                usageByTenant.merge(
-                    tenantId,
-                    contribution,
-                    (a, b) ->
-                        new TenantUsage.Usage(
-                            a.memoryBytes() + b.memoryBytes(),
-                            a.cpuMillicores() + b.cpuMillicores(),
-                            a.instances() + b.instances()));
-              });
+      try {
+        accumulateUsage(usageByTenant, spec);
+      } catch (RuntimeException e) {
+        // One deployment's usage computation failing (e.g. an unresolvable artifact reference)
+        // must never abort the rest of this tick's usage accumulation -- the next tick retries
+        // from the same full snapshot.
+        log.warn(
+            "quota usage accumulation for deployment {} failed: {}",
+            spec.name(),
+            e.getMessage(),
+            e);
+      }
     }
 
     for (DeploymentSpec spec : store.listDeployments()) {
-      boolean violating = false;
-      if (spec.tenantId().isPresent()) {
-        String tenantId = spec.tenantId().get();
-        Tenant tenant = store.getTenant(tenantId).orElse(null);
-        // A null tenant (an unregistered tenantId) is a manifest-validity concern, not this
-        // reconciler's -- nothing to check, so it just stays non-violating.
-        if (tenant != null) {
-          TenantUsage.Usage usage =
-              usageByTenant.getOrDefault(tenantId, new TenantUsage.Usage(0, 0, 0));
-          if (usage.exceeds(tenant.quota())) {
-            violating = true;
-            log.warn(
-                "tenant {} exceeds its quota (memoryBytes={}/{}, cpuMillicores={}/{},"
-                    + " instances={}/{}); deployment {} marked quota-violating",
-                tenantId,
-                usage.memoryBytes(),
-                tenant.quota().maxMemoryBytes(),
-                usage.cpuMillicores(),
-                tenant.quota().maxCpuMillicores(),
-                usage.instances(),
-                tenant.quota().maxInstances(),
-                spec.name());
-          }
+      try {
+        reconcileQuotaViolation(spec, usageByTenant);
+      } catch (RuntimeException e) {
+        log.warn(
+            "quota violation reconcile for deployment {} failed: {}",
+            spec.name(),
+            e.getMessage(),
+            e);
+      }
+    }
+  }
+
+  private void accumulateUsage(Map<String, TenantUsage.Usage> usageByTenant, DeploymentSpec spec) {
+    spec.tenantId()
+        .ifPresent(
+            tenantId -> {
+              TenantUsage.Usage contribution =
+                  TenantUsage.contributionOf(store, artifactResolver, spec);
+              usageByTenant.merge(
+                  tenantId,
+                  contribution,
+                  (a, b) ->
+                      new TenantUsage.Usage(
+                          a.memoryBytes() + b.memoryBytes(),
+                          a.cpuMillicores() + b.cpuMillicores(),
+                          a.instances() + b.instances()));
+            });
+  }
+
+  private void reconcileQuotaViolation(
+      DeploymentSpec spec, Map<String, TenantUsage.Usage> usageByTenant) {
+    boolean violating = false;
+    if (spec.tenantId().isPresent()) {
+      String tenantId = spec.tenantId().get();
+      Tenant tenant = store.getTenant(tenantId).orElse(null);
+      // A null tenant (an unregistered tenantId) is a manifest-validity concern, not this
+      // reconciler's -- nothing to check, so it just stays non-violating.
+      if (tenant != null) {
+        TenantUsage.Usage usage =
+            usageByTenant.getOrDefault(tenantId, new TenantUsage.Usage(0, 0, 0));
+        if (usage.exceeds(tenant.quota())) {
+          violating = true;
+          log.warn(
+              "tenant {} exceeds its quota (memoryBytes={}/{}, cpuMillicores={}/{},"
+                  + " instances={}/{}); deployment {} marked quota-violating",
+              tenantId,
+              usage.memoryBytes(),
+              tenant.quota().maxMemoryBytes(),
+              usage.cpuMillicores(),
+              tenant.quota().maxCpuMillicores(),
+              usage.instances(),
+              tenant.quota().maxInstances(),
+              spec.name());
         }
       }
-      // Level-triggered means recomputing from scratch every tick, not re-proposing every tick:
-      // this reconciler still corrects a wrong stored value on its very next run regardless of
-      // what happened on prior ticks, but a value that's already correct shouldn't cost a fresh
-      // replicated write -- see StateMutation's own javadoc on why heartbeats were kept out of
-      // the log entirely for the same reason.
-      if (store.isQuotaViolating(spec.name()) != violating) {
-        mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating));
-      }
+    }
+    // Level-triggered means recomputing from scratch every tick, not re-proposing every tick:
+    // this reconciler still corrects a wrong stored value on its very next run regardless of
+    // what happened on prior ticks, but a value that's already correct shouldn't cost a fresh
+    // replicated write -- see StateMutation's own javadoc on why heartbeats were kept out of
+    // the log entirely for the same reason.
+    if (store.isQuotaViolating(spec.name()) != violating) {
+      mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating));
     }
   }
 }

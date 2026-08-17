@@ -125,20 +125,36 @@ public final class HealthReconciler {
   public void reconcileOnce() {
     Instant now = clock.instant();
     for (InstanceAssignment assignment : store.listAssignments()) {
-      ReconcilerInstanceState persisted = currentState(assignment);
-      if (persisted.permanentlyFailed()) {
-        continue;
+      try {
+        reconcileAssignment(assignment, now);
+      } catch (RuntimeException e) {
+        // One assignment's failure (e.g. a GimleRaftException from mutations.propose during a
+        // store leader-election gap) must never abort the rest of this tick's assignments -- the
+        // next tick retries this one from the same full snapshot.
+        log.warn(
+            "health reconcile of {} instance {} failed: {}",
+            assignment.deploymentName(),
+            assignment.instanceIndex(),
+            e.getMessage(),
+            e);
       }
-      Optional<InstanceObservation> observation = findObservation(assignment);
-      if (observation.isEmpty()) {
-        continue; // ReplicaCountReconciler's concern, not this one
-      }
-      if (isHealthy(observation.get())) {
-        recordHealthy(assignment, persisted);
-        continue;
-      }
-      handleUnhealthy(assignment, persisted, now);
     }
+  }
+
+  private void reconcileAssignment(InstanceAssignment assignment, Instant now) {
+    ReconcilerInstanceState persisted = currentState(assignment);
+    if (persisted.permanentlyFailed()) {
+      return;
+    }
+    Optional<InstanceObservation> observation = findObservation(assignment);
+    if (observation.isEmpty()) {
+      return; // ReplicaCountReconciler's concern, not this one
+    }
+    if (isHealthy(observation.get())) {
+      recordHealthy(assignment, persisted);
+      return;
+    }
+    handleUnhealthy(assignment, persisted, now);
   }
 
   private void recordHealthy(InstanceAssignment assignment, ReconcilerInstanceState persisted) {

@@ -186,8 +186,10 @@ public final class ControlPlaneMain {
             5,
             Duration.ofMinutes(15),
             storeClient);
-    AutoscaleReconciler autoscaleReconciler = new AutoscaleReconciler(storeClient, storeClient);
-    QuotaReconciler quotaReconciler = new QuotaReconciler(storeClient, storeClient);
+    AutoscaleReconciler autoscaleReconciler =
+        new AutoscaleReconciler(storeClient, storeClient, artifactResolver);
+    QuotaReconciler quotaReconciler =
+        new QuotaReconciler(storeClient, storeClient, artifactResolver);
     // Touches only its own JobSpec/JobRun store types, invisible to
     // the four reconcilers above by construction (they only ever read Deployment-scoped store
     // methods) -- no interaction with, or dependency on, tick order relative to them.
@@ -284,9 +286,16 @@ public final class ControlPlaneMain {
           // seedBootstrapAccountIfNeeded needs storeClient.propose, which throws if no store
           // leader is reachable -- a no-op the instant an Account already exists, so safe to
           // keep checking every tick forever after, the same level-triggered posture every
-          // reconciler here already has.
+          // reconciler here already has. Guarded in its own try/catch: an escaping exception here
+          // would otherwise propagate out of this whole Runnable, which per
+          // ScheduledExecutorService's contract permanently stops lease renewal above for the rest
+          // of the process's life.
           if (isReconcilerLeader.get()) {
-            apiServer.seedBootstrapAccountIfNeeded();
+            try {
+              apiServer.seedBootstrapAccountIfNeeded();
+            } catch (RuntimeException e) {
+              log.warn("bootstrap account seed attempt failed: {}", e.getMessage());
+            }
           }
         };
     Runnable reconcileTickRunnable =
@@ -308,7 +317,14 @@ public final class ControlPlaneMain {
     // certificate needs to stay fresh regardless of whether it currently holds the
     // reconciler-leader lease, since a non-leader replica still terminates client TLS
     // connections and must never present an expired certificate. No-op in plaintext mode.
-    Runnable certRotationTick = apiServer::checkAndRotateOwnCertificateIfDue;
+    Runnable certRotationTick =
+        () -> {
+          try {
+            apiServer.checkAndRotateOwnCertificateIfDue();
+          } catch (RuntimeException e) {
+            log.warn("certificate rotation check failed: {}", e.getMessage(), e);
+          }
+        };
 
     List<ScheduledExecutorService> tickers =
         scheduleIndependentTickers(
@@ -419,21 +435,28 @@ public final class ControlPlaneMain {
       CronJobReconciler cronJobReconciler,
       DaemonSetReconciler daemonSetReconciler,
       StatefulSetReconciler statefulSetReconciler) {
+    runOne("replicaCount", replicaCountReconciler::reconcileOnce);
+    runOne("health", healthReconciler::reconcileOnce);
+    runOne("autoscale", autoscaleReconciler::reconcileOnce);
+    runOne("quota", quotaReconciler::reconcileOnce);
+    runOne("deployment", deploymentReconciler::reconcileOnce);
+    // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
+    // consumer" ordering above -- a firing materialized here is then immediately placeable by
+    // jobReconciler in this same tick, not left waiting for the next one.
+    runOne("cronJob", cronJobReconciler::reconcileOnce);
+    runOne("job", jobReconciler::reconcileOnce);
+    runOne("daemonSet", daemonSetReconciler::reconcileOnce);
+    runOne("statefulSet", statefulSetReconciler::reconcileOnce);
+  }
+
+  // Each reconciler gets its own isolated failure boundary so one reconciler's exception (e.g. a
+  // GimleRaftException surfacing from mutations.propose during a store leader-election gap) never
+  // blocks the reconcilers scheduled after it within the same tick.
+  private static void runOne(String name, Runnable reconciler) {
     try {
-      replicaCountReconciler.reconcileOnce();
-      healthReconciler.reconcileOnce();
-      autoscaleReconciler.reconcileOnce();
-      quotaReconciler.reconcileOnce();
-      deploymentReconciler.reconcileOnce();
-      // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
-      // consumer" ordering above -- a firing materialized here is then immediately placeable by
-      // jobReconciler in this same tick, not left waiting for the next one.
-      cronJobReconciler.reconcileOnce();
-      jobReconciler.reconcileOnce();
-      daemonSetReconciler.reconcileOnce();
-      statefulSetReconciler.reconcileOnce();
+      reconciler.run();
     } catch (RuntimeException e) {
-      log.error("reconcile tick failed: {}", e.getMessage(), e);
+      log.warn("reconcile step '{}' failed: {}", name, e.getMessage(), e);
     }
   }
 }

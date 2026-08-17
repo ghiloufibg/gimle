@@ -78,7 +78,14 @@ public final class CronJobReconciler {
 
   public void reconcileOnce() {
     for (CronJobSpec spec : store.listCronJobSpecs()) {
-      reconcileCronJob(spec);
+      try {
+        reconcileCronJob(spec);
+      } catch (RuntimeException e) {
+        // One cronjob's failure (e.g. a GimleRaftException from mutations.propose during a store
+        // leader-election gap) must never abort the rest of this tick's cronjobs -- the next tick
+        // retries this one from the same full snapshot.
+        log.warn("reconcile of cronjob {} failed: {}", spec.name(), e.getMessage(), e);
+      }
     }
   }
 

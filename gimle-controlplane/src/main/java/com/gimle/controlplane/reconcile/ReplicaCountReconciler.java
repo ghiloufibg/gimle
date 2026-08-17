@@ -105,32 +105,18 @@ public final class ReplicaCountReconciler {
     Set<String> currentKeys = new HashSet<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
       currentKeys.add(key(assignment.deploymentName(), assignment.instanceIndex()));
-      ReconcilerInstanceState persisted = currentState(assignment);
-      if (isConfirmedByItsNode(assignment, now)) {
-        clearFirstSeenMissing(persisted);
-        continue;
-      }
-      long firstMissing = persisted.firstSeenMissingAtEpochMilli();
-      if (firstMissing == ReconcilerInstanceState.ABSENT) {
-        firstMissing = now.toEpochMilli();
-        // Track locally rather than re-reading the store after this write: store reads may hit a
-        // different, possibly-lagging replica than the leader mutations.propose just committed to
-        // (StoreReader's own javadoc -- reads stay loose, no linearizability requirement).
-        persisted = withFirstSeenMissing(persisted, firstMissing);
-        save(persisted);
-      }
-      if (Duration.between(Instant.ofEpochMilli(firstMissing), now).compareTo(placementGracePeriod)
-          >= 0) {
+      try {
+        reconcileAssignment(assignment, now);
+      } catch (RuntimeException e) {
+        // One assignment's failure (e.g. a GimleRaftException from mutations.propose during a
+        // store leader-election gap) must never abort the rest of this tick's assignments -- the
+        // next tick retries this one from the same full snapshot.
         log.warn(
-            "deployment {} instance {} on node {} is no longer confirmed by a heartbeat; releasing"
-                + " its assignment for re-placement",
+            "replica count reconcile of {} instance {} failed: {}",
             assignment.deploymentName(),
             assignment.instanceIndex(),
-            assignment.nodeId());
-        mutations.propose(
-            new StateMutation.RemoveAssignment(
-                assignment.deploymentName(), assignment.instanceIndex()));
-        clearFirstSeenMissing(persisted);
+            e.getMessage(),
+            e);
       }
     }
     // Assignments removed by some other path (deletion, scale-down) shouldn't leave orphaned
@@ -138,8 +124,47 @@ public final class ReplicaCountReconciler {
     for (ReconcilerInstanceState state : store.listReconcilerInstanceStates()) {
       if (state.firstSeenMissingAtEpochMilli() != ReconcilerInstanceState.ABSENT
           && !currentKeys.contains(key(state.deploymentName(), state.instanceIndex()))) {
-        save(withFirstSeenMissing(state, ReconcilerInstanceState.ABSENT));
+        try {
+          save(withFirstSeenMissing(state, ReconcilerInstanceState.ABSENT));
+        } catch (RuntimeException e) {
+          log.warn(
+              "clearing orphaned grace-period bookkeeping for {} instance {} failed: {}",
+              state.deploymentName(),
+              state.instanceIndex(),
+              e.getMessage(),
+              e);
+        }
       }
+    }
+  }
+
+  private void reconcileAssignment(InstanceAssignment assignment, Instant now) {
+    ReconcilerInstanceState persisted = currentState(assignment);
+    if (isConfirmedByItsNode(assignment, now)) {
+      clearFirstSeenMissing(persisted);
+      return;
+    }
+    long firstMissing = persisted.firstSeenMissingAtEpochMilli();
+    if (firstMissing == ReconcilerInstanceState.ABSENT) {
+      firstMissing = now.toEpochMilli();
+      // Track locally rather than re-reading the store after this write: store reads may hit a
+      // different, possibly-lagging replica than the leader mutations.propose just committed to
+      // (StoreReader's own javadoc -- reads stay loose, no linearizability requirement).
+      persisted = withFirstSeenMissing(persisted, firstMissing);
+      save(persisted);
+    }
+    if (Duration.between(Instant.ofEpochMilli(firstMissing), now).compareTo(placementGracePeriod)
+        >= 0) {
+      log.warn(
+          "deployment {} instance {} on node {} is no longer confirmed by a heartbeat; releasing"
+              + " its assignment for re-placement",
+          assignment.deploymentName(),
+          assignment.instanceIndex(),
+          assignment.nodeId());
+      mutations.propose(
+          new StateMutation.RemoveAssignment(
+              assignment.deploymentName(), assignment.instanceIndex()));
+      clearFirstSeenMissing(persisted);
     }
   }
 

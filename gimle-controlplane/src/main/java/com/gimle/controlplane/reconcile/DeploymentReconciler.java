@@ -123,7 +123,15 @@ public final class DeploymentReconciler {
     }
 
     for (DeploymentSpec spec : store.listDeployments()) {
-      reconcileDeployment(spec);
+      try {
+        reconcileDeployment(spec);
+      } catch (RuntimeException e) {
+        // One deployment's failure (e.g. a GimleRaftException from mutations.propose during a
+        // store leader-election gap) must never abort the rest of this tick's deployments -- the
+        // next tick retries this one from the same full snapshot, the same level-triggered posture
+        // placeInstances' own per-index catch below already relies on.
+        log.warn("reconcile of deployment {} failed: {}", spec.name(), e.getMessage(), e);
+      }
     }
   }
 

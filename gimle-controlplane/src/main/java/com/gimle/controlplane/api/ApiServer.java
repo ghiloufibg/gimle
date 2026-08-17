@@ -180,9 +180,10 @@ public final class ApiServer implements AutoCloseable {
   // plus {@code PolicyConfigPlugin}'s opt-in organization-specific rules -- a real extension point
   // new plugins can join without ApiServer growing another hardcoded check. Not exposed through any
   // public constructor parameter, same reasoning as {@code metrics} above: no test/caller has ever
-  // needed to inject a custom plugin list.
-  private final AdmissionChain<DeploymentSpec> deploymentAdmissionChain =
-      new AdmissionChain<>(List.of(new TenantQuotaPlugin(), new PolicyConfigPlugin()));
+  // needed to inject a custom plugin list. Built in the constructor body (not a field initializer)
+  // because TenantQuotaPlugin needs this.artifactResolver, which instance field initializers run
+  // before the constructor body assigns.
+  private final AdmissionChain<DeploymentSpec> deploymentAdmissionChain;
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
@@ -317,6 +318,9 @@ public final class ApiServer implements AutoCloseable {
     this.muninnClient = muninnClient;
     this.artifactResolver =
         artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
+    this.deploymentAdmissionChain =
+        new AdmissionChain<>(
+            List.of(new TenantQuotaPlugin(this.artifactResolver), new PolicyConfigPlugin()));
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();

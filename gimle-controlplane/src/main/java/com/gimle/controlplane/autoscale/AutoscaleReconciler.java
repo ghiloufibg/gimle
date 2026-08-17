@@ -1,5 +1,6 @@
 package com.gimle.controlplane.autoscale;
 
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -11,8 +12,6 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
-import com.gimle.module.artifact.ModuleArtifactReader;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
@@ -46,20 +45,43 @@ public final class AutoscaleReconciler {
 
   private final StoreReader store;
   private final MutationSink mutations;
+  private final ArtifactResolver artifactResolver;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public AutoscaleReconciler(StateStore store) {
     this(store, mutation -> mutation.applyTo(store));
   }
 
+  /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
   public AutoscaleReconciler(StoreReader store, MutationSink mutations) {
+    this(store, mutations, ArtifactResolver.localOnly());
+  }
+
+  public AutoscaleReconciler(
+      StoreReader store, MutationSink mutations, ArtifactResolver artifactResolver) {
     this.store = store;
     this.mutations = mutations;
+    this.artifactResolver = artifactResolver;
   }
 
   public void reconcileOnce() {
     for (DeploymentSpec spec : store.listDeployments()) {
-      spec.autoscale().ifPresent(policy -> reconcileDeployment(spec, policy));
+      spec.autoscale()
+          .ifPresent(
+              policy -> {
+                try {
+                  reconcileDeployment(spec, policy);
+                } catch (RuntimeException e) {
+                  // One deployment's failure (e.g. a GimleRaftException from mutations.propose
+                  // during a store leader-election gap) must never abort the rest of this tick's
+                  // deployments -- the next tick retries this one from the same full snapshot.
+                  log.warn(
+                      "autoscale reconcile of deployment {} failed: {}",
+                      spec.name(),
+                      e.getMessage(),
+                      e);
+                }
+              });
     }
   }
 
@@ -68,7 +90,10 @@ public final class AutoscaleReconciler {
 
     ModuleDescriptor descriptor;
     try {
-      descriptor = ModuleArtifactReader.read(Path.of(spec.artifactPath())).descriptor();
+      descriptor =
+          artifactResolver
+              .resolve(spec.artifactPath(), spec.moduleId(), spec.vessel())
+              .descriptor();
     } catch (RuntimeException e) {
       log.warn(
           "deployment {} references an unreadable artifact {}; leaving its effective replica"
