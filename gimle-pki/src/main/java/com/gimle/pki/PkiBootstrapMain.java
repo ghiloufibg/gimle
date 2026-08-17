@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -16,6 +17,8 @@ import java.util.Base64;
 import java.util.List;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@code mvn gimle:tls-init}'s entry point (spawned by {@code TlsInitMojo} against this module's
@@ -35,6 +38,7 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
  */
 public final class PkiBootstrapMain {
 
+  private static final Logger log = LoggerFactory.getLogger(PkiBootstrapMain.class);
   private static final Duration CA_VALIDITY = Duration.ofDays(3650);
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   private static final int KEY_SIZE_BITS = 2048;
@@ -122,10 +126,9 @@ public final class PkiBootstrapMain {
         outputDir.resolve("ca.crt"),
         Pem.encodeCertificate(ca.certificate()),
         StandardCharsets.US_ASCII);
-    Files.writeString(
-        outputDir.resolve("ca.key"),
-        Pem.encodePrivateKey(ca.privateKey()),
-        StandardCharsets.US_ASCII);
+    Path caKeyFile = outputDir.resolve("ca.key");
+    Files.writeString(caKeyFile, Pem.encodePrivateKey(ca.privateKey()), StandardCharsets.US_ASCII);
+    restrictPermissions(caKeyFile);
   }
 
   private static void issueLeaf(
@@ -143,10 +146,10 @@ public final class PkiBootstrapMain {
         outputDir.resolve(fileNamePrefix + ".crt"),
         Pem.encodeCertificate(certificate),
         StandardCharsets.US_ASCII);
+    Path leafKeyFile = outputDir.resolve(fileNamePrefix + ".key");
     Files.writeString(
-        outputDir.resolve(fileNamePrefix + ".key"),
-        Pem.encodePrivateKey(keyPair.getPrivate()),
-        StandardCharsets.US_ASCII);
+        leafKeyFile, Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
+    restrictPermissions(leafKeyFile);
   }
 
   private static KeyPair generateKeyPair() {
@@ -156,6 +159,25 @@ public final class PkiBootstrapMain {
       return generator.generateKeyPair();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("RSA key pair generation unavailable", e);
+    }
+  }
+
+  /**
+   * Restricts a freshly-written private key file to owner-read/write only wherever the filesystem
+   * supports POSIX permissions (every real deployment target); on a filesystem that doesn't
+   * (Windows, local development only), the key is left written but the restriction is skipped with
+   * a logged warning rather than a hard failure, since {@code java.nio.file}'s own POSIX view is
+   * simply unavailable there.
+   */
+  private static void restrictPermissions(Path path) throws IOException {
+    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+    } else {
+      log.warn(
+          "filesystem at {} does not support POSIX permissions; private key file was written"
+              + " without owner-only restriction (expected only in local Windows development --"
+              + " every real deployment target restricts this)",
+          path);
     }
   }
 }

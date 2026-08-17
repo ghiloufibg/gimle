@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fafnir's versioned secret storage, layered over the store as a synthetic-key convention. {@code
@@ -28,6 +30,7 @@ import java.util.UUID;
  */
 public final class SecretStore {
 
+  private static final Logger log = LoggerFactory.getLogger(SecretStore.class);
   private static final String META_SUFFIX = "@meta";
   // Bounds the optimistic write-verify-retry loop in #put below -- contention only ever produces
   // a harmless orphaned key@N entry and a retry, never data loss, but a pathological hot-key race
@@ -48,7 +51,11 @@ public final class SecretStore {
     this.crypto = crypto;
   }
 
-  /** The list endpoint: every logical secret's metadata for {@code tenantId}, never a value. */
+  /**
+   * The list endpoint: every logical secret's metadata for {@code tenantId}, never a value. One
+   * corrupted {@code @meta} entry is skipped and logged rather than aborting the whole listing --
+   * every other secret the tenant owns is unaffected by one entry's corruption.
+   */
   public List<SecretMetadata> list(String tenantId) {
     List<SecretMetadata> result = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
@@ -56,7 +63,13 @@ public final class SecretStore {
         continue;
       }
       String key = entry.key().substring(0, entry.key().length() - META_SUFFIX.length());
-      Meta meta = Meta.fromBytes(entry.value());
+      Meta meta;
+      try {
+        meta = Meta.fromBytes(entry.value());
+      } catch (RuntimeException e) {
+        log.warn("skipping malformed secret metadata for {}/{}: {}", tenantId, key, e.getMessage());
+        continue;
+      }
       result.add(new SecretMetadata(key, meta.latestVersion(), meta.deleted()));
     }
     return result;
@@ -188,7 +201,15 @@ public final class SecretStore {
   }
 
   private Optional<Meta> readMeta(String tenantId, String key) {
-    return findEntry(tenantId, metaKey(key)).map(e -> Meta.fromBytes(e.value()));
+    return findEntry(tenantId, metaKey(key))
+        .map(
+            e -> {
+              try {
+                return Meta.fromBytes(e.value());
+              } catch (RuntimeException ex) {
+                throw GimleSecretsException.malformedMetaEntry(tenantId, key, ex);
+              }
+            });
   }
 
   private void writeMeta(String tenantId, String key, Meta meta) {

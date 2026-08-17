@@ -16,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Backs all three of Muninn's ingested data kinds -- logs, metrics, and traces: one day-bucketed
@@ -34,7 +36,9 @@ import java.util.regex.Pattern;
  */
 final class MuninnDayFileStore {
 
+  private static final Logger log = LoggerFactory.getLogger(MuninnDayFileStore.class);
   private static final Pattern DAY_FILE = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})\\.log");
+  private static final int MAX_LOGGED_LINE_LENGTH = 200;
 
   private final Path dataRoot;
 
@@ -98,14 +102,23 @@ final class MuninnDayFileStore {
 
   /**
    * Lines strictly after {@code cursor} (or everything currently on disk if {@code cursor} is
-   * null), oldest first -- mirrors {@code LogFileReader.readAfter}'s own contract.
+   * null), oldest first -- mirrors {@code LogFileReader.readAfter}'s own contract, capped to the
+   * oldest {@code limit} matches. Without this cap a {@code since} cursor set far in the past could
+   * return Muninn's entire unbounded history in one response, the same unboundedness {@link
+   * #readOlder} already guards against via its own {@code limit} parameter. Truncation is signalled
+   * the same way {@link #readOlder} signals its own: the caller re-issues {@code since} with the
+   * last returned line's own timestamp to fetch the next page.
    */
-  List<Map<String, Object>> readAfter(String subtreePath, String cursor) throws IOException {
+  List<Map<String, Object>> readAfter(String subtreePath, String cursor, int limit)
+      throws IOException {
     Instant after = cursor == null ? null : parseCursor(cursor);
     List<Map<String, Object>> result = new ArrayList<>();
     for (Map<String, Object> line : readAllLinesSorted(subtreePath)) {
       if (after == null || timestampOf(line).isAfter(after)) {
         result.add(line);
+        if (result.size() >= limit) {
+          break;
+        }
       }
     }
     return result;
@@ -162,13 +175,33 @@ final class MuninnDayFileStore {
   private static void appendLinesFrom(Path file, List<Map<String, Object>> out) {
     try {
       for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-        if (!line.isBlank()) {
+        if (line.isBlank()) {
+          continue;
+        }
+        // A plain-append writer (see appendLines' own comment on why this file is never
+        // written-then-renamed) can leave a torn last line behind a crash mid-write. Skipping just
+        // that one malformed line -- rather than letting the exception propagate -- is what keeps a
+        // single torn write from permanently breaking every future read of this whole day file.
+        try {
           out.add(Json.asObject(Json.parse(line)));
+        } catch (IllegalArgumentException | ClassCastException e) {
+          log.warn(
+              "skipping malformed line in muninn day file {}: {}",
+              file,
+              truncateForLogging(line),
+              e);
         }
       }
     } catch (IOException e) {
       throw new UncheckedIOException("failed to read muninn day file " + file, e);
     }
+  }
+
+  private static String truncateForLogging(String line) {
+    if (line.length() <= MAX_LOGGED_LINE_LENGTH) {
+      return line;
+    }
+    return line.substring(0, MAX_LOGGED_LINE_LENGTH) + "...(truncated)";
   }
 
   private static Instant requireTimestamp(Map<String, Object> line) {

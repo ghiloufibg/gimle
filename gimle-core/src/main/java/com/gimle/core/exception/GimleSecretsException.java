@@ -64,4 +64,17 @@ public class GimleSecretsException extends RuntimeException {
     return new GimleSecretsException(
         "no secret " + key + " found for tenant " + tenantId + " (or it has been deleted)");
   }
+
+  /**
+   * A {@code key@meta} entry's stored JSON doesn't hold the shape {@code SecretStore} expects
+   * (missing or non-numeric {@code latestVersion}) -- surfaced as this specific, named type rather
+   * than a bare {@code NullPointerException}/{@code ClassCastException} so a caller iterating many
+   * secrets (e.g. a tenant's whole listing) can catch it and skip just that one corrupted entry
+   * instead of the corruption propagating as an opaque crash.
+   */
+  public static GimleSecretsException malformedMetaEntry(
+      String tenantId, String key, Throwable cause) {
+    return new GimleSecretsException(
+        "secret metadata for " + tenantId + "/" + key + " is malformed", cause);
+  }
 }

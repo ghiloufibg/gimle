@@ -50,7 +50,7 @@ class MuninnDayFileStoreTest {
     store.appendLines("logs/nodes/n1/PLATFORM", List.of(line("2026-08-10T10:00:00Z", "first")));
     store.appendLines("logs/nodes/n1/PLATFORM", List.of(line("2026-08-10T09:00:00Z", "earlier")));
 
-    List<Map<String, Object>> all = store.readAfter("logs/nodes/n1/PLATFORM", null);
+    List<Map<String, Object>> all = store.readAfter("logs/nodes/n1/PLATFORM", null, 1000);
     assertEquals(2, all.size());
     // Final read is oldest-first regardless of append order, thanks to the post-load sort.
     assertEquals("earlier", all.get(0).get("message"));
@@ -83,7 +83,7 @@ class MuninnDayFileStoreTest {
 
     MuninnDayFileStore reopened = new MuninnDayFileStore(tempDir);
 
-    List<Map<String, Object>> after = reopened.readAfter("logs/nodes/n1/PLATFORM", null);
+    List<Map<String, Object>> after = reopened.readAfter("logs/nodes/n1/PLATFORM", null, 1000);
     assertEquals(3, after.size());
     assertEquals("one", after.get(0).get("message"));
     assertEquals("three", after.get(2).get("message"));
@@ -97,7 +97,7 @@ class MuninnDayFileStoreTest {
   @Test
   void reading_a_subtree_that_was_never_written_returns_empty_rather_than_erroring()
       throws Exception {
-    assertTrue(store.readAfter("logs/nodes/never-seen/PLATFORM", null).isEmpty());
+    assertTrue(store.readAfter("logs/nodes/never-seen/PLATFORM", null, 1000).isEmpty());
     assertTrue(store.readOlder("logs/nodes/never-seen/PLATFORM", null, 10).lines().isEmpty());
   }
 
@@ -115,7 +115,8 @@ class MuninnDayFileStoreTest {
     store.appendLines(
         "metrics/CONTROLPLANE/127.0.0.1:8080", List.of(line("2026-08-10T10:00:00Z", "sample")));
 
-    List<Map<String, Object>> lines = store.readAfter("metrics/CONTROLPLANE/127.0.0.1:8080", null);
+    List<Map<String, Object>> lines =
+        store.readAfter("metrics/CONTROLPLANE/127.0.0.1:8080", null, 1000);
     assertEquals(1, lines.size());
     assertEquals("sample", lines.get(0).get("message"));
 

@@ -86,7 +86,12 @@ public final class KeyFileManager {
           if (suffix.equals("active") || !suffix.chars().allMatch(Character::isDigit)) {
             continue;
           }
-          int id = Integer.parseInt(suffix);
+          int id;
+          try {
+            id = Integer.parseInt(suffix);
+          } catch (NumberFormatException e) {
+            continue; // all-digit but too long to fit an int -- not a key file this class wrote
+          }
           if (id < 0 || id > 255) {
             continue; // not a key file this class would ever have written itself
           }

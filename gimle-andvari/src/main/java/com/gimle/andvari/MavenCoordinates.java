@@ -61,7 +61,9 @@ final class MavenCoordinates {
     }
     int n = segments.size();
     String fileName = segments.get(n - 1);
-    if (!fileName.startsWith("maven-metadata.xml")) {
+    if (!fileName.equals("maven-metadata.xml")
+        && !fileName.equals("maven-metadata.xml.sha1")
+        && !fileName.equals("maven-metadata.xml.sha256")) {
       return null;
     }
     String artifactId = segments.get(n - 2);

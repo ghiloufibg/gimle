@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -110,6 +111,26 @@ public final class OwnCertificateRotator {
         settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
     Files.writeString(
         settings.keyFile(), Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
+    restrictPermissions(settings.keyFile());
+  }
+
+  /**
+   * Restricts a freshly-rotated private key file to owner-read/write only wherever the filesystem
+   * supports POSIX permissions (every real deployment target); on a filesystem that doesn't
+   * (Windows, local development only), the key is left written but the restriction is skipped with
+   * a logged warning rather than a hard failure, since {@code java.nio.file}'s own POSIX view is
+   * simply unavailable there.
+   */
+  private static void restrictPermissions(Path path) throws IOException {
+    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+    } else {
+      log.warn(
+          "filesystem at {} does not support POSIX permissions; private key file was written"
+              + " without owner-only restriction (expected only in local Windows development --"
+              + " every real deployment target restricts this)",
+          path);
+    }
   }
 
   private static X509Certificate loadOwnLeafCertificate(Path certFile) throws IOException {
