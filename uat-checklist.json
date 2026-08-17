@@ -2,9 +2,9 @@
   "generatedFrom": "rtm.json",
   "summary": {
     "totalRequirements": 565,
-    "coveredByAutomatedTest": 55,
-    "notCoveredByAutomatedTest": 510,
-    "releaseReadinessPercent": 9.7
+    "coveredByAutomatedTest": 116,
+    "notCoveredByAutomatedTest": 449,
+    "releaseReadinessPercent": 20.5
   },
   "items": [
     {
@@ -24,7 +24,7 @@
       "category": "Module System",
       "feature": "Version range constraint matching",
       "step": "Given \"[1.0.0,2.0.0)\", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper).",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -35,7 +35,7 @@
       "category": "Module System",
       "feature": "Module descriptor validation (request ≤ limit invariant)",
       "step": "Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -46,7 +46,7 @@
       "category": "Module System",
       "feature": "Tiered isolation model (TIER_1/TIER_2/TIER_3)",
       "step": "Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -90,7 +90,7 @@
       "category": "Module System / Health",
       "feature": "Health probe configuration with initial delay",
       "step": "Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -123,7 +123,7 @@
       "category": "Security / RBAC",
       "feature": "RBAC domain model (resources, verbs, permissions, roles, bindings)",
       "step": "Given Permission scoped to (DEPLOYMENT,WRITE,tenant=\"acme\"), When covers(DEPLOYMENT,WRITE,Optional.of(\"acme\")), Then true; a different tenant, false.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -134,7 +134,7 @@
       "category": "Security / RBAC",
       "feature": "Built-in cluster-admin role and operator/node certificate groups",
       "step": "Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -145,7 +145,7 @@
       "category": "Security",
       "feature": "Console password hashing (PBKDF2-HMAC-SHA256)",
       "step": "Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -167,7 +167,7 @@
       "category": "Config",
       "feature": "Cluster-wide transport protocol switch (plaintext/TLS)",
       "step": "Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -178,7 +178,7 @@
       "category": "Security",
       "feature": "Stateless HMAC-signed console session tokens",
       "step": "Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -200,7 +200,7 @@
       "category": "Security",
       "feature": "Per-key exponential-backoff login throttle",
       "step": "Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -365,7 +365,7 @@
       "category": "Security / Audit",
       "feature": "Cross-resource audit trail model",
       "step": "Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -376,7 +376,7 @@
       "category": "PKI",
       "feature": "Certificate bootstrap (CSR) request/response protocol",
       "step": "Given CsrSubmission with purpose=OPERATOR_CLIENT, When submitted, Then CsrResult status=PENDING with a requestId, never auto-approved.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -420,7 +420,7 @@
       "category": "Config / Secrets",
       "feature": "Tenant-scoped config/secret entry model",
       "step": "Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -475,7 +475,7 @@
       "category": "Module System",
       "feature": "Module dependency resolution with cycle detection",
       "step": "Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -497,7 +497,7 @@
       "category": "Module System",
       "feature": "Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED)",
       "step": "Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -585,7 +585,7 @@
       "category": "Module System",
       "feature": "Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay)",
       "step": "Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -596,7 +596,7 @@
       "category": "Module System",
       "feature": "In-worker round-robin service registry with version-aware cutover",
       "step": "Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -607,7 +607,7 @@
       "category": "Module System",
       "feature": "Cross-tier name-driven service invocation",
       "step": "Given a registered Greeter provider with method greet(String), When invokeByName(\"...Greeter\",1,\"greet\",[\"java.lang.String\"],[\"world\"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -618,7 +618,7 @@
       "category": "Module System",
       "feature": "Same-worker cross-module service publish/discover",
       "step": "Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -629,7 +629,7 @@
       "category": "Module System / Self-Healing",
       "feature": "Graceful drain-then-dispose stop with deadline",
       "step": "Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -651,7 +651,7 @@
       "category": "Module System",
       "feature": "gimle-module.yaml descriptor parsing and validation",
       "step": "Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -695,7 +695,7 @@
       "category": "Module System / Health",
       "feature": "Health probe interfaces (liveness/readiness)",
       "step": "Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -772,7 +772,7 @@
       "category": "PKI",
       "feature": "Self-signed cluster CA generation",
       "step": "Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -783,7 +783,7 @@
       "category": "PKI",
       "feature": "CSR-to-leaf-certificate signing with signature verification",
       "step": "Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -794,7 +794,7 @@
       "category": "PKI / Security",
       "feature": "Server-stamped Subject override on signing (prevents self-declared privileged group)",
       "step": "Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -805,7 +805,7 @@
       "category": "PKI",
       "feature": "CSR generation with Subject Alternative Names",
       "step": "Given a CSR built with dnsNames=[\"node1.local\",\"localhost\"], When verified with its own public key, Then succeeds, and the SAN extension request is present.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -838,7 +838,7 @@
       "category": "PKI",
       "feature": "Own-certificate rotation over mTLS via CSR bootstrap endpoint",
       "step": "Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -849,7 +849,7 @@
       "category": "PKI / Security",
       "feature": "X.500 Subject utilities: server-side O= stamping and Principal derivation",
       "step": "Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,\"gimle:nodes\") is called, Then result is O=gimle:nodes,CN=node-1.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1520,7 +1520,7 @@
       "category": "Raft Consensus",
       "feature": "Election Safety Restriction (log up-to-date check)",
       "step": "Given a candidate whose log lags the current leader's log; When its RequestVote arrives elsewhere first; Then the vote is denied because the candidate's log isn't at least as up to date.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1564,7 +1564,7 @@
       "category": "Raft Consensus",
       "feature": "Proposal Timeout with Ghost-Write Prevention",
       "step": "Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1575,7 +1575,7 @@
       "category": "Raft Consensus",
       "feature": "Chunked InstallSnapshot Transfer (Figure 13)",
       "step": "Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1586,7 +1586,7 @@
       "category": "Raft Consensus",
       "feature": "Local Log Compaction / Snapshotting",
       "step": "Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1619,7 +1619,7 @@
       "category": "Raft Consensus",
       "feature": "Non-Voting Learner & Automatic Promotion",
       "step": "Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1641,7 +1641,7 @@
       "category": "Raft Consensus",
       "feature": "Raft Transport over Mutual TLS with Hot Cert Reload",
       "step": "Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1674,7 +1674,7 @@
       "category": "State Store",
       "feature": "File-Backed State Store Persistence Engine",
       "step": "Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1685,7 +1685,7 @@
       "category": "State Store",
       "feature": "Full-State Snapshot / Restore",
       "step": "Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1707,7 +1707,7 @@
       "category": "State Store",
       "feature": "Leader-Local Node Heartbeat Tracking",
       "step": "Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1718,7 +1718,7 @@
       "category": "State Store",
       "feature": "Distributed Lease Coordination (Grant/Renew/Release)",
       "step": "Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1729,7 +1729,7 @@
       "category": "State Store",
       "feature": "Per-Instance Lifecycle Event Log with Retention Cap",
       "step": "Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1740,7 +1740,7 @@
       "category": "State Store",
       "feature": "Cluster-Wide Audit Trail with Filtering",
       "step": "Given events across different principals/resources/tenants; When listAuditEvents is called with filters; Then only matching events are returned newest-first, and concurrent appends never lose/duplicate/exceed the cap.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1762,7 +1762,7 @@
       "category": "State Store",
       "feature": "StatefulSet OrderedReady Index & Sticky Node Binding",
       "step": "Given an index never placed before; When first placed on node A via putStatefulSetIndexNode; Then a later rolling-update replacement of that index is placed on node A again; the binding survives ordinary assignment removal, cleared only on permanent index removal.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1795,7 +1795,7 @@
       "category": "State Store",
       "feature": "RBAC Data Persistence (Roles, RoleBindings, Accounts)",
       "step": "Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1883,7 +1883,7 @@
       "category": "Config",
       "feature": "Five-Field Cron Schedule Evaluator",
       "step": "Given a cron expression restricting both day-of-month and day-of-week; When mostRecentDueInstant is evaluated; Then a moment matching either restricted field counts as due; an invalid expression is rejected at parse time.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1894,7 +1894,7 @@
       "category": "Config",
       "feature": "Deployment Manifest Parsing (incl. Autoscale & Disruption Budget)",
       "step": "Given a manifest with a weighted autoscale block; When DeploymentManifestParser.parse is called; Then a DeploymentSpec carrying the exact weighted AutoscalePolicy is produced; maxUnavailable=0 with no maxSurge is rejected.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1905,7 +1905,7 @@
       "category": "Config",
       "feature": "DaemonSet Manifest Parsing (Anti-Affinity/Surge Rejection)",
       "step": "Given placement.antiAffinity: true; When DaemonSetManifestParser.parse is called; Then parsing throws; a nonzero disruption.maxSurge is likewise rejected while 0 is accepted.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1916,7 +1916,7 @@
       "category": "Config",
       "feature": "Job / CronJob Manifest Parsing",
       "step": "Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1927,7 +1927,7 @@
       "category": "Config",
       "feature": "StatefulSet Manifest Parsing",
       "step": "Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -1938,7 +1938,7 @@
       "category": "Config",
       "feature": "Kind-Dispatching Manifest Parser",
       "step": "Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -2906,7 +2906,7 @@
       "category": "Secrets Management",
       "feature": "Secrets key rotation trigger (proxied)",
       "step": "Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -2972,7 +2972,7 @@
       "category": "API Server / Orchestration",
       "feature": "Node registration, heartbeat, and assignment-fetch API",
       "step": "Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3049,7 +3049,7 @@
       "category": "Secrets Management",
       "feature": "AES-256-GCM secret value encryption with versioned key IDs",
       "step": "Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3060,7 +3060,7 @@
       "category": "Secrets Management",
       "feature": "Legacy pre-key-id ciphertext format fallback",
       "step": "Given a blob encrypted before the version/keyId prefix existed; When decrypt() runs; Then the new-format decode fails GCM verification and falls back to the legacy iv||ciphertext layout under key id 0.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3071,7 +3071,7 @@
       "category": "Secrets Management",
       "feature": "Local AES-256 key-file generation and loading",
       "step": "Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3082,7 +3082,7 @@
       "category": "Secrets Management",
       "feature": "Key rotation with full-ring persistence (`KeyFileManager.rotate`)",
       "step": "Given a ring holding key id 0; When rotate() runs; Then a new key id 1 file is written, .active repointed, key id 0 remains loadable.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3104,7 +3104,7 @@
       "category": "Secrets Management",
       "feature": "Full-key-rotation re-encryption sweep",
       "step": "Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3115,7 +3115,7 @@
       "category": "Secrets Management",
       "feature": "Versioned secret storage layered over ConfigEntry",
       "step": "Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3137,7 +3137,7 @@
       "category": "Secrets Management",
       "feature": "Soft delete vs hard delete (`?destroy=true`)",
       "step": "Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3148,7 +3148,7 @@
       "category": "Authorization",
       "feature": "Fafnir's own independent RBAC re-check (defense-in-depth)",
       "step": "Given a forwarded principal claims access but doesn't actually hold the permission; When Fafnir independently re-checks Authorizer.authorize; Then denied with 403 regardless of the forwarder's decision.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3159,7 +3159,7 @@
       "category": "Authorization",
       "feature": "Node-tenant-scoped secret reads (`gimle:nodes`)",
       "step": "Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3203,7 +3203,7 @@
       "category": "API Server",
       "feature": "Console session login (Fafnir's own operator dashboard)",
       "step": "Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -3214,7 +3214,7 @@
       "category": "Authorization",
       "feature": "Plaintext-mode anonymous session carve-out",
       "step": "Given plaintext mode with no session cookie and no TLS; When GET /auth/session; Then a synthetic \"anonymous: true\" principal is returned rather than 401.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

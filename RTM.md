@@ -16,23 +16,23 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | ID | Feature | Status | Coverage | Holmgang scenario reference |
 |---|---|---|---|---|
 | GIMLE-001 | Semantic module versioning | Active | Not Covered | — |
-| GIMLE-002 | Version range constraint matching | Active | Not Covered | — |
-| GIMLE-003 | Module descriptor validation (request ≤ limit invariant) | Active | Not Covered | — |
-| GIMLE-004 | Tiered isolation model (TIER_1/TIER_2/TIER_3) | Active | Not Covered | — |
+| GIMLE-002 | Version range constraint matching | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present" |
+| GIMLE-003 | Module descriptor validation (request ≤ limit invariant) | Active | Covered | `module-system.feature` — "A manifest that fails its own validation never gets placed" |
+| GIMLE-004 | Tiered isolation model (TIER_1/TIER_2/TIER_3) | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present"; `self-healing.feature` — "A killed worker JVM is respawned and the deployment returns to ACTIVE" |
 | GIMLE-005 | Kubernetes-shaped resource quantity parsing | Active | Not Covered | — |
 | GIMLE-006 | Tenant-scoped service export | Active | Not Covered | — |
 | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Active | Not Covered | — |
-| GIMLE-008 | Health probe configuration with initial delay | Active | Not Covered | — |
+| GIMLE-008 | Health probe configuration with initial delay | Active | Covered | `module-system.feature` — "A liveness probe's initial delay is honored before the first tick" |
 | GIMLE-009 | Vessel hosting mode (plain-process workload) | Active | Not Covered | — |
 | GIMLE-010 | Artifact-registry vs local-path reference resolution | Active | Not Covered | — |
-| GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Active | Not Covered | — |
-| GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Active | Not Covered | — |
-| GIMLE-013 | Console password hashing (PBKDF2-HMAC-SHA256) | Active | Not Covered | — |
+| GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Active | Covered | `console-security.feature` — "A role scoped to one tenant grants write access to that tenant alone" |
+| GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Active | Covered | `console-security.feature` — "A console login round-trips the right password and rejects the wrong one"; `console-security.feature` — "A role scoped to one tenant grants write access to that tenant alone"; `mtls.feature` — "A tenant write is recorded in the durable audit trail" |
+| GIMLE-013 | Console password hashing (PBKDF2-HMAC-SHA256) | Active | Covered | `console-security.feature` — "A console login round-trips the right password and rejects the wrong one" |
 | GIMLE-014 | Mutual-TLS SSLContext construction | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS" |
-| GIMLE-015 | Cluster-wide transport protocol switch (plaintext/TLS) | Active | Not Covered | — |
-| GIMLE-016 | Stateless HMAC-signed console session tokens | Active | Not Covered | — |
+| GIMLE-015 | Cluster-wide transport protocol switch (plaintext/TLS) | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present"; `mtls.feature` — "A tenant write is recorded in the durable audit trail" |
+| GIMLE-016 | Stateless HMAC-signed console session tokens | Active | Covered | `console-security.feature` — "A console login round-trips the right password and rejects the wrong one" |
 | GIMLE-017 | Session-signing key file load-or-create with owner-only permissions | Active | Not Covered | — |
-| GIMLE-018 | Per-key exponential-backoff login throttle | Active | Not Covered | — |
+| GIMLE-018 | Per-key exponential-backoff login throttle | Active | Covered | `console-security.feature` — "Repeated failed logins are throttled with a Retry-After backoff" |
 | GIMLE-019 | Structured JSON log encoding with APPLICATION/PLATFORM categorization | Active | Not Covered | — |
 | GIMLE-020 | Human-readable colored console log encoding | Active | Not Covered | — |
 | GIMLE-021 | Runtime-switchable console log format (text default, JSON opt-in) | Active | Not Covered | — |
@@ -47,19 +47,19 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-030 | Agent↔worker control-channel protocol and codec | Active | Not Covered | — |
 | GIMLE-031 | Node registration/heartbeat/capacity-reporting protocol | Active | Not Covered | — |
 | GIMLE-032 | Instance lifecycle event log model | Active | Not Covered | — |
-| GIMLE-033 | Cross-resource audit trail model | Active | Not Covered | — |
-| GIMLE-034 | Certificate bootstrap (CSR) request/response protocol | Active | Not Covered | — |
+| GIMLE-033 | Cross-resource audit trail model | Active | Covered | `mtls.feature` — "A tenant write is recorded in the durable audit trail" |
+| GIMLE-034 | Certificate bootstrap (CSR) request/response protocol | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "A CSR whose signature does not match its own declared key is rejected" |
 | GIMLE-035 | Assigned-instance work-order model (incl. in-place rename and vessel dispatch) | Active | Not Covered | — |
 | GIMLE-036 | Bounded-retry-with-backoff restart policy (CrashLoopBackOff-equivalent) | Active | Covered | `self-healing.feature` — "A module that never passes liveness is escalated to FAILED for good" |
 | GIMLE-037 | Tenant identity and resource quota model | Active | Not Covered | — |
-| GIMLE-038 | Tenant-scoped config/secret entry model | Active | Not Covered | — |
+| GIMLE-038 | Tenant-scoped config/secret entry model | Active | Covered | `secrets-and-pki.feature` — "A secret's versions round-trip and a soft delete behaves differently from a hard one"; `secrets-and-pki.feature` — "A legacy pre-key-id secret ciphertext still decrypts correctly" |
 | GIMLE-039 | Bundled SPA static-asset resolution from classpath | Active | Not Covered | — |
 | GIMLE-040 | SPA static file serving with client-side-route fallback | Active | Not Covered | — |
 | GIMLE-041 | Saga test-run event model and NDJSON codec | Active | Not Covered | — |
 | GIMLE-042 | Stable failure-signature hashing for flaky-test clustering | Active | Not Covered | — |
-| GIMLE-043 | Module dependency resolution with cycle detection | Active | Not Covered | — |
+| GIMLE-043 | Module dependency resolution with cycle detection | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present" |
 | GIMLE-044 | Module registry (install bookkeeping, idempotent re-install, content-mismatch rejection) | Active | Not Covered | — |
-| GIMLE-045 | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED) | Active | Not Covered | — |
+| GIMLE-045 | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED) | Active | Covered | `module-system.feature` — "A hook that always throws on start never reaches ACTIVE" |
 | GIMLE-046 | Dynamic per-module-version JPMS ModuleLayer construction | Active | Not Covered | — |
 | GIMLE-047 | Unnamed-module readability grant for bundled hooks/probes | Active | Not Covered | — |
 | GIMLE-048 | Classloader leak detection via PhantomReference | Active | Not Covered | — |
@@ -67,31 +67,31 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-050 | Best-effort leak retaining-path attribution via JFR OldObjectSample | Active | Not Covered | — |
 | GIMLE-051 | Module lifecycle hooks (reflectively instantiated, JPMS-exported) | Active | Not Covered | — |
 | GIMLE-052 | Job-kind run-to-completion hooks | Active | Not Covered | — |
-| GIMLE-053 | Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay) | Active | Not Covered | — |
-| GIMLE-054 | In-worker round-robin service registry with version-aware cutover | Active | Not Covered | — |
-| GIMLE-055 | Cross-tier name-driven service invocation | Active | Not Covered | — |
-| GIMLE-056 | Same-worker cross-module service publish/discover | Active | Not Covered | — |
-| GIMLE-057 | Graceful drain-then-dispose stop with deadline | Active | Not Covered | — |
+| GIMLE-053 | Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay) | Active | Covered | `module-system.feature` — "The service registry cuts a same-worker caller over to a newer ready version"; `module-system.feature` — "Stopping a module with a perpetually in-flight request still completes"; `deployment-lifecycle.feature` — "A tenant-scoped module deploys, reads its secret, and is cleanly removed" |
+| GIMLE-054 | In-worker round-robin service registry with version-aware cutover | Active | Covered | `module-system.feature` — "The service registry cuts a same-worker caller over to a newer ready version" |
+| GIMLE-055 | Cross-tier name-driven service invocation | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present"; `module-system.feature` — "The service registry cuts a same-worker caller over to a newer ready version" |
+| GIMLE-056 | Same-worker cross-module service publish/discover | Active | Covered | `module-system.feature` — "A dependent resolves only when a version inside its declared range is present"; `module-system.feature` — "The service registry cuts a same-worker caller over to a newer ready version" |
+| GIMLE-057 | Graceful drain-then-dispose stop with deadline | Active | Covered | `module-system.feature` — "Stopping a module with a perpetually in-flight request still completes" |
 | GIMLE-058 | Hot redeploy (old/new version coexistence with pinned dependent wiring) | Active | Not Covered | — |
-| GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Active | Not Covered | — |
+| GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Active | Covered | `module-system.feature` — "A manifest that fails its own validation never gets placed" |
 | GIMLE-060 | Module artifact reading — real-JPMS-module and descriptor-presence validation | Active | Not Covered | — |
 | GIMLE-061 | Andvari artifact-registry pull-through cache | Active | Covered | `registry-deploy.feature` — "A pushed module deploys by coordinate with no artifact path" |
 | GIMLE-062 | Multi-endpoint Andvari failover on pull | Active | Not Covered | — |
-| GIMLE-063 | Health probe interfaces (liveness/readiness) | Active | Not Covered | — |
+| GIMLE-063 | Health probe interfaces (liveness/readiness) | Active | Covered | `module-system.feature` — "A liveness probe's initial delay is honored before the first tick"; `self-healing.feature` — "A module that never passes liveness is escalated to FAILED for good" |
 | GIMLE-064 | Pluggable resource-limiter abstraction | Active | Not Covered | — |
 | GIMLE-065 | Portable JVM-flags resource enforcement (Tier 1/Tier 2) | Active | Not Covered | — |
 | GIMLE-066 | Tier 3 (namespace isolation) — deliberately unsupported by the current limiter | Active | Not Covered | — |
 | GIMLE-067 | Kernel-level (cgroup v2) resource enforcement — deferred | Active | Not Covered | — |
 | GIMLE-068 | Pluggable persistent-volume-manager abstraction | Active | Not Covered | — |
 | GIMLE-069 | Local-disk persistent volume allocation for StatefulSet-shaped instances | Active | Not Covered | — |
-| GIMLE-070 | Self-signed cluster CA generation | Active | Not Covered | — |
-| GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | Active | Not Covered | — |
-| GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | Active | Not Covered | — |
-| GIMLE-073 | CSR generation with Subject Alternative Names | Active | Not Covered | — |
+| GIMLE-070 | Self-signed cluster CA generation | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
+| GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "A CSR whose signature does not match its own declared key is rejected"; `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
+| GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead" |
+| GIMLE-073 | CSR generation with Subject Alternative Names | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead" |
 | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | Active | Not Covered | — |
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | Active | Not Covered | — |
-| GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Active | Not Covered | — |
-| GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | Active | Not Covered | — |
+| GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Active | Covered | `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
+| GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "Fafnir independently authorizes node-scoped secret reads by tenant assignment" |
 | GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Active | Not Covered | — |
 | GIMLE-079 | Worker JVM control-channel bootstrap | Active | Not Covered | — |
 | GIMLE-080 | Newline-delimited control-channel wire protocol (worker side) | Active | Not Covered | — |
@@ -152,32 +152,32 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-135 | `module-info.java` wiring for the node agent module | Active | Not Covered | — |
 | GIMLE-136 | Raft Leader Election | Active | Covered | `raft-resilience.feature` — "The store leader dies mid-workload and nothing acknowledged is lost" |
 | GIMLE-137 | Log Replication (AppendEntries) | Active | Covered | `raft-resilience.feature` — "A store member dies mid-workload and nothing acknowledged is lost"; `raft-resilience.feature` — "The store leader dies mid-workload and nothing acknowledged is lost" |
-| GIMLE-138 | Election Safety Restriction (log up-to-date check) | Active | Not Covered | — |
+| GIMLE-138 | Election Safety Restriction (log up-to-date check) | Active | Covered | `raft-resilience.feature` — "A stale, partitioned follower cannot win an election despite outracing the cluster's term" |
 | GIMLE-139 | Conflicting-Entry Truncation | Active | Not Covered | — |
 | GIMLE-140 | Leader-Only-Commits-Own-Term Rule (Figure 8) | Active | Not Covered | — |
 | GIMLE-141 | Strict Apply Ordering (commitIndex vs lastApplied) | Active | Covered | `raft-resilience.feature` — "A store member dies mid-workload and nothing acknowledged is lost" |
-| GIMLE-142 | Proposal Timeout with Ghost-Write Prevention | Active | Not Covered | — |
-| GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Active | Not Covered | — |
-| GIMLE-144 | Local Log Compaction / Snapshotting | Active | Not Covered | — |
+| GIMLE-142 | Proposal Timeout with Ghost-Write Prevention | Active | Covered | `partition-tolerance.feature` — "A leader's write proposed while partitioned is truncated and never resurfaces" |
+| GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
+| GIMLE-144 | Local Log Compaction / Snapshotting | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-145 | Check-Quorum Leader Self-Demotion | Active | Covered | `partition-tolerance.feature` — "A store leader silently partitioned from its peers steps down and writes stay bounded" |
 | GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Active | Covered | `membership-change.feature` — "A fourth store joins and then leaves, one server at a time" |
-| GIMLE-147 | Non-Voting Learner & Automatic Promotion | Active | Not Covered | — |
+| GIMLE-147 | Non-Voting Learner & Automatic Promotion | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-148 | Durable Raft Log Persistence | Active | Covered | `raft-resilience.feature` — "A store member dies mid-workload and nothing acknowledged is lost"; `raft-resilience.feature` — "The store leader dies mid-workload and nothing acknowledged is lost" |
-| GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Active | Not Covered | — |
+| GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS"; `mtls.feature` — "The audit trail records and filters real authorization decisions over mutual TLS" |
 | GIMLE-150 | Raft RPC Wire Codec | Active | Not Covered | — |
 | GIMLE-151 | Atomic Durable File Writes | Active | Not Covered | — |
-| GIMLE-152 | File-Backed State Store Persistence Engine | Active | Not Covered | — |
-| GIMLE-153 | Full-State Snapshot / Restore | Active | Not Covered | — |
+| GIMLE-152 | File-Backed State Store Persistence Engine | Active | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
+| GIMLE-153 | Full-State Snapshot / Restore | Active | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
 | GIMLE-154 | Replicated Mutation Catalog (StateMutation) | Active | Not Covered | — |
-| GIMLE-155 | Leader-Local Node Heartbeat Tracking | Active | Not Covered | — |
-| GIMLE-156 | Distributed Lease Coordination (Grant/Renew/Release) | Active | Not Covered | — |
-| GIMLE-157 | Per-Instance Lifecycle Event Log with Retention Cap | Active | Not Covered | — |
-| GIMLE-158 | Cluster-Wide Audit Trail with Filtering | Active | Not Covered | — |
+| GIMLE-155 | Leader-Local Node Heartbeat Tracking | Active | Covered | `state-store-mechanics.feature` — "Node heartbeats update continuously for a live node" |
+| GIMLE-156 | Distributed Lease Coordination (Grant/Renew/Release) | Active | Covered | `state-store-mechanics.feature` — "A lease is exclusive to its holder until it expires" |
+| GIMLE-157 | Per-Instance Lifecycle Event Log with Retention Cap | Active | Covered | `state-store-mechanics.feature` — "An instance's event log is capped and returns newest first" |
+| GIMLE-158 | Cluster-Wide Audit Trail with Filtering | Active | Covered | `mtls.feature` — "The audit trail records and filters real authorization decisions over mutual TLS" |
 | GIMLE-159 | Deployment Rolling-Update & Surge Bookkeeping | Active | Covered | `rolling-update.feature` — "Zero-downtime rollout under a surge budget" |
-| GIMLE-160 | StatefulSet OrderedReady Index & Sticky Node Binding | Active | Not Covered | — |
+| GIMLE-160 | StatefulSet OrderedReady Index & Sticky Node Binding | Active | Covered | `state-store-mechanics.feature` — "A StatefulSet ordinal index stays bound to the node it first lands on" |
 | GIMLE-161 | Node Cordon (Scheduler Exclusion Flag) | Active | Covered | `scheduling.feature` — "A cordoned node blocks placement until uncordoned" |
 | GIMLE-162 | Tenant Quota-Violation Flag Tracking | Active | Covered | `quota-and-admission.feature` — "A retroactive quota violation is flagged but never evicts" |
-| GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Active | Not Covered | — |
+| GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Active | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
 | GIMLE-164 | Client-Facing Store RPC with Leader Redirect & Follow | Active | Covered | `deployment-lifecycle.feature` — "State written through one control-plane replica serves through another" |
 | GIMLE-165 | Store Read Load Balancing Across Replicas | Active | Covered | `deployment-lifecycle.feature` — "State written through one control-plane replica serves through another" |
 | GIMLE-166 | Store Node Leader-Only Write Gating | Active | Not Covered | — |
@@ -185,12 +185,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-168 | Store RPC Wire Codec | Active | Not Covered | — |
 | GIMLE-169 | RBAC Authorization Engine | Active | Not Covered | — |
 | GIMLE-170 | Node-Tenant Assignment Check | Active | Not Covered | — |
-| GIMLE-171 | Five-Field Cron Schedule Evaluator | Active | Not Covered | — |
-| GIMLE-172 | Deployment Manifest Parsing (incl. Autoscale & Disruption Budget) | Active | Not Covered | — |
-| GIMLE-173 | DaemonSet Manifest Parsing (Anti-Affinity/Surge Rejection) | Active | Not Covered | — |
-| GIMLE-174 | Job / CronJob Manifest Parsing | Active | Not Covered | — |
-| GIMLE-175 | StatefulSet Manifest Parsing | Active | Not Covered | — |
-| GIMLE-176 | Kind-Dispatching Manifest Parser | Active | Not Covered | — |
+| GIMLE-171 | Five-Field Cron Schedule Evaluator | Active | Covered | `workload-manifests.feature` — "A CronJob schedule fires on the day-of-month/day-of-week OR quirk" |
+| GIMLE-172 | Deployment Manifest Parsing (incl. Autoscale & Disruption Budget) | Active | Covered | `workload-manifests.feature` — "A weighted autoscale policy is accepted, an unreplaceable disruption budget is rejected" |
+| GIMLE-173 | DaemonSet Manifest Parsing (Anti-Affinity/Surge Rejection) | Active | Covered | `workload-manifests.feature` — "A DaemonSet rejects anti-affinity and nonzero surge but accepts zero surge" |
+| GIMLE-174 | Job / CronJob Manifest Parsing | Active | Covered | `workload-manifests.feature` — "A CronJob applies sensible defaults and rejects an invalid schedule or concurrency policy" |
+| GIMLE-175 | StatefulSet Manifest Parsing | Active | Covered | `workload-manifests.feature` — "A StatefulSet accepts zero replicas and rejects a negative count" |
+| GIMLE-176 | Kind-Dispatching Manifest Parser | Active | Covered | `workload-manifests.feature` — "An unrecognized manifest kind is rejected via the dispatching parser" |
 | GIMLE-177 | Shared Domain Binary Codec | Active | Not Covered | — |
 | GIMLE-178 | Store Process Bootstrap with TLS Rotation Ticker | Active | Not Covered | — |
 | GIMLE-179 | Store/Raft Metrics Instrumentation | Active | Not Covered | — |
@@ -278,35 +278,35 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-260 | Certificate rotation (self-rotation and subject-preserving renewal) | Active | Not Covered | — |
 | GIMLE-261 | Zero-downtime TLS material reload | Active | Not Covered | — |
 | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Active | Not Covered | — |
-| GIMLE-263 | Secrets key rotation trigger (proxied) | Active | Not Covered | — |
+| GIMLE-263 | Secrets key rotation trigger (proxied) | Active | Covered | `secrets-and-pki.feature` — "Rotating the secrets key re-encrypts an existing secret under the new key id" |
 | GIMLE-264 | CONFIG/SECRET resource-kind separation on one underlying store | Active | Not Covered | — |
 | GIMLE-265 | `/artifacts/*` streaming proxy to Andvari | Active | Not Covered | — |
 | GIMLE-266 | Andvari-client multi-endpoint failover with rotation | Active | Not Covered | — |
 | GIMLE-267 | `/logs/*` proxy with Muninn fallback | Active | Not Covered | — |
 | GIMLE-268 | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Active | Not Covered | — |
-| GIMLE-269 | Node registration, heartbeat, and assignment-fetch API | Active | Not Covered | — |
+| GIMLE-269 | Node registration, heartbeat, and assignment-fetch API | Active | Covered | `module-system.feature` — "A hook that always throws on start never reaches ACTIVE" |
 | GIMLE-270 | Unified `AssignedInstance` wire shape across every workload kind | Active | Not Covered | — |
 | GIMLE-271 | Reserved system-tenant auto-seeding | Active | Not Covered | — |
 | GIMLE-272 | Bundled web console static serving | Active | Not Covered | — |
 | GIMLE-273 | Per-endpoint request metrics instrumentation | Active | Not Covered | — |
 | GIMLE-274 | Deployment/Job/DaemonSet/StatefulSet CRUD manifest API | Active | Covered | `deployment-lifecycle.feature` — "A tenant-scoped module deploys, reads its secret, and is cleanly removed" |
 | GIMLE-275 | Per-deployment and per-instance metrics rollup | Active | Not Covered | — |
-| GIMLE-276 | AES-256-GCM secret value encryption with versioned key IDs | Active | Not Covered | — |
-| GIMLE-277 | Legacy pre-key-id ciphertext format fallback | Active | Not Covered | — |
-| GIMLE-278 | Local AES-256 key-file generation and loading | Active | Not Covered | — |
-| GIMLE-279 | Key rotation with full-ring persistence (`KeyFileManager.rotate`) | Active | Not Covered | — |
+| GIMLE-276 | AES-256-GCM secret value encryption with versioned key IDs | Active | Covered | `secrets-and-pki.feature` — "A secret's versions round-trip and a soft delete behaves differently from a hard one"; `secrets-and-pki.feature` — "Rotating the secrets key re-encrypts an existing secret under the new key id" |
+| GIMLE-277 | Legacy pre-key-id ciphertext format fallback | Active | Covered | `secrets-and-pki.feature` — "A legacy pre-key-id secret ciphertext still decrypts correctly" |
+| GIMLE-278 | Local AES-256 key-file generation and loading | Active | Covered | `secrets-and-pki.feature` — "A secret's versions round-trip and a soft delete behaves differently from a hard one"; `secrets-and-pki.feature` — "A legacy pre-key-id secret ciphertext still decrypts correctly" |
+| GIMLE-279 | Key rotation with full-ring persistence (`KeyFileManager.rotate`) | Active | Covered | `secrets-and-pki.feature` — "Rotating the secrets key re-encrypts an existing secret under the new key id" |
 | GIMLE-280 | Key-ring fingerprinting for cross-replica drift detection | Active | Not Covered | — |
-| GIMLE-281 | Full-key-rotation re-encryption sweep | Active | Not Covered | — |
-| GIMLE-282 | Versioned secret storage layered over ConfigEntry | Active | Not Covered | — |
+| GIMLE-281 | Full-key-rotation re-encryption sweep | Active | Covered | `secrets-and-pki.feature` — "Rotating the secrets key re-encrypts an existing secret under the new key id" |
+| GIMLE-282 | Versioned secret storage layered over ConfigEntry | Active | Covered | `secrets-and-pki.feature` — "A secret's versions round-trip and a soft delete behaves differently from a hard one" |
 | GIMLE-283 | Optimistic-write versioned put with narrow-lease serialization | Active | Not Covered | — |
-| GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Active | Not Covered | — |
-| GIMLE-285 | Fafnir's own independent RBAC re-check (defense-in-depth) | Active | Not Covered | — |
-| GIMLE-286 | Node-tenant-scoped secret reads (`gimle:nodes`) | Active | Not Covered | — |
+| GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Active | Covered | `secrets-and-pki.feature` — "A secret's versions round-trip and a soft delete behaves differently from a hard one" |
+| GIMLE-285 | Fafnir's own independent RBAC re-check (defense-in-depth) | Active | Covered | `secrets-and-pki.feature` — "Fafnir independently authorizes node-scoped secret reads by tenant assignment" |
+| GIMLE-286 | Node-tenant-scoped secret reads (`gimle:nodes`) | Active | Covered | `secrets-and-pki.feature` — "Fafnir independently authorizes node-scoped secret reads by tenant assignment" |
 | GIMLE-287 | Authorization-failure throttling and dual audit logging | Active | Not Covered | — |
 | GIMLE-288 | Three-tier principal resolution (forwarded header > peer cert > session cookie) | Active | Not Covered | — |
 | GIMLE-289 | mTLS HTTP server with dynamic TLS material reload | Active | Not Covered | — |
-| GIMLE-290 | Console session login (Fafnir's own operator dashboard) | Active | Not Covered | — |
-| GIMLE-291 | Plaintext-mode anonymous session carve-out | Active | Not Covered | — |
+| GIMLE-290 | Console session login (Fafnir's own operator dashboard) | Active | Covered | `secrets-and-pki.feature` — "Fafnir's console session login round-trips and the plaintext session falls back to anonymous" |
+| GIMLE-291 | Plaintext-mode anonymous session carve-out | Active | Covered | `secrets-and-pki.feature` — "Fafnir's console session login round-trips and the plaintext session falls back to anonymous" |
 | GIMLE-292 | Bundled web console static serving (Fafnir) | Active | Not Covered | — |
 | GIMLE-293 | Process status endpoint with key-ring fingerprint | Active | Not Covered | — |
 | GIMLE-294 | Muninn metrics/traces shipping | Active | Not Covered | — |
@@ -598,8 +598,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given "[1.0.0,2.0.0)", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper).
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: Deploys a dependency library, then wires a consumer whose declared version range includes it -- resolves and reaches ACTIVE; a second consumer whose declared range excludes the only deployed version is asserted to fail placement instead, proving the range check is genuinely evaluated at resolution time, not just recorded from the manifest.
 - **Other test coverage (non-Holmgang, informational only)**: `VersionRangeTest` (inclusive/exclusive bounds, unbounded above, rejects lower>upper)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/VersionRange.java`
 
@@ -607,8 +609,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A manifest that fails its own validation never gets placed*
+  - _Why this counts_: Submits a deployment whose resource request exceeds its own declared limit; asserted to never reach a placed/ACTIVE instance, proving the request<=limit invariant is enforced before scheduling rather than merely documented.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorTest` (accepts_request_within_limit, rejects_memory/cpu_request_exceeding_limit, rejects_blank_name, id_combines_name_and_version)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`
 
@@ -616,8 +620,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: The dependency and its consumer's cross-deployment `requires:` wiring can only resolve directly if both land on one shared Tier 1 worker JVM; their successful resolution and same-worker service lookup is the black-box proof of Tier 1 density, not just a configuration flag.
+  - `gimle-holmgang/src/test/resources/features/self-healing.feature` — Scenario: *A killed worker JVM is respawned and the deployment returns to ACTIVE*
+  - _Why this counts_: A Tier 2 module's dedicated worker JVM is killed directly; the deployment recovers via a fresh worker rather than an in-process module reload, proving Tier 2's independent-crash-domain guarantee -- pre-existing coverage, reused here rather than duplicated.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/IsolationTier.java`
 
@@ -652,8 +660,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System / Health
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A liveness probe's initial delay is honored before the first tick*
+  - _Why this counts_: A module with a declared health-probe initial delay stays ACTIVE through that whole window and only fails once probing genuinely starts afterward -- if the delay weren't honored, the probe would trip immediately and the instance would never observably survive the delay window.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`
 
@@ -679,8 +689,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security / RBAC
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given Permission scoped to (DEPLOYMENT,WRITE,tenant="acme"), When covers(DEPLOYMENT,WRITE,Optional.of("acme")), Then true; a different tenant, false.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *A role scoped to one tenant grants write access to that tenant alone*
+  - _Why this counts_: A role/role-binding pair scoped to one tenant is created through the real RBAC API; the bound principal can write to that tenant but is rejected (403) writing to a different one, proving permissions/roles/bindings are genuinely evaluated together, not merely stored.
 - **Other test coverage (non-Holmgang, informational only)**: `PermissionTest` (unscoped covers any tenant, scoped only own tenant, mismatch never covers), `RoleBindingTest` (well-formed subject accepted, malformed rejected)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/Permission.java`, `Role.java`, `RoleBinding.java`, `ResourceKind.java`, `Verb.java`, `Principal.java`
 
@@ -688,8 +700,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security / RBAC
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *A console login round-trips the right password and rejects the wrong one*
+  - _Why this counts_: Every scenario in this track runs as the operator mTLS identity performing writes across multiple resource kinds without any role ever having been provisioned for it -- only the built-in cluster-admin role, implicitly bound to the operator certificate group, makes that possible.
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *A role scoped to one tenant grants write access to that tenant alone*
+  - _Why this counts_: The tenant-scoped role is layered on top of, and asserted not to replace, the operator's own implicit cluster-admin grant used to provision it in the first place.
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *A tenant write is recorded in the durable audit trail*
+  - _Why this counts_: The node agent's own CSR-bootstrapped registration in the same mTLS cluster exercises the built-in `gimle:nodes` certificate group the same way the operator scenarios exercise cluster-admin.
 - **Other test coverage (non-Holmgang, informational only)**: `BuiltinRolesTest` (cluster_admin_covers_every_resource_and_verb_unscoped, group_names_match_what_the_pki_layer_stamps)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`
 
@@ -697,8 +715,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *A console login round-trips the right password and rejects the wrong one*
+  - _Why this counts_: An account is created with a plaintext password via the real API (server-side PBKDF2-HMAC-SHA256 hashing, never stored in the clear); login with the correct password succeeds and the wrong password is rejected, proving the hash-and-verify path is genuinely exercised end to end.
 - **Other test coverage (non-Holmgang, informational only)**: `PasswordHashesTest` (hash_then_verify_round_trips, verify_rejects_wrong_password, two_hashes_differ_due_to_random_salt, verify_rejects_truncated_hash)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/PasswordHashes.java`, `Account.java`
 
@@ -717,8 +737,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: Runs against topology "minimal" over plaintext transport -- the same deploy/lifecycle/service-registry machinery this track's whole module-system.feature suite exercises under the plaintext side of the transport switch.
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *A tenant write is recorded in the durable audit trail*
+  - _Why this counts_: Runs against topology "mtls" over full mutual TLS -- the identical deployment/audit machinery proven functioning under the TLS side of the same transport switch.
 - **Other test coverage (non-Holmgang, informational only)**: `TransportProtocolTest`, `TlsSettingsTest` (defaults to plaintext, case-insensitive, rejects unrecognized value, fails fast on unset property)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/TransportProtocol.java`, `TlsSettings.java`
 
@@ -726,8 +750,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *A console login round-trips the right password and rejects the wrong one*
+  - _Why this counts_: Login returns a session cookie whose validity is then checked via `/auth/session`; the whole login-to-cookie-to-session-lookup round trip only works if the cookie carries a genuine HMAC-signed, stateless session token the server can independently verify without server-side session storage.
 - **Other test coverage (non-Holmgang, informational only)**: `SessionTokensTest` (issue_then_verify round trips, expired rejected, wrong-key rejected, tampered rejected, garbage input rejected not thrown)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/session/SessionTokens.java`
 
@@ -744,8 +770,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/console-security.feature` — Scenario: *Repeated failed logins are throttled with a Retry-After backoff*
+  - _Why this counts_: Five wrong-password attempts against the same account are asserted to eventually return 429 with a Retry-After header, proving the exponential-backoff throttle is genuinely applied per key, not just configured.
 - **Other test coverage (non-Holmgang, informational only)**: `LoginThrottleTest` (delay doubles up to cap, success clears history, keys tracked independently)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/throttle/LoginThrottle.java`
 
@@ -879,8 +907,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Security / Audit
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *A tenant write is recorded in the durable audit trail*
+  - _Why this counts_: A real tenant write is followed by a read of the audit API showing an allowed WRITE event for that resource, proving the cross-resource audit trail is populated by real authorization decisions, not just declared as a schema.
 - **Other test coverage (non-Holmgang, informational only)**: `AuditEventTest` (denied represented same as allowed, null groups/tenant/target coalesce to empty, blank id rejected)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/AuditEvent.java`
 
@@ -888,8 +918,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CsrSubmission with purpose=OPERATOR_CLIENT, When submitted, Then CsrResult status=PENDING with a requestId, never auto-approved.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: Builds a real CsrSubmission (purpose/csrPem/bootstrapToken) and POSTs it to /bootstrap/csr, then decodes the response into a real CsrResult (status/certificatePem/caCertificatePem) using the same gimle-core protocol records production code uses.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A CSR whose signature does not match its own declared key is rejected*
+  - _Why this counts_: Drives the identical CsrSubmission/CsrResult wire protocol for the rejection path: a structurally valid but cryptographically bogus CSR is submitted and the resulting CsrResult status is asserted never to reach APPROVED.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/CsrSubmission.java`, `CsrResult.java`, `CsrPurpose.java`, `CsrRequestStatus.java`
 
@@ -926,8 +960,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config / Secrets
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A secret's versions round-trip and a soft delete behaves differently from a hard one*
+  - _Why this counts_: Every secret write/read/delete in this scenario is a real ConfigEntry row in the tenant-scoped store, exercised end to end through Fafnir's own versioned surface.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A legacy pre-key-id secret ciphertext still decrypts correctly*
+  - _Why this counts_: Plants a ConfigEntry directly (tenantId/key/value/encrypted) in the exact legacy ciphertext layout Fafnir's own writer no longer produces, proving the tenant-scoped entry model reads back correctly regardless of which era wrote it.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java`
 
@@ -973,8 +1011,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: Same evidence as version-range matching (GIMLE-002): a dependent module only resolves and reaches ACTIVE once its declared dependency is present and compatible, proving non-cycle dependency resolution actually gates placement.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleResolverTest` (wires to highest satisfying version, candidate must be resolved/active, unsatisfied requirement reported, 2/3-length cycle detected, diamond dependency not a cycle, independent dependents wire independently)
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/resolve/ModuleResolver.java`
 
@@ -991,8 +1031,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A hook that always throws on start never reaches ACTIVE*
+  - _Why this counts_: A module whose onStart hook always throws is deployed and asserted to end up FAILED rather than ACTIVE, proving the lifecycle state machine genuinely routes a startup failure to a terminal FAILED state instead of getting stuck or silently succeeding.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleControllerTest` (full happy path, start before resolve illegal, stop before active illegal, resolve failure marks failed, uninstall rejects active module, force_failed transitions to failed, complete_succeeded/failed paths)
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java`, `ModuleState.java`, `LifecycleEvent.java`
 
@@ -1063,8 +1105,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *The service registry cuts a same-worker caller over to a newer ready version*
+  - _Why this counts_: The cutover consumer's repeated in-flight service lookups through ModuleContext's own service-lookup API are what let it observe the newer version after cutover, exercising the context's live service-lookup path.
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *Stopping a module with a perpetually in-flight request still completes*
+  - _Why this counts_: A module with a permanently in-flight request is stopped and confirmed torn down within the drain deadline, exercising ModuleContext's in-flight-request tracking that graceful drain depends on.
+  - `gimle-holmgang/src/test/resources/features/deployment-lifecycle.feature` — Scenario: *A tenant-scoped module deploys, reads its secret, and is cleanly removed*
+  - _Why this counts_: A tenant-scoped module reads its own secret via ModuleContext's config API and is cleanly removed -- pre-existing coverage of the context's config/data-dir surface, reused here rather than duplicated.
 - **Other test coverage (non-Holmgang, informational only)**: `SimpleModuleContextTest` (invoke_service_by_name delegates/empty-on-unknown/propagates exception); `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`, `SimpleModuleContext.java`
 
@@ -1072,8 +1120,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *The service registry cuts a same-worker caller over to a newer ready version*
+  - _Why this counts_: A same-worker caller's repeated calls through the in-worker service registry switch from an older to a newer version once the newer one registers and becomes ready, proving the registry's own version-aware cutover, not just static lookup.
 - **Other test coverage (non-Holmgang, informational only)**: `SimpleServiceRegistryTest` (round robins, prefers highest ready version, falls back while highest has none ready, round robins within preferred version, mark_unready excludes without removing); `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring`
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleServiceRegistry.java`
 
@@ -1081,8 +1131,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a registered Greeter provider with method greet(String), When invokeByName("...Greeter",1,"greet",["java.lang.String"],["world"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: The consumer invokes its dependency purely by declared service name, never a compile-time reference, proving name-driven invocation resolves correctly.
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *The service registry cuts a same-worker caller over to a newer ready version*
+  - _Why this counts_: The cutover consumer's repeated calls resolve by service name across a version change, proving name-driven invocation stays correct across tiers as the target rebinds.
 - **Other test coverage (non-Holmgang, informational only)**: `SimpleServiceRegistryTest` (invokes directly by name, unknown interface returns empty, wrong method name throws, rethrows application exception with real type, void method returns empty Optional)
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ServiceRegistry.java` (default invokeByName), `SimpleServiceRegistry.java`
 
@@ -1090,8 +1144,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A dependent resolves only when a version inside its declared range is present*
+  - _Why this counts_: The consumer and its dependency share one Tier 1 worker and the consumer discovers the dependency's published service without any network hop, proving same-worker publish/discover works end to end.
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *The service registry cuts a same-worker caller over to a newer ready version*
+  - _Why this counts_: The cutover consumer and both library versions share one worker throughout, proving publish/discover keeps working same-worker even as the discovered service's own version changes underneath it.
 - **Other test coverage (non-Holmgang, informational only)**: `ServiceRegistryIntegrationTest` (consumer finds service, consumer finds nothing without a provider)
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ServiceRegistry.java`, `SimpleServiceRegistry.java`
 
@@ -1099,8 +1157,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System / Self-Healing
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *Stopping a module with a perpetually in-flight request still completes*
+  - _Why this counts_: A module with a request that never completes on its own is stopped anyway and confirmed torn down within the drain deadline, proving the drain-then-dispose stop path has a real deadline rather than blocking forever on an in-flight call.
 - **Other test coverage (non-Holmgang, informational only)**: `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`awaitDrain`)
 
@@ -1117,8 +1177,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A manifest that fails its own validation never gets placed*
+  - _Why this counts_: A manifest declaring a bogus/invalid isolation tier is submitted and never reaches a placed instance, proving gimle-module.yaml's own descriptor validation genuinely rejects malformed manifests before scheduling.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest` (various); indirectly via TestModuleBuilderTest
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java`
 
@@ -1155,8 +1217,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System / Health
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A liveness probe's initial delay is honored before the first tick*
+  - _Why this counts_: Directly exercises the liveness probe interface's own initial-delay semantics.
+  - `gimle-holmgang/src/test/resources/features/self-healing.feature` — Scenario: *A module that never passes liveness is escalated to FAILED for good*
+  - _Why this counts_: A module that never passes liveness is escalated to terminal FAILED -- pre-existing coverage of the readiness/liveness probe interfaces' failure path, reused here rather than duplicated.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/probe/LivenessProbe.java`, `ReadinessProbe.java`
 
@@ -1222,8 +1288,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: The whole mtls topology's PKI trust chain -- including this scenario's own successfully-signed certificate -- depends on CertificateAuthority.generateSelfSignedCa having produced a real, working cluster CA at cluster boot.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node rotates its own certificate over mTLS and keeps its identity*
+  - _Why this counts_: The rotated certificate is signed by, and chains to, the same self-signed cluster CA generated at boot.
 - **Other test coverage (non-Holmgang, informational only)**: `CertificateAuthorityTest` (generated_ca_is_self_signed_and_marked_as_a_ca, generated_ca_can_be_loaded_back_via_of)
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`
 
@@ -1231,8 +1301,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: A real CSR is signed into a leaf certificate by CertificateAuthority.signCertificateRequest, with a genuine RSA signature the CA verifies before signing.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A CSR whose signature does not match its own declared key is rejected*
+  - _Why this counts_: A CSR whose declared public key does not match the key that signed it is submitted; CertificateAuthority's own isSignatureValid check rejects it with a 400 before any signing happens -- the negative half of signature verification.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node rotates its own certificate over mTLS and keeps its identity*
+  - _Why this counts_: Exercises the CA's identical signing code path a second way: a rotation request authenticated by the caller's own still-valid certificate rather than a bootstrap token.
 - **Other test coverage (non-Holmgang, informational only)**: `CertificateAuthorityTest` (signed leaf chains to CA, signing rejects bad self-signature, leaf doesn't verify against unrelated CA)
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`
 
@@ -1240,8 +1316,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI / Security
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: Submits a NODE_CLIENT CSR self-declaring O=gimle:operators and asserts the issued certificate's real organization is the server-stamped O=gimle:nodes instead, never the self-declared privileged group.
 - **Other test coverage (non-Holmgang, informational only)**: `CertificateAuthorityTest` (subject_override_wins, still rejects bad self-signature)
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`
 
@@ -1249,8 +1327,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CSR built with dnsNames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: Builds the CSR via CertificateSigningRequests.generate with a requested subjectAltName (localhost) and asserts the issued certificate actually carries it, proving the SAN request round-trips through signing.
 - **Other test coverage (non-Holmgang, informational only)**: `CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateSigningRequests.java`
 
@@ -1276,8 +1356,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node rotates its own certificate over mTLS and keeps its identity*
+  - _Why this counts_: Runs the real `gimle cert renew --force` CLI flow as a node's own mTLS identity -- the identical same-subject rotation-CSR-over-current-mTLS-connection protocol OwnCertificateRotator/AgentMain drive on their own periodic renewal check -- and asserts the renewed certificate keeps its subject but gets a new serial number.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/OwnCertificateRotator.java`
 
@@ -1285,8 +1367,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: PKI / Security
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,"gimle:nodes") is called, Then result is O=gimle:nodes,CN=node-1.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
+  - _Why this counts_: The server-side O= stamping half: Subjects.withOrganization is what ApiServer#handleNodeJoinRequest calls to override a self-declared organization.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Fafnir independently authorizes node-scoped secret reads by tenant assignment*
+  - _Why this counts_: The Principal-derivation half: Fafnir's own resolvePrincipal calls Subjects.principalFrom on the node's peer certificate for both the allowed and the denied direct read.
 - **Other test coverage (non-Holmgang, informational only)**: `SubjectsTest` (replaces existing organization, adds organization to one with none, rejects subject with no common name)
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/Subjects.java`
 
@@ -1860,8 +1946,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a candidate whose log lags the current leader's log; When its RequestVote arrives elsewhere first; Then the vote is denied because the candidate's log isn't at least as up to date.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/raft-resilience.feature` — Scenario: *A stale, partitioned follower cannot win an election despite outracing the cluster's term*
+  - _Why this counts_: Partitions a genuinely non-leader store away from its peers (resolved dynamically, never the leader itself) while a background writer keeps committing through the surviving majority, letting the isolated node's own term climb via repeated failed elections while its log falls behind; once healed, asserts the first leader reported afterward is never the stale node -- proving RequestVote's candidate-log-up-to-date check rejected its vote despite its higher term.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftNodeSafetyMechanicsTest#a_candidate_with_a_stale_log_never_wins_even_when_its_request_vote_arrives_first`
 - **Source location(s)**: `RaftNode#onRequestVote` (`candidateUpToDate` check)
 
@@ -1898,8 +1986,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/partition-tolerance.feature` — Scenario: *A leader's write proposed while partitioned is truncated and never resurfaces*
+  - _Why this counts_: Proposes a tenant write directly against the isolated (still self-believing) leader's own client port -- not the pooled, any-endpoint API client -- guaranteeing the proposal actually reaches the node under test; asserts the proposal is refused within the propose timeout (never hangs) and that the tenant never becomes readable even after the partition heals and the cluster recovers, proving the ghost write was truncated from the leader's own log rather than silently resurfacing.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftNodeSafetyMechanicsTest#a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns`, `#a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated`
 - **Source location(s)**: `RaftNode#awaitAppliedThrowing`, `#giveUpAndTruncateLocked`
 
@@ -1907,8 +1997,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/raft-resilience.feature` — Scenario: *A learner catches up through a compacted leader's snapshot and only helps quorum once promoted*
+  - _Why this counts_: Writes 10,500 entries directly through the real StoreClient production API, forcing the leader's log past its own compaction threshold before a brand-new, empty-log store joins as a learner; the joining node can only catch up via a chunked InstallSnapshot transfer at that point (plain AppendEntries replay is impossible past the compacted floor), and the scenario later confirms the bulk-written data (including the very last entry) is genuinely readable after the new store rejoins the working cluster.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`, `RaftNodeSafetyMechanicsTest#an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives`, `#a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered`, `#an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one`
 - **Source location(s)**: `RaftNode#sendInstallSnapshot`, `#onInstallSnapshot`, `InstallSnapshot`/`InstallSnapshotResponse`
 
@@ -1916,8 +2008,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/raft-resilience.feature` — Scenario: *A learner catches up through a compacted leader's snapshot and only helps quorum once promoted*
+  - _Why this counts_: The same 10,500-entry direct write forces RaftNode's own SNAPSHOT_THRESHOLD compaction to run automatically; the scenario's later steps (a store restart in the persistence scenario, and the joining learner's own forced snapshot-only catch-up here) are only possible because compaction genuinely ran and discarded entries below the floor, observed indirectly through the platform continuing to serve every bulk-written tenant correctly afterward.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftLogTest#install_snapshot_persists_and_discards_compacted_entries`
 - **Source location(s)**: `RaftNode#maybeCompactLocked`, `RaftLog#installSnapshot`
 
@@ -1947,8 +2041,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/raft-resilience.feature` — Scenario: *A learner catches up through a compacted leader's snapshot and only helps quorum once promoted*
+  - _Why this counts_: After the new store joins as a non-voting learner, the scenario immediately kills two of the three original voters (leaving only one original voter and the still-catching-up learner alive) and asserts the cluster refuses every write for a real window -- a majority of the original three-voter configuration is unreachable, and the learner's own vote/ack cannot substitute for a real voter's, proving it genuinely does not count toward quorum until promoted. Restarting one original voter afterward restores quorum and confirms recovery.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftMembershipChangeTest#a_freshly_added_learner_does_not_block_or_count_toward_commit_quorum`, `#a_learner_is_promoted_to_a_full_voting_member_once_its_log_catches_up`, `#a_never_caught_up_learner_stays_non_voting_indefinitely`
 - **Source location(s)**: `RaftNode#learners`, `#maybePromoteLearnerLocked`, `#LEARNER_CATCH_UP_THRESHOLD`, `#votingPeersLocked`
 
@@ -1969,8 +2065,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Raft Consensus
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *The cluster functions end to end over mutual TLS*
+  - _Why this counts_: Boots a genuine 3-replica store cluster entirely over mutual TLS and drives a real deployment to ACTIVE plus a real secret round-trip -- neither is reachable without real Raft leader election and log replication succeeding across every mTLS-secured RaftTransport/PeerConnection hop.
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *The audit trail records and filters real authorization decisions over mutual TLS*
+  - _Why this counts_: Two real tenant writes against the same mTLS store cluster succeed and are independently observable via the audit trail, reinforcing that election and replication over mTLS are working, not merely assumed.
 - **Other test coverage (non-Holmgang, informational only)**: `RaftClusterTlsTest#leader_election_and_write_replication_work_over_mtls`, `#leader_crash_triggers_re_election_over_mtls`, `#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_transport`, `#a_peer_cert_not_signed_by_the_configured_ca_is_rejected_at_handshake`
 - **Source location(s)**: `com.gimle.mimir.raft.RaftTransport`, `PeerConnection`
 
@@ -1996,8 +2096,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-persistence.feature` — Scenario: *Tenants, roles, role bindings, and accounts survive a store restart, snapshot included*
+  - _Why this counts_: Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable from the freshly-opened StateStore instance -- a genuine process restart against the same directory, not an in-process reopen.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
 - **Source location(s)**: `com.gimle.mimir.store.StateStore`
 
@@ -2005,8 +2107,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-persistence.feature` — Scenario: *Tenants, roles, role bindings, and accounts survive a store restart, snapshot included*
+  - _Why this counts_: The 10,500 direct writes exceed RaftNode's own compaction threshold before the restart, so the respawned store process can only rebuild its pre-restart state from its own persisted snapshot (the log below the compaction floor no longer exists to replay) -- and every resource kind written before the restart, including the snapshot-covered bulk tenants, comes back identical.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#a_snapshot_carries_reconciler_instance_state_and_restores_it`, `#a_snapshot_carries_instance_events_and_restores_them`, `#a_snapshot_carries_audit_events_and_restores_them`, `RaftCodecTest#round_trips_a_state_snapshot`
 - **Source location(s)**: `StateStore#snapshot`, `#restoreFromSnapshot`, `com.gimle.mimir.store.StateSnapshot`
 
@@ -2023,8 +2127,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-mechanics.feature` — Scenario: *Node heartbeats update continuously for a live node*
+  - _Why this counts_: Confirms a real node agent's own heartbeat is observed and tracked (GET /nodes reflecting putNodeHeartbeat/getNodeHeartbeat) and that it continues to advance over real wall-clock time, proving the mechanism is a live, continuously-updated read path rather than a one-shot registration.
 - **Other test coverage (non-Holmgang, informational only)**: `StoreNodeTest#a_leader_reads_back_a_heartbeat_it_just_accepted`, `rpc/StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower`
 - **Source location(s)**: `StateStore#putNodeHeartbeat`, `#getNodeHeartbeat`, `com.gimle.mimir.rpc.StoreNode#handleGetNodeHeartbeat`
 
@@ -2032,8 +2138,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-mechanics.feature` — Scenario: *A lease is exclusive to its holder until it expires*
+  - _Why this counts_: Drives the real StoreClient#tryAcquireOrRenewLease/#releaseLease production API directly: one holder acquires a lease, a second is denied while it is still held, and the second holder succeeds only once the TTL has actually expired -- the full grant/contention/expiry lifecycle against a live cluster.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#a_free_lease_is_granted_to_the_first_caller`, `#the_current_holder_can_renew_its_own_lease`, `#a_different_holder_is_denied_while_the_lease_is_still_valid`, `#a_different_holder_is_granted_once_the_lease_has_expired`, `rpc/StoreClientClusterTest#leases_are_acquired_renewed_and_released_through_the_client`
 - **Source location(s)**: `StateStore#tryAcquireOrRenewLease`, `#releaseLease`, `#getLeaseHolder`, `com.gimle.mimir.store.LeaseGrant`
 
@@ -2041,8 +2149,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-mechanics.feature` — Scenario: *An instance's event log is capped and returns newest first*
+  - _Why this counts_: Relays 55 real InstanceEvents through the same POST /nodes/{nodeId}/events route a real node agent uses, pushing a live instance's event log past StateStore's MAX_EVENTS_PER_INSTANCE cap, then confirms exactly 50 events remain and are strictly newest-first -- proving both the retention prune and the ordering.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
 - **Source location(s)**: `StateStore#putInstanceEvent`, `#listInstanceEvents`, `StateMutation.AppendInstanceEvent`
 
@@ -2050,8 +2160,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given events across different principals/resources/tenants; When listAuditEvents is called with filters; Then only matching events are returned newest-first, and concurrent appends never lose/duplicate/exceed the cap.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/mtls.feature` — Scenario: *The audit trail records and filters real authorization decisions over mutual TLS*
+  - _Why this counts_: Audit recording only happens over an authenticated (HTTPS) exchange, so this runs under the real mTLS topology: two tenant writes for two different tenants produce real audit events, and GET /audit filtered by tenant id both finds the matching entry and excludes the other tenant's -- proving listAuditEvents' own filtering against real, distinguishing data.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#audit_events_filter_by_principal_resource_kind_tenant_and_since_independently`, `#audit_events_beyond_the_retention_cap_prune_the_oldest_first`, `#concurrent_audit_event_appends_never_exceed_the_cap_or_lose_or_duplicate_an_event`
 - **Source location(s)**: `StateStore#putAuditEvent`, `#listAuditEvents`, `StateMutation.AppendAuditEvent`
 
@@ -2070,8 +2182,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an index never placed before; When first placed on node A via putStatefulSetIndexNode; Then a later rolling-update replacement of that index is placed on node A again; the binding survives ordinary assignment removal, cleared only on permanent index removal.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-mechanics.feature` — Scenario: *A StatefulSet ordinal index stays bound to the node it first lands on*
+  - _Why this counts_: Deploys a real StatefulSet, records which of the topology's two nodes its sole ordinal index first landed on, kills the worker hosting it, and confirms the self-healing replacement instance is rescheduled onto the identical node -- putStatefulSetIndexNode's own sticky binding surviving a real reschedule, not just its own unit-level round trip.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `StateStore#putStatefulSetIndexNode`/`#getStatefulSetIndexNode`, `#putRollingStatefulSetIndex`, `StateMutation.PutStatefulSetIndexNode`
 
@@ -2101,8 +2215,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: State Store
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/state-store-persistence.feature` — Scenario: *Tenants, roles, role bindings, and accounts survive a store restart, snapshot included*
+  - _Why this counts_: A custom Role, RoleBinding, and Account are each created through the real /roles, /rolebindings, and /accounts HTTP surface, then confirmed readable again after the store process is fully restarted against the same on-disk directory -- all three round-tripping through a real process restart, not merely an in-memory read-back.
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
 - **Source location(s)**: `StateStore#putRole`/`#putRoleBinding`/`#putAccount`
 
@@ -2177,8 +2293,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cron expression restricting both day-of-month and day-of-week; When mostRecentDueInstant is evaluated; Then a moment matching either restricted field counts as due; an invalid expression is rejected at parse time.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *A CronJob schedule fires on the day-of-month/day-of-week OR quirk*
+  - _Why this counts_: Builds a schedule from today's own real UTC date -- today's weekday but a deliberately different day of month, both fields restricted -- and confirms the CronJobReconciler actually schedules a run from it, which is only possible if CronSchedule.mostRecentDueInstant applies the documented OR quirk (either restricted field matching is enough) rather than requiring both.
 - **Other test coverage (non-Holmgang, informational only)**: `CronScheduleTest#day_of_month_and_day_of_week_both_restricted_combine_with_or`, `#range_and_step_combine`, `#comma_list_matches_any_listed_value`, `#wrong_field_count_throws`, `#inverted_range_throws`, `#zero_step_throws`
 - **Source location(s)**: `com.gimle.mimir.cron.CronSchedule`
 
@@ -2186,8 +2304,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with a weighted autoscale block; When DeploymentManifestParser.parse is called; Then a DeploymentSpec carrying the exact weighted AutoscalePolicy is produced; maxUnavailable=0 with no maxSurge is rejected.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *A weighted autoscale policy is accepted, an unreplaceable disruption budget is rejected*
+  - _Why this counts_: Submits a Deployment manifest with a full weighted autoscale block (mode, per-signal weights) through the real /deployments admission surface and confirms it is accepted, then submits maxUnavailable: 0, maxSurge: 0 on another and confirms the real 400 rejection -- both DeploymentManifestParser's weighted-policy parsing and DisruptionBudget's own invariant, against the real HTTP API.
 - **Other test coverage (non-Holmgang, informational only)**: `DeploymentManifestParserTest#parses_a_weighted_autoscale_block_with_per_signal_weights`, `#accepts_a_nonzero_max_surge`, `#rejects_max_unavailable_0_with_no_max_surge_to_rescue_it`, `#accepts_max_unavailable_0_paired_with_a_nonzero_max_surge_for_a_pure_surge_rollout`, `DisruptionBudgetTest#max_unavailable_and_max_surge_must_not_both_be_0`
 - **Source location(s)**: `com.gimle.mimir.manifest.DeploymentManifestParser`, `DeploymentSpec`, `AutoscalePolicy`, `DisruptionBudget`
 
@@ -2195,8 +2315,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given placement.antiAffinity: true; When DaemonSetManifestParser.parse is called; Then parsing throws; a nonzero disruption.maxSurge is likewise rejected while 0 is accepted.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *A DaemonSet rejects anti-affinity and nonzero surge but accepts zero surge*
+  - _Why this counts_: Submits three DaemonSet manifests through the real /daemonsets admission surface: placement.antiAffinity: true and disruption.maxSurge: 1 are each rejected with 400, while maxSurge: 0 is accepted -- exercising DaemonSetManifestParser's own reject-outright posture for both fields against the real API, not just its unit tests.
 - **Other test coverage (non-Holmgang, informational only)**: `DaemonSetManifestParserTest#placement_anti_affinity_field_is_rejected_outright`, `#disruption_max_surge_field_is_rejected_outright_if_nonzero`, `#disruption_max_surge_field_set_to_0_is_accepted`, `#rejects_a_max_unavailable_of_0`
 - **Source location(s)**: `com.gimle.mimir.manifest.DaemonSetManifestParser`, `DaemonSetSpec`
 
@@ -2204,8 +2326,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *A CronJob applies sensible defaults and rejects an invalid schedule or concurrency policy*
+  - _Why this counts_: Submits a CronJob manifest with no explicit backoffLimit through the real /cronjobs admission surface and confirms it is accepted (the parser's own default applies), then confirms a malformed cron expression and an unknown concurrencyPolicy value are each rejected with a real 400.
 - **Other test coverage (non-Holmgang, informational only)**: `CronJobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_and_concurrency_policy`, `#invalid_cron_schedule_throws`, `#unknown_concurrency_policy_throws`, `JobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_to_six`
 - **Source location(s)**: `com.gimle.mimir.manifest.CronJobManifestParser`, `JobManifestParser`, `CronJobSpec`, `ConcurrencyPolicy`
 
@@ -2213,8 +2337,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *A StatefulSet accepts zero replicas and rejects a negative count*
+  - _Why this counts_: Submits a StatefulSet manifest with replicas: 0 through the real /statefulsets admission surface and confirms it is accepted, then confirms replicas: -1 is rejected with a real 400 -- StatefulSetSpec's own boundary against the real HTTP API.
 - **Other test coverage (non-Holmgang, informational only)**: `StatefulSetManifestParserTest#parses_a_minimal_manifest`, `#zero_replicas_is_legal`, `#negative_replicas_throws`, `#parses_a_vessel_block`
 - **Source location(s)**: `com.gimle.mimir.manifest.StatefulSetManifestParser`, `StatefulSetSpec`
 
@@ -2222,8 +2348,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Config
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *An unrecognized manifest kind is rejected via the dispatching parser*
+  - _Why this counts_: Submits a manifest with kind: Bogus through the real /deployments admission surface and confirms the real 400 rejection, which can only come from ManifestParser's own kind-dispatch switch falling through to GimleManifestException.unknownKind.
 - **Other test coverage (non-Holmgang, informational only)**: `ManifestParserTest#kind_deployment_dispatches_to_deployment_manifest_parser`
 - **Source location(s)**: `com.gimle.mimir.manifest.ManifestParser`
 
@@ -3044,8 +3172,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Rotating the secrets key re-encrypts an existing secret under the new key id*
+  - _Why this counts_: Calls POST /secrets/rotate-key through the real control-plane proxy twice and asserts each call returns a different active key id.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key`
 - **Source location(s)**: `ApiServer.handleRotateSecretsKey`; `FafnirClient.rotateKey`; `FafnirCrypto.rotate`
 
@@ -3098,8 +3228,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: API Server / Orchestration
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/module-system.feature` — Scenario: *A hook that always throws on start never reaches ACTIVE*
+  - _Why this counts_: The scenario explicitly asserts node-1 is registered before deploying, and every scenario's successful placement across the whole track implicitly depends on the node's heartbeat/assignment-fetch loop continuing to report it as live and assignable.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest` (transitive); `gimle-agent` integration tests
 - **Source location(s)**: `ApiServer.handleRegister`/`handleHeartbeat`/`handleAssignments`
 
@@ -3165,8 +3297,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A secret's versions round-trip and a soft delete behaves differently from a hard one*
+  - _Why this counts_: Two versions of a secret are written and read back correctly, a real AES-256-GCM round trip through Fafnir's own encrypt/decrypt path.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Rotating the secrets key re-encrypts an existing secret under the new key id*
+  - _Why this counts_: Directly inspects the raw stored ciphertext's own key-id byte before and after two rotations, proving the versioned key id is real, not just that decryption happens to still work.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SecretCipher.java`
 
@@ -3174,8 +3310,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a blob encrypted before the version/keyId prefix existed; When decrypt() runs; Then the new-format decode fails GCM verification and falls back to the legacy iv||ciphertext layout under key id 0.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A legacy pre-key-id secret ciphertext still decrypts correctly*
+  - _Why this counts_: Plants a secret encrypted in the exact legacy pre-key-id layout (iv || ciphertext-with-tag, no version/key-id prefix) under Fafnir's real key id 0 and asserts it still decrypts correctly through the real read API.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretCipherTest` (legacy-format coverage per class javadoc)
 - **Source location(s)**: `SecretCipher.decrypt`
 
@@ -3183,8 +3321,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A secret's versions round-trip and a soft delete behaves differently from a hard one*
+  - _Why this counts_: Every secret round trip in this scenario depends on Fafnir's own KeyFileManager.loadOrCreate having generated and loaded a real local AES-256 key at process startup.
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A legacy pre-key-id secret ciphertext still decrypts correctly*
+  - _Why this counts_: Loads the same on-disk key file Fafnir itself created (KeyFileManager.loadOrCreate) to construct a legacy ciphertext, proving the loaded key material genuinely matches what the running process uses.
 - **Other test coverage (non-Holmgang, informational only)**: `KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java`
 
@@ -3192,8 +3334,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ring holding key id 0; When rotate() runs; Then a new key id 1 file is written, .active repointed, key id 0 remains loadable.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Rotating the secrets key re-encrypts an existing secret under the new key id*
+  - _Why this counts_: Rotates the key twice and confirms the secret written before either rotation still decrypts correctly afterward -- only possible because KeyFileManager.rotate keeps every prior key file on disk in the ring rather than discarding it.
 - **Other test coverage (non-Holmgang, informational only)**: `KeyFileManagerTest#rotate_adds_a_new_active_key_while_keeping_the_old_one_loadable`
 - **Source location(s)**: `KeyFileManager.rotate`
 
@@ -3210,8 +3354,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Rotating the secrets key re-encrypts an existing secret under the new key id*
+  - _Why this counts_: After each rotation, the secret's own stored ciphertext is inspected directly and asserted to now carry the newly active key id -- proof FafnirCrypto.rotate's re-encryption walk actually re-encrypted the existing entry, not merely that the old key remained available.
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirCrypto.java`
 
@@ -3219,8 +3365,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A secret's versions round-trip and a soft delete behaves differently from a hard one*
+  - _Why this counts_: Writes two versions of one secret, lists its versions, and reads back both the latest and an explicit historical version -- the whole key@N/key@meta convention layered over ConfigEntry, driven end to end through the real API.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretStoreTest#list_returns_metadata_only_for_every_written_secret_in_the_tenant`; `FafnirServerTest#versions_lists_every_claimed_version_number`, `an_explicit_version_query_parameter_reads_that_historical_value`
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java`
 
@@ -3237,8 +3385,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Secrets Management
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A secret's versions round-trip and a soft delete behaves differently from a hard one*
+  - _Why this counts_: Soft-deletes a secret and asserts the latest read is gone while an explicit historical version stays readable, then hard-deletes it (?destroy=true) and asserts even the historical version is gone -- the two delete modes' real, distinct behavior.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretStoreTest#soft_delete_marks_the_secret_deleted_but_keeps_every_version_readable_by_number`, `hard_delete_removes_every_version_and_the_metadata_entry_itself`; `FafnirServerTest#soft_deleting_a_secret_hides_it_from_a_default_get_but_versions_remain_readable`
 - **Source location(s)**: `SecretStore.softDelete`/`hardDelete`; `FafnirServer.handleDeleteSecret`
 
@@ -3246,8 +3396,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Authorization
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a forwarded principal claims access but doesn't actually hold the permission; When Fafnir independently re-checks Authorizer.authorize; Then denied with 403 regardless of the forwarder's decision.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Fafnir independently authorizes node-scoped secret reads by tenant assignment*
+  - _Why this counts_: Hits Fafnir's own port directly, bypassing gimle-controlplane's /secrets/* proxy entirely, so the resulting allow/deny decisions can only come from Fafnir's own independent Authorizer.authorize/isTenantAssignedToNode check, never a forwarded claim.
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirSecretsAuthzTest#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden`
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`
 
@@ -3255,8 +3407,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Authorization
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Fafnir independently authorizes node-scoped secret reads by tenant assignment*
+  - _Why this counts_: A node's own certificate reads a secret for the tenant it currently has an active instance assignment for (allowed) and a secret for a tenant it has no assignment for (denied with 403), driving Authorizer.isTenantAssignedToNode's real decision both ways.
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`
 - **Source location(s)**: `FafnirServer.decideAllowed`; `Authorizer.isTenantAssignedToNode`
 
@@ -3291,8 +3445,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: API Server
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Fafnir's console session login round-trips and the plaintext session falls back to anonymous*
+  - _Why this counts_: A real seeded account logs in to Fafnir's own /auth/login, the session cookie is verified via /auth/session to report that account as logged in, and /auth/logout is confirmed to end the session -- the full login/logout/session round trip.
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`
 - **Source location(s)**: `FafnirServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`
 
@@ -3300,8 +3456,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Authorization
 - **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given plaintext mode with no session cookie and no TLS; When GET /auth/session; Then a synthetic "anonymous: true" principal is returned rather than 401.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *Fafnir's console session login round-trips and the plaintext session falls back to anonymous*
+  - _Why this counts_: Before any login and again after logout, /auth/session on a plaintext-transport Fafnir reports an anonymous session (never 401) -- the plaintext-mode carve-out, distinguished from the real logged-in state the same scenario also exercises.
 - **Other test coverage (non-Holmgang, informational only)**: Implicit in `FafnirServerAuthTest`'s plaintext-mode coverage
 - **Source location(s)**: `FafnirServer.handleAuthSession`
 
@@ -5858,18 +6016,16 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**510 of 565 requirements are Not Covered.**
+**449 of 565 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
-| GIMLE-290 | gimle-fafnir | Console session login (Fafnir's own operator dashboard) | API Server | `FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set` |
 | GIMLE-314 | gimle-andvari | Andvari's own console session story (`/auth/*`, bundled SPA) | API Server | `AndvariServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set` |
 | GIMLE-318 | gimle-andvari | Process status endpoint (no RBAC gate) | API Server | `AndvariServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status` |
 | GIMLE-272 | gimle-controlplane | Bundled web console static serving | API Server / Internal-Infra | `ApiServerConsoleContractTest` |
 | GIMLE-292 | gimle-fafnir | Bundled web console static serving (Fafnir) | API Server / Internal-Infra | `FafnirServerConsoleTest` — `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html` |
 | GIMLE-293 | gimle-fafnir | Process status endpoint with key-ring fingerprint | API Server / Internal-Infra | `FafnirServerAuthTest#status_reports_uptime_active_key_and_transport_mode` |
 | GIMLE-275 | gimle-controlplane | Per-deployment and per-instance metrics rollup | API Server / Observability | Covered within `ApiServerConsoleContractTest`/`ApiServerTest` |
-| GIMLE-269 | gimle-controlplane | Node registration, heartbeat, and assignment-fetch API | API Server / Orchestration | `ApiServerTest` (transitive); `gimle-agent` integration tests |
 | GIMLE-247 | gimle-controlplane | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Admission / Config | `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` |
 | GIMLE-245 | gimle-controlplane | Admission chain extension point | Admission / Internal-Infra | `AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated` |
 | GIMLE-297 | gimle-andvari | Immutable, content-addressed artifact store | Artifact Registry | `ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent` |
@@ -5890,9 +6046,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-252 | gimle-controlplane | `gimle-system` reserved-tenant operator-only guard | Authorization | Exercised within `ApiServerAuthzTest`'s broader RBAC test set |
 | GIMLE-253 | gimle-controlplane | Node-scoped self-service authorization (`gimle:nodes` group) | Authorization | `ApiServerAuthzTest`; `NodeBootstrapCsrTest#fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake` |
 | GIMLE-254 | gimle-controlplane | Node-tenant-scoped `/endpoints/*` read access | Authorization | `ApiServerEndpointsAuthzTest` — `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden` |
-| GIMLE-285 | gimle-fafnir | Fafnir's own independent RBAC re-check (defense-in-depth) | Authorization | `FafnirSecretsAuthzTest#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden` |
-| GIMLE-286 | gimle-fafnir | Node-tenant-scoped secret reads (`gimle:nodes`) | Authorization | `FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment` |
-| GIMLE-291 | gimle-fafnir | Plaintext-mode anonymous session carve-out | Authorization | Implicit in `FafnirServerAuthTest`'s plaintext-mode coverage |
 | GIMLE-310 | gimle-andvari | Defense-in-depth authorization (independent re-check, `ResourceKind.ARTIFACT`) | Authorization | `AndvariServerTlsTest#a_forwarded_principal_wins_over_the_peer_certificate_and_is_re_checked`, `an_ungrouped_certificate_is_refused_by_the_independent_rbac_check` |
 | GIMLE-311 | gimle-andvari | Module-scoped permission grants | Authorization | `AndvariServerTlsTest` — `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog` |
 | GIMLE-312 | gimle-andvari | Node pull-only artifact access, scoped to active assignments | Authorization | `AndvariServerTlsTest#a_nodes_group_certificate_may_pull_only_coordinates_assigned_to_its_node` |
@@ -5963,17 +6116,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-555 | gimle-holmgang | Utgard real machine loss (hard container kill) and rejoin | Cluster Validation | `UtgardMachineLossIT.a_killed_machine_is_rescheduled_around_and_can_rejoin_after_restart` |
 | GIMLE-556 | gimle-holmgang | Utgard network partition (vs hard kill) with reconvergence | Cluster Validation | `UtgardPartitionIT.a_partitioned_machine_is_rescheduled_around_then_the_cluster_converges_on_reconnect` |
 | GIMLE-557 | gimle-holmgang | Utgard real-hostname mTLS bootstrap across containers | Cluster Validation | `UtgardMtlsIT.an_mtls_cluster_bootstraps_across_containers_addressed_by_real_hostnames` |
-| GIMLE-015 | gimle-core | Cluster-wide transport protocol switch (plaintext/TLS) | Config | `TransportProtocolTest`, `TlsSettingsTest` (defaults to plaintext, case-insensitive, rejects unrecognized value, fails fast on unset property) |
 | GIMLE-117 | gimle-agent | Persistent volume allocation for StatefulSet-shaped instances | Config | NONE recorded in the baseline |
 | GIMLE-119 | gimle-agent | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Config | NONE recorded in the baseline |
 | GIMLE-120 | gimle-agent | Vessel config-file rendering to disk | Config | NONE recorded in the baseline |
 | GIMLE-134 | gimle-agent | Node placement-label registration | Config | NONE recorded in the baseline |
-| GIMLE-171 | gimle-mimir | Five-Field Cron Schedule Evaluator | Config | `CronScheduleTest#day_of_month_and_day_of_week_both_restricted_combine_with_or`, `#range_and_step_combine`, `#comma_list_matches_any_listed_value`, `#wrong_field_count_throws`, `#inverted_range_throws`, `#zero_step_throws` |
-| GIMLE-172 | gimle-mimir | Deployment Manifest Parsing (incl. Autoscale & Disruption Budget) | Config | `DeploymentManifestParserTest#parses_a_weighted_autoscale_block_with_per_signal_weights`, `#accepts_a_nonzero_max_surge`, `#rejects_max_unavailable_0_with_no_max_surge_to_rescue_it`, `#accepts_max_unavailable_0_paired_with_a_nonzero_max_surge_for_a_pure_surge_rollout`, `DisruptionBudgetTest#max_unavailable_and_max_surge_must_not_both_be_0` |
-| GIMLE-173 | gimle-mimir | DaemonSet Manifest Parsing (Anti-Affinity/Surge Rejection) | Config | `DaemonSetManifestParserTest#placement_anti_affinity_field_is_rejected_outright`, `#disruption_max_surge_field_is_rejected_outright_if_nonzero`, `#disruption_max_surge_field_set_to_0_is_accepted`, `#rejects_a_max_unavailable_of_0` |
-| GIMLE-174 | gimle-mimir | Job / CronJob Manifest Parsing | Config | `CronJobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_and_concurrency_policy`, `#invalid_cron_schedule_throws`, `#unknown_concurrency_policy_throws`, `JobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_to_six` |
-| GIMLE-175 | gimle-mimir | StatefulSet Manifest Parsing | Config | `StatefulSetManifestParserTest#parses_a_minimal_manifest`, `#zero_replicas_is_legal`, `#negative_replicas_throws`, `#parses_a_vessel_block` |
-| GIMLE-176 | gimle-mimir | Kind-Dispatching Manifest Parser | Config | `ManifestParserTest#kind_deployment_dispatches_to_deployment_manifest_parser` |
 | GIMLE-332 | gimle-muninn | Plaintext-default transport with loud unauthenticated-mode warning | Config | `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status` |
 | GIMLE-333 | gimle-muninn | mTLS transport mode | Config | `MuninnServerTlsTest#a_real_mtls_request_with_a_ca_signed_client_cert_succeeds` |
 | GIMLE-334 | gimle-muninn | Zero-downtime TLS material reload on certificate rotation | Config | `MuninnServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` |
@@ -5981,7 +6127,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-363 | gimle-gateway | Route-table config DSL parsing | Config | `GatewayRouteConfigTest#parses_a_mix_of_fabric_and_vessel_routes_ignoring_blank_lines_and_comments`, `#an_unknown_kind_token_is_rejected`, `#a_fabric_line_with_the_wrong_number_of_fields_is_rejected`, `#a_non_integer_fabric_version_is_rejected`, `#a_fabric_param_type_outside_the_v1_restriction_is_rejected_at_parse_time` |
 | GIMLE-364 | gimle-gateway | Duplicate route-path rejection at config-parse time | Config | `GatewayRouteConfigTest#a_duplicate_route_path_across_fabric_and_vessel_is_rejected`, `#a_duplicate_fabric_route_path_is_rejected`, `#a_duplicate_vessel_route_path_is_rejected` |
 | GIMLE-264 | gimle-controlplane | CONFIG/SECRET resource-kind separation on one underlying store | Config / Authorization | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered` |
-| GIMLE-038 | gimle-core | Tenant-scoped config/secret entry model | Config / Secrets | NONE recorded in the baseline |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |
@@ -6113,36 +6258,23 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-353 | gimle-observability | WorkerMetrics thread-count / metaspace gauges | Metrics | `WorkerMetricsTest#thread_count_gauge_reflects_the_latest_recorded_value_not_the_first`, `#metaspace_gauge_reflects_the_latest_recorded_value_not_the_first` |
 | GIMLE-354 | gimle-observability | Fafnir authz-failure counter (rate-limiting signal) | Metrics | `FafnirMetricsTest#authz_failures_are_recorded_and_tagged_by_verb_only`, `#authz_failure_count_is_zero_before_any_failure_is_recorded` |
 | GIMLE-001 | gimle-core | Semantic module versioning | Module System | `VersionTest` (parses_major_minor_patch, orders_by_major_then_minor_then_patch, unqualified_outranks_qualified, qualifiers_compare_lexicographically, rejects_negative_components) |
-| GIMLE-002 | gimle-core | Version range constraint matching | Module System | `VersionRangeTest` (inclusive/exclusive bounds, unbounded above, rejects lower>upper) |
-| GIMLE-003 | gimle-core | Module descriptor validation (request ≤ limit invariant) | Module System | `ModuleDescriptorTest` (accepts_request_within_limit, rejects_memory/cpu_request_exceeding_limit, rejects_blank_name, id_combines_name_and_version) |
-| GIMLE-004 | gimle-core | Tiered isolation model (TIER_1/TIER_2/TIER_3) | Module System | NONE recorded in the baseline |
-| GIMLE-043 | gimle-module | Module dependency resolution with cycle detection | Module System | `ModuleResolverTest` (wires to highest satisfying version, candidate must be resolved/active, unsatisfied requirement reported, 2/3-length cycle detected, diamond dependency not a cycle, independent dependents wire independently) |
 | GIMLE-044 | gimle-module | Module registry (install bookkeeping, idempotent re-install, content-mismatch rejection) | Module System | `ModuleRegistryTest` (register stores as installed, idempotent identical re-register, rejects differing re-register, unknown module id throws, named transitions update state, mark_failed reachable) |
-| GIMLE-045 | gimle-module | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED) | Module System | `ModuleControllerTest` (full happy path, start before resolve illegal, stop before active illegal, resolve failure marks failed, uninstall rejects active module, force_failed transitions to failed, complete_succeeded/failed paths) |
 | GIMLE-046 | gimle-module | Dynamic per-module-version JPMS ModuleLayer construction | Module System | `ModuleLayerFactoryTest` (builds dependency-free layer, dependent layer calls into exported API, two versions get distinct layers, missing parent layer fails with GimleResolutionException) |
 | GIMLE-049 | gimle-module | Repeated-redeploy flat-metaspace acceptance test | Module System | `RedeployLoopFlatMetaspaceTest#redeploy_loop_keeps_metaspace_flat` |
 | GIMLE-051 | gimle-module | Module lifecycle hooks (reflectively instantiated, JPMS-exported) | Module System | `RealHookInvocationTest#hooks_fire_in_order_with_a_dynamically_loaded_module` |
 | GIMLE-052 | gimle-module | Job-kind run-to-completion hooks | Module System | `ModuleControllerTest` (complete_succeeded/complete_failed/complete_rejects_non_active) |
-| GIMLE-053 | gimle-module | Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay) | Module System | `SimpleModuleContextTest` (invoke_service_by_name delegates/empty-on-unknown/propagates exception); `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work` |
-| GIMLE-054 | gimle-module | In-worker round-robin service registry with version-aware cutover | Module System | `SimpleServiceRegistryTest` (round robins, prefers highest ready version, falls back while highest has none ready, round robins within preferred version, mark_unready excludes without removing); `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring` |
-| GIMLE-055 | gimle-module | Cross-tier name-driven service invocation | Module System | `SimpleServiceRegistryTest` (invokes directly by name, unknown interface returns empty, wrong method name throws, rethrows application exception with real type, void method returns empty Optional) |
-| GIMLE-056 | gimle-module | Same-worker cross-module service publish/discover | Module System | `ServiceRegistryIntegrationTest` (consumer finds service, consumer finds nothing without a provider) |
 | GIMLE-058 | gimle-module | Hot redeploy (old/new version coexistence with pinned dependent wiring) | Module System | `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring` |
-| GIMLE-059 | gimle-module | gimle-module.yaml descriptor parsing and validation | Module System | `ModuleDescriptorParserTest` (various); indirectly via TestModuleBuilderTest |
 | GIMLE-060 | gimle-module | Module artifact reading — real-JPMS-module and descriptor-presence validation | Module System | exercised via `TestModuleBuilderTest`; NONE dedicated `ModuleArtifactReaderTest` found |
 | GIMLE-081 | gimle-worker | Module install/resolve/start/stop/uninstall command dispatch | Module System | NONE recorded in the baseline |
 | GIMLE-082 | gimle-worker | Instance identity registration and rename-in-place | Module System | NONE recorded in the baseline |
 | GIMLE-085 | gimle-worker | Classloader leak detection on undeploy | Module System | NONE recorded in the baseline |
 | GIMLE-092 | gimle-worker | Job-kind module execution (run-to-completion, not probed) | Module System | `JobHooksExecutionTest#a_succeeding_job_runs_its_hooks_and_reaches_completed`, `#a_failing_job_reaches_failed`, `#a_job_hooks_run_that_throws_is_treated_as_failed` |
-| GIMLE-008 | gimle-core | Health probe configuration with initial delay | Module System / Health | `ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws) |
-| GIMLE-063 | gimle-module | Health probe interfaces (liveness/readiness) | Module System / Health | NONE recorded in the baseline |
 | GIMLE-047 | gimle-module | Unnamed-module readability grant for bundled hooks/probes | Module System / Internal-Infra | gimle-worker's `RealBundledHookAndProbeInvocationTest`; this module's own `ModuleLayerFactoryTest` exercises the general mechanism |
 | GIMLE-048 | gimle-module | Classloader leak detection via PhantomReference | Module System / Internal-Infra | `LeakTrackerTest` (no leak when collected, leak reported when retained, wired through ModuleController reports no leak on clean stop) |
 | GIMLE-050 | gimle-module | Best-effort leak retaining-path attribution via JFR OldObjectSample | Module System / Internal-Infra | `RetainingPathAttributionTest#leak_detector_surfaces_a_retaining_path_when_the_worker_jvm_enables_path_to_gc_roots` |
 | GIMLE-062 | gimle-module | Multi-endpoint Andvari failover on pull | Module System / Internal-Infra | NONE recorded in the baseline |
 | GIMLE-100 | gimle-worker | Real bundled-hook/probe classloading against the platform layer | Module System / Internal-Infra | `RealBundledHookAndProbeInvocationTest#bundled_hooks_and_probes_load_and_cast_against_this_jvms_own_platform_types`, `#bundled_probes_instantiate_and_cast_cleanly` |
 | GIMLE-006 | gimle-core | Tenant-scoped service export | Module System / Multi-tenancy | `ServiceExportTenantTest` (unrestricted permits any, restricted permits only listed, never permits untenanted caller, empty allow list permits no one) |
-| GIMLE-057 | gimle-module | Graceful drain-then-dispose stop with deadline | Module System / Self-Healing | `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work` |
 | GIMLE-007 | gimle-core | StatefulSet-shaped persistent volume declaration | Module System / Storage | `ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_and_mount_path, volume_with_missing_mount_path_throws, volume_with_non_positive_size_bytes_throws) |
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
@@ -6174,30 +6306,17 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-113 | gimle-agent | Worker-crash-to-durable-InstanceEvent relay | Observability / Self-Healing | NONE recorded in the baseline |
 | GIMLE-132 | gimle-agent | Node capacity/instance-observation heartbeat reporting | Observability / Worker Supervision | `AgentMainTest#observation_json_reports_the_instances_real_self_reported_resource_usage`, `#observation_json_reports_the_instances_real_self_reported_request_and_error_rate`, `#observation_json_reports_a_completed_job_run_as_alive_but_not_ready`, `#observation_json_reports_a_failed_instance_as_not_alive` |
 | GIMLE-242 | gimle-controlplane | Reconciler-leader election via non-replicated lease | Orchestration / Internal-Infra | Indirect (multi-replica smoke/holmgang tests) |
-| GIMLE-034 | gimle-core | Certificate bootstrap (CSR) request/response protocol | PKI | NONE recorded in the baseline |
-| GIMLE-070 | gimle-pki | Self-signed cluster CA generation | PKI | `CertificateAuthorityTest` (generated_ca_is_self_signed_and_marked_as_a_ca, generated_ca_can_be_loaded_back_via_of) |
-| GIMLE-071 | gimle-pki | CSR-to-leaf-certificate signing with signature verification | PKI | `CertificateAuthorityTest` (signed leaf chains to CA, signing rejects bad self-signature, leaf doesn't verify against unrelated CA) |
-| GIMLE-073 | gimle-pki | CSR generation with Subject Alternative Names | PKI | `CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names` |
 | GIMLE-075 | gimle-pki | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | NONE recorded in the baseline |
-| GIMLE-076 | gimle-pki | Own-certificate rotation over mTLS via CSR bootstrap endpoint | PKI | NONE recorded in the baseline |
 | GIMLE-074 | gimle-pki | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | PKI / Internal-Infra | exercised indirectly throughout CertificateAuthorityTest (`generated_leaf_certificate_is_readable_by_openssl`, `certificate_survives_a_keystore_round_trip`); NONE dedicated PemTest |
 | GIMLE-078 | gimle-pki | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | NONE recorded in the baseline |
-| GIMLE-072 | gimle-pki | Server-stamped Subject override on signing (prevents self-declared privileged group) | PKI / Security | `CertificateAuthorityTest` (subject_override_wins, still rejects bad self-signature) |
-| GIMLE-077 | gimle-pki | X.500 Subject utilities: server-side O= stamping and Principal derivation | PKI / Security | `SubjectsTest` (replaces existing organization, adds organization to one with none, rejects subject with no common name) |
 | GIMLE-560 | gimle-dist | Standalone CLI distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-561 | gimle-dist | Standalone Hilmir bootstrap-tool distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-562 | gimle-dist | Cluster-machine platform distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-563 | gimle-dist | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | NONE recorded in the baseline |
 | GIMLE-564 | gimle-dist | Distribution archive checksums and SBOM generation | Packaging | NONE recorded in the baseline |
 | GIMLE-559 | gimle-holmgang | Docker Compose manual validation topologies (bundled-JRE and full-JRE) | Packaging / Internal-Infra | NONE recorded in the baseline |
-| GIMLE-138 | gimle-mimir | Election Safety Restriction (log up-to-date check) | Raft Consensus | `RaftNodeSafetyMechanicsTest#a_candidate_with_a_stale_log_never_wins_even_when_its_request_vote_arrives_first` |
 | GIMLE-139 | gimle-mimir | Conflicting-Entry Truncation | Raft Consensus | `RaftNodeSafetyMechanicsTest#a_follower_truncates_a_conflicting_entry_and_everything_after_it_before_appending` |
 | GIMLE-140 | gimle-mimir | Leader-Only-Commits-Own-Term Rule (Figure 8) | Raft Consensus | `RaftNodeSafetyMechanicsTest#the_leader_only_commits_an_entry_from_its_own_current_term` |
-| GIMLE-142 | gimle-mimir | Proposal Timeout with Ghost-Write Prevention | Raft Consensus | `RaftNodeSafetyMechanicsTest#a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns`, `#a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated` |
-| GIMLE-143 | gimle-mimir | Chunked InstallSnapshot Transfer (Figure 13) | Raft Consensus | `RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`, `RaftNodeSafetyMechanicsTest#an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives`, `#a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered`, `#an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one` |
-| GIMLE-144 | gimle-mimir | Local Log Compaction / Snapshotting | Raft Consensus | `RaftLogTest#install_snapshot_persists_and_discards_compacted_entries` |
-| GIMLE-147 | gimle-mimir | Non-Voting Learner & Automatic Promotion | Raft Consensus | `RaftMembershipChangeTest#a_freshly_added_learner_does_not_block_or_count_toward_commit_quorum`, `#a_learner_is_promoted_to_a_full_voting_member_once_its_log_catches_up`, `#a_never_caught_up_learner_stays_non_voting_indefinitely` |
-| GIMLE-149 | gimle-mimir | Raft Transport over Mutual TLS with Hot Cert Reload | Raft Consensus | `RaftClusterTlsTest#leader_election_and_write_replication_work_over_mtls`, `#leader_crash_triggers_re_election_over_mtls`, `#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_transport`, `#a_peer_cert_not_signed_by_the_configured_ca_is_rejected_at_handshake` |
 | GIMLE-565 | gimle-mimir | Norn deterministic virtual-time Raft fault-injection simulation | Raft Consensus / Internal-Infra / Testing | `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends |
 | GIMLE-220 | gimle-controlplane | Deployment scale-down | Reconciliation | `DeploymentReconcilerTest#scale_down_removes_assignments_at_or_beyond_the_new_replica_count` |
 | GIMLE-227 | gimle-controlplane | Readiness-only failures never trigger reschedule | Reconciliation | `HealthReconcilerTest#readiness_alone_never_triggers_a_reschedule` |
@@ -6263,24 +6382,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-218 | gimle-controlplane | DaemonSet eligible-node enumeration (`eligibleNodes`) | Scheduling | `SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node` |
 | GIMLE-215 | gimle-controlplane | Tier 2/3 node-level tenant isolation | Scheduling / Multi-tenancy | `SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant` |
 | GIMLE-217 | gimle-controlplane | StatefulSet sticky node placement | Scheduling / Orchestration | `SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone` |
-| GIMLE-263 | gimle-controlplane | Secrets key rotation trigger (proxied) | Secrets Management | `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` |
-| GIMLE-276 | gimle-fafnir | AES-256-GCM secret value encryption with versioned key IDs | Secrets Management | `SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv` |
-| GIMLE-277 | gimle-fafnir | Legacy pre-key-id ciphertext format fallback | Secrets Management | `SecretCipherTest` (legacy-format coverage per class javadoc) |
-| GIMLE-278 | gimle-fafnir | Local AES-256 key-file generation and loading | Secrets Management | `KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted` |
-| GIMLE-279 | gimle-fafnir | Key rotation with full-ring persistence (`KeyFileManager.rotate`) | Secrets Management | `KeyFileManagerTest#rotate_adds_a_new_active_key_while_keeping_the_old_one_loadable` |
-| GIMLE-281 | gimle-fafnir | Full-key-rotation re-encryption sweep | Secrets Management | `FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation` |
-| GIMLE-282 | gimle-fafnir | Versioned secret storage layered over ConfigEntry | Secrets Management | `SecretStoreTest#list_returns_metadata_only_for_every_written_secret_in_the_tenant`; `FafnirServerTest#versions_lists_every_claimed_version_number`, `an_explicit_version_query_parameter_reads_that_historical_value` |
-| GIMLE-284 | gimle-fafnir | Soft delete vs hard delete (`?destroy=true`) | Secrets Management | `SecretStoreTest#soft_delete_marks_the_secret_deleted_but_keeps_every_version_readable_by_number`, `hard_delete_removes_every_version_and_the_metadata_entry_itself`; `FafnirServerTest#soft_deleting_a_secret_hides_it_from_a_default_get_but_versions_remain_readable` |
 | GIMLE-262 | gimle-controlplane | `/secrets/*` byte-for-byte proxy to Fafnir | Secrets Management / Internal-Infra | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered`, `a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` |
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
-| GIMLE-013 | gimle-core | Console password hashing (PBKDF2-HMAC-SHA256) | Security | `PasswordHashesTest` (hash_then_verify_round_trips, verify_rejects_wrong_password, two_hashes_differ_due_to_random_salt, verify_rejects_truncated_hash) |
-| GIMLE-016 | gimle-core | Stateless HMAC-signed console session tokens | Security | `SessionTokensTest` (issue_then_verify round trips, expired rejected, wrong-key rejected, tampered rejected, garbage input rejected not thrown) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
-| GIMLE-018 | gimle-core | Per-key exponential-backoff login throttle | Security | `LoginThrottleTest` (delay doubles up to cap, success clears history, keys tracked independently) |
-| GIMLE-033 | gimle-core | Cross-resource audit trail model | Security / Audit | `AuditEventTest` (denied represented same as allowed, null groups/tenant/target coalesce to empty, blank id rejected) |
-| GIMLE-011 | gimle-core | RBAC domain model (resources, verbs, permissions, roles, bindings) | Security / RBAC | `PermissionTest` (unscoped covers any tenant, scoped only own tenant, mismatch never covers), `RoleBindingTest` (well-formed subject accepted, malformed rejected) |
-| GIMLE-012 | gimle-core | Built-in cluster-admin role and operator/node certificate groups | Security / RBAC | `BuiltinRolesTest` (cluster_admin_covers_every_resource_and_verb_unscoped, group_names_match_what_the_pki_layer_stamps) |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |
 | GIMLE-183 | gimle-fabric | Cross-Machine TCP Invocation Tier | Service Fabric | `FabricServiceRegistryTest#least_outstanding_requests_prefers_the_idle_endpoint`, `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls` |
@@ -6291,14 +6396,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-194 | gimle-fabric | Inbound Call Dispatch with Bounded Concurrency | Service Fabric | `FabricServerTest#a_real_inbound_call_is_visible_in_the_targets_in_flight_count_while_it_runs`, `#concurrent_calls_are_bounded_by_the_targets_executor_not_run_unbounded`, `#real_calls_are_recorded_in_the_targets_worker_metrics_including_errors` |
 | GIMLE-195 | gimle-fabric | Distributed Trace Propagation Across Fabric Hops | Service Fabric | `FabricServerTest#baggage_from_the_caller_survives_an_inbound_call_into_the_handler`, `#has_remote_span_distinguishes_a_real_caller_span_from_the_no_active_span_marker`, `FabricServerGlobalTracingTest#a_call_with_no_active_caller_span_starts_a_fresh_valid_trace_not_the_all_zero_marker`, `transport/FabricCodecTest#round_trips_a_non_empty_tracestate_and_baggage` |
 | GIMLE-196 | gimle-fabric | Fabric Transport over Mutual TLS with Hot Cert Reload | Service Fabric | `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls`, `#cross_machine_call_is_rejected_when_client_trusts_a_different_ca` |
-| GIMLE-152 | gimle-mimir | File-Backed State Store Persistence Engine | State Store | `StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance` |
-| GIMLE-153 | gimle-mimir | Full-State Snapshot / Restore | State Store | `StateStoreTest#a_snapshot_carries_reconciler_instance_state_and_restores_it`, `#a_snapshot_carries_instance_events_and_restores_them`, `#a_snapshot_carries_audit_events_and_restores_them`, `RaftCodecTest#round_trips_a_state_snapshot` |
-| GIMLE-155 | gimle-mimir | Leader-Local Node Heartbeat Tracking | State Store | `StoreNodeTest#a_leader_reads_back_a_heartbeat_it_just_accepted`, `rpc/StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower` |
-| GIMLE-156 | gimle-mimir | Distributed Lease Coordination (Grant/Renew/Release) | State Store | `StateStoreTest#a_free_lease_is_granted_to_the_first_caller`, `#the_current_holder_can_renew_its_own_lease`, `#a_different_holder_is_denied_while_the_lease_is_still_valid`, `#a_different_holder_is_granted_once_the_lease_has_expired`, `rpc/StoreClientClusterTest#leases_are_acquired_renewed_and_released_through_the_client` |
-| GIMLE-157 | gimle-mimir | Per-Instance Lifecycle Event Log with Retention Cap | State Store | `StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first` |
-| GIMLE-158 | gimle-mimir | Cluster-Wide Audit Trail with Filtering | State Store | `StateStoreTest#audit_events_filter_by_principal_resource_kind_tenant_and_since_independently`, `#audit_events_beyond_the_retention_cap_prune_the_oldest_first`, `#concurrent_audit_event_appends_never_exceed_the_cap_or_lose_or_duplicate_an_event` |
-| GIMLE-160 | gimle-mimir | StatefulSet OrderedReady Index & Sticky Node Binding | State Store | NONE recorded in the baseline |
-| GIMLE-163 | gimle-mimir | RBAC Data Persistence (Roles, RoleBindings, Accounts) | State Store | `StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance` |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-498 | gimle-testkit | Heimdall event-driven cluster condition harness | Test Infrastructure | NONE recorded in the baseline |

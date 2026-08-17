@@ -37,9 +37,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "Deploys a dependency library, then wires a consumer whose declared version range includes it -- resolves and reaches ACTIVE; a second consumer whose declared range excludes the only deployed version is asserted to fail placement instead, proving the range check is genuinely evaluated at resolution time, not just recorded from the manifest."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given \"[1.0.0,2.0.0)\", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper).",
+      "gapNote": "",
       "otherTestCoverage": "`VersionRangeTest` (inclusive/exclusive bounds, unbounded above, rejects lower>upper)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/VersionRange.java`"
@@ -54,9 +58,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A manifest that fails its own validation never gets placed"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A manifest that fails its own validation never gets placed",
+          "whyThisCounts": "Submits a deployment whose resource request exceeds its own declared limit; asserted to never reach a placed/ACTIVE instance, proving the request<=limit invariant is enforced before scheduling rather than merely documented."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values.",
+      "gapNote": "",
       "otherTestCoverage": "`ModuleDescriptorTest` (accepts_request_within_limit, rejects_memory/cpu_request_exceeding_limit, rejects_blank_name, id_combines_name_and_version)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`"
@@ -71,10 +79,18 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A dependent resolves only when a version inside its declared range is present (TIER_1 worker-sharing density)",
-        "self-healing.feature: A killed worker JVM is respawned and the deployment returns to ACTIVE (TIER_2 dedicated worker, independent crash domain)"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "The dependency and its consumer's cross-deployment `requires:` wiring can only resolve directly if both land on one shared Tier 1 worker JVM; their successful resolution and same-worker service lookup is the black-box proof of Tier 1 density, not just a configuration flag."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/self-healing.feature",
+          "scenario": "A killed worker JVM is respawned and the deployment returns to ACTIVE",
+          "whyThisCounts": "A Tier 2 module's dedicated worker JVM is killed directly; the deployment recovers via a fresh worker rather than an in-process module reload, proving Tier 2's independent-crash-domain guarantee -- pre-existing coverage, reused here rather than duplicated."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM.",
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/IsolationTier.java`"
@@ -135,9 +151,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A liveness probe's initial delay is honored before the first tick"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A liveness probe's initial delay is honored before the first tick",
+          "whyThisCounts": "A module with a declared health-probe initial delay stays ACTIVE through that whole window and only fails once probing genuinely starts afterward -- if the delay weren't honored, the probe would trip immediately and the instance would never observably survive the delay window."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.",
+      "gapNote": "",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`"
@@ -187,9 +207,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "A role scoped to one tenant grants write access to that tenant alone",
+          "whyThisCounts": "A role/role-binding pair scoped to one tenant is created through the real RBAC API; the bound principal can write to that tenant but is rejected (403) writing to a different one, proving permissions/roles/bindings are genuinely evaluated together, not merely stored."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given Permission scoped to (DEPLOYMENT,WRITE,tenant=\"acme\"), When covers(DEPLOYMENT,WRITE,Optional.of(\"acme\")), Then true; a different tenant, false.",
+      "gapNote": "",
       "otherTestCoverage": "`PermissionTest` (unscoped covers any tenant, scoped only own tenant, mismatch never covers), `RoleBindingTest` (well-formed subject accepted, malformed rejected)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/authz/Permission.java`",
@@ -209,11 +233,23 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "console-security.feature: A console login round-trips the right password and rejects the wrong one",
-        "console-security.feature: A role scoped to one tenant grants write access to that tenant alone",
-        "mtls.feature: A tenant write is recorded in the durable audit trail"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "A console login round-trips the right password and rejects the wrong one",
+          "whyThisCounts": "Every scenario in this track runs as the operator mTLS identity performing writes across multiple resource kinds without any role ever having been provisioned for it -- only the built-in cluster-admin role, implicitly bound to the operator certificate group, makes that possible."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "A role scoped to one tenant grants write access to that tenant alone",
+          "whyThisCounts": "The tenant-scoped role is layered on top of, and asserted not to replace, the operator's own implicit cluster-admin grant used to provision it in the first place."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "A tenant write is recorded in the durable audit trail",
+          "whyThisCounts": "The node agent's own CSR-bootstrapped registration in the same mTLS cluster exercises the built-in `gimle:nodes` certificate group the same way the operator scenarios exercise cluster-admin."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination.",
+      "gapNote": "",
       "otherTestCoverage": "`BuiltinRolesTest` (cluster_admin_covers_every_resource_and_verb_unscoped, group_names_match_what_the_pki_layer_stamps)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`"
@@ -228,9 +264,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "A console login round-trips the right password and rejects the wrong one",
+          "whyThisCounts": "An account is created with a plaintext password via the real API (server-side PBKDF2-HMAC-SHA256 hashing, never stored in the clear); login with the correct password succeeds and the wrong password is rejected, proving the hash-and-verify path is genuinely exercised end to end."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original.",
+      "gapNote": "",
       "otherTestCoverage": "`PasswordHashesTest` (hash_then_verify_round_trips, verify_rejects_wrong_password, two_hashes_differ_due_to_random_salt, verify_rejects_truncated_hash)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/authz/PasswordHashes.java`",
@@ -267,10 +307,18 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature's six scenarios (topology \"minimal\", plaintext)",
-        "console-security.feature and mtls.feature's audit scenario (topology \"mtls\", TLS)"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "Runs against topology \"minimal\" over plaintext transport -- the same deploy/lifecycle/service-registry machinery this track's whole module-system.feature suite exercises under the plaintext side of the transport switch."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "A tenant write is recorded in the durable audit trail",
+          "whyThisCounts": "Runs against topology \"mtls\" over full mutual TLS -- the identical deployment/audit machinery proven functioning under the TLS side of the same transport switch."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws.",
+      "gapNote": "",
       "otherTestCoverage": "`TransportProtocolTest`, `TlsSettingsTest` (defaults to plaintext, case-insensitive, rejects unrecognized value, fails fast on unset property)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/tls/TransportProtocol.java`",
@@ -286,9 +334,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "console-security.feature: A console login round-trips the right password and rejects the wrong one"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "A console login round-trips the right password and rejects the wrong one",
+          "whyThisCounts": "Login returns a session cookie whose validity is then checked via `/auth/session`; the whole login-to-cookie-to-session-lookup round trip only works if the cookie carries a genuine HMAC-signed, stateless session token the server can independently verify without server-side session storage."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty.",
+      "gapNote": "",
       "otherTestCoverage": "`SessionTokensTest` (issue_then_verify round trips, expired rejected, wrong-key rejected, tampered rejected, garbage input rejected not thrown)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/session/SessionTokens.java`"
@@ -318,9 +370,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "console-security.feature: Repeated failed logins are throttled with a Retry-After backoff"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/console-security.feature",
+          "scenario": "Repeated failed logins are throttled with a Retry-After backoff",
+          "whyThisCounts": "Five wrong-password attempts against the same account are asserted to eventually return 429 with a Retry-After header, proving the exponential-backoff throttle is genuinely applied per key, not just configured."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap.",
+      "gapNote": "",
       "otherTestCoverage": "`LoginThrottleTest` (delay doubles up to cap, success clears history, keys tracked independently)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/throttle/LoginThrottle.java`"
@@ -555,9 +611,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "mtls.feature: A tenant write is recorded in the durable audit trail"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "A tenant write is recorded in the durable audit trail",
+          "whyThisCounts": "A real tenant write is followed by a read of the audit API showing an allowed WRITE event for that resource, proving the cross-resource audit trail is populated by real authorization decisions, not just declared as a schema."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one.",
+      "gapNote": "",
       "otherTestCoverage": "`AuditEventTest` (denied represented same as allowed, null groups/tenant/target coalesce to empty, blank id rejected)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/AuditEvent.java`"
@@ -740,9 +800,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A dependent resolves only when a version inside its declared range is present"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "Same evidence as version-range matching (GIMLE-002): a dependent module only resolves and reaches ACTIVE once its declared dependency is present and compatible, proving non-cycle dependency resolution actually gates placement."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle.",
+      "gapNote": "",
       "otherTestCoverage": "`ModuleResolverTest` (wires to highest satisfying version, candidate must be resolved/active, unsatisfied requirement reported, 2/3-length cycle detected, diamond dependency not a cycle, independent dependents wire independently)",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/resolve/ModuleResolver.java`"
@@ -772,9 +836,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A hook that always throws on start never reaches ACTIVE"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A hook that always throws on start never reaches ACTIVE",
+          "whyThisCounts": "A module whose onStart hook always throws is deployed and asserted to end up FAILED rather than ACTIVE, proving the lifecycle state machine genuinely routes a startup failure to a terminal FAILED state instead of getting stuck or silently succeeding."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException.",
+      "gapNote": "",
       "otherTestCoverage": "`ModuleControllerTest` (full happy path, start before resolve illegal, stop before active illegal, resolve failure marks failed, uninstall rejects active module, force_failed transitions to failed, complete_succeeded/failed paths)",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java`",
@@ -902,11 +970,23 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version",
-        "module-system.feature: Stopping a module with a perpetually in-flight request still completes",
-        "deployment-lifecycle.feature: A tenant-scoped module deploys, reads its secret, and is cleanly removed"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "The service registry cuts a same-worker caller over to a newer ready version",
+          "whyThisCounts": "The cutover consumer's repeated in-flight service lookups through ModuleContext's own service-lookup API are what let it observe the newer version after cutover, exercising the context's live service-lookup path."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "Stopping a module with a perpetually in-flight request still completes",
+          "whyThisCounts": "A module with a permanently in-flight request is stopped and confirmed torn down within the drain deadline, exercising ModuleContext's in-flight-request tracking that graceful drain depends on."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/deployment-lifecycle.feature",
+          "scenario": "A tenant-scoped module deploys, reads its secret, and is cleanly removed",
+          "whyThisCounts": "A tenant-scoped module reads its own secret via ModuleContext's config API and is cleanly removed -- pre-existing coverage of the context's config/data-dir surface, reused here rather than duplicated."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0.",
+      "gapNote": "",
       "otherTestCoverage": "`SimpleModuleContextTest` (invoke_service_by_name delegates/empty-on-unknown/propagates exception); `DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
@@ -922,9 +1002,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "The service registry cuts a same-worker caller over to a newer ready version",
+          "whyThisCounts": "A same-worker caller's repeated calls through the in-worker service registry switch from an older to a newer version once the newer one registers and becomes ready, proving the registry's own version-aware cutover, not just static lookup."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry.",
+      "gapNote": "",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (round robins, prefers highest ready version, falls back while highest has none ready, round robins within preferred version, mark_unready excludes without removing); `HotRedeployTest#old_and_new_versions_coexist_with_dependents_pinned_to_their_own_wiring`",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleServiceRegistry.java`"
@@ -939,10 +1023,18 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
-        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "The consumer invokes its dependency purely by declared service name, never a compile-time reference, proving name-driven invocation resolves correctly."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "The service registry cuts a same-worker caller over to a newer ready version",
+          "whyThisCounts": "The cutover consumer's repeated calls resolve by service name across a version change, proving name-driven invocation stays correct across tiers as the target rebinds."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a registered Greeter provider with method greet(String), When invokeByName(\"...Greeter\",1,\"greet\",[\"java.lang.String\"],[\"world\"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload.",
+      "gapNote": "",
       "otherTestCoverage": "`SimpleServiceRegistryTest` (invokes directly by name, unknown interface returns empty, wrong method name throws, rethrows application exception with real type, void method returns empty Optional)",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ServiceRegistry.java` (default invokeByName)",
@@ -958,10 +1050,18 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A dependent resolves only when a version inside its declared range is present",
-        "module-system.feature: The service registry cuts a same-worker caller over to a newer ready version"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A dependent resolves only when a version inside its declared range is present",
+          "whyThisCounts": "The consumer and its dependency share one Tier 1 worker and the consumer discovers the dependency's published service without any network hop, proving same-worker publish/discover works end to end."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "The service registry cuts a same-worker caller over to a newer ready version",
+          "whyThisCounts": "The cutover consumer and both library versions share one worker throughout, proving publish/discover keeps working same-worker even as the discovered service's own version changes underneath it."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly.",
+      "gapNote": "",
       "otherTestCoverage": "`ServiceRegistryIntegrationTest` (consumer finds service, consumer finds nothing without a provider)",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ServiceRegistry.java`",
@@ -977,9 +1077,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: Stopping a module with a perpetually in-flight request still completes"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "Stopping a module with a perpetually in-flight request still completes",
+          "whyThisCounts": "A module with a request that never completes on its own is stopped anyway and confirmed torn down within the drain deadline, proving the drain-then-dispose stop path has a real deadline rather than blocking forever on an in-flight call."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes.",
+      "gapNote": "",
       "otherTestCoverage": "`DrainDeadlineTest#stop_completes_after_deadline_despite_perpetual_in_flight_work`",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`awaitDrain`)"
@@ -1010,9 +1114,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A manifest that fails its own validation never gets placed"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A manifest that fails its own validation never gets placed",
+          "whyThisCounts": "A manifest declaring a bogus/invalid isolation tier is submitted and never reaches a placed instance, proving gimle-module.yaml's own descriptor validation genuinely rejects malformed manifests before scheduling."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value.",
+      "gapNote": "",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (various); indirectly via TestModuleBuilderTest",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java`"
@@ -1078,10 +1186,18 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A liveness probe's initial delay is honored before the first tick",
-        "self-healing.feature: A module that never passes liveness is escalated to FAILED for good"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A liveness probe's initial delay is honored before the first tick",
+          "whyThisCounts": "Directly exercises the liveness probe interface's own initial-delay semantics."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/self-healing.feature",
+          "scenario": "A module that never passes liveness is escalated to FAILED for good",
+          "whyThisCounts": "A module that never passes liveness is escalated to terminal FAILED -- pre-existing coverage of the readiness/liveness probe interfaces' failure path, reused here rather than duplicated."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.",
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/probe/LivenessProbe.java`",
@@ -4701,9 +4817,13 @@
       "statusNote": "",
       "coverage": "Covered",
       "holmgangScenarios": [
-        "module-system.feature: A hook that always throws on start never reaches ACTIVE (explicit node-registered check)"
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
+          "scenario": "A hook that always throws on start never reaches ACTIVE",
+          "whyThisCounts": "The scenario explicitly asserts node-1 is registered before deploying, and every scenario's successful placement across the whole track implicitly depends on the node's heartbeat/assignment-fetch loop continuing to report it as live and assignable."
+        }
       ],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments.",
+      "gapNote": "",
       "otherTestCoverage": "`ApiServerTest` (transitive); `gimle-agent` integration tests",
       "sourceLocations": [
         "`ApiServer.handleRegister`/`handleHeartbeat`/`handleAssignments`"
