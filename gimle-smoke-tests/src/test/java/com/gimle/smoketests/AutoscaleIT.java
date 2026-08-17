@@ -62,16 +62,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
     assertTrue(
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitAutoscaleDeploymentWithRetry(
         baseUrl,
@@ -104,6 +95,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             classpath,
             /* requestsPerSecond= */ 20,
             /* durationSeconds= */ 60,
+            loadGeneratorPort,
             tempDir.resolve("gatling.log"));
     processes.add(gatling);
 
@@ -145,16 +137,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path faultyProviderJar = buildFaultyProviderJar();
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitAutoscaleDeploymentWithRetry(
         baseUrl,
@@ -187,6 +170,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             classpath,
             /* requestsPerSecond= */ 10,
             /* durationSeconds= */ 60,
+            loadGeneratorPort,
             tempDir.resolve("gatling-error-rate.log"));
     processes.add(gatling);
 
@@ -227,16 +211,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path slowProviderJar = buildSlowProviderJar();
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitAutoscaleDeploymentWithRetry(
         baseUrl,
@@ -269,6 +244,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             /* requestsPerSecond= */ 0,
             /* durationSeconds= */ 60,
             /* concurrentUsers= */ 20,
+            loadGeneratorPort,
             tempDir.resolve("gatling-queue-depth.log"));
     processes.add(gatling);
 
@@ -311,16 +287,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     Path slowProviderJar = buildSlowProviderJar();
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitAutoscaleDeploymentWithRetry(
         baseUrl,
@@ -359,6 +326,7 @@ class AutoscaleIT extends GreeterSmokeClusterSupport {
             /* requestsPerSecond= */ 0,
             /* durationSeconds= */ 60,
             /* concurrentUsers= */ 20,
+            loadGeneratorPort,
             tempDir.resolve("gatling-weighted.log"));
     processes.add(gatling);
 

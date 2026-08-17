@@ -94,16 +94,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitDeploymentWithReplicasWithRetry(
         baseUrl,
@@ -134,6 +125,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
             classpath,
             /* requestsPerSecond= */ 5,
             /* durationSeconds= */ 90,
+            loadGeneratorPort,
             tempDir.resolve("gatling-rolling.log"));
     processes.add(gatling);
 
@@ -203,16 +195,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
         Files.isRegularFile(loadGeneratorJar), "expected a built jar at " + loadGeneratorJar);
     assertTrue(Files.isRegularFile(providerV1Jar), "expected a built jar at " + providerV1Jar);
 
-    submitDeploymentWithRetry(
-        baseUrl,
-        "greeter-load-generator-deployment",
-        "com.gimle.examples.greeter.loadgen",
-        loadGeneratorJar,
-        Duration.ofSeconds(30));
-    Await.until(
-        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
-        Duration.ofSeconds(60),
-        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    int loadGeneratorPort = deployLoadGenerator(baseUrl, loadGeneratorJar, Duration.ofSeconds(30));
 
     submitDeploymentWithReplicasWithRetry(
         baseUrl,
@@ -245,6 +228,7 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
             classpath,
             /* requestsPerSecond= */ 5,
             /* durationSeconds= */ 90,
+            loadGeneratorPort,
             tempDir.resolve("gatling-single-rolling.log"));
     processes.add(gatling);
 

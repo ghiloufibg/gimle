@@ -157,7 +157,7 @@ are both out of scope for v1.
 `ctx.config("gateway.port")` supplies the fixed listen port for either route kind — there is no
 platform-level port allocation for modules yet, so an operator is responsible for picking one that
 doesn't collide across co-located `DaemonSet` instances, the same posture `greeter-load-generator`'s
-own hardcoded port already accepts.
+own `load.port` config key takes for its own listen port.
 
 See `gimle-gateway/deployment.yaml` for a complete worked example, including the two `/config/
 gimle-system/*` API calls a real deployment needs alongside the manifest itself.

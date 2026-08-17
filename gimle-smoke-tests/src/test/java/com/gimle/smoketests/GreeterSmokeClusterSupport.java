@@ -145,6 +145,14 @@ abstract class GreeterSmokeClusterSupport {
 
   static final String PLAIN_CONFIG_VALUE = "en-US";
 
+  // greeter-load-generator's own listen port is delivered as tenant config (see
+  // GreeterLoadGeneratorHooks's own javadoc) rather than hardcoded, the same reasoning
+  // SECRET_TENANT_ID above documents: an untenanted deployment never receives delivered config at
+  // all. A dedicated tenant rather than reusing SECRET_TENANT_ID keeps this suite's own AutoscaleIT
+  // / RollingUpdateIT runs independent of whatever quota GreeterClusterTopologyIT's secret-round-
+  // trip scenario happens to set for that tenant.
+  static final String LOAD_GENERATOR_TENANT_ID = "load-generator-smoke-tenant";
+
   // Matches gimle-console/e2e/greeter-smoke.spec.ts's own login credentials -- that suite logs in
   // as this account before touching any /console page (RBAC/session auth, commit 05af65d, gates
   // every console route client-side regardless of transport). Created via an unauthenticated PUT
@@ -1310,6 +1318,7 @@ abstract class GreeterSmokeClusterSupport {
       String classpath,
       int requestsPerSecond,
       int durationSeconds,
+      int loadGeneratorPort,
       Path logFile)
       throws IOException {
     return spawnGatling(
@@ -1318,16 +1327,17 @@ abstract class GreeterSmokeClusterSupport {
         requestsPerSecond,
         durationSeconds,
         /* concurrentUsers= */ 0,
+        loadGeneratorPort,
         logFile);
   }
 
   /**
-   * Like {@link #spawnGatling(String, String, int, int, Path)}, but with a caller-chosen closed-
-   * model concurrency instead of the open-model {@code requestsPerSecond} rate -- see {@code
+   * Like {@link #spawnGatling(String, String, int, int, int, Path)}, but with a caller-chosen
+   * closed-model concurrency instead of the open-model {@code requestsPerSecond} rate -- see {@code
    * GreeterAutoscaleSimulation}'s own javadoc on why a fixed request rate alone can't build a real
    * queue-depth backlog, only a sustained concurrent-in-flight count can. {@code concurrentUsers <=
    * 0} keeps the existing open-model behavior; {@code requestsPerSecond} is simply ignored in that
-   * case, the same shape the two-arg overload above already implies.
+   * case, the same shape the five-argument overload above already implies.
    */
   Process spawnGatling(
       String javaExecutable,
@@ -1335,6 +1345,7 @@ abstract class GreeterSmokeClusterSupport {
       int requestsPerSecond,
       int durationSeconds,
       int concurrentUsers,
+      int loadGeneratorPort,
       Path logFile)
       throws IOException {
     ProcessBuilder pb =
@@ -1344,7 +1355,7 @@ abstract class GreeterSmokeClusterSupport {
             "java.base/java.lang=ALL-UNNAMED",
             "-cp",
             classpath,
-            "-Dgimle.load.baseUrl=http://127.0.0.1:19077",
+            "-Dgimle.load.baseUrl=http://127.0.0.1:" + loadGeneratorPort,
             "-Dgimle.load.requestsPerSecond=" + requestsPerSecond,
             "-Dgimle.load.durationSeconds=" + durationSeconds,
             "-Dgimle.load.concurrentUsers=" + concurrentUsers,
@@ -2424,6 +2435,42 @@ abstract class GreeterSmokeClusterSupport {
       throws Exception {
     retryUntilSuccess(
         timeout, () -> submitDeployment(baseUrl, deploymentName, moduleName, jar, tenantId));
+  }
+
+  /**
+   * Deploys the real {@code greeter-load-generator} module, tenant-scoped so its own listen port
+   * can be delivered as config rather than hardcoded (see {@code GreeterLoadGeneratorHooks}'s own
+   * javadoc) -- the same config-driven pattern {@code gimle-gateway} already uses for its own port.
+   * Leases and releases the port right here, immediately before the deployment submission that
+   * triggers the real bind, the same timing {@code GatewayFabricRouteIT}'s own gateway-port lease
+   * uses. Returns the leased port so the caller can pass it to {@link #spawnGatling}.
+   */
+  int deployLoadGenerator(String baseUrl, Path loadGeneratorJar, Duration timeout)
+      throws Exception {
+    // Generous enough that this suite's own load-generation scenarios (a single 64Mi/50m replica)
+    // never trip it -- this tenant exists only to make delivered config possible, not to exercise
+    // quota behavior.
+    putTenantQuota(baseUrl, LOAD_GENERATOR_TENANT_ID, 256L * 1024 * 1024, 1000L, 10);
+
+    int port;
+    try (PortLease lease = PortLease.reserve(1)) {
+      port = lease.ports().get(0);
+      lease.release(port);
+    }
+    putPlainConfig(baseUrl, LOAD_GENERATOR_TENANT_ID, "load.port", String.valueOf(port));
+
+    submitDeploymentWithRetry(
+        baseUrl,
+        "greeter-load-generator-deployment",
+        "com.gimle.examples.greeter.loadgen",
+        loadGeneratorJar,
+        Optional.of(LOAD_GENERATOR_TENANT_ID),
+        timeout);
+    Await.until(
+        () -> isActive(baseUrl, "greeter-load-generator-deployment"),
+        Duration.ofSeconds(60),
+        "greeter-load-generator-deployment should reach ACTIVE before any load is generated");
+    return port;
   }
 
   void createLoginAccount(String baseUrl, String username, String password) throws Exception {
