@@ -118,6 +118,53 @@ class JsonLogEncoderTest {
   }
 
   @Test
+  void a_throwable_argument_is_captured_as_a_stack_trace_field() {
+    RuntimeException cause = new IllegalStateException("no exporting member");
+    LoggingEvent event =
+        new LoggingEvent(getClass().getName(), logger, Level.ERROR, "job failed", cause, null);
+
+    Map<String, Object> line = encodeToMap(event);
+
+    String stackTrace = (String) line.get("stackTrace");
+    assertTrue(
+        stackTrace.contains("IllegalStateException: no exporting member"),
+        "expected the exception's own type and message in the captured stack trace");
+    assertTrue(
+        stackTrace.contains(getClass().getName()),
+        "expected a frame naming this test class, where the exception was constructed");
+  }
+
+  @Test
+  void a_line_with_no_throwable_omits_the_stack_trace_field_entirely() {
+    LoggingEvent event =
+        new LoggingEvent(getClass().getName(), logger, Level.INFO, "hello", null, null);
+
+    Map<String, Object> line = encodeToMap(event);
+
+    assertFalse(line.containsKey("stackTrace"));
+  }
+
+  @Test
+  void a_multiline_stack_trace_still_encodes_to_exactly_one_json_line() {
+    LoggingEvent event =
+        new LoggingEvent(
+            getClass().getName(),
+            logger,
+            Level.ERROR,
+            "job failed",
+            new RuntimeException("boom"),
+            null);
+
+    byte[] bytes = encoder.encode(event);
+    String text = new String(bytes, StandardCharsets.UTF_8);
+    String withoutTerminator = text.substring(0, text.length() - System.lineSeparator().length());
+
+    assertFalse(
+        withoutTerminator.contains("\n"),
+        "a real stack trace has many newlines; Json.write must escape them, not embed them raw");
+  }
+
+  @Test
   void header_and_footer_bytes_are_absent() {
     assertNull(encoder.headerBytes());
     assertNull(encoder.footerBytes());

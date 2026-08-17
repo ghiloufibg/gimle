@@ -1,5 +1,6 @@
 package com.gimle.core.logging;
 
+import ch.qos.logback.classic.pattern.ThrowableProxyConverter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.encoder.EncoderBase;
 import com.gimle.core.protocol.Json;
@@ -63,6 +64,37 @@ public final class JsonLogEncoder extends EncoderBase<ILoggingEvent> {
         line.put("tenantId", tenantId);
       }
     }
+    String stackTrace = formatThrowable(event);
+    if (stackTrace != null) {
+      line.put("stackTrace", stackTrace);
+    }
     return (Json.write(line) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * {@code null} when the event carries no throwable ({@code log.error(msg)}, not {@code
+   * log.error(msg, e)}) -- omitted from the line entirely, the same "optional fields are omitted"
+   * convention every other field here already follows, rather than an empty string padding every
+   * throwable-less line.
+   *
+   * <p>Without this, a call site's own {@code Throwable} argument was silently discarded: {@link
+   * ILoggingEvent#getFormattedMessage()} (the only thing {@link #encode} previously read) is just
+   * the message template with its {@code {}} placeholders substituted, never the exception itself
+   * -- {@code event.getThrowableProxy()} is the only place Logback still carries it. Uses {@link
+   * ThrowableProxyConverter}, the same standard renderer {@link TextLogEncoder#formatThrowable}
+   * already reuses, so a stack trace reads identically whether it came from a console tail or this
+   * structured trail -- rather than hand-rolling a second frame-walking format here.
+   */
+  private static String formatThrowable(ILoggingEvent event) {
+    if (event.getThrowableProxy() == null) {
+      return null;
+    }
+    ThrowableProxyConverter converter = new ThrowableProxyConverter();
+    converter.start();
+    try {
+      return converter.convert(event);
+    } finally {
+      converter.stop();
+    }
   }
 }
