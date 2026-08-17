@@ -264,6 +264,9 @@ public final class CertCommand {
   }
 
   private static Duration parseDuration(String text) {
+    if (text.isEmpty()) {
+      throw new CliException("invalid duration: (empty)");
+    }
     if (text.matches("\\d+")) {
       return Duration.ofSeconds(Long.parseLong(text));
     }

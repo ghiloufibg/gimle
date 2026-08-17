@@ -80,6 +80,9 @@ public final class GimleCli {
     } catch (CliException e) {
       err.println("error: " + e.getMessage());
       return 1;
+    } catch (RuntimeException e) {
+      err.println("error: unexpected failure: " + e.getMessage());
+      return 1;
     }
   }
 

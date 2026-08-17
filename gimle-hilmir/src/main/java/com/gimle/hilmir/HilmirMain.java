@@ -31,6 +31,7 @@ import com.gimle.hilmir.validate.TopologyValidator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -132,7 +133,7 @@ public final class HilmirMain {
   public static int run(final String[] args, final PrintStream out, final PrintStream err) {
     try {
       return dispatch(args, out);
-    } catch (final HilmirException | GimleManifestException e) {
+    } catch (final HilmirException | GimleManifestException | UncheckedIOException e) {
       err.println("error: " + e.getMessage());
       return 1;
     }

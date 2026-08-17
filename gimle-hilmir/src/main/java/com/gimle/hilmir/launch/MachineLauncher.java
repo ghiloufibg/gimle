@@ -76,12 +76,29 @@ public final class MachineLauncher {
 
     final Set<String> confirmedReady = new LinkedHashSet<>();
     final List<RunRecord> records = new ArrayList<>();
-    for (final ProcessCommand command : myPlan.commands()) {
-      awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
-      final RunRecord record = spawn(topology, runtime, command, out);
-      records.add(record);
-      if (!record.readinessAddress().isBlank()) {
-        confirmedReady.add(record.readinessAddress());
+    boolean succeeded = false;
+    try {
+      for (final ProcessCommand command : myPlan.commands()) {
+        awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
+        final RunRecord record = spawn(topology, runtime, command, out);
+        records.add(record);
+        if (!record.readinessAddress().isBlank()) {
+          confirmedReady.add(record.readinessAddress());
+        }
+      }
+      succeeded = true;
+    } finally {
+      // A later command's readiness check can throw and abort `up` mid-loop -- without this,
+      // every process already spawned and confirmed ready in earlier iterations is lost with
+      // zero on-disk record, leaving `down`/`status` unable to find them.
+      if (!succeeded && !records.isEmpty()) {
+        RunLedger.write(runtime.dataRoot(), records);
+        out.println(
+            "wrote partial run ledger for "
+                + records.size()
+                + " process(es) under "
+                + runtime.dataRoot()
+                + " after failure");
       }
     }
     RunLedger.write(runtime.dataRoot(), records);

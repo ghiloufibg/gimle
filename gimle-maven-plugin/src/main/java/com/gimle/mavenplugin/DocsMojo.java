@@ -134,6 +134,7 @@ public final class DocsMojo extends AbstractMojo {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       process.destroy();
+      throw new MojoExecutionException(command.get(0) + " was interrupted", e);
     }
   }
 }
