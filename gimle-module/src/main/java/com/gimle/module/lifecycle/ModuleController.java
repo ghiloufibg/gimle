@@ -245,7 +245,13 @@ public final class ModuleController {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);
       hooks.ifPresent(h -> hooksByModule.put(id, h));
       if (hooks.isPresent()) {
-        hooks.get().onInstall(ctx);
+        ClassLoader previousCl = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(handle.loader());
+        try {
+          hooks.get().onInstall(ctx);
+        } finally {
+          Thread.currentThread().setContextClassLoader(previousCl);
+        }
       }
     } catch (RuntimeException e) {
       contextsByModule.remove(id);
@@ -270,7 +276,15 @@ public final class ModuleController {
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
     if (hooks.isPresent()) {
       try {
-        hooks.get().onStart(ctx);
+        ClassLoader previousCl = Thread.currentThread().getContextClassLoader();
+        ClassLoader moduleLoader =
+            registry.layerHandle(id).map(ModuleLayerHandle::loader).orElse(previousCl);
+        Thread.currentThread().setContextClassLoader(moduleLoader);
+        try {
+          hooks.get().onStart(ctx);
+        } finally {
+          Thread.currentThread().setContextClassLoader(previousCl);
+        }
       } catch (RuntimeException e) {
         GimleLifecycleException wrapped = GimleLifecycleException.hookFailed(id, "onStart", e);
         markFailedAndEmit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
@@ -296,7 +310,15 @@ public final class ModuleController {
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.get(id));
     if (hooks.isPresent()) {
       try {
-        hooks.get().onStop(ctx);
+        ClassLoader previousCl = Thread.currentThread().getContextClassLoader();
+        ClassLoader moduleLoader =
+            registry.layerHandle(id).map(ModuleLayerHandle::loader).orElse(previousCl);
+        Thread.currentThread().setContextClassLoader(moduleLoader);
+        try {
+          hooks.get().onStop(ctx);
+        } finally {
+          Thread.currentThread().setContextClassLoader(previousCl);
+        }
       } catch (RuntimeException e) {
         emit(
             new LifecycleEvent.TransitionFailed(
@@ -327,7 +349,15 @@ public final class ModuleController {
     ModuleContext ctx = contextsByModule.remove(id);
     if (hooks.isPresent()) {
       try {
-        hooks.get().onUninstall(ctx);
+        ClassLoader previousCl = Thread.currentThread().getContextClassLoader();
+        ClassLoader moduleLoader =
+            registry.layerHandle(id).map(ModuleLayerHandle::loader).orElse(previousCl);
+        Thread.currentThread().setContextClassLoader(moduleLoader);
+        try {
+          hooks.get().onUninstall(ctx);
+        } finally {
+          Thread.currentThread().setContextClassLoader(previousCl);
+        }
       } catch (RuntimeException e) {
         emit(
             new LifecycleEvent.TransitionFailed(
@@ -465,6 +495,10 @@ public final class ModuleController {
     } else {
       log.info("module {} {}", event.id(), event.getClass().getSimpleName());
     }
-    eventSink.accept(event);
+    try {
+      eventSink.accept(event);
+    } catch (RuntimeException e) {
+      log.error("module {} event sink threw handling {}", event.id(), event, e);
+    }
   }
 }

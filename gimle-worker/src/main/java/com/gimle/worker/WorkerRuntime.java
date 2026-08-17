@@ -1,6 +1,7 @@
 package com.gimle.worker;
 
 import com.gimle.core.logging.InstanceMdcContext;
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.restart.RestartTracker;
@@ -356,7 +357,18 @@ public final class WorkerRuntime {
     // so re-resolving the same id afterward would throw NoSuchElementException unless the
     // artifact is re-registered first. "Dispose and reinstantiate" genuinely means reinstall,
     // not just resolve+start on an id that's still sitting there.
-    var artifact = registry.artifact(id);
+    //
+    // Best-effort, matching the forceFailed guard above: a concurrent uninstall can remove this
+    // module from the registry between the guard-add above and this lookup, and losing that race
+    // must not permanently bar this id from ever restarting again.
+    ModuleArtifact artifact;
+    try {
+      artifact = registry.artifact(id);
+    } catch (RuntimeException e) {
+      log.warn("could not look up artifact for module {} to restart: {}", id, e.getMessage());
+      restartsInFlight.remove(id);
+      return;
+    }
 
     Duration delay = tracker.delayUntilNextAttempt(now);
     Runnable attempt =

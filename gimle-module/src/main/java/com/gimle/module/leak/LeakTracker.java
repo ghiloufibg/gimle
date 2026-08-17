@@ -17,6 +17,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Classloader leak detection: after a module is disposed, holds a {@link PhantomReference} to its
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
  * at least one more full poll to catch a collection that was merely pending.
  */
 public final class LeakTracker implements AutoCloseable {
+
+  private static final Logger log = LoggerFactory.getLogger(LeakTracker.class);
 
   private final Duration window;
   private final Consumer<ModuleLeakDetected> onLeakDetected;
@@ -91,7 +95,11 @@ public final class LeakTracker implements AutoCloseable {
       if (tracked.remove(entry.getKey()) != null) {
         Duration survival = Duration.between(record.undeployedAt(), Instant.now());
         Optional<String> retainingPath = correlator.findRetainingPath(record.packages());
-        onLeakDetected.accept(new ModuleLeakDetected(record.id(), survival, retainingPath));
+        try {
+          onLeakDetected.accept(new ModuleLeakDetected(record.id(), survival, retainingPath));
+        } catch (RuntimeException e) {
+          log.warn("leak-detected callback threw for module {}", record.id(), e);
+        }
       }
     }
   }

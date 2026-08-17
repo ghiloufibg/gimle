@@ -12,6 +12,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Periodically invokes a bounded check (a module's liveness or readiness probe) and reports
@@ -23,13 +25,15 @@ import java.util.function.Consumer;
  */
 public final class ProbeLoop implements AutoCloseable {
 
+  private static final Logger log = LoggerFactory.getLogger(ProbeLoop.class);
+
   private final ScheduledExecutorService ticker;
   private final Map<String, ScheduledFuture<?>> scheduled = new ConcurrentHashMap<>();
 
   public ProbeLoop() {
     this(
-        Executors.newSingleThreadScheduledExecutor(
-            r -> Thread.ofVirtual().name("gimle-probe-loop-ticker").unstarted(r)));
+        Executors.newScheduledThreadPool(
+            4, r -> Thread.ofVirtual().name("gimle-probe-loop-ticker").unstarted(r)));
   }
 
   /**
@@ -73,7 +77,7 @@ public final class ProbeLoop implements AutoCloseable {
       Duration timeout,
       Duration initialDelay,
       Consumer<Boolean> onResult) {
-    Runnable tick = () -> runOneTick(moduleScheduler, check, timeout, onResult);
+    Runnable tick = () -> runOneTick(key, moduleScheduler, check, timeout, onResult);
     ScheduledFuture<?> handle =
         ticker.scheduleAtFixedRate(
             tick, initialDelay.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
@@ -91,6 +95,7 @@ public final class ProbeLoop implements AutoCloseable {
   }
 
   private void runOneTick(
+      String key,
       BoundedModuleScheduler moduleScheduler,
       Callable<Boolean> check,
       Duration timeout,
@@ -107,7 +112,11 @@ public final class ProbeLoop implements AutoCloseable {
     } finally {
       future.cancel(true);
     }
-    onResult.accept(result);
+    try {
+      onResult.accept(result);
+    } catch (RuntimeException e) {
+      log.warn("probe result callback for {} threw", key, e);
+    }
   }
 
   @Override

@@ -422,28 +422,32 @@ public final class WorkerMain {
         Thread.currentThread().interrupt();
         return;
       }
-      double cpuLoad = osBean.getProcessCpuLoad();
-      long cpuMillicoresUsed =
-          cpuLoad < 0 ? 0 : Math.round(cpuLoad * osBean.getAvailableProcessors() * 1000);
-      long memoryBytesUsed = jvmRuntime.totalMemory() - jvmRuntime.freeMemory();
-      for (ModuleId id : activeModules) {
-        double requestCount = workerMetrics.requestCount(id);
-        double errorCount = workerMetrics.errorCount(id);
-        double requestRatePerSecond =
-            rateSince(lastRequestCount.put(id, requestCount), requestCount, intervalSeconds);
-        double errorRatePerSecond =
-            rateSince(lastErrorCount.put(id, errorCount), errorCount, intervalSeconds);
-        int queueDepth =
-            runtime.schedulerFor(id).map(BoundedModuleScheduler::queuedCount).orElse(0);
-        sendQuietly(
-            channel,
-            new ControlMessage.MetricsReport(
-                id,
-                cpuMillicoresUsed,
-                memoryBytesUsed,
-                requestRatePerSecond,
-                queueDepth,
-                errorRatePerSecond));
+      try {
+        double cpuLoad = osBean.getProcessCpuLoad();
+        long cpuMillicoresUsed =
+            cpuLoad < 0 ? 0 : Math.round(cpuLoad * osBean.getAvailableProcessors() * 1000);
+        long memoryBytesUsed = jvmRuntime.totalMemory() - jvmRuntime.freeMemory();
+        for (ModuleId id : activeModules) {
+          double requestCount = workerMetrics.requestCount(id);
+          double errorCount = workerMetrics.errorCount(id);
+          double requestRatePerSecond =
+              rateSince(lastRequestCount.put(id, requestCount), requestCount, intervalSeconds);
+          double errorRatePerSecond =
+              rateSince(lastErrorCount.put(id, errorCount), errorCount, intervalSeconds);
+          int queueDepth =
+              runtime.schedulerFor(id).map(BoundedModuleScheduler::queuedCount).orElse(0);
+          sendQuietly(
+              channel,
+              new ControlMessage.MetricsReport(
+                  id,
+                  cpuMillicoresUsed,
+                  memoryBytesUsed,
+                  requestRatePerSecond,
+                  queueDepth,
+                  errorRatePerSecond));
+        }
+      } catch (RuntimeException e) {
+        log.warn("metrics report tick failed", e);
       }
     }
   }
@@ -473,9 +477,13 @@ public final class WorkerMain {
         Thread.currentThread().interrupt();
         return;
       }
-      String body = MeterSnapshotCodec.toNdjson(workerMetrics.registry());
-      if (!body.isEmpty()) {
-        sendQuietly(channel, new ControlMessage.MetricsSnapshot(workerId, body));
+      try {
+        String body = MeterSnapshotCodec.toNdjson(workerMetrics.registry());
+        if (!body.isEmpty()) {
+          sendQuietly(channel, new ControlMessage.MetricsSnapshot(workerId, body));
+        }
+      } catch (RuntimeException e) {
+        log.warn("muninn metrics relay tick failed", e);
       }
     }
   }

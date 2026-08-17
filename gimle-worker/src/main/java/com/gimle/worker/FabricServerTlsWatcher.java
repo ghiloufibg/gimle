@@ -62,8 +62,12 @@ public final class FabricServerTlsWatcher implements AutoCloseable {
       return;
     }
     lastSeen = current;
-    server.reloadTlsMaterial();
-    log.info("fabric server TLS material reloaded after detecting a certificate file change");
+    try {
+      server.reloadTlsMaterial();
+      log.info("fabric server TLS material reloaded after detecting a certificate file change");
+    } catch (RuntimeException e) {
+      log.warn("failed to reload fabric server TLS material after certificate file change", e);
+    }
   }
 
   private static FileTime readModifiedTimeQuietly() {
