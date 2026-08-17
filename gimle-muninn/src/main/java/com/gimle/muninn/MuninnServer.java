@@ -13,6 +13,7 @@ import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -194,8 +195,9 @@ public final class MuninnServer implements AutoCloseable {
   /**
    * Common scaffolding for every ingest/read route below: rejects a mismatched HTTP method with
    * {@code 405}, runs {@code body} for the matching one, maps a thrown {@link
-   * IllegalArgumentException} (e.g. a malformed ingest batch) to {@code 400} and any other {@link
-   * IOException}/{@link RuntimeException} to a logged {@code 500}, and always closes {@code
+   * IllegalArgumentException} (e.g. a malformed ingest batch) to {@code 400}, an oversized request
+   * body ({@link BodyTooLargeException}, see {@link #readBody}) to {@code 413}, and any other
+   * {@link IOException}/{@link RuntimeException} to a logged {@code 500}, and always closes {@code
    * exchange}. {@code logLabel} names the route in that failure log line (e.g. {@code "node log
    * ingest"}).
    */
@@ -209,11 +211,63 @@ public final class MuninnServer implements AutoCloseable {
       body.run(exchange);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("{} failed: {}", logLabel, e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
+    }
+  }
+
+  // Ingest is the most network-facing, attacker-controlled surface Muninn exposes -- cap the
+  // request body it will buffer in memory rather than reading an unbounded stream whole.
+  private static final long MAX_INGEST_BODY_BYTES = 50L * 1024 * 1024;
+
+  /** Thrown by {@link #readBody} once a request body has streamed past {@code maxBytes}. */
+  private static final class BodyTooLargeException extends RuntimeException {
+    BodyTooLargeException(long maxBytes) {
+      super("request body exceeds the maximum allowed size of " + maxBytes + " bytes");
+    }
+  }
+
+  /**
+   * Aborts a read mid-stream once more than {@code maxBytes} have been read, so an oversized
+   * ingest body's excess bytes are never fully buffered before being rejected.
+   */
+  private static final class SizeLimitedInputStream extends FilterInputStream {
+    private final long maxBytes;
+    private long readSoFar;
+
+    SizeLimitedInputStream(InputStream in, long maxBytes) {
+      super(in);
+      this.maxBytes = maxBytes;
+    }
+
+    @Override
+    public int read() throws IOException {
+      int b = super.read();
+      if (b != -1) {
+        countAndCheck(1);
+      }
+      return b;
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      int n = super.read(b, off, len);
+      if (n > 0) {
+        countAndCheck(n);
+      }
+      return n;
+    }
+
+    private void countAndCheck(int justRead) {
+      readSoFar += justRead;
+      if (readSoFar > maxBytes) {
+        throw new BodyTooLargeException(maxBytes);
+      }
     }
   }
 
@@ -607,7 +661,8 @@ public final class MuninnServer implements AutoCloseable {
   }
 
   private static String readBody(HttpExchange exchange) throws IOException {
-    try (InputStream body = exchange.getRequestBody()) {
+    try (InputStream body =
+        new SizeLimitedInputStream(exchange.getRequestBody(), MAX_INGEST_BODY_BYTES)) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
   }

@@ -4,6 +4,7 @@ import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.PeerConnection;
 import com.gimle.mimir.raft.RaftLog;
@@ -184,8 +185,15 @@ public final class StoreMain {
             r -> Thread.ofVirtual().name("gimle-mimir-cert-rotation-tick").unstarted(r));
     // Unconditional, not leader-gated -- every store replica's own certificate needs to stay
     // fresh, matching ControlPlaneMain's identical posture for ApiServer's own rotation.
+    // Deliberately checks TransportProtocol *before* touching TlsSettings.fromConfig(), the same
+    // correct ordering FafnirMain/MuninnMain/AndvariMain/ApiServer/AgentMain already use --
+    // TlsSettings.fromConfig() throws in default plaintext mode, and scheduleAtFixedRate
+    // suppresses all future runs after an uncaught exception on its first tick.
     ticker.scheduleAtFixedRate(
         () -> {
+          if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+            return;
+          }
           boolean rotated =
               OwnCertificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint);
           if (rotated) {

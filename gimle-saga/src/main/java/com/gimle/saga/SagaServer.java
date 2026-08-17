@@ -7,7 +7,9 @@ import com.gimle.core.saga.SagaEventCodec;
 import com.gimle.core.web.SpaStaticHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -88,7 +90,7 @@ public final class SagaServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = readBody(exchange);
       List<SagaEvent> events = new ArrayList<>();
       int lineNumber = 0;
       for (String line : body.split("\n", -1)) {
@@ -110,6 +112,8 @@ public final class SagaServer implements AutoCloseable {
       respondJson(exchange, 200, result);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("ingest request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -128,7 +132,7 @@ public final class SagaServer implements AutoCloseable {
       }
       Map<String, String> query = parseQuery(exchange);
       String explicitRunId = query.get("runId");
-      String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = readBody(exchange);
       SurefireXmlImporter.ImportResult imported;
       if (body.stripLeading().startsWith("<")) {
         imported = SurefireXmlImporter.fromXmlDocument(body, explicitRunId, query.get("module"));
@@ -152,6 +156,8 @@ public final class SagaServer implements AutoCloseable {
       respondJson(exchange, 200, result);
     } catch (IllegalArgumentException | GimleCodecException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("import request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -384,6 +390,63 @@ public final class SagaServer implements AutoCloseable {
       result.put(key, value);
     }
     return result;
+  }
+
+  // Ingest/import are the most network-facing, attacker-controlled surfaces Saga exposes -- cap
+  // the request body it will buffer in memory rather than reading an unbounded stream whole.
+  private static final long MAX_INGEST_BODY_BYTES = 50L * 1024 * 1024;
+
+  /** Thrown by {@link #readBody} once a request body has streamed past {@code maxBytes}. */
+  private static final class BodyTooLargeException extends RuntimeException {
+    BodyTooLargeException(long maxBytes) {
+      super("request body exceeds the maximum allowed size of " + maxBytes + " bytes");
+    }
+  }
+
+  /**
+   * Aborts a read mid-stream once more than {@code maxBytes} have been read, so an oversized
+   * ingest/import body's excess bytes are never fully buffered before being rejected.
+   */
+  private static final class SizeLimitedInputStream extends FilterInputStream {
+    private final long maxBytes;
+    private long readSoFar;
+
+    SizeLimitedInputStream(InputStream in, long maxBytes) {
+      super(in);
+      this.maxBytes = maxBytes;
+    }
+
+    @Override
+    public int read() throws IOException {
+      int b = super.read();
+      if (b != -1) {
+        countAndCheck(1);
+      }
+      return b;
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      int n = super.read(b, off, len);
+      if (n > 0) {
+        countAndCheck(n);
+      }
+      return n;
+    }
+
+    private void countAndCheck(int justRead) {
+      readSoFar += justRead;
+      if (readSoFar > maxBytes) {
+        throw new BodyTooLargeException(maxBytes);
+      }
+    }
+  }
+
+  private static String readBody(HttpExchange exchange) throws IOException {
+    try (InputStream body =
+        new SizeLimitedInputStream(exchange.getRequestBody(), MAX_INGEST_BODY_BYTES)) {
+      return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+    }
   }
 
   private static void respond(HttpExchange exchange, int status, String body) throws IOException {

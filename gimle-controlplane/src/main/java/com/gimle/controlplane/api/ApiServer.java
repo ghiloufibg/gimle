@@ -202,7 +202,10 @@ public final class ApiServer implements AutoCloseable {
   // HTTP/1.1 explicitly: agents speak plain HttpServer-based HTTP/1.1, never HTTP/2, and pinning
   // avoids HttpClient spending a round trip on an upgrade negotiation that could never succeed.
   private final HttpClient agentHttpClient =
-      HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+      HttpClient.newBuilder()
+          .version(HttpClient.Version.HTTP_1_1)
+          .connectTimeout(Duration.ofSeconds(5))
+          .build();
   private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
@@ -3490,13 +3493,15 @@ public final class ApiServer implements AutoCloseable {
     String query = exchange.getRequestURI().getRawQuery();
     URI target =
         URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
-    HttpRequest request = HttpRequest.newBuilder(target).GET().build();
 
     if (query != null && query.contains("follow=true")) {
+      HttpRequest request = HttpRequest.newBuilder(target).GET().build();
       proxyFollowToAgent(exchange, apiAddress.get(), request);
       return;
     }
 
+    HttpRequest request =
+        HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(10)).GET().build();
     HttpResponse<InputStream> response;
     try {
       response = agentHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
