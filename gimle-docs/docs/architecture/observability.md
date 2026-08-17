@@ -2,12 +2,25 @@
 sidebar_position: 6
 ---
 
+import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+
 # Observability
 
 `gimle-observability` gives every module instance tagged metrics, propagated tracing, and
 JFR-backed per-module resource accounting — the last of which is what makes Tier 1's *soft*
 resource accounting (see [Tiered isolation](./tiered-isolation.md)) actually observable, not just
 assumed.
+
+Everything ends up in one place, [Muninn](./node-topology.md#muninn), by two different paths — a
+worker JVM relays through its node agent (it has no outbound network identity of its own), while
+every other process kind ships directly — and comes back out through the same read API the console
+and CLI both use (source: `diagrams/observability-shipping-pipeline.d2`):
+
+<ZoomableDiagram
+  src="/diagrams/observability-shipping-pipeline.svg"
+  alt="A worker JVM relays its metrics and traces through its node agent to Muninn; the control plane, Fafnir, gimle-mimir, and Andvari each ship their own directly; an operator reads all of it back through the control plane's proxied metrics-history/traces-history/logs API"
+  width={760}
+/>
 
 ## Metrics: `WorkerMetrics`
 

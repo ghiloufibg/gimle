@@ -2,6 +2,8 @@
 sidebar_position: 8
 ---
 
+import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
+
 # Multi-tenancy and quotas
 
 A `Tenant` is an identity plus a `ResourceQuota` (`maxMemoryBytes`, `maxCpuMillicores`,
@@ -106,7 +108,14 @@ instead:
    workable, but incidental: nobody had designed it as "the Gimlé secret-consumption pattern," it
    was just how generic config delivery happened to also carry secrets.
 
-The rest of this section describes how Fafnir closes each of these.
+The rest of this section describes how Fafnir closes each of these — write, read, rotation, and
+the node agent's own direct fetch path, in that order (source: `diagrams/secrets-lifecycle.d2`):
+
+<ZoomableDiagram
+  src="/diagrams/secrets-lifecycle.svg"
+  alt="A secret write goes Operator to Control Plane to Fafnir, which re-checks RBAC itself before encrypting a new key@N version with the active KeyRing key; a read reverses the path and decrypts by the version's embedded keyId; rotate-key mints a new active key and re-encrypts every reachable entry, keeping old keys so not-yet-reached entries still decrypt; a node agent fetches secret values directly from Fafnir over its own mTLS identity, never through the Control Plane"
+  width={760}
+/>
 
 - **`SecretCipher`** (`gimle-fafnir`) — AES-256-GCM via the JDK's own `Cipher`/`SecretKeySpec`, no
   external crypto library (the same "prefer what the JDK already provides" posture as AppCDS/JFR/

@@ -10,6 +10,11 @@ import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
 through a registry keyed by interface + version, and the fabric picks the cheapest available call
 path automatically.
 
+New to distributed systems? [Failure detection and gossip](../concepts/failure-detection-and-gossip.md)
+and [Load balancing and resilience](../concepts/load-balancing-and-resilience.md) explain SWIM
+gossip and circuit breaking from first principles before this page dives into the classes that
+implement them.
+
 ## Three call paths, cheapest first
 
 ```mermaid

@@ -60,13 +60,16 @@ test; the supervisor requires kill-and-recover tests at every isolation tier.
 - `commit-msg` rejects any commit message mentioning an AI assistant.
 - Commit messages follow Conventional Commits (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`,
   ...), short subject, max 3 lines total.
-- `pre-commit` runs `mvn verify` and blocks on failure — this documentation site included, whenever
-  the `docs` profile is what's being verified.
+- `pre-commit` is currently disabled (`exit 0`) — a full `mvn verify` per commit stopped being
+  practical once the reactor grew to this many modules, paying for a full uncached rebuild on every
+  commit rather than just what changed. See `.githooks/pre-commit`'s own comment for the reasoning
+  and what re-enabling it would take.
 
 These hooks are tracked at `.githooks/` (not `.git/hooks/`, which is per-checkout and never
 committed) — run `scripts/install-hooks.sh` once per checkout to point Git at them
-(`git config core.hooksPath .githooks`). CI (`.github/workflows/ci.yml`) runs the same `mvn verify`
-independently on every push/PR, so the hook is a fast local gate, not the only enforcement.
+(`git config core.hooksPath .githooks`). CI (`.github/workflows/ci.yml`) runs a real `mvn verify`
+independently on every push/PR — with `pre-commit` disabled, that CI run is the only enforcement of
+it today, not a second gate behind a local one.
 
 ## Repo hygiene
 

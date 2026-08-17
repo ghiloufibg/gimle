@@ -24,6 +24,7 @@ graph LR
     observability[gimle-observability] --> core
     fabric[gimle-fabric] --> core
     fabric --> module
+    fabric --> observability
     gateway[gimle-gateway] --> module
     gateway --> core
     pki[gimle-pki] --> core
@@ -36,8 +37,10 @@ graph LR
     agent --> module
     agent --> fabric
     agent --> pki
+    agent --> observability
     mimir[gimle-mimir] --> core
     mimir --> pki
+    mimir --> observability
     fafnir[gimle-fafnir] --> core
     fafnir --> mimir
     fafnir --> pki
@@ -49,18 +52,22 @@ graph LR
     andvari[gimle-andvari] --> core
     andvari --> mimir
     andvari --> pki
+    andvari --> observability
     andvari --> andvariconsole[gimle-andvari-console]
     controlplane[gimle-controlplane] --> core
     controlplane --> module
     controlplane --> console[gimle-console]
     controlplane --> pki
     controlplane --> mimir
+    controlplane --> observability
     cli[gimle-cli] --> core
     cli --> pki
+    cli --> module
     saga[gimle-saga] --> core
     saga --> sagaconsole[gimle-saga-console]
     hilmir[gimle-hilmir] --> core
-    mavenplugin[gimle-maven-plugin]
+    hilmir --> mimir
+    mavenplugin[gimle-maven-plugin] --> core
     dist[gimle-dist] --> mimir
     dist --> controlplane
     dist --> agent
@@ -86,10 +93,12 @@ Two things worth noticing in that graph, not just the boxes:
   points from the API-server side toward the store, never the other way, so the store never needs
   to know anything about HTTP, scheduling, or reconciliation. See
   [Control plane](../architecture/control-plane.md).
-- **`gimle-maven-plugin` and `gimle-console` depend on no other Gimlé module.** The former only
-  needs the Maven Plugin API; the latter is an independent Bun/React project with no Java
-  dependencies at all — `gimle-controlplane` depends on it (to embed and serve its built output),
-  not the other way around.
+- **`gimle-console` depends on no other Gimlé module.** It's an independent Bun/React project with
+  no Java dependencies at all — `gimle-controlplane` depends on it (to embed and serve its built
+  output), not the other way around. `gimle-maven-plugin` comes close, but not quite: it depends on
+  `gimle-core` alone, for `SagaEvent`/`SagaEventCodec` — the `gimle:verify`/`gimle:saga-import`
+  goals need to write the same NDJSON event shape a real test JVM's `SagaTestListener` does, not a
+  goal-side reimplementation of it — everything else it needs is the Maven Plugin API.
 - **`gimle-worker` doesn't depend on `gimle-pki`, even though it participates in TLS.** Certificate
   *generation*/*signing* is `gimle-pki`'s job (needed only by `gimle-controlplane`, `gimle-agent`,
   `gimle-cli`); a worker JVM only ever *loads* already-issued material inherited from the agent that

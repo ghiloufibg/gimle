@@ -21,6 +21,10 @@ external orchestrator, no non-Java runtime dependencies.
 ## Where to go next
 
 - New to the codebase? Start with [Getting started](./tutorials/getting-started.md).
+- New to distributed systems generally? [Concepts](./concepts/consensus-and-replication.md) explains
+  consensus, gossip-based failure detection, and circuit breaking from first principles — each one
+  paired with a short narrated video and traced straight into the exact Gimlé class that implements
+  it — before the Architecture section below dives into Gimlé's own components.
 - Want the mental model first? Read [Tiered isolation](./architecture/tiered-isolation.md) —
   the central architectural idea everything else builds on.
 - Looking for a specific class or interface? See the [API Reference](pathname:///javadoc/)
@@ -37,11 +41,13 @@ graph TD
     Module --> Instance["Instance<br/>bounded virtual-thread scheduler"]
 ```
 
-Six Java process roles run across a cluster: the **Node Agent** (one per machine, owns worker
+Seven Java process roles run across a cluster: the **Node Agent** (one per machine, owns worker
 process lifecycle), the **Worker JVM** (hosts module instances), the **Control Plane** (API
 server, scheduler, reconcilers), the **Store** (Raft-replicated state, its own process —
 mirroring how Kubernetes separates `etcd` from `kube-apiserver`), **Fafnir** (the secrets
 service, its own process — a dedicated encrypt/decrypt/rotate-key authority the control plane
-proxies to rather than performing crypto itself), and **Muninn** (the logs/metrics/traces sink,
+proxies to rather than performing crypto itself), **Muninn** (the logs/metrics/traces sink,
 its own process — every other process ships to it rather than each owning a separate export
-path). See [Node topology](./architecture/node-topology.md) for how they relate.
+path), and **Andvari** (the module artifact registry, its own process — an immutable,
+content-addressed store of module jars behind a push/pull API). See [Node
+topology](./architecture/node-topology.md) for how they relate.

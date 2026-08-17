@@ -64,7 +64,7 @@ gimle get accounts [username]
 gimle set account <username> --password <value>
 gimle delete account <username>
 gimle cert token create [--ttl <duration>]
-gimle cert request --purpose operator|node --out-cert <path> --out-key <path>
+gimle cert request --purpose operator|node --out-cert <path> --out-key <path> [--common-name <name>]
 gimle cert status <request-id> --out-cert <path>
 gimle cert approve <request-id>
 gimle cert renew [--force]
@@ -75,7 +75,8 @@ flows — see [Transport security](../architecture/transport-security.md) §4/§
 picture. `token create` and `approve` need this invocation's own configured mTLS identity (`--server`
 plus `gimle.tls.certFile`/`keyFile`/`caFile`); `request`/`status` deliberately don't, since they run
 before that identity exists. `renew` only acts if the credential is actually due for renewal, unless
-`--force`.
+`--force`. `request`'s `--common-name` sets the CSR Subject's CN, defaulting to the local
+`user.name` system property when omitted.
 
 Unlike `config`, `secret` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
 it needs two actions (`versions`, `rotate-key`) that three-verb dispatch has no shape for. Every

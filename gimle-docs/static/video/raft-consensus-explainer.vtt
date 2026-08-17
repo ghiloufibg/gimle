@@ -1,0 +1,68 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:06.812
+How does a cluster of machines agree on one shared truth, even when a node crashes or the network splits them apart?
+
+00:00:06.812 --> 00:00:12.038
+This is Raft, the consensus algorithm behind gimle mimir, Gimle's replicated state store.
+
+00:00:12.638 --> 00:00:14.888
+Every node starts out as a follower.
+
+00:00:14.888 --> 00:00:20.014
+Each one runs its own randomized election timer, between 150 and 300 milliseconds.
+
+00:00:20.014 --> 00:00:29.016
+If node A doesn't hear from a leader before its timer fires, it assumes there isn't one, becomes a candidate, and asks its peers to vote for it.
+
+00:00:29.616 --> 00:00:32.056
+Node B and Node C don't just vote blindly.
+
+00:00:32.056 --> 00:00:36.180
+Each one checks that Node A's log is at least as up to date as its own.
+
+00:00:36.180 --> 00:00:38.097
+Only then does it grant its vote.
+
+00:00:38.097 --> 00:00:42.395
+This is what stops a node with stale data from ever taking over as leader.
+
+00:00:42.995 --> 00:00:46.878
+Two votes out of three is a majority, so Node A becomes the leader.
+
+00:00:46.878 --> 00:00:53.312
+From now on, it sends a heartbeat to every follower every 50 milliseconds, asserting that it's still in charge.
+
+00:00:53.312 --> 00:00:59.397
+A follower stuck in a network partition, unable to reach a majority, can never elect itself leader alone.
+
+00:00:59.997 --> 00:01:04.026
+Now a client proposes a write, say, registering a new deployment.
+
+00:01:04.026 --> 00:01:05.948
+Only the leader accepts writes.
+
+00:01:05.948 --> 00:01:08.551
+It appends the entry to its own log first.
+
+00:01:09.151 --> 00:01:16.464
+Next, the leader replicates that log entry out to every follower, over the same append entries message its heartbeats already use.
+
+00:01:17.064 --> 00:01:23.551
+Once a majority of nodes, not all of them, just a majority, have acknowledged the entry, it's considered committed.
+
+00:01:23.551 --> 00:01:28.119
+It's applied to the state machine, and only then is the client finally unblocked.
+
+00:01:28.119 --> 00:01:33.873
+A minority can never commit anything alone, and that single rule is what makes split brain impossible.
+
+00:01:34.473 --> 00:01:40.118
+That's leader election and log replication in Raft, and exactly how gimle mimir implements both.
+
+00:01:40.118 --> 00:01:48.644
+The full concepts page goes further: snapshotting, live membership changes, and a real split brain bug this project's own tests caught and fixed.
+
+00:01:48.644 --> 00:01:49.644
+Link in the docs.
+

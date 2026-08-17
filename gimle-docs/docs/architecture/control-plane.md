@@ -15,6 +15,10 @@ Kubernetes separates `kube-apiserver` from `etcd`:
 - **`gimle-controlplane`** — the HTTP API server, scheduler, and reconcilers, talking to a
   `gimle-mimir` cluster over the network rather than embedding one.
 
+New to distributed systems? [Consensus and replication](../concepts/consensus-and-replication.md)
+explains leader election and log replication from first principles before diving into `RaftNode`
+itself — the mechanism `gimle-mimir` implements underneath everything on this page.
+
 ```mermaid
 graph TD
     subgraph CP["gimle-controlplane (N replicas)"]

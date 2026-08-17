@@ -1,0 +1,58 @@
+[
+  {
+    "type": "title",
+    "tag": "gimle-fabric · concepts",
+    "title": "Failure Detection: SWIM Gossip in gimle-fabric",
+    "subtitle": "How a growing cluster figures out who's still alive, without one node health-checking everyone.",
+    "narration": "How does every machine in a growing cluster know which other machines are still alive, without the amount of network chatter exploding as the cluster grows? This is SWIM, the gossip protocol behind failure detection in Gimle's service fabric."
+  },
+  {
+    "caption": "Node A pings Node B directly, once per second.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.1",
+    "narration": "Every node runs on a steady one second cycle. Each tick, it picks one other member and pings it directly. If an acknowledgement comes back in time, that member is confirmed alive, and nothing else happens."
+  },
+  {
+    "caption": "No ack within 500 milliseconds.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.2",
+    "narration": "But this time, Node B doesn't answer within its ping timeout. That alone doesn't mean Node B is down. It could just as easily be a bad network path between only these two nodes."
+  },
+  {
+    "caption": "Node A asks Node C and Node D to relay-probe Node B.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.3",
+    "narration": "So instead of giving up, Node A asks a handful of other members, here Node C and Node D, to relay probe Node B on its behalf. Each of them sends its own direct ping to B and reports back what it finds."
+  },
+  {
+    "caption": "All probes fail; Node A marks Node B SUSPECT.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.4",
+    "narration": "Only when the direct probe and every indirect relay all fail does Node A mark Node B as suspect, not dead yet, just suspect."
+  },
+  {
+    "caption": "Suspicion timeout elapses, never refuted; Node B is DEAD.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.5",
+    "narration": "A suspected node gets a real chance to prove it's still there. If Node B were actually fine, just briefly overloaded, it could refute the suspicion at any point during this window. Only once the suspicion timeout, about three seconds, elapses with no refutation does Node A finally mark it dead."
+  },
+  {
+    "caption": "The DEAD status spreads via piggybacked gossip.",
+    "module": "fabric",
+    "d2_source": "/home/user/gimle/gimle-docs/diagrams/swim-gossip.d2",
+    "d2_target": "steps.6",
+    "narration": "That new status doesn't need a broadcast. It piggybacks on whatever ordinary gossip traffic Node A was already sending, spreading through the cluster the way a rumor spreads through casual conversation. And every 30 seconds, a full anti entropy sync acts as a backstop, in case any node missed the news."
+  },
+  {
+    "type": "title",
+    "tag": "gimle-fabric · concepts",
+    "title": "Read the full breakdown",
+    "subtitle": "docs/concepts/failure-detection-and-gossip.md — the Lifeguard-style local health multiplier, and why this feeds Gimle's tiered self-healing, not just a dashboard.",
+    "narration": "That's direct pings, indirect probes, suspicion, and gossip dissemination, the core of SWIM. The full concepts page covers the local health multiplier that adapts these timeouts under load, and why this same mechanism is what actually triggers Gimle's self-healing. Link in the docs."
+  }
+]
