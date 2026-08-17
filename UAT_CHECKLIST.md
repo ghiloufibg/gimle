@@ -1,0 +1,1541 @@
+# Gimlé User Acceptance Test (UAT) Checklist
+
+Derived from `RTM.md` (the Holmgang-Cucumber-coverage-validated Requirements Traceability Matrix), which is itself validated against `REQUIREMENTS_MATRIX.md`. Every requirement below carries `Status: Active`, `Modified`, or `New` in `RTM.md` -- `Removed` requirements are excluded, since there is nothing left to acceptance-test. Each entry's manual test step is reformatted from that requirement's own Gherkin scenario in `REQUIREMENTS_MATRIX.md`/`RTM.md` (or, for a `Covered` requirement, the Holmgang scenario that already exercises it; or, for a gap with no baseline Gherkin on record, the requirement's own gap note) -- not re-derived from source.
+
+**"Covered by automated test"** reflects `RTM.md`'s strict Coverage column: `Yes` only if a real Cucumber `.feature` scenario in `gimle-holmgang` exercises this requirement against a real running cluster. A unit test, integration test, or one of Holmgang's own plain-JUnit `*IT` classes does **not** count -- sign-off below is still required for those rows regardless of other test coverage; this checklist tracks human UAT sign-off, not raw test presence.
+
+## Summary
+
+- **Total requirements**: 565 (Status: Active/Modified/New; `Removed` excluded)
+- **Covered by automated (Holmgang Cucumber) test**: 55
+- **Not covered by automated test (requires manual UAT sign-off to close the gap)**: 510
+- **Release-readiness (automated coverage)**: 9.7% (55/565)
+
+Release readiness here means automated-coverage percentage, not UAT completion -- the checkboxes below are this document's own separate tracker for manual sign-off, reset for each UAT pass.
+
+| Module | Requirements | Covered | Not Covered | Coverage % |
+|---|---|---|---|---|
+| gimle-core | 42 | 2 | 40 | 4.8% |
+| gimle-module | 21 | 1 | 20 | 4.8% |
+| gimle-os | 6 | 0 | 6 | 0.0% |
+| gimle-pki | 9 | 0 | 9 | 0.0% |
+| gimle-worker | 22 | 2 | 20 | 9.1% |
+| gimle-agent | 35 | 5 | 30 | 14.3% |
+| gimle-mimir | 46 | 11 | 35 | 23.9% |
+| gimle-fabric | 30 | 1 | 29 | 3.3% |
+| gimle-controlplane | 65 | 11 | 54 | 16.9% |
+| gimle-fafnir | 21 | 0 | 21 | 0.0% |
+| gimle-andvari | 22 | 2 | 20 | 9.1% |
+| gimle-muninn | 21 | 0 | 21 | 0.0% |
+| gimle-observability | 16 | 1 | 15 | 6.2% |
+| gimle-gateway | 15 | 0 | 15 | 0.0% |
+| gimle-cli | 19 | 0 | 19 | 0.0% |
+| gimle-hilmir | 28 | 0 | 28 | 0.0% |
+| gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
+| gimle-console | 26 | 0 | 26 | 0.0% |
+| gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
+| gimle-andvari-console | 8 | 0 | 8 | 0.0% |
+| gimle-saga-console | 7 | 0 | 7 | 0.0% |
+| gimle-saga | 14 | 0 | 14 | 0.0% |
+| gimle-testkit | 7 | 0 | 7 | 0.0% |
+| gimle-examples | 4 | 3 | 1 | 75.0% |
+| gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
+| gimle-holmgang | 31 | 16 | 15 | 51.6% |
+| gimle-dist | 5 | 0 | 5 | 0.0% |
+
+## Checklist
+
+### gimle-core
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-015 | Cluster-wide transport protocol switch (plaintext/TLS) | Given -Dgimle.transport.protocol=tls, When TransportProtocol.fromConfig() is called, Then TLS; an unrecognized value throws. | No |
+
+#### Config / Secrets
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-038 | Tenant-scoped config/secret entry model | Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-010 | Artifact-registry vs local-path reference resolution | Given artifactPath="", When ArtifactReference.isRegistryCoordinate is called, Then true, isLocalPath false. | No |
+| [ ] | GIMLE-027 | Startup banner rendering with terminal color/Unicode auto-detection | Given -Dgimle.banner.enabled=false, When GimleBanner.print is called, Then nothing is written. | No |
+| [ ] | GIMLE-028 | Single-write length-prefixed wire framing | Given a body byte array, When Frames.writeFrame(out, body) is called, Then exactly one write call places a 4-byte length prefix followed by the body, then flushes. | No |
+| [ ] | GIMLE-029 | Hand-rolled JSON parser/writer | Given a nested JSON document, When parsed then re-written via Json.write(Json.parse(text)), Then every value round-trips; malformed input throws IllegalArgumentException. | No |
+
+#### Internal/Infra / Protocol
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-030 | Agent↔worker control-channel protocol and codec | Given a ControlMessage.InstallModule with a free-text artifactPath containing a space, When encoded/decoded via ControlMessageCodec, Then field-for-field identical. | No |
+| [ ] | GIMLE-031 | Node registration/heartbeat/capacity-reporting protocol | Given a node registering with NodeCapabilities(supportedTiers={TIER_1,TIER_2}), When the scheduler considers a TIER_3 replica, Then rejected as a placement candidate. | No |
+
+#### Internal/Infra / Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-041 | Saga test-run event model and NDJSON codec | Given a TestFinished event with no failure fields, When encoded via SagaEventCodec, Then absent Optional failure fields are omitted, never written as null. | No |
+| [ ] | GIMLE-042 | Stable failure-signature hashing for flaky-test clustering | Given two failure messages differing only in an embedded port number, When both hashed via FailureSignature.of, Then identical signature; a genuinely different message produces a different one. | No |
+
+#### Internal/Infra / Web
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-039 | Bundled SPA static-asset resolution from classpath | Given a marker resource existing only inside a jar's entry, When BundledSpa.resolve(classLoader, markerResource) is called against a real built jar, Then it opens a jar filesystem and returns the marker's parent directory. | No |
+| [ ] | GIMLE-040 | SPA static file serving with client-side-route fallback | Given a request for /some/client/route with no matching file, When handled by SpaStaticHandler, Then the SPA shell is returned with 200; /../etc/passwd is rejected with 400. | No |
+
+#### Module System
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-001 | Semantic module versioning | Given "1.2.3-rc1" parsed via Version.parse, When compared against unqualified "1.2.3", Then the unqualified version compares as greater. | No |
+| [ ] | GIMLE-002 | Version range constraint matching | Given "[1.0.0,2.0.0)", When candidate 1.5.0 is checked, Then satisfies; 2.0.0 does not (exclusive upper). | No |
+| [ ] | GIMLE-003 | Module descriptor validation (request ≤ limit invariant) | Given a ModuleDescriptor whose request exceeds limit, When constructed, Then IllegalArgumentException naming both values. | No |
+| [ ] | GIMLE-004 | Tiered isolation model (TIER_1/TIER_2/TIER_3) | Given isolation.tier: TIER_2, When parsed, Then the module requires a dedicated worker JVM. | No |
+
+#### Module System / Health
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-008 | Health probe configuration with initial delay | Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s. | No |
+
+#### Module System / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-006 | Tenant-scoped service export | Given ServiceExport{allowedTenantIds={"tenant-a"}}, When permitsTenant(Optional.of("tenant-b")), Then false. | No |
+
+#### Module System / Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Given gimle-module.yaml declaring volume:{sizeBytes,mountPath}, When parsed, Then ModuleDescriptor.volume() is present. | No |
+
+#### Module System / Vessel Hosting
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-009 | Vessel hosting mode (plain-process workload) | Given a vessel: block declaring args/env/probe/resources, When validated, Then synthesized into a ModuleDescriptor always at TIER_2, no exports/hooks/volume; a TCP/HTTP probe with no declared port is rejected. | No |
+
+#### Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-037 | Tenant identity and resource quota model | Given a Tenant with negative quota field, When constructed, Then rejected with IllegalArgumentException. | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
+
+#### Observability / Logging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-019 | Structured JSON log encoding with APPLICATION/PLATFORM categorization | Given a log event with deploymentName/instanceIndex MDC keys set, When encoded by JsonLogEncoder, Then category="APPLICATION" carrying moduleId/deploymentName/instanceIndex; without those, category="PLATFORM". | No |
+| [ ] | GIMLE-020 | Human-readable colored console log encoding | Given -Dgimle.color=always, When encoded by TextLogEncoder, Then output contains ANSI escapes; -Dgimle.color=never produces none. | No |
+| [ ] | GIMLE-021 | Runtime-switchable console log format (text default, JSON opt-in) | Given -Dgimle.log.console=json, When CONSOLE appender starts, Then delegates to JsonLogEncoder; no override defaults to text. | No |
+| [ ] | GIMLE-022 | MDC-tagged proxying for same-worker and probe-loop invocations | Given a service reference wrapped via InstanceMdcContext.tagProxy, When a method throws, Then caller's MDC is restored to prior state, original exception propagates. | No |
+| [ ] | GIMLE-023 | Per-instance sifted log files | Given two instances of different deployments logging concurrently, When both emit APPLICATION lines, Then each lands only in its own deployment-index.log file. | No |
+| [ ] | GIMLE-024 | Platform (non-instance) log file appender | Given an APPLICATION event and a PLATFORM event, When both reach PlatformFileAppender, Then only the PLATFORM event is written. | No |
+| [ ] | GIMLE-025 | Kubelet-style size/count log rotation | Given small maxFileSizeBytes/maxFiles, When enough lines exceed the cap repeatedly, Then the oldest rotated copy is evicted past maxFiles. | No |
+| [ ] | GIMLE-026 | Cursor-based log paging and live-follow streaming | Given a log stream spanning a rotation, When streamFollow is called from a cursor before the rotation, Then every line after that cursor is streamed as NDJSON, including lines now in the rotated file. | No |
+
+#### PKI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-034 | Certificate bootstrap (CSR) request/response protocol | Given CsrSubmission with purpose=OPERATOR_CLIENT, When submitted, Then CsrResult status=PENDING with a requestId, never auto-approved. | No |
+
+#### PKI / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-014 | Mutual-TLS SSLContext construction | Given valid cert/key/CA PEM files, When SslContexts.forMutualTls(settings) is called, Then a TLS 1.3 handshake against a same-CA-trusting peer succeeds. | Yes |
+
+#### Resource Limiting
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-005 | Kubernetes-shaped resource quantity parsing | Given ResourceSpec{memory:"128Mi", cpu:"250m"}, When memoryBytes()/cpuMillicores() called, Then 134217728 and 250 respectively. | No |
+
+#### Scheduling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-035 | Assigned-instance work-order model (incl. in-place rename and vessel dispatch) | Given an AssignedInstance with renamedFromInstanceIndex present, When the agent processes it, Then it retargets the already-running instance under that prior index in place. | No |
+
+#### Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-013 | Console password hashing (PBKDF2-HMAC-SHA256) | Given a password hashed twice via PasswordHashes.hash, When compared, Then outputs differ but both verify against the original. | No |
+| [ ] | GIMLE-016 | Stateless HMAC-signed console session tokens | Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty. | No |
+| [ ] | GIMLE-017 | Session-signing key file load-or-create with owner-only permissions | Given no key file exists, When loadOrCreate called twice, Then first generates rw------- key, second reuses it. | No |
+| [ ] | GIMLE-018 | Per-key exponential-backoff login throttle | Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap. | No |
+
+#### Security / Audit
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-033 | Cross-resource audit trail model | Given a denied authorization decision, When recorded as an AuditEvent, Then allowed=false and otherwise structurally identical to an allowed one. | No |
+
+#### Security / RBAC
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Given Permission scoped to (DEPLOYMENT,WRITE,tenant="acme"), When covers(DEPLOYMENT,WRITE,Optional.of("acme")), Then true; a different tenant, false. | No |
+| [ ] | GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination. | No |
+
+#### Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-036 | Bounded-retry-with-backoff restart policy (CrashLoopBackOff-equivalent) | Given a tracker with maxAttemptsPerWindow=3, When a 4th failure is recorded within the window, Then recordFailureAndCheckShouldRetry returns false. | Yes |
+
+### gimle-module
+
+#### Module System
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-043 | Module dependency resolution with cycle detection | Given module A requires B and B requires A, When ModuleResolver.resolve(A) is called, Then GimleResolutionException naming the cycle. | No |
+| [ ] | GIMLE-044 | Module registry (install bookkeeping, idempotent re-install, content-mismatch rejection) | Given module foo@1.0.0 already registered, When register is called again with identical sha256, Then no-op returning the same id; differing sha256 throws. | No |
+| [ ] | GIMLE-045 | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED) | Given a module whose onStart hook throws, When ModuleController.start(id) is called, Then transitions to FAILED, emits TransitionFailed, and rethrows wrapped as GimleLifecycleException. | No |
+| [ ] | GIMLE-046 | Dynamic per-module-version JPMS ModuleLayer construction | Given two installed versions of the same module both resolved, When each built via ModuleLayerFactory.create, Then distinct ModuleLayer/ClassLoader instances. | No |
+| [ ] | GIMLE-049 | Repeated-redeploy flat-metaspace acceptance test | Given a module redeployed N times in a loop, When metaspace usage is sampled, Then samples plateau after warm-up. | No |
+| [ ] | GIMLE-051 | Module lifecycle hooks (reflectively instantiated, JPMS-exported) | Given a descriptor naming a real ModuleLifecycleHooks implementation in an exported package, When the module resolves, Then the hooks class is instantiated via its no-arg constructor and onInstall invoked. | No |
+| [ ] | GIMLE-052 | Job-kind run-to-completion hooks | Given an ACTIVE Job-kind module whose JobHooks.run returns SUCCEEDED, When ModuleController.complete(id, SUCCEEDED) is called, Then transitions straight to COMPLETED, emitting a Completed lifecycle event. | No |
+| [ ] | GIMLE-053 | Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay) | Given a hook calls ctx.beginRequest() and never calls endRequest(), When ModuleController.stop is called, Then the drain wait blocks up to its deadline because inFlightCount() > 0. | No |
+| [ ] | GIMLE-054 | In-worker round-robin service registry with version-aware cutover | Given both v1 (draining, still ready) and v2 (freshly started, one ready) registered, When lookup is called repeatedly, Then every call routes to v2 exclusively once v2 has any ready entry. | No |
+| [ ] | GIMLE-055 | Cross-tier name-driven service invocation | Given a registered Greeter provider with method greet(String), When invokeByName("...Greeter",1,"greet",["java.lang.String"],["world"]) is called, Then invoked reflectively; a wrong method name throws rather than matching a different overload. | No |
+| [ ] | GIMLE-056 | Same-worker cross-module service publish/discover | Given a provider registers a Greeter instance and a consumer resolves afterward, When the consumer calls ctx.lookupService(Greeter.class), Then finds the provider's instance directly. | No |
+| [ ] | GIMLE-058 | Hot redeploy (old/new version coexistence with pinned dependent wiring) | Given dependent D wired to dependency v1, and v2 is then installed/resolved, When D's wiring is inspected afterward, Then still wired to v1 unless explicitly re-resolved. | No |
+| [ ] | GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value. | No |
+| [ ] | GIMLE-060 | Module artifact reading — real-JPMS-module and descriptor-presence validation | Given a jar with no module-info.class, When ModuleArtifactReader.read(jarPath) is called, Then GimleManifestException explaining automatic modules are rejected. | No |
+
+#### Module System / Health
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-063 | Health probe interfaces (liveness/readiness) | Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop. | No |
+
+#### Module System / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-047 | Unnamed-module readability grant for bundled hooks/probes | Given a real module jar bundling its own ModuleLifecycleHooks implementation declared "requires static com.gimle.module", When the module's layer is created, Then the hook class resolves and correctly implements the platform's interface at runtime. | No |
+| [ ] | GIMLE-048 | Classloader leak detection via PhantomReference | Given a module's layer/loader is tracked after disposal and never released, When the tracking window elapses, Then a ModuleLeakDetected event fires naming the module id, survival duration, and (best-effort) retaining path. | No |
+| [ ] | GIMLE-050 | Best-effort leak retaining-path attribution via JFR OldObjectSample | Given a worker JVM launched with the gimle-leak-detection JFR recording enabled with path-to-gc-roots=true, When a real leak is detected, Then OldObjectSampleCorrelator reports a human-readable retaining chain; without that flag, it degrades to no path. | No |
+| [ ] | GIMLE-061 | Andvari artifact-registry pull-through cache | Given a coordinate not yet cached and Andvari's response has a mismatching sha256 header, When ArtifactPullCache.resolve is called, Then GimleManifestException reporting the digest mismatch, no torn file committed. | Yes |
+| [ ] | GIMLE-062 | Multi-endpoint Andvari failover on pull | Given two configured endpoints, the first unreachable, When resolve is called, Then falls through to the second endpoint. | No |
+
+#### Module System / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-057 | Graceful drain-then-dispose stop with deadline | Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes. | No |
+
+### gimle-os
+
+#### Resource Limiting
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-064 | Pluggable resource-limiter abstraction | Given a caller holding only a ResourceLimiter reference, When it calls supports/prepare/jvmFlags/release, Then behavior is identical regardless of concrete implementation. | No |
+| [ ] | GIMLE-065 | Portable JVM-flags resource enforcement (Tier 1/Tier 2) | Given ResourceSpec{memory=512Mi, cpu=1500m}, When jvmFlags(handle) is called, Then returns ["-Xmx536870912","-XX:ActiveProcessorCount=2"] (rounded up). | No |
+| [ ] | GIMLE-066 | Tier 3 (namespace isolation) — deliberately unsupported by the current limiter | Given PortableJvmFlagsResourceLimiter, When supports(IsolationTier.TIER_3) is called, Then returns false. | No |
+| [ ] | GIMLE-067 | Kernel-level (cgroup v2) resource enforcement — deferred | N/A — not implemented | No |
+
+#### Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-068 | Pluggable persistent-volume-manager abstraction | Given a caller holding only a VolumeManager reference, When it calls allocate/hostPath/release, Then behavior is identical regardless of concrete backend. | No |
+| [ ] | GIMLE-069 | Local-disk persistent volume allocation for StatefulSet-shaped instances | Given a volume request exceeding the target filesystem's usable space, When LocalDiskVolumeManager.allocate is called, Then GimleVolumeException reporting insufficient space; allocating twice for the same index is idempotent. | No |
+
+### gimle-pki
+
+#### PKI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-070 | Self-signed cluster CA generation | Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage. | No |
+| [ ] | GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate. | No |
+| [ ] | GIMLE-073 | CSR generation with Subject Alternative Names | Given a CSR built with dnsNames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present. | No |
+| [ ] | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20–30% of validity. | No |
+| [ ] | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op. | No |
+
+#### PKI / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | Given a generated leaf certificate, When encoded via Pem.encodeCertificate then re-loaded by openssl, Then readable as a valid X.509 certificate. | No |
+| [ ] | GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash. | No |
+
+#### PKI / Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected. | No |
+| [ ] | GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,"gimle:nodes") is called, Then result is O=gimle:nodes,CN=node-1. | No |
+
+### gimle-worker
+
+#### Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-093 | Fabric service registration, cross-worker/cross-machine invocation binding | Given a worker boots and binds one UDS listener plus one TCP listener via FabricServer When a module registers a service through the tagged local registry Then it becomes reachable via ServiceCatalog delta relay to the agent, and other workers can call it via UDS/TCP And FabricServer routes inbound calls through the target module's own ModuleContext and BoundedModuleScheduler (real concurrency bound, not just probe checks) | Yes |
+
+#### Fabric / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-095 | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Given a module thread calls ControlPlaneRelay.request(path) When it registers a CompletableFuture keyed by a fresh correlationId and sends RelayControlPlaneRead Then it blocks until a matching RelayControlPlaneResult arrives or 5s times out Given no response ever arrives Then it returns a synthesized 504 RelayResult and the pending entry is removed either way Given a response arrives after the caller already gave up Then it is logged and dropped without error | No |
+
+#### Health / Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-090 | Readiness-driven service registry availability (without restart) | Given an ACTIVE module's readiness probe reports false When onReadinessResult(id, false) runs Then serviceRegistry.markUnready(id) is called, and the module stays ACTIVE (no restart) Given readiness later reports true Then serviceRegistry.markReady(id) makes the module lookupable again | No |
+
+#### Health / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-088 | Liveness/readiness probe loop with timeout and initial-delay | Given a module declares health.liveness/readiness classes and an initialDelaySeconds When ProbeLoop.start schedules the check Then no tick fires before initialDelay elapses, and subsequent ticks settle onto the ordinary interval And a check that hangs past its timeout, or throws, is reported as a failed check, never propagated | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-080 | Newline-delimited control-channel wire protocol (worker side) | Given multiple background threads call ControlChannelClient.send concurrently When two messages are sent at nearly the same time Then send() is synchronized so no interleaved/corrupted line is ever written And receive() returns Optional.empty() once the peer closes the connection | No |
+| [ ] | GIMLE-099 | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Given gimle-worker's module-info.java When it is compiled Then it requires com.gimle.core, com.gimle.module, com.gimle.observability, com.gimle.fabric, io.opentelemetry.context, java.management, jdk.management, org.slf4j And exports only com.gimle.worker | No |
+
+#### Internal-Infra / Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-094 | Fabric TLS certificate rotation detection (mtime polling) | Given the fabric server is running under TLS and FabricServerTlsWatcher is started When the certificate file's mtime changes between polls Then server.reloadTlsMaterial() is called and the new mtime is recorded Given the mtime is unchanged on a tick Then nothing is reloaded Given transport is PLAINTEXT Then the watcher's ticker never even starts | No |
+
+#### Module System
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-081 | Module install/resolve/start/stop/uninstall command dispatch | Given a worker receives ControlMessage.InstallModule with a valid artifact path When the worker reads and registers the artifact Then it replies with ModuleStateChanged(INSTALLED) followed by an Ack carrying the same correlationId Given the artifact cannot be read Then the worker replies with a Nack carrying the exception message instead | No |
+| [ ] | GIMLE-082 | Instance identity registration and rename-in-place | Given a module is already ACTIVE with a registered InstanceIdentity When the worker receives ControlMessage.RenameInstance with a new deploymentName/instanceIndex Then InstanceIdentityRegistry is overwritten in place with no resolve/start/stop calls And subsequent log lines and probe MDC tags reflect the new identity immediately | No |
+| [ ] | GIMLE-085 | Classloader leak detection on undeploy | Given a module is uninstalled and its ModuleLayer's loader is disposed When the loader survives past LEAK_DETECTION_WINDOW (30s) Then LeakTracker calls back with a warning logging the module id, survival time, and retaining path if known Given the loader is collected within the window Then no leak is reported | No |
+| [ ] | GIMLE-092 | Job-kind module execution (run-to-completion, not probed) | Given a module descriptor declares a jobHooksClass and goes ACTIVE When WorkerRuntime.onActive runs runJobHooks Then JobHooks.run(ctx) executes on a dedicated virtual thread And its returned CompletionStatus (or FAILED, if it threw) drives controller.complete(id, status) Given the module already left ACTIVE some other way before completion posts Then the failure to complete is logged and swallowed (best-effort) | No |
+
+#### Module System / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-100 | Real bundled-hook/probe classloading against the platform layer | Given a real module jar bundles its own LivenessProbe/ReadinessProbe/ModuleLifecycleHooks implementation classes When the worker loads the module's ModuleLayer and instantiates those classes Then they cast cleanly against this JVM's own platform interface types, thanks to explicit Module.addReads granted by ModuleLayerFactory | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-084 | Durable InstanceEvent emission per lifecycle transition | Given a module with a registered InstanceIdentity transitions from ACTIVE to STOPPING When the lifecycle sink handles the LifecycleEvent.Stopping event Then it builds an InstanceEvent with kind STOPPING, a message including the drain deadline, and a fresh UUID And sends it to the agent as ControlMessage.InstanceEventOccurred Given no InstanceIdentity is registered for the module Then no InstanceEvent is built or sent (nowhere durable to attach it to) | No |
+| [ ] | GIMLE-087 | OpenTelemetry context propagation across virtual-thread dispatch | Given a caller has an active OpenTelemetry Context with a value bound When it submits a task to BoundedModuleScheduler Then Context.current().wrap(task) captures that context and restores it on the fresh virtual thread for the task's duration Given the submission happens outside any context scope Then the task sees no value for that key | No |
+
+#### Observability / Cgroup Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-097 | Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup) | Given a worker has one or more ACTIVE modules When METRICS_REPORT_INTERVAL (5s) elapses Then it reads OperatingSystemMXBean.getProcessCpuLoad() and Runtime heap usage (no cgroup reads, no FFM) And computes a per-module request/error rate as a diff against the previous tick (0 on a module's first tick) And sends ControlMessage.MetricsReport per active module, including queue depth from that module's own scheduler | No |
+
+#### Observability / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-083 | Per-instance MDC log tagging for lifecycle/hook/probe/request-dispatch logging | Given a module has a registered InstanceIdentity When ModuleController invokes its onInstall/onStart/onStop/onUninstall hooks via runCommand Then InstanceMdcContext.runTagged wraps the call with that instance's MDC tags Given no identity is registered yet Then mdcTagsFor returns an empty map and such lines fall back to PLATFORM | No |
+| [ ] | GIMLE-096 | Worker-side trace relay to agent (no direct Muninn shipping) | Given GimleTracing is installed with a RelayingSpanExporter When a span batch is exported Then SpanLineCodec.toNdjson encodes it and sends ControlMessage.TracesSnapshot over the control channel And export() never surfaces a relay failure to the OpenTelemetry SDK (always CompletableResultCode.ofSuccess) | No |
+| [ ] | GIMLE-098 | Worker-wide meter snapshot relay to Muninn (via agent) | Given MUNINN_SHIP_INTERVAL (5s) elapses When muninnMetricsRelayLoop runs Then MeterSnapshotCodec.toNdjson(workerMetrics.registry()) is sent as ControlMessage.MetricsSnapshot, skipped if empty Given a StopModule command completes Then one extra best-effort snapshot is sent immediately, regardless of whether this is the worker's last instance | No |
+
+#### Worker Supervision
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-086 | Per-module bounded virtual-thread scheduler | Given a module goes ACTIVE with defaultMaxConcurrency = 4 When 4 tasks are already running and a 5th is submitted Then the 5th blocks behind a Semaphore permit until one of the first 4 completes And queuedCount() reports an estimate of tasks waiting for a permit Given the scheduler is closed Then further submissions are rejected | No |
+
+#### Worker Supervision / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-079 | Worker JVM control-channel bootstrap | Given a worker JVM is spawned with <nodeId> <tenantId-or-empty> <control-socket-path> as arguments When WorkerMain.main starts Then it connects out to the agent's UDS control socket, retrying until the listener is up And it sends a Hello message carrying its workerId, pid, and fabric UDS/TCP endpoints And it then loops reading ControlMessages until the channel closes | No |
+
+#### Worker Supervision / Module System
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-091 | Stopping/Uninstalled teardown of scheduler, probes, and service registry | Given a module transitions to STOPPING When onStopping(id) runs Then both liveness and readiness probe keys are cancelled and the service is marked unready Given the module then reaches UNINSTALLED Then its BoundedModuleScheduler is closed, restart trackers/failure counters are removed, and serviceRegistry.remove(id) is called And the InstanceIdentity is looked up (for the caller's close-log callback) before removal clears it | No |
+
+#### Worker Supervision / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion | Given a module's consecutive liveness failures reach livenessFailureThreshold (3) When restartModule() runs Then it stops (drains + uninstalls), re-registers the artifact, resolves, and starts it again And only one restart is ever in flight per module at a time Given the module recovers and stays stable past stableUptimeThreshold (10s) Then RestartTracker.recordSuccess() resets the backoff budget for the next failure cycle Given the module never recovers and the restart budget (5 attempts / 60s window) is exhausted Then controller.forceFailed(id, "restart budget exhausted") is called, escalating to FAILED And onModuleRestartBudgetExhausted is invoked, logging that the worker itself needs restarting | Yes |
+
+### gimle-agent
+
+#### Cgroup Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-107 | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Given a ModuleDescriptor's resourceLimit (memoryBytes, cpuMillicores) When PortableJvmFlagsResourceLimiter.prepare/jvmFlags are called Then it returns "-Xmx<bytes>" and "-XX:ActiveProcessorCount=<ceil(millicores/1000)>", with no cgroup file writes, no FFM downcalls And supports(tier) is true only for TIER_1/TIER_2 — TIER_3 is unsupported | No |
+
+#### Cgroup Management / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-108 | Tier 3 isolation rejection | Given a module descriptor declares IsolationTier.TIER_3 When the agent checks resourceLimiter.supports(descriptor.isolationTier()) before starting the instance Then it throws GimleIsolationException.tierUnsupported(moduleId, tier) and the instance never starts | No |
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-116 | Instance-scoped log/config/secret delivery over the control channel | Given an instance belongs to a tenant When sendInstallStartSequence runs (InstallModule -> ResolveModule -> deliverConfig -> StartModule) Then plain config is fetched via GET /config/{tenantId} (already decrypted server-side) And Fafnir secrets are fetched directly via this agent's own mTLS node identity (never relayed through the control plane) if fafnirBaseUrl is configured And each entry is sent as ControlMessage.ConfigDelivered(key, value, wasEncrypted) Given the plain config fetch fails (e.g. a node principal isn't authorized for /config under mTLS) Then secret delivery still proceeds independently — one failure never blocks the other | Yes |
+| [ ] | GIMLE-117 | Persistent volume allocation for StatefulSet-shaped instances | Given a descriptor declares volume: and the instance is starting or being installed into an existing worker When allocateVolumeIfNeeded runs Then volumeManager.allocate(deploymentName, instanceIndex, request) returns a handle before ResolveModule is built Given allocation fails (disk space, I/O error) Then it is logged and treated as "no volume" rather than blocking the instance from starting Given stopInstance runs with releaseVolume=false (rolling-update replace) Then the volume handle is deliberately NOT released Given stopInstance runs with releaseVolume=true (real scale-down/deletion) Then the volume is released | No |
+| [ ] | GIMLE-119 | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Given a VesselSpec declares env entries of each kind (Literal/PortAllocation/SecretRef) When allocateVesselPorts and resolveVesselEnv run Then a PortAllocation with no fixed port gets a bind-then-release ephemeral port; a fixed one is used as declared And a SecretRef is resolved via fetchVesselSecretsByKey (lazy, fetched at most once per spawn) Given a referenced secret key doesn't exist for the tenant Then GimleSecretsException.secretNotFound is thrown, failing the spawn | No |
+| [ ] | GIMLE-120 | Vessel config-file rendering to disk | Given a VesselSpec declares files: [{configKey, path}] When renderVesselFiles runs before the process spawns Then each declared config value's raw content is written verbatim to path (relative to the instance root, or absolute as-is) Given the referenced config key has no value for the tenant Then GimleManifestException is thrown | No |
+| [ ] | GIMLE-134 | Node placement-label registration | Given -Dgimle.node.labels=gpu,ssd is set on the agent process When register() runs Then the registration body's capabilities.labels includes ["gpu", "ssd"] Given the property is unset or blank Then labels is an empty list | No |
+
+#### Config / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-115 | Artifact-registry coordinate resolution via ArtifactPullCache | Given an assignment's artifactPath is blank and andvariBaseUrls is configured When resolveArtifactReference runs Then it resolves via artifactCache.resolve(httpClient, andvariBaseUrls, moduleId) to a concrete local jar path Given resolution fails (e.g. -Dgimle.agent.andvariEndpoint not configured, or Andvari unreachable) Then a TRANSITION_FAILED InstanceEvent with "artifact resolution failed" is posted and this assignment is skipped this tick, not fatal to the whole reconcile | Yes |
+
+#### Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-125 | SWIM gossip membership integration with service catalog relay | Given an agent starts its GossipMember and attaches a ServiceCatalog When a supervised worker reports ServiceRegistered/ServiceUnregistered, or gossip learns of a remote node's delta Then the catalog applies it and onDelta relays a CatalogUpdate to every currently-supervised worker's connection And gossip DEAD/ALIVE convergence feeds directly into catalog.onMembershipChange | No |
+
+#### Fabric / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-131 | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Given a worker sends RelayControlPlaneRead for a whitelisted path When handleRelayRead validates it against RELAY_WHITELIST_PATTERN Then the real GET call is made against the control plane and the response relayed back as RelayControlPlaneResult Given the path is not whitelisted (wrong shape, traversal attempt, extra segments) Then a synthesized 403 is returned locally without ever reaching the control plane Given the control plane call itself fails Then a synthesized 502 is returned | No |
+
+#### Fabric / Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-126 | Gossip membership read-only HTTP surface | Given an agent's GossipMember tracks itself and any learned peers When GET /gossip/members is requested Then it returns each member's nodeId/status/incarnation as JSON Given a non-GET method is used Then 405 is returned | No |
+
+#### Health / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Given a vessel process is alive and declares an HTTP readiness probe When updateVesselHealth runs (polled once per agent tick) Then lifecycleState becomes FAILED if the process is dead or liveness fails, STARTING if alive-but-not-ready, ACTIVE if both pass Given the probe's initialDelaySeconds hasn't elapsed since startedAt Then it reports the appropriate before-delay default (true for liveness, false for readiness) rather than actually dialing | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-124 | Periodic certificate rotation check and hot-swap of outbound HttpClient | Given the agent's currently-loaded certificate is due for renewal (per RenewalSchedule) When rotateCertificateIfDue runs Then it submits a rotation CSR with a fresh keypair over the current httpClient, writes the key file first then the cert file, and returns a new HttpClient plus rotated=true Given the rotation request fails or nothing is due Then the current HttpClient is returned unchanged with rotated=false, logged but not fatal to this tick Given rotation succeeded Then gossipMember.reloadDtlsMaterial() is also called | No |
+| [ ] | GIMLE-135 | `module-info.java` wiring for the node agent module | Given gimle-agent's module-info.java When it is compiled Then it requires com.gimle.core, com.gimle.os, com.gimle.module, com.gimle.fabric, com.gimle.pki, com.gimle.observability, micrometer.core, java.management, jdk.management, java.net.http, jdk.httpserver, org.slf4j, org.bouncycastle.pkix, org.bouncycastle.provider And exports only com.gimle.agent | No |
+
+#### Internal-Infra / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Given TLS is enabled and no cert/key files exist yet on disk When bootstrapCertificateIfNeeded runs Then it generates an RSA keypair and CSR, connects with server-trust-only TLS, and POSTs it plus the bootstrap token to /bootstrap/csr And on a 200 response, writes the returned certificate and encoded private key to the configured cert/key files Given cert/key files already exist (a redeploy of an already-bootstrapped node) Then this is a no-op Given the bootstrap token is missing/blank Then GimleTlsException.missingProperty is thrown | Yes |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-127 | Node/instance log-serving HTTP surface with tailing and follow | Given a node or instance log file exists under this agent's logRoot When GET /logs/nodes/{nodeId}?category=PLATFORM or /logs/instances/{deploymentName}/{instanceIndex}?category=APPLICATION is requested Then a cursor-paginated page (readOlder) or forward-polling page (since=) is returned as JSON Given follow=true Then the response streams NDJSON via streamFollow until the client disconnects Given a deploymentName contains a path separator or would escape the log root Then the request is rejected with 400 | No |
+| [ ] | GIMLE-128 | Merged node-level SYSTEM log view | Given multiple instances on this node have their own -system.log capture files When GET /logs/nodes/{nodeId}?category=SYSTEM is requested Then every *-system.log file under workers/ is read and merged, sorted by timestamp Given follow=true is requested for SYSTEM Then 400 is returned (not supported — multiple underlying files) | No |
+| [ ] | GIMLE-130 | Node-agent log/metrics shipping to Muninn (own + supervised) | Given -Dgimle.agent.muninnEndpoint is configured When an instance is added to supervised Then startShippingInstanceLogs starts a PLATFORM and an APPLICATION MuninnShipper for it, mirroring AgentLogServer's own path derivation exactly When a worker's Hello handshake arrives Then startShippingWorkerMetricsAndTraces starts one metrics and one traces shipper per worker id (never duplicated for a second instance sharing the same connection) Given muninnEndpoint is unset Then no shippers are ever created (local-only tailing still works unchanged) | No |
+| [ ] | GIMLE-133 | Instance-event forwarding (worker-reported and agent-originated) to control plane | Given a worker-reported or agent-originated InstanceEvent When postInstanceEvent is called Then it POSTs the event body to /nodes/{nodeId}/events Given the POST fails (network error, control plane down) Then it is logged and swallowed — never propagated to stall the caller | No |
+
+#### Observability / Cgroup Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-129 | `hs_err_pid*.log` crash-dump listing and fetch | Given a worker JVM native-crashed and HotSpot wrote hs_err_pid<pid>.log under its workerLogRoot When GET /logs/instances/{deploymentName}/{instanceIndex}/crashdumps is requested Then every matching file is listed with name/sizeBytes/lastModified, sorted When GET .../crashdumps/{name} is requested with a name matching the exact expected pattern Then the raw file content is returned as text/plain Given the filename doesn't match the strict pattern Then 400 is returned before any filesystem access | No |
+
+#### Observability / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-105 | Worker stdout draining, JSON-line de-duplication, and raw SYSTEM-line capture | Given a worker process writes a raw (non-JSON) line to stdout before Logback initializes When drainOutput reads it Then it is logged via this agent's own logger and appended to systemLogFile as a JSON entry tagged SYSTEM Given the worker writes an already-JSON-encoded line Then it is skipped (not re-logged), since PlatformFileAppender already captured it structurally | No |
+
+#### Observability / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-113 | Worker-crash-to-durable-InstanceEvent relay | Given a worker crashes and is classified via CrashInfo When onWorkerCrash runs Then for every SupervisedInstance sharing that workerId, a TRANSITION_FAILED InstanceEvent with a human-readable causeSummary is posted to the control plane | No |
+
+#### Observability / Worker Supervision
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-132 | Node capacity/instance-observation heartbeat reporting | Given supervised instances/vessels and a capacity snapshot When sendHeartbeat POSTs to /nodes/{nodeId}/heartbeat Then alive is derived as an EXCLUSION check (not "FAILED"), so a COMPLETED job still reports alive=true And ready is true only when lifecycleState is exactly ACTIVE Given a vessel instance Then it reports zero for every in-JVM-only metrics field but real allocatedPorts | No |
+
+#### Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-122 | Vessel crash respawn resets probe initial-delay clock | Given a vessel process crashes and VesselProcessSupervisor respawns it When onVesselRespawned fires Then instance.startedAt is reset to Instant.now() and lifecycleState set to STARTING Given the instance was already torn down (undeploy/reassignment) in the crash-to-respawn window Then nothing happens (instance is null, so nothing to reset) | No |
+
+#### Worker Supervision
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-102 | Worker JVM process spawn and command-line construction | Given a module descriptor with a resource limit and a node id When AgentMain.buildWorkerCommand constructs the command Then it always includes -XX:+ExitOnOutOfMemoryError, -Dgimle.log.root scoped per-worker, -XX:ErrorFile scoped per-worker, -Dgimle.banner.enabled=false, -Dgimle.log.console=json And it uses the descriptor's LIMIT (not its request) for the resource limiter's -Xmx/-XX:ActiveProcessorCount flags | No |
+| [ ] | GIMLE-104 | Deliberate-stop suppression of crash-respawn | Given the supervisor's stop() sets closed=true and calls process.destroyForcibly() When the process's onExit() callback then fires Then it returns immediately without classifying a crash or scheduling a respawn | No |
+| [ ] | GIMLE-109 | Assignment reconciliation loop (fetch, start, replace, stop) | Given the control plane's current assignments for this node When reconcileAssignments runs Then every assignment not yet supervised is started (fresh worker, reused Tier-1 worker, or rename-in-place) And every already-supervised key whose moduleId/artifactPath changed is stopped then restarted And every supervised key no longer in the current assignment set is stopped with volume release | No |
+| [ ] | GIMLE-110 | Tier 1 density — shared-worker reuse for multiple module instances | Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's representative instance for reuse Given the worker is at the density cap, already hosts the same moduleId, hosts a non-TIER_1 instance, or has no established connection yet Then it is never reused | No |
+| [ ] | GIMLE-111 | Instance rename-in-place (no restart) | Given an assignment carries a renamedFromInstanceIndex pointing at an already-supervised, matching-module instance When findRenameSource finds it and renameInPlace runs Then supervised/instanceShippers/capacityTracker are re-keyed and instance.assigned is updated in place And if the worker is already connected, ControlMessage.RenameInstance is sent so its own identity registry follows Given no matching source exists (already renamed, or gone) Then it falls through to the ordinary start path | No |
+| [ ] | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Given an assignment carries a VesselSpec When reconcileVesselAssignment runs (entirely separate from the module path) Then startVesselInstance spawns `java <ResourceLimiter flags> <vessel.jvmFlags> -jar <jar> <vessel.args>` via VesselProcessSupervisor And stdout/stderr is captured unconditionally as this instance's own APPLICATION log (no JSON-sniffing, unlike a real worker) And a crash restarts via the same RestartTracker-driven backoff/give-up policy as WorkerProcessSupervisor | No |
+
+#### Worker Supervision / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-106 | Machine-level capacity tracking and admission (memory/CPU) | Given a machine's total memory/CPU capacity and a set of currently-assigned worker keys When tryAssign(key, limit) is called and would exceed total capacity Then it returns false and the reservation is not recorded Given release(key) or rekey(oldKey, newKey) is called Then the reservation is freed or moved without double-counting or leaking | No |
+
+#### Worker Supervision / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-101 | Node agent registration and repeating reconcile/heartbeat/rotate tick loop | Given an agent starts with nodeId/controlPlaneBaseUrl/gossip config When main() runs Then it registers via POST /nodes/{nodeId}/register, then loops forever: reconcileAssignments, sendHeartbeat, rotateCertificateIfDue, sleep(TICK_INTERVAL) And a tick that throws is caught, logged, and recorded as a failed tick in AgentMetrics without stopping the loop | No |
+
+#### Worker Supervision / Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-103 | Worker process crash detection, classification, and destroy-and-respawn | Given a worker process exits without a prior deliberate stop() When onExit() fires Then classifyCrash() determines OOM (exit code 3), NATIVE_CRASH (fresh hs_err_pid<pid>.log present), or UNKNOWN And onCrash callback fires with the CrashInfo before the respawn decision Given the restart budget is not exhausted Then it waits the tracker's computed delay, then respawns via spawn() and schedules a stability confirmation Given the budget IS exhausted Then onRestartBudgetExhausted fires and no further respawn is attempted | Yes |
+| [ ] | GIMLE-112 | Worker respawn handshake re-drive after crash | Given a worker process crashes and WorkerProcessSupervisor respawns it (same workerId, same control-socket path) When onWorkerRespawned fires Then every SupervisedInstance sharing that workerId is reset (resetForRespawn) except volumeHandle/assigned/supervisor/server/descriptor And a fresh connection is accepted, a reader loop started, and sendInstallStartSequence re-run for every hosted instance Given every instance the crashed worker hosted was already torn down before respawn Then nothing is redriven | Yes |
+| [ ] | GIMLE-114 | Install-phase Nack escalates to FAILED (closing the "stuck at INSTALLED" gap) | Given an instance's lifecycleState is still "INSTALLED" When a Nack for that instance arrives over the control channel Then lifecycleState is set to "FAILED" Given the instance already progressed past INSTALLED (a later nack) Then its last real lifecycle state is preserved, not clobbered | No |
+
+### gimle-mimir
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-171 | Five-Field Cron Schedule Evaluator | Given a cron expression restricting both day-of-month and day-of-week; When mostRecentDueInstant is evaluated; Then a moment matching either restricted field counts as due; an invalid expression is rejected at parse time. | No |
+| [ ] | GIMLE-172 | Deployment Manifest Parsing (incl. Autoscale & Disruption Budget) | Given a manifest with a weighted autoscale block; When DeploymentManifestParser.parse is called; Then a DeploymentSpec carrying the exact weighted AutoscalePolicy is produced; maxUnavailable=0 with no maxSurge is rejected. | No |
+| [ ] | GIMLE-173 | DaemonSet Manifest Parsing (Anti-Affinity/Surge Rejection) | Given placement.antiAffinity: true; When DaemonSetManifestParser.parse is called; Then parsing throws; a nonzero disruption.maxSurge is likewise rejected while 0 is accepted. | No |
+| [ ] | GIMLE-174 | Job / CronJob Manifest Parsing | Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected. | No |
+| [ ] | GIMLE-175 | StatefulSet Manifest Parsing | Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected. | No |
+| [ ] | GIMLE-176 | Kind-Dispatching Manifest Parser | Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-169 | RBAC Authorization Engine | Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed. | No |
+| [ ] | GIMLE-170 | Node-Tenant Assignment Check | Given a node with an active instance for tenant "acme"; When isTenantAssignedToNode is checked; Then true; for an unassigned tenant, false. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-150 | Raft RPC Wire Codec | Given an arbitrarily-constructed RaftRpc; When written and read back via RaftCodec; Then the decoded value equals the original; a forged oversized/negative length prefix is rejected before allocation. | No |
+| [ ] | GIMLE-151 | Atomic Durable File Writes | Given a write crashes between temp-file write and final rename; When later read; Then no torn or partially-written file is ever visible. | No |
+| [ ] | GIMLE-154 | Replicated Mutation Catalog (StateMutation) | Given a StateMutation; When applied via applyTo(store) on any replica after commit; Then the exact same StateStore call is invoked with the exact same arguments everywhere. | No |
+| [ ] | GIMLE-164 | Client-Facing Store RPC with Leader Redirect & Follow | Given a StoreClient with no known leader; When propose() is called and a follower answers NotLeader with the real leader's address; Then the client retries directly against that address and caches it. | Yes |
+| [ ] | GIMLE-166 | Store Node Leader-Only Write Gating | Given a non-leader StoreNode; When it receives Propose/PutHeartbeat/AcquireOrRenewLease/AddServer; Then it responds NotLeader, carrying the leader's address if known, without applying anything. | No |
+| [ ] | GIMLE-167 | Store Client Connection Timeout Bounds | Given an endpoint that accepts but never writes a response; When a StoreClient call is made; Then it fails with SocketTimeoutException within the configured bound, not indefinitely. | No |
+| [ ] | GIMLE-168 | Store RPC Wire Codec | Given any StoreRpc request/response; When written and read back through StoreCodec; Then the decoded value equals the original exactly. | No |
+| [ ] | GIMLE-177 | Shared Domain Binary Codec | Given a DeploymentSpec carrying an optional VesselSpec; When encoded via DomainCodec and decoded back; Then the result equals the original, including the absent-vessel case. | No |
+| [ ] | GIMLE-178 | Store Process Bootstrap with TLS Rotation Ticker | Given a store process started with a state dir, Raft port, client port; When it starts up; Then it constructs StateStore/RaftLog/RaftNode, binds both transports, and rotates its own cert if due. | No |
+| [ ] | GIMLE-179 | Store/Raft Metrics Instrumentation | Given a client RPC request handled by StoreNode; When it completes; Then StoreMetrics records the kind, duration, and error status exactly once. | No |
+| [ ] | GIMLE-180 | module-info JPMS Boundary for gimle-mimir | Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported. | No |
+
+#### Raft Consensus
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-136 | Raft Leader Election | Given a 3-node Raft cluster with no leader yet; When election timeouts fire and a candidate requests votes; Then exactly one node becomes leader for that term, and every write submitted afterward is accepted only by that leader. | Yes |
+| [ ] | GIMLE-137 | Log Replication (AppendEntries) | Given a leader with two healthy followers; When the leader proposes a StateMutation; Then the entry is appended and sent via AppendEntries, becoming visible on every replica after the next round. | Yes |
+| [ ] | GIMLE-138 | Election Safety Restriction (log up-to-date check) | Given a candidate whose log lags the current leader's log; When its RequestVote arrives elsewhere first; Then the vote is denied because the candidate's log isn't at least as up to date. | No |
+| [ ] | GIMLE-139 | Conflicting-Entry Truncation | Given a follower with an entry at index N from an old term; When an AppendEntries request carries a different entry at index N; Then the follower truncates from index N onward before appending the leader's entries. | No |
+| [ ] | GIMLE-140 | Leader-Only-Commits-Own-Term Rule (Figure 8) | Given a leader whose matchIndex table reaches majority for an entry from an earlier term; When advanceCommitIndex evaluates that index; Then the entry is not committed unless a later same-term entry also reaches majority. | No |
+| [ ] | GIMLE-141 | Strict Apply Ordering (commitIndex vs lastApplied) | Given commitIndex advanced past lastApplied by several entries; When applyCommittedLocked runs; Then every entry from lastApplied+1 through commitIndex is applied one at a time, in order. | Yes |
+| [ ] | GIMLE-142 | Proposal Timeout with Ghost-Write Prevention | Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown. | No |
+| [ ] | GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives. | No |
+| [ ] | GIMLE-144 | Local Log Compaction / Snapshotting | Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded. | No |
+| [ ] | GIMLE-145 | Check-Quorum Leader Self-Demotion | Given a leader can no longer reach a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own. | Yes |
+| [ ] | GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Given a running 3-node cluster with a leader; When addServer is called for a new peer; Then a self-inclusive MembershipChange entry is replicated, and a subsequent mutation still commits once the new node acknowledges; a second membership change is rejected while the first is uncommitted. | Yes |
+| [ ] | GIMLE-147 | Non-Voting Learner & Automatic Promotion | Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange. | No |
+| [ ] | GIMLE-148 | Durable Raft Log Persistence | Given a node appends entries and votes; When restarted and RaftLog reopened; Then every persisted entry, term, and vote are recovered exactly as written. | Yes |
+| [ ] | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart. | No |
+
+#### Raft Consensus / Internal-Infra / Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Manually verify: Norn deterministic virtual-time Raft fault-injection simulation. Deliberately incompatible with Holmgang's own model, not merely untested by it: | No |
+
+#### State Store
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-152 | File-Backed State Store Persistence Engine | Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store. | No |
+| [ ] | GIMLE-153 | Full-State Snapshot / Restore | Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically. | No |
+| [ ] | GIMLE-155 | Leader-Local Node Heartbeat Tracking | Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat. | No |
+| [ ] | GIMLE-156 | Distributed Lease Coordination (Grant/Renew/Release) | Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires. | No |
+| [ ] | GIMLE-157 | Per-Instance Lifecycle Event Log with Retention Cap | Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first. | No |
+| [ ] | GIMLE-158 | Cluster-Wide Audit Trail with Filtering | Given events across different principals/resources/tenants; When listAuditEvents is called with filters; Then only matching events are returned newest-first, and concurrent appends never lose/duplicate/exceed the cap. | No |
+| [ ] | GIMLE-159 | Deployment Rolling-Update & Surge Bookkeeping | Given a deployment mid-rolling-update with index 2 marked in flight; When the control-plane process restarts; Then getRollingIndices still reports index 2 as in flight. | Yes |
+| [ ] | GIMLE-160 | StatefulSet OrderedReady Index & Sticky Node Binding | Given an index never placed before; When first placed on node A via putStatefulSetIndexNode; Then a later rolling-update replacement of that index is placed on node A again; the binding survives ordinary assignment removal, cleared only on permanent index removal. | No |
+| [ ] | GIMLE-161 | Node Cordon (Scheduler Exclusion Flag) | Given an uncordoned node; When cordoned; Then isNodeCordoned reports true and survives a reload; uncordoning clears it. | Yes |
+| [ ] | GIMLE-162 | Tenant Quota-Violation Flag Tracking | Given a deployment marked quota-violating; When putQuotaViolation is called again with violating=false; Then isQuotaViolating reports false and the file is deleted. | Yes |
+| [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | No |
+| [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
+
+### gimle-fabric
+
+#### Circuit Breaking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-186 | Per-Endpoint Circuit Breaker | Given an endpoint's error rate crosses errorRateThreshold; When another call is attempted; Then the breaker opens and excludes it; after cooldown it half-opens for one trial call. | No |
+| [ ] | GIMLE-187 | Circuit Breaker Exponential Cooldown Backoff | Given a breaker that re-opens repeatedly; When each re-open occurs; Then the cooldown doubles up to a ceiling; a successful half-open trial resets it. | No |
+| [ ] | GIMLE-188 | Panic-Mode Ejection Floor | Given a lookup whose candidates are more than maxEjectionPercent open-breaker; When selectAllowedCandidate runs; Then every candidate is admitted back in; no known exporter anywhere still throws GimleClusterException. | No |
+| [ ] | GIMLE-189 | Application-Exception vs Transport-Failure Breaker Scoring | Given a remote endpoint whose method throws an application exception; When the call completes with InvokeError; Then the breaker records a success; only genuine transport failures count against it. | No |
+
+#### Gossip Membership
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-200 | SWIM Gossip Membership Protocol (Ping/PingReq/Ack) | Given two node agents configured with each other as a seed; When they join; Then each discovers the other via direct ping/ack; a killed member converges to DEAD via direct probe timeout escalating to indirect PingReq relays. | No |
+| [ ] | GIMLE-201 | SWIM Self-Refutation via Incarnation Bump | Given a member observes a piggyback entry naming itself as SUSPECT; When processed; Then it bumps its own incarnation and re-gossips as ALIVE; a stale suspicion below the current incarnation is ignored. | No |
+| [ ] | GIMLE-202 | Lifeguard-Style Local Health Multiplier | Given a node whose probes repeatedly time out; When each timeout occurs; Then its local health multiplier increases (clamped at a ceiling); a successfully resolved probe decays it back down. | No |
+| [ ] | GIMLE-203 | Round-Robin Bounded-Coverage Probe Target Selection | Given N live members besides self; When N consecutive ticks each call nextProbeTarget; Then every live member is visited exactly once before the queue reshuffles. | No |
+| [ ] | GIMLE-204 | Anti-Entropy Full-State Sync | Given a change piggyback alone never delivered to a lagging node; When the antiEntropyInterval elapses and a sync fires to a random peer; Then the full table is exchanged and the lagging node picks up the missed change. | No |
+| [ ] | GIMLE-205 | Dead-Member Reaping | Given a member DEAD longer than deadMemberReapAfter; When the next tick's reapExpiredDeadMembers runs; Then the member is removed entirely. | No |
+| [ ] | GIMLE-206 | Gossip over Mutual DTLS with Deterministic Initiator Selection | Given two nodes configured for DTLS gossip; When they exchange pings; Then they discover each other over mutual DTLS, with only the lexicographically-lower-addressed side originating the handshake; different-CA members never become mutually aware; reloaded material lets a node reach a new peer. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-197 | Fabric Call Timeout Enforcement | Given a peer that accepts but never responds; When FabricClient.call is made; Then it fails with SocketTimeoutException within the bound; a refused connection fails fast. | No |
+| [ ] | GIMLE-198 | Fabric Frame Wire Codec | Given a FabricFrame.InvokeRequest with tracestate/baggage; When written and read back through FabricCodec; Then the decoded frame equals the original; forged length/param counts are rejected before allocating. | No |
+| [ ] | GIMLE-199 | Cross-JVM Object Marshalling | Given an object graph as a fabric method argument; When serialize then deserialize is applied; Then the result is an equivalent object graph, trusted only within the same platform trust boundary (no ObjectInputFilter allowlist). | No |
+| [ ] | GIMLE-207 | SWIM Wire Codec | Given any SwimMessage variant; When encoded and decoded via SwimCodec; Then the decoded value equals the original; a forged huge piggyback count or unrecognized protocol version fails cleanly. | No |
+| [ ] | GIMLE-208 | Service Catalog Delta Wire Codec | Given a list of CatalogDelta values; When encoded/decoded via ServiceCatalogCodec; Then the round trip is exact; a forged huge delta count fails cleanly. | No |
+| [ ] | GIMLE-209 | Reflective Cross-Module Method Dispatch | Given an inbound call naming an interface/method/param types belonging to a module-private interface; When ReflectiveDispatch resolves and FabricServer invokes it; Then it resolves against the instance's own declaring interface, avoiding IllegalAccessException. | No |
+| [ ] | GIMLE-210 | module-info JPMS Boundary for gimle-fabric | Given the gimle-fabric module descriptor; When gimle-worker requires com.gimle.fabric; Then it can access cluster/catalog/registry/transport/balance/breaker/trace, nothing unexported. | No |
+
+#### Load Balancing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
+| [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
+
+#### Service Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-181 | Same-Worker Direct Invocation Tier | Given a service registered in the same worker's local registry; When lookup(Class) is called; Then the local registry's instance is returned directly, bypassing the catalog entirely. | No |
+| [ ] | GIMLE-182 | Same-Machine Unix-Domain-Socket Invocation Tier | Given a provider in a different worker on the same node; When lookup resolves to that endpoint; Then the call is dispatched over a UDS (always plaintext). | Yes |
+| [ ] | GIMLE-183 | Cross-Machine TCP Invocation Tier | Given a provider on a different node's worker; When lookup resolves to that endpoint; Then the call is dispatched over TCP, TLS when configured. | No |
+| [ ] | GIMLE-190 | Gossip-Propagated Service Catalog | Given a local registration on one catalog; When its payload is applied to a second catalog's onReceived; Then the second reflects the registration; a stale delta at a lower version is ignored. | No |
+| [ ] | GIMLE-191 | Catalog Eviction on Gossip-Detected Node Death | Given a member gossip converges on as DEAD; When ServiceCatalog#onMembershipChange receives it; Then endpointsForInterface no longer returns any of its endpoints; once ALIVE again, endpoints reappear with no re-registration. | No |
+| [ ] | GIMLE-192 | Cross-Tenant Service Export Access Control | Given an export restricted to tenant "acme"; When a caller from a different tenant looks it up; Then lookup returns empty; with defaultDenyCrossTenant on, an unscoped export is reachable only by an untenanted caller. | No |
+| [ ] | GIMLE-193 | Runtime Name-Driven Cross-Tier Invocation (invokeByName) | Given a route naming an interface/version/method/param types; When invokeByName is called; Then it resolves the same tier/breaker/tenant logic dispatched by name; an unresolvable method name fails clearly. | No |
+| [ ] | GIMLE-194 | Inbound Call Dispatch with Bounded Concurrency | Given a target module with a bounded ModuleWorkExecutor; When more concurrent inbound calls arrive than allowed; Then extra calls queue; ModuleContext's in-flight counter reflects real inbound calls. | No |
+| [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
+| [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
+
+### gimle-controlplane
+
+#### API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-274 | Deployment/Job/DaemonSet/StatefulSet CRUD manifest API | Given a valid Deployment manifest YAML; When PUT /deployments/{name}; Then GET returns the round-tripped spec, and DELETE removes it. | Yes |
+
+#### API Server / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-272 | Bundled web console static serving | Given the console/index.html resource is present on the classpath; When ControlPlaneMain starts; Then it serves the bundled SPA at /console with client-side-route fallback. | No |
+
+#### API Server / Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-275 | Per-deployment and per-instance metrics rollup | Given a deployment has 3 ready instances reporting different request rates; When GET /metrics; Then a per-deployment row with the averaged rates is returned. | No |
+
+#### API Server / Orchestration
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-269 | Node registration, heartbeat, and assignment-fetch API | Given a node agent starts up; When it POSTs /nodes/{id}/register then periodically /nodes/{id}/heartbeat; Then the control plane records capacity/observations, usable by GET /nodes/{id}/assignments. | No |
+
+#### Admission / Artifact Registry
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-248 | Registry-coordinate artifact admission (Andvari integration) | Given a manifest names moduleId:version with no artifactPath, and Andvari doesn't have it; When submitted; Then admission rejects with 400; if Andvari is merely unreachable, admission still accepts with no recorded digest (level-triggered tolerance). | Yes |
+
+#### Admission / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-247 | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Given tenant T has policy.maxReplicasPerDeployment=10; When a submission requests 15 replicas; Then admission rejects citing the ceiling. | No |
+
+#### Admission / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-245 | Admission chain extension point | Given a chain with a rejecting plugin followed by an allowing plugin; When admit() runs; Then processing short-circuits at the first rejection; a later plugin sees an earlier plugin's mutated spec. | No |
+
+#### Admission / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-246 | Tenant resource quota admission check | Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409. | Yes |
+
+#### Artifact Registry / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-265 | `/artifacts/*` streaming proxy to Andvari | Given --andvari-endpoint is configured; When a caller with ARTIFACT:WRITE PUTs a jar; Then ApiServer authorizes locally and streams the jar straight through, never buffered whole. | No |
+| [ ] | GIMLE-266 | Andvari-client multi-endpoint failover with rotation | Given two configured endpoints, the first unreachable; When a HEAD request is made; Then it transparently retries against the second endpoint. | No |
+
+#### Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-249 | PUT-time re-tenanting double-authorization | Given deployment D belongs to tenant A; When a caller with write access only to tenant B PUTs D with tenantId=B; Then the request is rejected unless the caller also has write access to tenant A. | No |
+| [ ] | GIMLE-250 | RBAC-gated resource CRUD across every workload kind | Given a principal with no grant for ResourceKind.JOB; When GET/PUT/DELETE against /jobs/{name}; Then every request is rejected with 403. | No |
+| [ ] | GIMLE-252 | `gimle-system` reserved-tenant operator-only guard | Given a caller holds a broad but non-operator-group grant; When writing under tenantId=gimle-system; Then rejected 403 regardless of ordinary RBAC outcome. | No |
+| [ ] | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Given a certificate carrying gimle:nodes and CN=node-42; When calling POST /nodes/node-42/heartbeat; Then it succeeds via the self-service short-circuit; a request against node-99 is rejected. | No |
+| [ ] | GIMLE-254 | Node-tenant-scoped `/endpoints/*` read access | Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403. | No |
+
+#### Authorization / API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-256 | Console session login/logout/session cookie flow | Given a valid bootstrap Account; When POST /auth/login with correct credentials; Then a signed, HttpOnly, SameSite=Strict session cookie is set. | No |
+
+#### Authorization / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-251 | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Given -Dgimle.controlplane.audit.readResourceKinds=CONFIG,SECRET; When a READ hits /config/* or /secrets/*; Then an AuditEvent is durably appended even for allowed reads. | No |
+| [ ] | GIMLE-257 | Login throttling (address + username keyed) | Given repeated failed logins for the same username from different addresses; When the username-keyed threshold is exceeded; Then further attempts are throttled with 429+Retry-After. | No |
+
+#### Config / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-264 | CONFIG/SECRET resource-kind separation on one underlying store | Given a caller has CONFIG:WRITE but not SECRET:WRITE; When PUT /config/{tenant}/{key} with encrypted=true; Then the write is rejected because it routes authorization through ResourceKind.SECRET. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-243 | Independent-executor ticking (lease/reconcile/cert-rotation isolation) | Given the reconcile tick is deliberately blocked forever; When cert rotation and lease renewal keep ticking on their own executors; Then both continue unaffected. | No |
+| [ ] | GIMLE-244 | JPMS module boundary for gimle-controlplane | Given module-info.java for com.gimle.controlplane; When compiled/linked with jlink; Then only schedule/reconcile/api/pki/top-level packages are exported. | No |
+| [ ] | GIMLE-260 | Certificate rotation (self-rotation and subject-preserving renewal) | Given a caller presents its own still-valid cert with a matching-subject rotation CSR; When submitted; Then a new cert is issued for the identical subject; a mismatched subject is rejected 403. | No |
+| [ ] | GIMLE-261 | Zero-downtime TLS material reload | Given the control plane's cert is rotated; When reloadTlsMaterial runs; Then the HttpsServer is rebuilt with new key material and a fresh connection succeeds. | No |
+| [ ] | GIMLE-267 | `/logs/*` proxy with Muninn fallback | Given an instance's owning node is unregistered or unreachable, and Muninn is configured; When a caller requests logs; Then ApiServer falls through to Muninn instead of 404/502. | No |
+| [ ] | GIMLE-268 | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Given Muninn is configured; When a caller with LOGS:READ requests /metrics-history/{processKind}/{processId}?since=...; Then the request is proxied to Muninn. | No |
+| [ ] | GIMLE-273 | Per-endpoint request metrics instrumentation | Given a request is made to any registered route; When the handler completes; Then request count/latency/error status are recorded, tagged by endpoint and verb. | No |
+
+#### Internal-Infra / API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-255 | mTLS-authenticated HTTP API server with client-cert principal resolution | Given gimle.transport.protocol=tls and a CA-signed client cert; When any request is made; Then the principal is resolved from the certificate subject; absent a cert, a session cookie is checked. | Yes |
+| [ ] | GIMLE-270 | Unified `AssignedInstance` wire shape across every workload kind | Given a node has a mix of assignment kinds; When GET /nodes/{id}/assignments; Then every kind is represented uniformly as AssignedInstance entries. | No |
+
+#### Internal-Infra / API Server (PKI)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-258 | Bootstrap node join via single-use token + CSR | Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused. | No |
+| [ ] | GIMLE-259 | Operator-approval-gated CSR flow | Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it. | No |
+
+#### Multi-tenancy / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-271 | Reserved system-tenant auto-seeding | Given a fresh control-plane replica starts against an empty store; When it initializes; Then it proposes a Tenant row for RESERVED_SYSTEM_TENANT_ID unless one already exists. | No |
+
+#### Orchestration / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-242 | Reconciler-leader election via non-replicated lease | Given multiple ApiServer replicas share one store cluster; When each replica's leaseTick runs; Then only the lease-holder executes the reconcile tick. | No |
+
+#### Reconciliation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-219 | Deployment replica reconciliation (level-triggered) | Given a deployment declares 3 replicas and only 1 assignment exists; When DeploymentReconciler ticks; Then 2 more are placed; an arbitrary starting snapshot converges to the identical result a fresh reconcile would produce. | Yes |
+| [ ] | GIMLE-220 | Deployment scale-down | Given 5 assignments and replicas lowered to 3; When DeploymentReconciler ticks; Then assignments for indices 3 and 4 are removed. | No |
+| [ ] | GIMLE-227 | Readiness-only failures never trigger reschedule | Given an instance reports ready=false but alive=true and lifecycleState != FAILED; When HealthReconciler ticks; Then no reschedule action is taken. | No |
+| [ ] | GIMLE-240 | CronJob missed-schedule starting-deadline handling | Given a firing's startingDeadline is exceeded by processing time; When CronJobReconciler ticks; Then the firing is logged as missed with no Job materialized. | No |
+| [ ] | GIMLE-241 | Level-triggered orphan cleanup across every workload kind | Given a deployment is deleted but its assignments remain; When the reconciler ticks; Then every assignment is removed. | Yes |
+
+#### Reconciliation / API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-239 | CronJob manual trigger (`gimle cronjob trigger`) | Given a CronJob exists; When POST /cronjobs/{name}/trigger is called; Then a Job is materialized immediately, and cronJobLastSchedule is left untouched. | No |
+
+#### Reconciliation / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-221 | Artifact-hash drift detection at reconcile time | Given a deployment admitted with artifactSha256 recorded; When the jar is later swapped for different bytes; Then no new instance is placed until resubmitted. | No |
+| [ ] | GIMLE-225 | Persisted grace-period bookkeeping (survives leader failover) | Given an instance missing for half of placementGracePeriod when the leader lease changes hands; When the new leader reconstructs from the store; Then it resumes counting from the persisted timestamp, not zero. | No |
+
+#### Reconciliation / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-228 | Tenant quota drift detection (`QuotaReconciler`) | Given a tenant's quota is lowered below already-running usage; When QuotaReconciler ticks; Then affected deployments are marked quota-violating with no instances evicted. | Yes |
+
+#### Reconciliation / Orchestration
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-222 | Rolling update via mismatched-index migration | Given 5 running old-moduleId instances and disruption.maxUnavailable=1; When the spec's moduleId changes; Then exactly 1 index is replaced at a time, waiting for readiness before the next. | Yes |
+| [ ] | GIMLE-223 | Rolling update surge (maxSurge) | Given disruption.maxSurge=1 and an old-version instance at index 2; When a rollout starts; Then a synthetic surge index is placed with the new version, promoted onto index 2 once ready, and the old assignment removed. | Yes |
+| [ ] | GIMLE-231 | DaemonSet reconciliation and rolling update | Given an old module version on 3 nodes; When the spec's moduleId changes; Then nodes migrate one at a time, waiting for readiness. | No |
+| [ ] | GIMLE-233 | StatefulSet OrderedReady placement | Given index 0 is not yet ready; When StatefulSetReconciler ticks; Then index 1 is never placed. | No |
+| [ ] | GIMLE-234 | StatefulSet one-index-at-a-time scale-down | Given 5 indices and replicas lowered to 2; When StatefulSetReconciler ticks; Then only index 4 is removed this tick. | No |
+| [ ] | GIMLE-235 | JobRun run-to-completion reconciliation | Given a Job's current attempt fails and backoffLimit allows another; When JobReconciler ticks; Then a new attempt is placed; once exhausted, the Job is marked FAILED. | No |
+| [ ] | GIMLE-236 | Job active-deadline enforcement | Given activeDeadline=10min and the run has been active 11min; When JobReconciler ticks; Then the run is removed and the Job marked FAILED mid-attempt. | No |
+| [ ] | GIMLE-237 | CronJob schedule-driven Job materialization | Given a CronJobSpec with schedule "* * * * *" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named "{name}-{epochSeconds}" is materialized. | No |
+| [ ] | GIMLE-238 | CronJob concurrency policy (Allow/Forbid/Replace) | Given the previous firing is still non-terminal and concurrencyPolicy=FORBID; When a new firing is due; Then it is skipped and logged. | No |
+
+#### Reconciliation / Scheduling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-229 | Horizontal autoscaling — multi-signal (`AutoscaleReconciler`) | Given a policy targeting CPU and queue depth, WORST_SIGNAL mode; When queue depth implies more replicas than CPU; Then effective count moves toward the worst signal's ideal, one replica per tick, clamped to [min,max]. | Yes |
+| [ ] | GIMLE-230 | Autoscaling WEIGHTED combination mode | Given combinationMode=WEIGHTED with per-signal weights; When two signals disagree; Then effective count is driven by the weighted-average blended ratio. | No |
+
+#### Reconciliation / Self-healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-224 | Node-death instance reclamation (`ReplicaCountReconciler`) | Given an assignment's node hasn't heartbeated within nodeDarkTimeout, persisted beyond placementGracePeriod; When ReplicaCountReconciler ticks; Then the assignment is removed, freeing re-placement. | No |
+| [ ] | GIMLE-226 | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Given an instance's heartbeat reports alive=false or lifecycleState=FAILED; When HealthReconciler ticks; Then it is rescheduled after growing delay; once maxAttemptsPerWindow is exhausted it's marked permanently failed. | No |
+| [ ] | GIMLE-232 | DaemonSet dark-node placement-safety grace period | Given a node's heartbeat is stale but within nodeDarkTimeout+placementGracePeriod; When DaemonSetReconciler ticks; Then the assignment is left in place. | No |
+
+#### Scheduling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-211 | First-fit-decreasing bin-packing scheduler | Given multiple registered nodes with differing free memory/CPU; When a replica is placed for a deployment; Then the node with the most free memory (tie-broken by free CPU) among tier-eligible, uncordoned nodes is chosen. | No |
+| [ ] | GIMLE-212 | Isolation-tier placement filtering | Given a node that does not declare support for TIER_2; When a TIER_2 replica is placed; Then that node is excluded and placement fails if no other node supports the tier. | No |
+| [ ] | GIMLE-213 | Node cordon exclusion | Given a node marked cordoned; When a new replica needs placement; Then the cordoned node is excluded from candidacy, but its existing instances are untouched. | Yes |
+| [ ] | GIMLE-214 | Strict anti-affinity across nodes | Given anti-affinity is requested and every eligible node already runs a replica; When another replica is placed; Then placement fails outright rather than co-locating. | No |
+| [ ] | GIMLE-216 | Required node-label placement constraint | Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify. | No |
+| [ ] | GIMLE-218 | DaemonSet eligible-node enumeration (`eligibleNodes`) | Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick. | No |
+
+#### Scheduling / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-215 | Tier 2/3 node-level tenant isolation | Given a node already running Tier 2 instances for tenant A; When a Tier 2 replica for tenant B is scheduled; Then that node is excluded; if every candidate hosts a different tenant, placement fails outright. | No |
+
+#### Scheduling / Orchestration
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-217 | StatefulSet sticky node placement | Given index 3 was previously placed on node-A; When index 3 needs re-placement; Then it is placed on node-A again if eligible, and fails outright (never relocated) if node-A is unavailable. | No |
+
+#### Secrets Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-263 | Secrets key rotation trigger (proxied) | Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts. | No |
+
+#### Secrets Management / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Given a caller has WRITE access to SECRET for tenant T; When PUT /secrets/T/mykey; Then ApiServer authorizes locally, forwards byte-for-byte to Fafnir with the calling principal as an internal claim, and relays the response verbatim. | No |
+
+### gimle-fafnir
+
+#### API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-290 | Console session login (Fafnir's own operator dashboard) | Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued. | No |
+
+#### API Server / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-292 | Bundled web console static serving (Fafnir) | Given fafnir-console/index.html is on the classpath; When FafnirMain starts; Then the SPA is served at /console. | No |
+| [ ] | GIMLE-293 | Process status endpoint with key-ring fingerprint | Given Fafnir has run with one key rotation; When GET /status; Then it returns uptimeSeconds/activeKeyId/secretsKeyRingFingerprint/transportProtocol/tenant list — never a raw key. | No |
+
+#### Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-285 | Fafnir's own independent RBAC re-check (defense-in-depth) | Given a forwarded principal claims access but doesn't actually hold the permission; When Fafnir independently re-checks Authorizer.authorize; Then denied with 403 regardless of the forwarder's decision. | No |
+| [ ] | GIMLE-286 | Node-tenant-scoped secret reads (`gimle:nodes`) | Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected. | No |
+| [ ] | GIMLE-291 | Plaintext-mode anonymous session carve-out | Given plaintext mode with no session cookie and no TLS; When GET /auth/session; Then a synthetic "anonymous: true" principal is returned rather than 401. | No |
+
+#### Authorization / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-287 | Authorization-failure throttling and dual audit logging | Given a principal repeatedly fails authorization; When the failure count crosses the threshold; Then further requests are throttled with 429+Retry-After. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-289 | mTLS HTTP server with dynamic TLS material reload | Given Fafnir's cert is rotated; When reloadTlsMaterial runs; Then a fresh mTLS connection using the new cert succeeds without restart. | No |
+| [ ] | GIMLE-295 | Fafnir-metrics observability instrumentation | Given a real request hits any Fafnir endpoint; When the handler completes; Then FafnirMetrics records it, tagged per-endpoint. | No |
+| [ ] | GIMLE-296 | JPMS module boundary for gimle-fafnir | Given module-info.java for com.gimle.fafnir; When compiled/linked; Then only com.gimle.fafnir.secret and com.gimle.fafnir are exported. | No |
+
+#### Internal-Infra / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-288 | Three-tier principal resolution (forwarded header > peer cert > session cookie) | Given a request carries both a forwarded header and its own peer cert; When resolvePrincipal runs; Then the forwarded header wins. | No |
+
+#### Internal-Infra / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-294 | Muninn metrics/traces shipping | Given -Dgimle.fafnir.muninnEndpoint is set; When FafnirMain starts; Then a MuninnShipper periodically ships this replica's metrics and traces. | No |
+
+#### Secrets Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-276 | AES-256-GCM secret value encryption with versioned key IDs | Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte. | No |
+| [ ] | GIMLE-277 | Legacy pre-key-id ciphertext format fallback | Given a blob encrypted before the version/keyId prefix existed; When decrypt() runs; Then the new-format decode fails GCM verification and falls back to the legacy iv\|\|ciphertext layout under key id 0. | No |
+| [ ] | GIMLE-278 | Local AES-256 key-file generation and loading | Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads. | No |
+| [ ] | GIMLE-279 | Key rotation with full-ring persistence (`KeyFileManager.rotate`) | Given a ring holding key id 0; When rotate() runs; Then a new key id 1 file is written, .active repointed, key id 0 remains loadable. | No |
+| [ ] | GIMLE-281 | Full-key-rotation re-encryption sweep | Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key. | No |
+| [ ] | GIMLE-282 | Versioned secret storage layered over ConfigEntry | Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N. | No |
+| [ ] | GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed. | No |
+
+#### Secrets Management / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-280 | Key-ring fingerprinting for cross-replica drift detection | Given two replicas hold identical key material in different map order; When fingerprint() is computed; Then both produce the identical SHA-256 hex digest. | No |
+| [ ] | GIMLE-283 | Optimistic-write versioned put with narrow-lease serialization | Given two writers race to PUT the same key; When both complete; Then exactly one version number is claimed by each, serialized via a narrow lease around the final @meta-advance step. | No |
+
+### gimle-andvari
+
+#### API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-314 | Andvari's own console session story (`/auth/*`, bundled SPA) | Given a valid Account exists; When logging in via Andvari's /auth/login; Then a distinct gimle_andvari_session cookie is issued and the bundled SPA is served at /console. | No |
+| [ ] | GIMLE-318 | Process status endpoint (no RBAC gate) | Given Andvari is running; When GET /status; Then process-level status is returned with no RBAC check. | No |
+
+#### Artifact Registry
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-297 | Immutable, content-addressed artifact store | Given moduleId:version was never pushed; When pushed with jar bytes X; Then CREATED; re-pushing identical X is IDENTICAL (no-op); re-pushing different Y is CONFLICT (409). | No |
+| [ ] | GIMLE-299 | Size-limited streaming upload rejection | Given -Dgimle.andvari.maxArtifactBytes (default 500 MiB); When a push streams past that many bytes; Then aborted with 413 before writing excess bytes. | No |
+| [ ] | GIMLE-302 | Version retention sweeping (count and age based) | Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal. | No |
+| [ ] | GIMLE-308 | Generated `maven-metadata.xml` (never stored, always fresh) | Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release. | No |
+
+#### Artifact Registry / API Server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-305 | Push/pull/list/delete `/artifacts/*` operational HTTP surface | Given a jar is pushed via PUT /artifacts/{moduleId}/{version}; When HEAD is called; Then a 200 with X-Gimle-Artifact-Sha256; GET streams the jar; DELETE removes it. | Yes |
+| [ ] | GIMLE-306 | Maven-2-shaped `/repository/**` interop surface | Given a jar is pushed via mvn deploy to /repository/com/gimle/.../provider-1.0.0.jar; When fetched via GET /artifacts/com.gimle.examples.greeter.provider/1.0.0; Then identical bytes are returned. | No |
+
+#### Artifact Registry / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-298 | Streamed, digest-verified push with atomic commit | Given a push is streaming when the process is killed; When it restarts; Then no torn file is visible at the coordinate's path — only an orphaned temp file (swept later). | No |
+| [ ] | GIMLE-300 | On-disk corruption detection and quarantine | Given stored jar bytes are corrupted after being written; When a GET re-checks the digest while streaming; Then the request already committed to wire is served, but the coordinate is immediately quarantined and audited. | No |
+| [ ] | GIMLE-301 | Periodic full-store integrity scrub | Given -Dgimle.andvari.scrub.enabled=true and a stored jar is silently corrupted; When the scheduled scrub runs; Then the mismatch is detected and reported through the same quarantine/audit path. | No |
+| [ ] | GIMLE-303 | Multi-replica peer synchronization (no consensus) | Given two peer replicas and a jar pushed only to A; When B's periodic sync tick runs; Then B pulls the coordinate from A, verifies the digest, and quarantines on mismatch. | Yes |
+| [ ] | GIMLE-304 | Peer-sync conflict detection (irreconcilable divergence) | Given A and B both committed different bytes under the same coordinate; When B's peer sync attempts to pull from A; Then ArtifactStore.put reports CONFLICT and neither replica's copy is touched. | No |
+| [ ] | GIMLE-307 | Server-computed checksum sidecars (never trusting client uploads) | Given a client uploads a .jar.sha256 sidecar with an incorrect value; When another client GETs it; Then the response is always the server's own re-derived digest. | No |
+| [ ] | GIMLE-309 | Maven GAV coordinate translation | Given com/gimle/examples/greeter/provider/1.0.0/provider-1.0.0.jar; When MavenCoordinates.parseArtifactFile parses it; Then it resolves to module com.gimle.examples.greeter.provider, artifactId provider, version 1.0.0. | No |
+
+#### Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-310 | Defense-in-depth authorization (independent re-check, `ResourceKind.ARTIFACT`) | Given a forwarded principal claims artifact access but doesn't hold ARTIFACT:WRITE; When Andvari independently re-checks; Then the push is rejected with 403. | No |
+| [ ] | GIMLE-311 | Module-scoped permission grants | Given a principal holds a permission scoped to only module com.example.foo; When it pushes/pulls that module; Then granted; catalog listing (whole registry) is denied. | No |
+| [ ] | GIMLE-312 | Node pull-only artifact access, scoped to active assignments | Given node-42 holds an active assignment for module M:1.0.0; When it GETs /artifacts/M/1.0.0; Then granted; an unassigned coordinate, or any PUT/DELETE, is rejected. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-315 | mTLS server with dynamic TLS reload | Given Andvari's cert is rotated; When reloadTlsMaterial runs; Then a fresh mTLS connection succeeds without restart. | No |
+| [ ] | GIMLE-317 | Andvari observability instrumentation and Muninn shipping | Given a real request hits any Andvari endpoint; When the handler completes; Then AndvariMetrics records it per-endpoint. | No |
+
+#### Internal-Infra / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-313 | Dual audit logging for push/delete decisions | Given a push or delete is attempted; When authorizeArtifacts completes; Then a SLF4J line and a durable AuditEvent are both recorded — reads (pulls) are not durably audited. | No |
+
+#### Internal-Infra / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-316 | Plaintext-mode loud supply-chain warning | Given gimle.transport.protocol=plaintext (default); When AndvariMain starts; Then it logs a warning naming that anyone reaching the port can push executable jars. | No |
+
+### gimle-muninn
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-332 | Plaintext-default transport with loud unauthenticated-mode warning | Given gimle.transport.protocol is unset When MuninnMain starts Then MuninnServer binds a plain HttpServer And a WARN log line states every /ingest/* and read call is unauthenticated | No |
+| [ ] | GIMLE-333 | mTLS transport mode | Given gimle.transport.protocol=tls and valid cert/key/CA files When a client with a CA-signed leaf certificate connects Then the HTTPS request succeeds and reports transportProtocol=TLS | No |
+| [ ] | GIMLE-334 | Zero-downtime TLS material reload on certificate rotation | Given a running MuninnServer in TLS mode with an established client connection When the certificate/key files are overwritten and reloadTlsMaterial() is called Then a brand-new connection at the same port succeeds against the reloaded listener | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-327 | Day-bucketed JSON-lines store with oldest-first cursor semantics | Given lines timestamped across two different UTC calendar days When they are appended to the same subtree Then two separate day files are created And a late-arriving (out-of-order) line appends into the correct existing day file And a subsequent read returns all lines sorted oldest-first regardless of append/arrival order | No |
+| [ ] | GIMLE-328 | All-or-nothing batch validation on ingest | Given a batch containing one valid line and one line missing "timestamp" When the batch is appended Then the whole append throws IllegalArgumentException And nothing from the batch is written to disk | No |
+| [ ] | GIMLE-329 | Windows-safe on-disk path sanitization for colon-bearing processId | Given a subtreePath containing a literal colon (e.g. "metrics/CONTROLPLANE/127.0.0.1:8080") When lines are appended and then read back Then the write succeeds by substituting "_" for ":" in the on-disk directory name only And the returned data's processId (from the URL, never the directory name) is unchanged | No |
+| [ ] | GIMLE-330 | Path-segment validation / directory-traversal defense | Given a request path with a segment like "..%2F..%2Fetc" When it is decoded and matched against PATH_SEGMENT Then the request is rejected with 400 before any filesystem access happens | No |
+| [ ] | GIMLE-335 | Node-identity check on node-log ingest | Given TLS mode and a client certificate with CN "node-x" When it POSTs to /ingest/logs/nodes/node-y/PLATFORM Then the request is rejected 403 (certificate identity does not match nodeId) | No |
+| [ ] | GIMLE-336 | Instance-owner check on instance-log ingest | Given TLS mode and StoreClient.listAssignments() has no assignment matching (deploymentName, instanceIndex, callerNodeId) When the caller POSTs to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category} Then the request is rejected 403 | No |
+| [ ] | GIMLE-337 | Verified-certificate-presence check on metrics/traces ingest | Given TLS mode When a request to /ingest/metrics/{processKind}/{processId} arrives with no verifiable peer certificate Then it is rejected 403 ("no verified client certificate") | No |
+| [ ] | GIMLE-338 | Read surface has no RBAC/authorization re-check (documented-vs-actual gap) | Given a running MuninnServer (plaintext or TLS) When any client issues GET /logs/nodes/{nodeId}/{category} (or /metrics/*, /traces/*, /logs/instances/*) Then the request is served with no principal/authorization check of any kind | No |
+
+#### Logging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-319 | Node platform-log ingest | Given a running MuninnServer in plaintext mode When a client POSTs a valid NDJSON batch to /ingest/logs/nodes/{nodeId}/{category} Then the response is 200 with the count of appended lines And each line becomes readable back from /logs/nodes/{nodeId}/{category} | No |
+| [ ] | GIMLE-320 | Instance-log ingest | Given a running MuninnServer When a client POSTs an NDJSON batch to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category} Then the response is 200 And the lines are readable back from /logs/instances/{deploymentName}/{instanceIndex}/{category} | No |
+| [ ] | GIMLE-321 | Node/instance log read with cursor paging | Given logs previously ingested for a nodeId/category When a client issues GET /logs/nodes/{nodeId}/{category}?cursor=...&limit=... Then the response returns up to `limit` lines older than `cursor`, oldest-first And includes olderCursor/newerCursor for continued paging | No |
+| [ ] | GIMLE-322 | `follow=true` rejection on Muninn reads | Given a running MuninnServer When a client requests GET /logs/nodes/{nodeId}/{category}?follow=true Then the response is 400 explaining Muninn only serves shipped history | No |
+
+#### Metrics
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-323 | Metrics ingest | Given a running MuninnServer When a client POSTs an NDJSON batch of counter/timer lines to /ingest/metrics/{processKind}/{processId} Then the response is 200 And the measurements (including percentiles, when present) round-trip exactly on read | No |
+| [ ] | GIMLE-324 | Metrics read | same shape as #3, scoped to `/metrics/{processKind}/{processId}` | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-331 | Age-based retention sweep | Given a day file older than the configured retentionDays When the retention sweep runs Then that file is deleted And a day file within the window is left untouched And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op | No |
+| [ ] | GIMLE-339 | `/status` operational endpoint | Given a running MuninnServer When GET /status is issued Then it returns 200 with uptimeSeconds and transportProtocol And a non-GET method is rejected with 405 | No |
+
+#### Tracing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-325 | Traces ingest | Given a running MuninnServer When a client POSTs an NDJSON batch of span lines to /ingest/traces/{processKind}/{processId} Then the response is 200 And span fields (traceId, spanId, name, custom attributes like http.method) round-trip on read | No |
+| [ ] | GIMLE-326 | Traces read | Given a running MuninnServer and traces previously ingested for a processKind/processId, When a client issues GET /traces/{processKind}/{processId}?cursor=...&limit=..., Then the response returns matching span lines, oldest-first, with paging cursors (the same shape as the node/instance log and metrics read endpoints). | No |
+
+### gimle-observability
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-355 | Muninn endpoint list parsing from config | Given a config value of "host1:9090, host2:9090,,host3:9090" When MuninnShipper.parseEndpoints(value) is called Then it returns ["host1:9090", "host2:9090", "host3:9090"], trimmed and blanks dropped And a null/blank value returns an empty list | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-346 | Multi-endpoint best-effort fan-out shipping | Given two configured Muninn endpoints, one of which is down When a batch is shipped Then the batch still lands on the reachable endpoint And the tick is considered successful (cursor advances) because at least one endpoint accepted it | No |
+| [ ] | GIMLE-347 | In-memory (non-persisted) log-shipping cursor | (documented tradeoff, not directly assertion-tested as a restart scenario) | No |
+| [ ] | GIMLE-348 | Micrometer meter → NDJSON codec | Given a registry with a Counter, a Gauge, and a Timer built with publishPercentiles When MeterSnapshotCodec.toNdjson(registry) is called Then each meter becomes one JSON line with name/type/tags/measurements And the Timer's line additionally carries a "percentiles" map And a Timer without percentiles configured omits the "percentiles" key entirely | No |
+| [ ] | GIMLE-349 | OpenTelemetry span → NDJSON codec | Given a batch of SpanData with custom attributes (e.g. http.method) When SpanLineCodec.toNdjson(spans) is called Then each span becomes one line with timestamp/traceId/spanId/parentSpanId/name/kind/status And every span attribute is flattened directly onto that same line | No |
+
+#### Logging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-343 | Periodic log-file shipping to Muninn | Given an active log file with new lines since the last shipped cursor When a shipping tick runs and Muninn accepts the batch (2xx) Then the cursor advances to the last shipped line's timestamp But when the POST fails, the cursor does not advance, and the same lines are retried next tick | No |
+
+#### Metrics
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-344 | Periodic Micrometer metrics shipping | Given a MeterRegistry with counters/timers When a metrics shipping tick fires Then one NDJSON line per meter is POSTed to Muninn's /ingest/metrics/* path | Yes |
+| [ ] | GIMLE-352 | Per-process tagged Micrometer metrics wrappers | Given a fresh metrics wrapper (e.g. ApiServerMetrics) with an in-memory SimpleMeterRegistry When recordRequest(endpoint, verb, latency, error=true) is called Then the latency Timer, the count Counter, and the errors Counter are all incremented/recorded And requestCount/errorCount return 0 for a tag combination never recorded And different endpoint/verb (or ModuleId, or rpcKind) combinations are tracked independently | No |
+| [ ] | GIMLE-353 | WorkerMetrics thread-count / metaspace gauges | Given WorkerMetrics.recordThreadCount(moduleId, 5) then recordThreadCount(moduleId, 9) When the gauge is read Then it reflects 9 (the latest value), not the first recorded value | No |
+| [ ] | GIMLE-354 | Fafnir authz-failure counter (rate-limiting signal) | Given a FafnirMetrics instance When recordAuthzFailure("GET") is called Then gimle.fafnir.authz.failures{verb=GET} increments And authzFailureCount for an unrecorded verb returns 0 | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-351 | JFR-based per-module CPU/allocation attribution | Given a module registered under a thread-name prefix "gimle-<module>-<version>-" When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix And events from unregistered/unclassifiable threads are ignored And JFR being unavailable degrades to "no samples" rather than failing the worker | No |
+
+#### Tracing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-340 | Default OpenTelemetry tracer installation | Given no tracer provider has been installed yet in this JVM When GimleTracing.installDefault() is called (even multiple times) Then a working SdkTracerProvider using LoggingSpanExporter/SimpleSpanProcessor is installed exactly once And GlobalOpenTelemetry exposes it | No |
+| [ ] | GIMLE-341 | Configurable, batched span exporter installation | Given a custom SpanExporter (e.g. a capturing test double or MuninnSpanExporter) When GimleTracing.install(exporter) is called Then a real span created afterward reaches that exporter | No |
+| [ ] | GIMLE-342 | Bounded-wait tracer flush | Given a tracer installed with a BatchSpanProcessor and a pending unexported span When GimleTracing.flush() is called Then the span is exported before the call returns (bounded to 2 seconds) And calling flush() before any install is a no-op | No |
+| [ ] | GIMLE-345 | One-shot trace-batch and prepared-batch shipping | Given a list of span lines, or a pre-serialized NDJSON body When shipTraceBatch(...)/shipPreparedBatch(...) is called Then exactly one immediate POST is made per configured endpoint, with no periodic ticker started And an empty batch/body is a no-op (no POST made) | No |
+| [ ] | GIMLE-350 | `MuninnSpanExporter` (OpenTelemetry SDK integration) | Given a MuninnSpanExporter wrapping a MuninnShipper pointed at a real ingest stub When export(spans) is called Then the spans reach the stub's /ingest/traces/* endpoint with the expected shape And export() always returns CompletableResultCode.ofSuccess(), even when shipping throws | No |
+
+### gimle-gateway
+
+#### Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-363 | Route-table config DSL parsing | Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and "#" comments When GatewayRouteConfig.parse(text) is called Then blank/comment lines are ignored and each remaining line becomes the correct route type And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number | No |
+| [ ] | GIMLE-364 | Duplicate route-path rejection at config-parse time | Given a config with two lines both declaring path "/api/orders" (one FABRIC, one VESSEL, or same-kind duplicates) When GatewayRouteConfig.parse is called Then it throws GatewayConfigException before any route table is built | No |
+
+#### Gateway/Routing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-356 | Fabric-route HTTP-to-service dispatch | Given a FabricRoute "/greet" bound to interface Greeter, version 1, method "greet", ParamType.STRING When a POST /greet request arrives with body "Gimlé" Then ModuleContext#invokeServiceByName is called with the coerced argument And the response is 200 with the real return value as plain text | No |
+| [ ] | GIMLE-357 | Fabric-route argument coercion (`ParamType`) | Given a FabricRoute with ParamType.INT When a request body that isn't a valid integer is POSTed Then the response is 400 with a message naming the expected type And a NONE-typed route is only ever served on GET; every other type is served on POST | No |
+| [ ] | GIMLE-358 | Vessel-route HTTP reverse-proxy dispatch | Given a VesselRoute "/api/orders" -> deployment "orders-service", port "HTTP_PORT" When a PUT /api/orders request with a JSON body arrives Then a resolved live instance receives the same method, path, and body unchanged And the gateway's response is exactly that instance's status and body | No |
+| [ ] | GIMLE-359 | Vessel-endpoint resolution with TTL cache | Given a resolved endpoint list cached at time T with TTL=5s When resolve() is called again before T+5s Then no new relay call is made (cache hit) When resolve() is called after T+5s Then a fresh relay call is made | No |
+| [ ] | GIMLE-360 | Round-robin load balancing over ready vessel endpoints | Given two ready endpoints for a deployment When four consecutive requests are dispatched Then both endpoints are hit, alternating in round-robin order And an endpoint missing the named port or missing a host is never selected | No |
+| [ ] | GIMLE-361 | Stale-cache fallback on endpoint-refresh failure | Given a cached endpoint list from a prior successful refresh When the TTL expires and the next refresh returns 504 Then resolve() still returns the previously-cached Ready endpoint, with a warning logged But if no list was ever cached and the refresh fails, resolve() returns Unavailable | No |
+| [ ] | GIMLE-362 | Vessel-route error surfacing (no ready endpoint / connect failure) | Given a deployment with zero live/ready endpoints When a vessel route is dispatched Then the response is 503 Given a resolved endpoint that refuses the TCP connection When the proxy call is attempted Then the response is a clean 502, not an uncaught exception | No |
+| [ ] | GIMLE-365 | Gateway HTTP server bootstrap via module lifecycle hooks | Given required config keys gateway.port and gateway.routes are present When onStart(ctx) runs Then an HttpServer binds on 0.0.0.0:{port}, one context per configured route, using a virtual-thread-per-task executor And onStop() stops the server and flips readiness to false And a missing/non-integer gateway.port throws GatewayConfigException before binding | No |
+| [ ] | GIMLE-366 | Gateway liveness and readiness probes | Given GatewayHooks has not yet run onStart Then GatewayReadinessProbe.isReady() returns false When onStart completes successfully (port bound) Then GatewayReadinessProbe.isReady() returns true And GatewayLivenessProbe.isAlive() always returns true | No |
+| [ ] | GIMLE-367 | HTTP status-code error mapping across the dispatcher | Given a request to a path with no configured route Then the response is 404 Given a fabric route invoked with the wrong HTTP verb Then the response is 405 Given a downstream fabric call that throws Then the response is 502 | No |
+| [ ] | GIMLE-369 | Vessel proxy: no TLS, no header forwarding (v1 scope limitation) | Given a vessel target that reads a custom request header When a request carrying that header is proxied through the gateway Then the header is not forwarded to the target (only method/path/body cross) And the connection to the target is always plain HTTP, never HTTPS | No |
+| [ ] | GIMLE-370 | Fabric route "quiet success" ambiguity for a misrouted service name | Given a FabricRoute naming a service interface nothing currently exports When a request is dispatched to that route Then the response is 200 with an empty body (not an error) | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-368 | Boot-only platform-layer JPMS workaround (`requires static`) | (structural/build-time behavior, not a runtime scenario) | No |
+
+### gimle-cli
+
+#### CLI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-371 | Deployment resource management (get/apply/delete) | Given a control plane reachable at --server host:port, When I run "gimle apply -f orders-service.yaml" (kind:Deployment), Then /deployments/<name> is PUT; "gimle get deployments" lists it. | No |
+| [ ] | GIMLE-372 | Job resource management (get/apply/delete) | Given a Job manifest (kind:Job), When "gimle apply -f cleanup.yaml", Then /jobs/<name> is PUT; delete then get returns 404/exit 1. | No |
+| [ ] | GIMLE-373 | CronJob management incl. manual trigger | Given an applied CronJob "trigger-me", When "gimle cronjob trigger trigger-me", Then prints "cronjob/trigger-me triggered -> job/...-<epochSeconds>"; unknown cronjob fails with exit 1. | No |
+| [ ] | GIMLE-374 | DaemonSet resource management | Given a manifest (kind:DaemonSet), When "gimle apply -f node-exporter.yaml", Then /daemonsets/<name> is PUT; no "scale" verb exists (topology-derived, not operator-set). | No |
+| [ ] | GIMLE-375 | StatefulSet resource management | Given a manifest (kind:StatefulSet, replicas:3), When "gimle apply -f orders-statefulset.yaml", Then /statefulsets/<name> is PUT. | No |
+| [ ] | GIMLE-376 | Node inventory and cordon/uncordon | Given node "node-a" registered, When "gimle cordon node-a", Then POST /nodes/node-a/cordon succeeds and prints "node/node-a cordoned". | No |
+| [ ] | GIMLE-377 | Instance lifecycle event timeline | Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed. | No |
+| [ ] | GIMLE-378 | Tenant management and quota configuration | Given "gimle set tenant acme --max-memory-bytes 1000000000 --max-cpu-millicores 4000 --max-instances 10", Then PUT /tenants/acme is sent; "gimle get tenants" lists "acme". | No |
+| [ ] | GIMLE-379 | Tenant plain configuration key/value store | Given tenant "acme" exists, When "gimle set config acme greeting hello", Then PUT /config/acme/greeting; delete then get fails. | No |
+| [ ] | GIMLE-382 | Log viewing and live tailing | Given "gimle logs instance/orders-service/0", Then GET /logs/instances/orders-service/0?category=APPLICATION&limit=200; "--follow" opens a chunked GET with follow=true and prints new lines until interrupted. | No |
+
+#### CLI / Build Tooling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-381 | Artifact registry client (push/list/get/delete) | Given "gimle artifact push target/orders-1.0.0.jar", Then the coordinate is read from the jar's own gimle-module.yaml and streamed to PUT /artifacts/<id>/<version>; a second identical push reports "already present". | No |
+
+#### CLI / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-388 | Dual table/JSON output formatting | Given any read verb with "-o json", Then raw JSON printed; default format prints a tab-separated table or "No resources found.". | No |
+
+#### CLI / Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-380 | Versioned secrets management (Fafnir proxy) | Given "gimle secret set acme db-password --value hunter2", Then base64-encoded PUT to /secrets/acme/db-password; two writes yield 2 versions; "rotate-key" twice increments activeKeyId (1 then 2). | No |
+| [ ] | GIMLE-383 | Audit trail query | Given "gimle audit list --principal alice --resource DEPLOYMENT --tenant acme --since 0 --limit 10", Then GET /audit?... is called; "gimle audit" alone prints usage with exit 1. | No |
+| [ ] | GIMLE-384 | RBAC role management | Given "gimle set role deployment-reader --permission deployment:read --permission config:write:acme", Then PUT /roles/deployment-reader; deleted role then get returns exit 1. | No |
+| [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
+| [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
+| [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-389 | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client | Given no --server and no GIMLE_SERVER, When any verb runs, Then "no control-plane server configured" and exit 1, no stack trace; a 307 with no Location reports "control plane leader is currently unknown". | No |
+
+### gimle-hilmir
+
+#### Build Tooling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-409 | Doctor static deployability diagnostics (`hilmir doctor`) | Given a jar declaring isolation.tier:TIER_3, When "hilmir doctor my-module.jar", Then TIER3_REQUESTED ERROR and exit 1; a launcher-archive jar under module intent is ERROR, under --vessel INFO. | No |
+| [ ] | GIMLE-410 | Doctor cluster-aware checks (`--server`, `--tenant`) | Given a coordinate not present in the registry, When "hilmir doctor my-module.jar --server host:port", Then REGISTRY_COORDINATE_NOT_FOUND (ERROR); an unreachable registry gives REGISTRY_UNREACHABLE (WARNING) instead of a hard failure. | No |
+| [ ] | GIMLE-411 | Manifest scaffolding (`hilmir init`) | Given a module-shaped jar with a detected LivenessProbe, When "hilmir init my-module.jar", Then both YAMLs written with the probe class filled confidently; existing deployment.yaml is never overwritten. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-414 | Bundled JRE resolution for platform-binary launches | Given runtime.useBundledJre:true and GIMLE_HOME set with jre/mimir/bin/java present, When planning a STORE process, Then that exact bundled java path is used; unset GIMLE_HOME fails clearly naming it. | No |
+| [ ] | GIMLE-415 | `java @argfile` command-line rewriting | Given a command with many arguments, When JavaArgFile.rewrite is called, Then each argument is individually quoted/escaped into an argfile, and the returned command is [javaExecutable, "@<argfile>"]. | No |
+| [ ] | GIMLE-416 | Run ledger persistence for `up`/`down`/`status`/`upgrade-cluster` | Given a set of RunRecords written via RunLedger.write, When read back, Then every field round-trips; a corrupt ledger file reports clearly rather than propagating a raw parse exception. | No |
+| [ ] | GIMLE-417 | TCP-connect readiness polling | Given a port that never opens, When awaitPortOpen is called with a short timeout, Then times out with a clear message; an already-listening port returns immediately. | No |
+
+#### Release Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-390 | Topology validation (`hilmir validate`) | Given a topology declaring zero machines, When "hilmir validate -f topology.yaml", Then a "[ERROR] NO_MACHINES" finding and exit 1; a healthy topology exits 0 (only ERROR-severity affects exit code). | No |
+| [ ] | GIMLE-391 | Cluster launch planning (`hilmir plan`) | Given a validated healthy topology with machine "m1", When "hilmir plan -f topology.yaml", Then output includes "machine: m1" and the full StoreMain command line; "--machine m2" filters to just that machine. | No |
+| [ ] | GIMLE-392 | Real multi-process cluster bring-up (`hilmir up`) | Given a validated topology, When "hilmir up -f topology.yaml --machine m1", Then every process is spawned in plan order, waited for readiness, remote prerequisites TCP-polled first, and a run ledger written. | No |
+| [ ] | GIMLE-393 | Cluster teardown and status reporting (`hilmir down`/`status`) | Given a run ledger from a prior "hilmir up", When "hilmir down --machine m1", Then every process (and descendants) killed in reverse spawn order and the ledger deleted; status against a never-run machine reports a clean error. | No |
+| [ ] | GIMLE-395 | Raft store membership add (`hilmir store add`) | Given a running store cluster, When "hilmir store add peer-4 host4 9080 9091 --server host1:9091,host2:9091", Then StoreClient#addServer is called with retry and the peer becomes a visible member. | No |
+| [ ] | GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Given a previously-added peer, When "hilmir store remove peer-4 --server host1:9091", Then StoreClient#removeServer is called; removing a never-added peer fails fast. | No |
+| [ ] | GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Given a machine hosting a store replica among a quorum, When "hilmir upgrade-cluster --machine m1 --new-classpath <cp>", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum. | No |
+| [ ] | GIMLE-398 | Bundle-based fresh release deployment (`hilmir deploy`) | Given no existing release "orders", When "hilmir deploy -f orders-bundle.yaml --wait", Then tenant/config/secrets/workloads applied in order, each polled to readiness, revision 1 written; re-deploying an existing release fails clearly. | No |
+| [ ] | GIMLE-399 | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Given release "orders" rev 1 with workloads A+B, When upgraded with a bundle declaring only A, Then B is pruned, revision 2 written, reported "pruned 1 resource(s)"; no existing release fails clearly. | No |
+| [ ] | GIMLE-400 | Release rollback to a prior revision (`hilmir rollback`) | Given release "orders" at rev 3, When "hilmir rollback --release orders" with no --to-revision, Then rev 2's snapshot re-applied as rev 4; explicit --to-revision reads that exact revision. | No |
+| [ ] | GIMLE-401 | Full release teardown (`hilmir undeploy`) | Given release "orders" with workloads+tenant, When "hilmir undeploy --release orders", Then workloads deleted reverse-order, tenant deleted, ledger removed; --keep-tenants leaves the tenant. | No |
+| [ ] | GIMLE-402 | Release listing (`hilmir releases`) | Given releases exist, When "hilmir releases", Then NAME/REVISION/BUNDLE_VERSION columns listed; empty ledger prints "No releases found.". | No |
+| [ ] | GIMLE-403 | Release status inspection (`hilmir release-status`) | Given "hilmir release-status orders", Then bundleVersion/currentRevision/tenants plus each resource's live status printed; a fetch failure shows an "error" field rather than aborting. | No |
+| [ ] | GIMLE-404 | GitOps directory reconciliation (`hilmir sync`, incl. `--watch` and `--prune`) | Given 3 bundle files (new, changed, unchanged), When "hilmir sync --dir ./bundles", Then new deployed, changed upgraded+pruned, unchanged reported "already-converged" with zero calls; "--prune" undeploys orphaned releases. | No |
+| [ ] | GIMLE-405 | `--watch` interval loop for sync | Given "hilmir sync --dir ./bundles --watch 30", Then the reconcile pass runs every 30s until interrupted. | No |
+| [ ] | GIMLE-406 | Bundle value templating and override precedence (`${values.*}` substitution) | Given a bundle with values:{region:us-east}, When rendered with --set region=eu-west, Then eu-west wins; an unresolved reference fails with a named error, never a literal "${values.key}". | No |
+| [ ] | GIMLE-407 | Bundle manifest schema parsing and validation | Given an unrecognized top-level key, When parsed, Then GimleManifestException names it; a workload with both file and manifest is rejected as ambiguous. | No |
+| [ ] | GIMLE-408 | Workload readiness polling for `--wait` | Given a Deployment applied with --wait, When instances haven't all reported ACTIVE, Then polls every 2s up to a 5-minute timeout. | No |
+| [ ] | GIMLE-412 | Gateway extension enable (`hilmir enable gateway`) | Given gimle-gateway not registered/deployed, When "hilmir enable gateway --server host:port", Then jar pushed and a synthesized bundle deployed fresh; identical-sha jar already registered skips the push; already-deployed at an older version upgrades instead. | No |
+| [ ] | GIMLE-413 | Gateway extension disable (`hilmir disable gateway`) | Given gateway currently enabled, When "hilmir disable gateway --server host:port", Then the release is fully undeployed; never-enabled reports a clear "nothing to disable" message. | No |
+
+#### Release Management / Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-394 | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Given an mtls-transport topology with tls.materialDir set, When "hilmir pki init -f topology.yaml", Then a PkiBootstrapMain subprocess writes CA+leaf material; no materialDir fails clearly naming the field. | No |
+
+### gimle-maven-plugin
+
+#### Build Tooling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-418 | `mvn gimle:agent` — spawn a real node agent (plus its worker command tail) | Given "mvn gimle:agent" from gimle-agent, Then a real AgentMain process is spawned with the resolved runtime classpath, plus a worker command tail using gimle-worker's own independently-resolved classpath; run from another module, no-ops. | No |
+| [ ] | GIMLE-419 | `mvn gimle:bootstrap` — full local-dev cluster orchestration in one foreground command | Given "mvn gimle:bootstrap" from the root project, Then processes spawn in dependency order, each awaited on its port; by default every gimle-examples module is deployed and awaited ACTIVE (best-effort); "-Dgimle.bootstrap.protocol=tls" runs PkiBootstrapMain first and wires mTLS. | No |
+| [ ] | GIMLE-420 | Process-launcher Maven goals for individual platform processes (`controlplane`/`store`/`fafnir`/`muninn`/`andvari`/`tls-init`) | Given "mvn gimle:store" from gimle-mimir, Then StoreMain spawned on raftPort 9080/clientPort 9091; "mvn gimle:controlplane" defaults --store-endpoints to 127.0.0.1:9091 and --fafnir-endpoint to 127.0.0.1:9092. | No |
+| [ ] | GIMLE-421 | `mvn gimle:deploy` — apply a deployment manifest via a real CLI subprocess | Given "mvn gimle:deploy -Dgimle.deploy.file=deployment.yaml", Then a real GimleCli "apply -f <file> --server <server>" subprocess is spawned. | No |
+| [ ] | GIMLE-422 | `mvn gimle:doctor` — run hilmir doctor against the invoking project's own built jar | Given "mvn gimle:doctor" bound to package phase, Then a real "doctor <jar>" subprocess runs with --vessel/--server/--tenant passed through only when set; a blank server is treated as unset. | No |
+| [ ] | GIMLE-423 | `mvn gimle:init` — scaffold manifests for the invoking project's own built jar | Given "mvn gimle:init", Then a real "init <jar> [--out-dir <dir>]" subprocess is spawned; blank outDir treated as unset. | No |
+| [ ] | GIMLE-424 | `mvn gimle:publish` — push a built module jar to the artifact registry | Given "mvn gimle:publish", Then a real "artifact push <file> --server <server>" subprocess is spawned using gimle-cli's independently resolved classpath. | No |
+| [ ] | GIMLE-425 | `mvn gimle:docs` — full documentation site build pipeline | Given "mvn gimle:docs" from the root project, Then javadoc:aggregate runs, output copied to gimle-docs/static/javadoc, then "bun install"/"bun run build"; missing aggregated output logs a warning without failing. | No |
+| [ ] | GIMLE-426 | `mvn gimle:flaky-tests` — run known-flaky-tagged tests in isolated standalone reactors | Given "mvn gimle:flaky-tests" (default modules=gimle-mimir, repeat=1), Then a standalone "mvn -pl gimle-mimir test -Dgroups=flaky ..." child runs; -Dgimle.flakyTests.repeat=0 fails immediately before spawning anything. | No |
+| [ ] | GIMLE-427 | `mvn gimle:saga` — ensure a Saga test-report server is running | Given no Saga server listening on 9096, When "mvn gimle:saga", Then a real SagaMain process is spawned detached, pid recorded, health-polled until ready or a 30s timeout; a healthy server is reused. | No |
+| [ ] | GIMLE-428 | `mvn gimle:verify` — full build run under Saga tracking | Given "mvn gimle:verify -Dgimle.saga.mavenArgs='clean verify -Psmoke'", Then a run id like "2026-08-17T10-00-00_abc1234" is minted, the child mvn command spawned/streamed, surefire reports swept and imported, run-finished posted; a non-zero child exit fails this build too, only after import. | No |
+| [ ] | GIMLE-429 | `mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports | Given a running Saga server and existing target/surefire-reports/*.xml files, When "mvn gimle:saga-import", Then every discovered report is imported under a freshly-minted or explicit --runId; no reachable server fails immediately. | No |
+| [ ] | GIMLE-430 | `mvn gimle:saga-stop` — best-effort local Saga server shutdown | Given a running Saga server, When "mvn gimle:saga-stop", Then POST /api/shutdown called and pidfile deleted; neither present reports "nothing to stop" without failing. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-431 | Internal — Aether-based cross-module runtime classpath resolution | Given GimleProcesses.resolveRuntimeClasspath("gimle-worker", version, ...), Then resolves the artifact and its runtime dependencies via Aether; a never-installed artifact throws a clear MojoExecutionException suggesting "mvn install" first. | No |
+| [ ] | GIMLE-432 | Internal — host-matching java/mvn executable resolution and subprocess supervision | Given GimleProcesses.javaExecutable(), Then returns the real java binary this Maven process runs under; mavenLauncherUnder(mavenHome) resolves bin/mvn or empty. | No |
+| [ ] | GIMLE-433 | Internal — git commit/branch capture for run identification | Given a real git repo, When GitInfo.capture(root) is called, Then real short sha/branch returned; no .git or 10s timeout returns both empty rather than throwing. | No |
+| [ ] | GIMLE-434 | Internal — surefire report discovery and totals aggregation, including flaky-testcase counting | Given a mix of testsuite-rooted and testsuites-wrapped XML files, When SurefireReports.totals is called, Then counts summed correctly; a testcase with a flakyFailure element counts once regardless of rerun attempts; unparseable files are warned about and skipped. | No |
+
+### gimle-console
+
+#### Web Console / Auth
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-435 | Operator session login / logout | Given I am unauthenticated, When I submit valid credentials on `/login`, Then I am redirected to the Overview screen and my principal is stored; Given invalid credentials, Then an "invalid username or password" error is shown. | No |
+| [ ] | GIMLE-436 | Session bootstrap & 401 handling | Given a valid session cookie exists, When the app loads, Then `/auth/session` resolves my principal without a login prompt; Given any API call returns 401, Then the store clears my principal and redirects to `/login`. | No |
+
+#### Web Console / Frontend
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-437 | Cluster Overview dashboard | Given the console loads `/`, When overview data is fetched, Then node/deployment/tenant totals and staleness indicators render as metric tiles. | No |
+| [ ] | GIMLE-438 | Tactical HUD / Signal display-mode toggle | Given I toggle display mode, When I select "signal", Then `OverviewSignal` renders instead of the default HUD layout, persisting via localStorage. | No |
+| [ ] | GIMLE-439 | Deployments list/create/detail/delete | Given I fill the "New deployment" form, When I submit, Then a new deployment is created and I'm navigated to its detail page; Given ACTIVE, When I delete and confirm, Then it is removed. | No |
+| [ ] | GIMLE-440 | Jobs (run-to-completion workload) list | Given Jobs exist, When I open `/jobs`, Then each job's phase is listed; no "create" form (job manifests applied via CLI). | No |
+| [ ] | GIMLE-441 | CronJobs list/detail | Given CronJobs exist, When I open `/cronjobs`, Then each entry's schedule/concurrency policy is listed with a link to run history. | No |
+| [ ] | GIMLE-442 | DaemonSets list/detail | Given a DaemonSet is deployed, When I open `/daemonsets`, Then per-node placement status is shown. | No |
+| [ ] | GIMLE-443 | StatefulSets list/detail | Given a StatefulSet is deployed, When I open `/statefulsets`, Then each ordinal replica's identity/lifecycle is shown. | No |
+| [ ] | GIMLE-444 | Instances table with filtering (global + node/tenant-scoped) | Given I navigate from a node's detail page, When instances loads, Then it's pre-filtered to that node's instances; navigating directly resets any leftover filter. | No |
+| [ ] | GIMLE-445 | Nodes list/detail with capacity bars and staleness | Given a node's last heartbeat exceeds the staleness threshold, When I view `/nodes`, Then that node is visually flagged stale. | No |
+| [ ] | GIMLE-446 | Tenants list/detail with quota management and delete | Given a tenant with active deployments, When I attempt to delete it, Then a confirmation dialog is shown before the delete request fires. | No |
+| [ ] | GIMLE-447 | Topology placement map | Given a deployment has fewer placed instances than its replica count, When I view `/topology`, Then hollow squares show unplaced slots, tagged "warn"/"bad". | No |
+| [ ] | GIMLE-448 | Cluster metrics charts (lifecycle mix, capacity, quota pressure) | Given cluster/tenant data are loaded, When I open `/metrics`, Then pie/scatter charts render via recharts. | No |
+| [ ] | GIMLE-449 | Per-process metrics history (Muninn-backed) | Given I pick a process target via `ProcessPicker`, When metrics history loads, Then `GET /metrics-history/*` results render as a time-series panel. | No |
+| [ ] | GIMLE-450 | Trace span history viewer | Given traces exist, When I open `/traces` and sort by status, Then rows re-order; ERROR-status spans are visually distinguished. | No |
+| [ ] | GIMLE-451 | Log explorer with live tailing | Given I open `/logs` with no query params, Then it falls back to the control-plane PLATFORM target instead of crashing; Given I click "follow", Then new lines are polled via `since=` cursor and appended live. | No |
+| [ ] | GIMLE-452 | Crash-dump (hs_err) listing on Logs screen | Given an instance crashed and left an hs_err file, When I view its logs, Then the crash dump is listed. | No |
+| [ ] | GIMLE-453 | Config entries management (per-tenant) | Given an encrypted config entry, When I click "reveal", Then its decrypted value is fetched on demand; "hide" clears it from view without re-fetching. | No |
+| [ ] | GIMLE-454 | Secrets management (Fafnir-backed, versioned) | Given a secret has multiple versions, When I request an older version, Then that specific version's value is fetched via `?version=N`; destroy=true removes the entry entirely. | No |
+| [ ] | GIMLE-455 | Module artifact registry browser (Andvari-backed) | Given an artifact module is selected, When I request its versions, Then only that module's versions load on demand. | No |
+| [ ] | GIMLE-456 | RBAC access control (roles, role bindings, accounts) | Given I edit a role's permissions, When I add a permission row and save, Then `PUT /roles/{name}` sends the updated permission list. | No |
+| [ ] | GIMLE-457 | Audit trail viewer with filtering | Given I set a date-range/verb filter, When search runs, Then results sort newest-first regardless of response order. | No |
+| [ ] | GIMLE-458 | Control-plane status panel | Given the control plane is running, When I open `/controlplane`, Then scheduler/quota-enforcer badges show "running". | No |
+| [ ] | GIMLE-459 | Theme toggle (light/dark) | Given I click the theme toggle, When dark mode is selected, Then the preference persists across reloads. | No |
+
+#### Web Console / Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-460 | Playwright end-to-end smoke suite against a real cluster | Given a real control plane with greeter-provider/consumer deployed, When the Playwright suite runs, Then Deployments/Logs screens reflect genuine real state. | No |
+
+### gimle-fafnir-console
+
+#### Web Console / Auth
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-461 | Vault operator login/logout (session-cookie auth) | Given plaintext mode with no bootstrap account, When session endpoint loads, Then a synthetic anonymous principal is returned; TLS mode with valid credentials sets a `gimle_fafnir_session`-style cookie. | No |
+
+#### Web Console / Frontend
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-462 | Vault status overview (uptime, active key, transport mode, tenants) | Given the vault is running, When I open the overview route, Then uptime is formatted `Xd Yh Zm`, active key id and tenant count shown from `GET /status`. | No |
+| [ ] | GIMLE-463 | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; "destroy" permanently removes it. | No |
+| [ ] | GIMLE-464 | Tenant filter via URL search param | Given a URL of `/secrets?tenant=acme`, When the route loads, Then the list is pre-filtered to tenant `acme`. | No |
+| [ ] | GIMLE-465 | Key rotation trigger | Given I trigger rotation, When complete, Then the new active key id is returned and reflected in the status panel. | No |
+| [ ] | GIMLE-466 | Fafnir console error banner / global error capture | Given an API call fails, When the error propagates to the store, Then `ErrorBanner` renders the message. | No |
+
+### gimle-andvari-console
+
+#### Web Console / Auth
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-467 | Andvari operator login/logout (session-cookie auth) | Given plaintext mode with no account seeded, When session endpoint loads, Then an anonymous principal is returned rather than 401. | No |
+
+#### Web Console / Frontend
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-468 | Registry status overview (uptime, transport, recent pushes) | Given artifacts have been pushed recently, When I open the overview route, Then `selectRecentPushes` surfaces the most recent pushes. | No |
+| [ ] | GIMLE-469 | Artifact catalog browsing & search | Given the catalog is loaded, When I type into the search box, Then the list filters client-side by substring match. | No |
+| [ ] | GIMLE-470 | Artifact version detail (download, checksum display, delete) | Given a module has multiple versions, When I select it, Then its versions load on demand; deleting a version calls `DELETE /artifacts/{moduleId}/{version}`. | No |
+| [ ] | GIMLE-471 | Client-side SHA-256 checksum verification on download | Given downloaded jar bytes, When `verifySha256` compares them against the `X-Gimle-Artifact-Sha256` header, Then a mismatch is flagged. | No |
+| [ ] | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Given I push an existing module@version unmodified, When upload completes, Then it's treated as an idempotent no-op; a differing re-push surfaces a 409 conflict. | No |
+| [ ] | GIMLE-473 | Maven-2 repository interop view | Given the console is served at a known origin, When I open `/repository`, Then the repository base URL and a copyable Maven config snippet render. | No |
+| [ ] | GIMLE-474 | Andvari copy-to-clipboard utility | Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard. | No |
+
+### gimle-saga-console
+
+#### Web Console / Frontend
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-481 | Saga console theming (no auth surface) | Given the console is served, When I navigate to any route, Then no authentication check or redirect occurs. | No |
+
+#### Web Console / Reporting
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-475 | Runs list (no authentication) | Given runs exist, When I open `/`, Then rows are searchable by runId/branch/gitSha/command via client-side filtering. | No |
+| [ ] | GIMLE-476 | Live run detail with streaming test feed | Given a run is LIVE, When I open its detail page, Then new finished-test events are streamed in via NDJSON polling, ending once terminal. | No |
+| [ ] | GIMLE-477 | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Given a run's events include attachment payloads, When I switch tabs, Then each tab renders its own structured view. | No |
+| [ ] | GIMLE-478 | Test detail / per-test history | Given a test has run across several builds, When I open its detail page, Then an outcome strip renders each run's result chronologically. | No |
+| [ ] | GIMLE-479 | Compare two runs (diff view) | Given a base/head run selection, When compare loads, Then newly-failing/passing/recovered and >25%-slower tests are each listed. | No |
+| [ ] | GIMLE-480 | Gjallarhorn flake scoreboard | Given a 30-day window, When the scoreboard loads, Then entries rank by score descending, quarantined tests are marked, and budget is computed without dividing by zero. | No |
+
+### gimle-saga
+
+#### Internal-Infra / Config
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-495 | Bundled console static serving | Given the console jar is bundled, When SagaMain starts, Then `/console` serves the SPA; absent, `/console` is disabled with a log line. | No |
+
+#### Internal-Infra / Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-494 | Path traversal protection on run IDs | Given a run ID containing `../` or path separators, When validated, Then rejected with 400. | No |
+
+#### Reporting backend / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-482 | NDJSON event ingest API | Given a batch with a malformed event on line 3, When I POST it, Then rejected with 400 naming the line number, none persisted. | No |
+| [ ] | GIMLE-483 | Idempotent per-run ingest / re-ingest replacement | Given a run already ingested with ledger observations, When re-ingested from scratch, Then its old directory/ledger lines are deleted first and replaced. | No |
+| [ ] | GIMLE-484 | Crash-safe append (torn-tail recovery) | Given the last line has no trailing newline (torn write), When a new append occurs, Then the fragment is truncated first. | No |
+| [ ] | GIMLE-485 | Surefire/Failsafe XML import | Given a report with a `flakyFailure` element, When imported, Then translated into a failed attempt followed by a passing one; unparseable XML rejected with 400. | No |
+| [ ] | GIMLE-486 | Fold-import safety net for a live run's gap | Given a run has live-streamed events for some tests, When I import an XML report for the same runId, Then only test IDs with no `TestFinished` yet are appended, framing never duplicated. | No |
+| [ ] | GIMLE-487 | Run listing, detail, and cursor-paginated event reads | Given a run's meta.json is missing or stale, When requested, Then reconstructed on the fly by replaying events.ndjson. | No |
+| [ ] | GIMLE-488 | Live NDJSON tail (`follow=true`) of a run's event stream | Given a run is LIVE, When I request `/api/runs/{id}/events?follow=true`, Then new lines stream as appended; the stream closes only after the run reaches terminal AND every line has been delivered. | No |
+| [ ] | GIMLE-489 | Abandoned-run detection on restart | Given a run was LIVE when Saga last shut down, When the server restarts, Then that run's status is rewritten to ABANDONED before any read can observe it. | No |
+| [ ] | GIMLE-490 | Flake ledger derivation (fail-then-pass rule) and rebuild | Given a test fails attempt 1 and passes attempt 2 in the same run, When the run finishes, Then exactly one flake observation is recorded. | No |
+| [ ] | GIMLE-491 | Flaky scoreboard with time-window ranking | Given observations both inside/outside a 30-day window, When I query the scoreboard, Then only in-window observations count. | No |
+| [ ] | GIMLE-492 | Test-tag index and quarantine status | Given a test was last observed tagged `flaky`, When I query quarantine status, Then it reports true even if an earlier run tagged it differently. | No |
+| [ ] | GIMLE-493 | Per-test history endpoint | Given a test ran in 3 runs with a flaky pass in one, When I request its history, Then each entry reports the final attempt's outcome/duration and flaky flag. | No |
+
+### gimle-testkit
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-496 | Poll-until-condition primitive (`Await`) | Given a boolean condition and a timeout, When the condition becomes true before the deadline, Then `Await.until` returns immediately; When the deadline passes first, Then it throws naming the condition. | No |
+| [ ] | GIMLE-497 | Kernel-assigned loopback port leasing (`PortLease`) | Given a requested port count, When `PortLease.reserve(n)` is called, Then n distinct kernel-assigned loopback ports are bound and held; `release(port)` closes the socket and hands the port number to the process. | No |
+
+#### Test Infrastructure
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-498 | Heimdall event-driven cluster condition harness | Given control-plane replica base URLs and supervised processes, When a registered view/log/probe condition's predicate becomes true, Then the corresponding HeimdallCondition future completes; a supervised process dying fails every pending condition immediately. | No |
+| [ ] | GIMLE-499 | Replica-scoped condition observation | Given `cluster.when(1)`, When a ClusterView satisfying the predicate is fetched from replica 1, Then the condition completes; views from other replicas are ignored. | No |
+| [ ] | GIMLE-500 | Deployment/node/log condition builders | Given a deployment name, When `.isActive()`/`.hasActiveReplicas(n)`/`.allOnVersion(v,n)`/`.hasFailedInstance()`/`.isAbsent()`/`.reportsQuotaViolation()` is awaited, Then it resolves once the corresponding condition holds. | No |
+| [ ] | GIMLE-501 | Time-windowed negative invariants (`Invariant`/`InvariantGuard`) | Given an Invariant and a Duration window, When `holdFor(invariant, window)` runs, Then every observed view is checked; the call throws with a forensic report the instant one violates it. | No |
+| [ ] | GIMLE-502 | Forensic failure reporting | Given a condition times out or a process dies, When the failure is raised, Then the error message includes the last ClusterView, process liveness, recent harness events, and recent platform events. | No |
+
+### gimle-examples
+
+#### Sample Module
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-503 | `hello-module` — minimal inert deployable fixture | Given the hello-module jar and its deployment.yaml, When deployed with 1 replica, Then it reaches ACTIVE with no health probes or lifecycle hooks resolved (none declared). | No |
+| [ ] | GIMLE-504 | `greeter-provider` — real fabric service export with lifecycle hooks and health probes | Given greeter-provider deployed with a tenant, When the instance starts, Then it registers Greeter on the fabric, ReadinessProbe reports ready only after registration, and logs the tenant's secret value fetched via ctx.config(...). | Yes |
+| [ ] | GIMLE-505 | `greeter-consumer` — real cross-worker fabric call with MDC-tagged background caller | Given greeter-consumer deployed alongside greeter-provider, When the consumer's background loop runs, Then every 5s it looks up Greeter, calls greet("Gimlé"), and logs the reply with its own instance's MDC tags applied. | Yes |
+
+#### Sample Module / Load Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-506 | `greeter-load-generator` — HTTP bridge for external load tools driving real fabric traffic | Given greeter-load-generator deployed with load.port via tenant config, When an HTTP GET hits /call, Then it performs a real lookupService(Greeter.class)+greet("Gatling") call and reflects 200/502/503 based on outcome. | Yes |
+
+### gimle-smoke-tests
+
+#### Cluster Validation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-509 | Base cluster topology deploy across store cluster and multiple CP replicas | Given a real cluster, When greeter-provider and greeter-consumer are deployed, Then both reach ACTIVE (observed via a different replica than submission), the consumer's fabric call appears in its own log, and the provider's log shows its secret round-tripped through Fafnir. | No |
+| [ ] | GIMLE-510 | Raft store resilience (member loss, leader failover, live membership change) | Given a real 3-store cluster with concurrent writes in flight, When a store node (or the leader) is killed, Then the cluster keeps accepting writes and no acknowledged write is lost. | No |
+| [ ] | GIMLE-511 | Tiered self-healing (worker respawn, liveness-exhaustion escalation to FAILED) | Given an ACTIVE instance, When its worker JVM is force-killed, Then the agent respawns a new worker and the deployment returns to ACTIVE; a never-recovering module escalates to FAILED after budget exhaustion. | No |
+| [ ] | GIMLE-512 | Classloader leak detection wired into a real worker | Given a module leaving a background platform thread running past onStop, When redeployed to a new version, Then a ModuleLeakDetected event is logged to worker-platform.log. | No |
+| [ ] | GIMLE-513 | Repeated redeploy stability without false-positive leaks | Given a well-behaved module on a shared Tier 1 worker, When redeployed several times in a row, Then LeakTracker never reports a leak for any cycle. | No |
+| [ ] | GIMLE-514 | Tier 1 worker density packing and its cap | Given up to MAX_TIER1_DENSITY distinct Tier 1 modules deployed, When each deploys, Then all pack onto one real worker process; one more distinct module gets a fresh worker. | No |
+| [ ] | GIMLE-515 | Node cordoning blocks new placement without evicting running instances | Given a cordoned single-node cluster, When a new deployment is submitted, Then it stays unplaced, while an already-running instance keeps serving. | No |
+| [ ] | GIMLE-516 | DaemonSet per-node fan-out and dead-node assignment cleanup | Given a DaemonSet deployed across 2 real agent nodes, When both are up, Then one instance per node; When one node's agent is hard-killed, Then that node's assignment is cleaned up. | No |
+| [ ] | GIMLE-517 | Job and CronJob real-cluster lifecycle | Given a Job-kind module returning SUCCEEDED, When deployed, Then it reaches JobPhase.SUCCEEDED; a triggered CronJob generates a Job that likewise succeeds. | No |
+| [ ] | GIMLE-518 | StatefulSet sticky placement and volume persistence across worker restart | Given a StatefulSet instance that wrote a marker file, When its worker is killed and respawned, Then the instance lands on the same node and sees the marker file already present. | No |
+| [ ] | GIMLE-519 | Rolling update preserves serving capacity and reaches new version | Given a 2-replica deployment with maxUnavailable=1/maxSurge=1, When rolled to v1.1.0, Then at least 1 instance stays ACTIVE throughout and all 2 end on v1.1.0. | No |
+| [ ] | GIMLE-520 | Surge worker promotion carries out via in-place retarget, not respawn | Given a 2-replica rollout with maxUnavailable=1/maxSurge=1, When the surge worker is promoted, Then its OS PID is unchanged, while the other (restarted) instance's PID changes. | No |
+| [ ] | GIMLE-522 | Multi-tenant quota enforcement (flag-not-evict, and admission rejection) | Given a tenant already running at quota, When quota is lowered, Then the deployment is flagged but keeps running; a new submission exceeding quota is rejected with 409. | No |
+| [ ] | GIMLE-523 | Circuit breaker excludes a consistently-failing replica | Given a genuinely broken provider replica hanging past the client timeout, When enough consecutive calls fail via real timeout, Then FabricServiceRegistry's breaker opens and excludes that replica. | No |
+| [ ] | GIMLE-524 | Gossip/SWIM failure detection across real separate agent processes | Given real agent processes joined via gossip, When one is hard-killed, Then every surviving agent's SWIM state eventually marks it dead. | No |
+| [ ] | GIMLE-525 | Observability data survives agent death (Muninn fallback) and control-plane metrics round-trip | Given a deployed instance logging normally, When its agent dies, Then its log is still readable via the /logs/* Muninn fallback. | No |
+| [ ] | GIMLE-526 | Worker-tier metrics/trace relay to Muninn via the agent | Given a real deployed module making a real fabric call, When its worker relays MetricsSnapshot/TracesSnapshot to its agent, Then the agent forwards it to Muninn and it's readable via GET /metrics-history/*. | No |
+| [ ] | GIMLE-527 | Artifact registry (Andvari) resolution path end to end | Given a real Andvari replica and a pushed jar, When a coordinate-only deployment is submitted, Then the agent resolves and caches the jar and the instance reaches ACTIVE. | No |
+| [ ] | GIMLE-528 | External HTTP request reaches a fabric service through the gateway | Given greeter-provider and gimle-gateway deployed as a DaemonSet on an edge-labeled node, When an external client hits the gateway, Then the response reflects a real fabric call to greeter-provider. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-507 | Real multi-process cluster fixture (store/control-plane/agent/Fafnir/Muninn) | Given `GreeterSmokeClusterSupport.startCluster()`, When the fixture boots, Then 3 store nodes, 2 control-plane replicas, 1 agent, 2 Fafnir replicas, and 1 Muninn are all live real processes torn down in reverse dependency order. | No |
+| [ ] | GIMLE-508 | On-the-fly compiled module variants via `TestModuleBuilder` | Given a variant spec, When `buildFaultyProviderJar()` is called, Then a real compiled jar with that behavior is produced and deployable through the real HTTP API. | No |
+
+#### Load Testing / Cluster Validation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-521 | Autoscaling under real request-rate, error-rate, queue-depth, and weighted-blended load | Given an autoscale policy targeting a signal, When real Gatling-generated load pushes it past target, Then the deployment scales toward maxReplicas. | No |
+
+### gimle-holmgang
+
+#### Chaos Engineering
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-533 | Fenrir randomized chaos-fault soak executor | Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger. | Yes |
+| [ ] | GIMLE-534 | Chaos ledger recording and rendering | Given a completed Fenrir run, When its ChaosLedger is queried, Then executedCount()/recoveredCount()/skippedCount()/allRecovered() reflect actual strikes. | Yes |
+| [ ] | GIMLE-535 | Randomized fault soak with no lost writes (basic and compound-fault modes) | Given a running HA cluster and a background write workload, When Fenrir is unleashed striking every 15s, Then at least 3 faults execute, every fault recovers, and every acknowledged write remains readable. | Yes |
+| [ ] | GIMLE-536 | Muninn/Andvari replica-bounce resilience soak | Given a topology with 2 Muninn and 2 Andvari replicas, When Fenrir strikes only Muninn/Andvari bounces, Then at least 2 faults execute and recover, and a coordinate-only deployment still reaches ACTIVE afterward. | Yes |
+
+#### Cluster Validation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-537 | Live store membership change (AddServer/RemoveServer) | Given a 3-store HA cluster, When a fourth store node joins, Then the store reports 4 members and accepts writes; leaving reports 3 members again. | Yes |
+| [ ] | GIMLE-538 | Mutual TLS end-to-end operation and anonymous-client rejection | Given an mTLS-transport cluster, When greeter-provider is deployed with a tenant secret, Then it logs the secret value within 60s; an anonymous client attempting a write is rejected with 401. | Yes |
+| [ ] | GIMLE-539 | Control-plane partition tolerance (store-side) and reconvergence on heal | Given a fault-proxied HA cluster, When the network between control plane 1 and all stores is cut, Then control plane 1 stops serving within 30s while a submission via replica 0 still reaches ACTIVE; on heal, also ACTIVE via replica 1. | Yes |
+| [ ] | GIMLE-540 | Store leader self-demotion under silent peer partition; bounded write latency | Given an HA cluster, When the store leader is partitioned, Then it steps down within 10s; a write submitted during the partition completes within 30s (success or failure). | Yes |
+| [ ] | GIMLE-541 | Tenant deployment lifecycle with secret delivery and clean deletion | Given a tenant secret and a deployment submitted, When the instance starts, Then it logs the secret within 60s; on deletion, absent within 60s. | Yes |
+| [ ] | GIMLE-542 | Tenant quota retroactive violation (flag, not evict) and admission rejection | Given a tenant at quota, When quota is lowered, Then the deployment reports a violation within 60s while keeping its 1 ACTIVE instance for 10s; a starved-tenant submission is rejected with 409. | Yes |
+| [ ] | GIMLE-543 | Node cordoning blocks placement until uncordoned | Given node-1 cordoned, When a deployment is submitted, Then it stays unplaced for 10s; uncordoning it, the deployment reaches ACTIVE within 120s. | Yes |
+| [ ] | GIMLE-544 | Worker-tier self-healing and liveness-exhaustion escalation (Gherkin coverage) | Given greeter-provider deployed, When its worker is killed, Then within 120s the deployment is ACTIVE again; an always-failing-liveness provider escalates to a FAILED instance within 240s once its restart budget exhausts. | Yes |
+| [ ] | GIMLE-545 | Zero-downtime rolling update under surge budget (Gherkin coverage) | Given a 2-replica deployment with a guard held, When rolled with maxUnavailable=1/maxSurge=1, Then within 180s both instances are ACTIVE on the new version, and the guard held throughout. | Yes |
+| [ ] | GIMLE-547 | Artifact registry coordinate-only deployment (Gherkin coverage) | Given a running "registry" topology, When greeter-provider is pushed and a deployment is submitted with no artifact path, Then within 60s the deployment is ACTIVE. | Yes |
+| [ ] | GIMLE-554 | Utgard multi-container distributed boot ordering | Given a 3-container fleet, When `hilmir up --machine` is issued for the server machine before prerequisites, Then it blocks until store and Fafnir machines are up, then completes and a real deployment reaches ACTIVE. | No |
+| [ ] | GIMLE-555 | Utgard real machine loss (hard container kill) and rejoin | Given an instance placed on one agent machine, When that container is hard-killed, Then rescheduled onto the surviving machine; restarting and rejoining re-registers its node. | No |
+| [ ] | GIMLE-556 | Utgard network partition (vs hard kill) with reconvergence | Given an instance on one agent machine, When disconnected from the network, Then rescheduled to the surviving machine; reconnecting converges to exactly 1 ACTIVE instance. | No |
+| [ ] | GIMLE-557 | Utgard real-hostname mTLS bootstrap across containers | Given two containers with `hilmir pki init` on the server machine, When `hilmir up` runs on each, Then the agent's CSR bootstrap succeeds over mTLS automatically, and the CLI dialing the server's real hostname shows the agent's node. | No |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-529 | Declarative cluster topology DSL/YAML parsing and validation | Given a topologies/*.yaml file or a ClusterTopology.named(...) DSL chain, When parsed/built, Then a ClusterSpec results; the one unsupported combination (fault-proxied + mTLS) is rejected before any process spawns. | No |
+| [ ] | GIMLE-530 | Real subprocess cluster orchestration (`GimleCluster`) | Given a ClusterSpec, When GimleCluster.start(spec, workDir) runs, Then every declared process is a live, correctly-wired real subprocess reachable through cluster.api()/cluster.when(). | No |
+| [ ] | GIMLE-531 | Cluster pooling per topology with destructive-scenario isolation | Given a scenario tagged @destructive, When it starts, Then a brand-new GimleCluster is booted solely for it; non-destructive scenarios reuse the shared pooled cluster. | No |
+| [ ] | GIMLE-532 | JUnit `@Holmgang`/`@HolmgangCluster` extension for plain-JUnit cluster tests | Given a class annotated @Holmgang(topology="...") with a @HolmgangCluster field, When JUnit runs the test, Then the extension boots the topology and injects the cluster. | No |
+| [ ] | GIMLE-551 | Saga unified run reporting (Gherkin + JUnit + Fenrir + Surtr) | Given a -Pvalidation run, When the JVM shuts down, Then SagaCollector.flush() writes a versioned JSON report plus a self-contained HTML console with that run's data embedded. | No |
+| [ ] | GIMLE-552 | Saga best-effort shipping to a remote report server | Given -Dgimle.saga.endpoint=<url>, When the collector flushes, Then it POSTs NDJSON-encoded attachment events; an unset/unreachable/erroring endpoint silently no-ops and never fails the run. | No |
+| [ ] | GIMLE-553 | Loki fault-injection proxy for store/control-plane link partitions | Given a fault-proxied topology, When cutControlPlaneFromStores(index) is called, Then that replica's links reset immediately; cutStoreFromPeers(index) blackholes raft traffic until heal(). | Yes |
+| [ ] | GIMLE-558 | Utgard Docker container fleet management primitives | Given UtgardMachines.start(names), When a live Docker daemon with registry access is available, Then real containers boot on a shared network; blocked image pulls throw UtgardDockerUnavailableException and dependent tests skip via assumeTrue. | No |
+
+#### Load Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-546 | Request-rate autoscaling under real Gatling-driven fabric load (Gherkin coverage) | Given greeter-load-generator deployed and an autoscaling deployment targeting 5 rps min 1/max 2, When 20 rps load runs for 60s, Then within 120s the deployment has 2 ACTIVE replicas. | Yes |
+| [ ] | GIMLE-548 | Surtr scale/churn/performance workload runner | Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult. | No |
+| [ ] | GIMLE-549 | Surtr Muninn-window measurement (documented gap) | Given a workload requesting the muninnWindow measurement, When the run completes, Then it always reports a skipped placeholder series ("Muninn window metrics collection is not implemented in this build"). | No |
+| [ ] | GIMLE-550 | Module-density Tier 1 packing Surtr reference workload | Given workloads/module-density.yaml (10 iterations at 8 qps against topologies/surtr-density.yaml), When run via SurtrIT, Then all created deployments reach ACTIVE within 180s and the gates pass. | No |
+
+#### Packaging / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-559 | Docker Compose manual validation topologies (bundled-JRE and full-JRE) | Given `mvn -pl gimle-dist -am install -P dist-with-jre` produced the tarball, When `docker compose -f docker-compose.bundled-jre.yml up` runs, Then every service launches off `jre/<component>/bin/java` from a shared volume, with agent alone using a real eclipse-temurin base image. | No |
+
+### gimle-dist
+
+#### Packaging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-560 | Standalone CLI distribution archive | Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle. | No |
+| [ ] | GIMLE-561 | Standalone Hilmir bootstrap-tool distribution archive | Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml. | No |
+| [ ] | GIMLE-562 | Cluster-machine platform distribution archive | Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and both wrapper scripts. | No |
+| [ ] | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Given `mvn -pl gimle-dist -am install -P dist-with-jre`, When the profile's exec-maven-plugin executions run, Then a trimmed JRE (--strip-debug --no-header-files --no-man-pages) is jlinked per component; the three archives additionally contain jre/<component>/ for their own components. | No |
+| [ ] | GIMLE-564 | Distribution archive checksums and SBOM generation | Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each. | No |
+
