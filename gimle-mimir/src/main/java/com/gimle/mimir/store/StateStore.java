@@ -1757,7 +1757,12 @@ public final class StateStore implements StoreReader {
 
   private static Map<?, ?> loadMap(Path file) {
     Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
-    Object raw = yaml.load(new ByteArrayInputStream(read(file)));
+    Object raw;
+    try {
+      raw = yaml.load(new ByteArrayInputStream(read(file)));
+    } catch (RuntimeException e) {
+      throw new IllegalStateException("corrupt state store file " + file, e);
+    }
     if (!(raw instanceof Map<?, ?> map)) {
       throw new IllegalStateException("expected a YAML mapping in " + file);
     }

@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.TreeMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -34,6 +36,8 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * simpler to require the single caller already holds a lock for Raft's own safety mechanics.
  */
 public final class RaftLog {
+
+  private static final Logger log = LoggerFactory.getLogger(RaftLog.class);
 
   private final Path root;
   private final NavigableMap<Long, LogEntry> entries = new TreeMap<>();
@@ -119,7 +123,12 @@ public final class RaftLog {
    */
   public void truncateFrom(long index) {
     for (Long key : new ArrayList<>(entries.tailMap(index, true).keySet())) {
-      AtomicFiles.deleteQuietly(entryFile(key));
+      try {
+        AtomicFiles.deleteQuietly(entryFile(key));
+      } catch (UncheckedIOException e) {
+        log.warn(
+            "failed to delete truncated Raft log entry file {}: {}", entryFile(key), e.getMessage());
+      }
       entries.remove(key);
     }
   }
@@ -138,7 +147,12 @@ public final class RaftLog {
     this.snapshotLastIncludedIndex = lastIncludedIndex;
     this.snapshotLastIncludedTerm = lastIncludedTerm;
     for (Long key : new ArrayList<>(entries.headMap(lastIncludedIndex, true).keySet())) {
-      AtomicFiles.deleteQuietly(entryFile(key));
+      try {
+        AtomicFiles.deleteQuietly(entryFile(key));
+      } catch (UncheckedIOException e) {
+        log.warn(
+            "failed to delete compacted Raft log entry file {}: {}", entryFile(key), e.getMessage());
+      }
       entries.remove(key);
     }
   }
@@ -278,6 +292,8 @@ public final class RaftLog {
       raw = yaml.load(new ByteArrayInputStream(Files.readAllBytes(file)));
     } catch (IOException e) {
       throw new UncheckedIOException(e);
+    } catch (RuntimeException e) {
+      throw new IllegalStateException("corrupt Raft log file " + file, e);
     }
     if (!(raw instanceof Map<?, ?> map)) {
       throw new IllegalStateException("expected a YAML mapping in " + file);

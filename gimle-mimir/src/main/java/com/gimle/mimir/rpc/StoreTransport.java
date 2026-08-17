@@ -100,10 +100,11 @@ public final class StoreTransport implements AutoCloseable {
         connection = serverSocket.accept();
         connection.setTcpNoDelay(true); // see StoreConnection: the response half of the round trip
       } catch (IOException e) {
-        if (!closed) {
-          log.warn("store transport accept loop failed: {}", e.getMessage());
+        if (closed || serverSocket.isClosed()) {
+          return;
         }
-        return;
+        log.warn("store transport accept loop failed, continuing: {}", e.getMessage());
+        continue;
       }
       Thread.ofVirtual().name("gimle-store-connection").start(() -> serve(connection));
     }
@@ -123,6 +124,8 @@ public final class StoreTransport implements AutoCloseable {
       }
     } catch (IOException e) {
       log.debug("store connection closed: {}", e.getMessage());
+    } catch (RuntimeException e) {
+      log.warn("store connection handler failed: {}", e.getMessage(), e);
     }
   }
 

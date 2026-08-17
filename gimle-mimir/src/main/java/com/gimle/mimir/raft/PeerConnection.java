@@ -26,6 +26,24 @@ import javax.net.SocketFactory;
  */
 public final class PeerConnection implements RaftPeerClient, AutoCloseable {
 
+  /**
+   * Overridable via {@code -Dgimle.raft.connectTimeoutMillis} -- the same pattern {@code
+   * StoreConnection} already uses. Without this, a peer that's reachable but never completes the
+   * TCP handshake would block {@link #connectionLocked} forever instead of failing over.
+   */
+  private static final int CONNECT_TIMEOUT_MILLIS =
+      Integer.getInteger("gimle.raft.connectTimeoutMillis", 3_000);
+
+  /**
+   * Overridable via {@code -Dgimle.raft.readTimeoutMillis} -- bounds every blocking read on an
+   * already-open connection. A peer that accepts the connection but then goes silent -- a gray
+   * failure, not a clean refusal -- surfaces as an ordinary {@link java.net.SocketTimeoutException}
+   * instead of pinning the calling Raft sender thread forever; {@link #call} treats it exactly like
+   * any other {@link IOException}.
+   */
+  private static final int READ_TIMEOUT_MILLIS =
+      Integer.getInteger("gimle.raft.readTimeoutMillis", 5_000);
+
   private final SocketAddress address;
   private final ReentrantLock lock = new ReentrantLock();
   private Socket socket;
@@ -74,7 +92,8 @@ public final class PeerConnection implements RaftPeerClient, AutoCloseable {
   private Socket connectionLocked() throws IOException {
     if (socket == null || socket.isClosed()) {
       socket = socketFactory().createSocket();
-      socket.connect(address);
+      socket.connect(address, CONNECT_TIMEOUT_MILLIS);
+      socket.setSoTimeout(READ_TIMEOUT_MILLIS);
       // Raft heartbeats every 50ms: a Nagle-induced delayed-ACK stall is comparable to the whole
       // heartbeat interval, so leaving it on directly destabilises election and commit timing.
       socket.setTcpNoDelay(true);

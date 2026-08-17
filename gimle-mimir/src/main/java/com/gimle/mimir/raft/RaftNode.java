@@ -424,6 +424,15 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     for (Thread t : peerSenderThreads.values()) {
       t.interrupt();
     }
+    for (RaftPeerClient client : peers.values()) {
+      if (client instanceof AutoCloseable closeable) {
+        try {
+          closeable.close();
+        } catch (Exception e) {
+          log.warn("failed to close peer connection: {}", e.getMessage());
+        }
+      }
+    }
   }
 
   public boolean isLeader() {
