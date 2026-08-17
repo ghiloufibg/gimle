@@ -349,7 +349,14 @@ public final class LaunchPlanner {
               command,
               id + ".log",
               dataDir,
-              gossipAddress,
+              // Not gossipAddress: GossipMember binds that address as a DatagramChannel (UDP),
+              // and ReadinessPoller only ever does a TCP connect -- probing it would never
+              // succeed, so a real "hilmir up" launching an agent would always block for
+              // READINESS_TIMEOUT and then fail the whole machine. Nothing in a topology declares
+              // a dependency on an agent's own readiness (a later agent's gossip join happens
+              // over UDP inside AgentMain itself, retried independently of this launcher), so "no
+              // readiness check" is both correct and safe here.
+              "",
               mtls));
     }
     return out;

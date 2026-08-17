@@ -136,6 +136,33 @@ class LaunchPlannerTest {
   }
 
   @Test
+  void agent_command_has_no_readiness_address_since_gossip_binds_udp_not_tcp() {
+    final Topology topology =
+        parse(
+            """
+            name: agent-readiness
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            controlPlane:
+              replicas:
+                - {machine: m1, port: 8080}
+            fafnir:
+              keyFile: /key
+              replicas:
+                - {machine: m1, port: 9092}
+            agents:
+              - {machine: m1, nodeId: node-a, gossipPort: 9090}
+            """);
+    final ClusterPlan plan = LaunchPlanner.plan(topology, RUNTIME);
+
+    // ReadinessPoller only ever does a TCP connect; the agent's gossip port is a DatagramChannel
+    // (UDP), so a non-blank readiness address here would make every real "hilmir up" launching an
+    // agent block for the full readiness timeout and then fail -- see MachineLauncher's own
+    // "" == "no readiness check" convention.
+    assertEquals("", only(plan, "m1", "agent-node-a").readinessAddress());
+  }
+
+  @Test
   void plans_a_multi_machine_plaintext_topology_with_correct_per_machine_filtering() {
     final Topology topology =
         parse(
