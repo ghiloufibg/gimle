@@ -8,6 +8,10 @@
     <groupId>com.gimle</groupId>
     <artifactId>gimle</artifactId>
     <version>0.1.0-SNAPSHOT</version>
+    <!-- Every sibling module lives directly under the repo root, where the default "../pom.xml"
+         already finds the aggregator; this one lives two directories down
+         (gimle-examples/greeter-consumer/), so it needs saying explicitly. -->
+    <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>greeter-consumer</artifactId>
