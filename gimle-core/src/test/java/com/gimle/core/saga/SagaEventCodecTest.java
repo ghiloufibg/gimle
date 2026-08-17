@@ -56,7 +56,7 @@ class SagaEventCodecTest {
 
   @ParameterizedTest
   @MethodSource("allEventVariants")
-  void roundTripsEveryEventVariant(SagaEvent event) {
+  void round_trips_every_event_variant(SagaEvent event) {
     assertEquals(event, SagaEventCodec.decode(SagaEventCodec.encode(event)));
   }
 
@@ -98,7 +98,7 @@ class SagaEventCodecTest {
             + "\"outcome\":\"EXPLODED\",\"durationMillis\":1}",
         "{\"type\":\"run-finished\",\"runId\":\"r\",\"finishedAtEpochMilli\":1,\"totals\":3}"
       })
-  void rejectsMalformedLines(String line) {
+  void rejects_malformed_lines(String line) {
     assertThrows(GimleCodecException.class, () -> SagaEventCodec.decode(line));
   }
 }

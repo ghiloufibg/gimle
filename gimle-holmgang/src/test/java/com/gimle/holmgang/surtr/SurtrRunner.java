@@ -344,8 +344,8 @@ public final class SurtrRunner {
   }
 
   private List<MetricSeries> skippedMuninn() {
-    // Muninn window series are collected by a later milestone; recorded as skipped-with-reason so
-    // the measurement is never silently absent from the report.
+    // Muninn window series are not implemented yet; recorded as skipped-with-reason so the
+    // measurement is never silently absent from the report.
     return List.of(
         new MetricSeries(
             "muninnWindow",

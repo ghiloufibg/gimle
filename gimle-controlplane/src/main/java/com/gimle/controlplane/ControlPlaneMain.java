@@ -306,8 +306,8 @@ public final class ControlPlaneMain {
         };
     // Unconditional -- not lease-gated like the reconcile tick above: this replica's own
     // certificate needs to stay fresh regardless of whether it currently holds the
-    // reconciler-leader lease, per claudedocs/tls-transport-security-design.md §4b. No-op in
-    // plaintext mode.
+    // reconciler-leader lease, since a non-leader replica still terminates client TLS
+    // connections and must never present an expired certificate. No-op in plaintext mode.
     Runnable certRotationTick = apiServer::checkAndRotateOwnCertificateIfDue;
 
     List<ScheduledExecutorService> tickers =

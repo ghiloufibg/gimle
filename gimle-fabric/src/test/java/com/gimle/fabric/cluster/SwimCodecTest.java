@@ -43,7 +43,7 @@ class SwimCodecTest {
 
   @ParameterizedTest
   @MethodSource("allMessageVariants")
-  void roundTripsThroughADatagram(SwimMessage original) {
+  void round_trips_through_a_datagram(SwimMessage original) {
     byte[] datagram = SwimCodec.encode(original);
     SwimMessage decoded = SwimCodec.decode(datagram, datagram.length);
     assertEquals(original.seq(), decoded.seq());

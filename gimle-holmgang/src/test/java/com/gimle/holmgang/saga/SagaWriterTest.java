@@ -61,7 +61,6 @@ final class SagaWriterTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void the_report_carries_totals_and_optional_sections() {
     final SagaCollector c = SagaCollector.forTest();
     c.addScenario(
@@ -75,19 +74,19 @@ final class SagaWriterTest {
     final Map<String, Object> report = SagaWriter.report(c);
 
     assertEquals(1, report.get("schemaVersion"));
-    final Map<String, Object> run = (Map<String, Object>) report.get("run");
+    final Map<String, Object> run = Json.asObject(report.get("run"));
     assertEquals("FAILED", run.get("outcome"), "a failed scenario makes the run FAILED");
     assertNotNull(run.get("id"));
     assertTrue(String.valueOf(run.get("invocation")).contains("-Pvalidation"));
 
-    final Map<String, Object> scenarios = (Map<String, Object>) report.get("scenarios");
+    final Map<String, Object> scenarios = Json.asObject(report.get("scenarios"));
     assertEquals(2, scenarios.get("total"));
     assertEquals(1, scenarios.get("passed"));
     assertEquals(1, scenarios.get("failed"));
     assertEquals(2, ((List<?>) scenarios.get("features")).size());
 
-    final Map<String, Object> surtr = (Map<String, Object>) report.get("surtr");
-    final List<Map<String, Object>> runs = (List<Map<String, Object>>) surtr.get("runs");
+    final Map<String, Object> surtr = Json.asObject(report.get("surtr"));
+    final List<Map<String, Object>> runs = Json.asObjectList(surtr.get("runs"));
     assertEquals(1, runs.size());
     assertEquals("module-density", runs.get(0).get("workload"));
     assertEquals("PASSED", runs.get(0).get("outcome"));
@@ -101,12 +100,11 @@ final class SagaWriterTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void an_all_passing_run_is_passed() {
     final SagaCollector c = SagaCollector.forTest();
     c.addScenario("Deployment lifecycle", "deployment-lifecycle.feature", scenario("a", "PASSED"));
     final Map<String, Object> report = SagaWriter.report(c);
-    assertEquals("PASSED", ((Map<String, Object>) report.get("run")).get("outcome"));
+    assertEquals("PASSED", Json.asObject(report.get("run")).get("outcome"));
   }
 
   @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir;

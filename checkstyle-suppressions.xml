@@ -3,14 +3,16 @@
     "-//Checkstyle//DTD SuppressionXpathFilter Experimental Configuration 1.2//EN"
     "https://checkstyle.org/dtds/suppressions_xpath_1_2.xsd">
 <suppressions>
-  <!-- @Test methods are exempt from the camelCase check: they're the snake_case case instead.
-       Note: the query targets METHOD_DEF/IDENT, not METHOD_DEF itself, since that's where
-       MethodName actually reports the violation (matching requires an exact line/column hit). -->
+  <!-- @Test, @ParameterizedTest, and @RepeatedTest methods are exempt from the camelCase check:
+       they're the snake_case case instead. Note: the query targets METHOD_DEF/IDENT, not
+       METHOD_DEF itself, since that's where MethodName actually reports the violation (matching
+       requires an exact line/column hit). -->
   <suppress-xpath id="ProductionMethodName"
-                   query="//METHOD_DEF[./MODIFIERS/ANNOTATION/IDENT[@text='Test']]/IDENT"/>
-  <!-- Every method that is not @Test is exempt from the snake_case check. -->
+                   query="//METHOD_DEF[./MODIFIERS/ANNOTATION/IDENT[@text='Test'] or ./MODIFIERS/ANNOTATION/IDENT[@text='ParameterizedTest'] or ./MODIFIERS/ANNOTATION/IDENT[@text='RepeatedTest']]/IDENT"/>
+  <!-- Every method that is not @Test, @ParameterizedTest, or @RepeatedTest is exempt from the
+       snake_case check. -->
   <suppress-xpath id="TestMethodName"
-                   query="//METHOD_DEF[not(./MODIFIERS/ANNOTATION/IDENT[@text='Test'])]/IDENT"/>
+                   query="//METHOD_DEF[not(./MODIFIERS/ANNOTATION/IDENT[@text='Test'] or ./MODIFIERS/ANNOTATION/IDENT[@text='ParameterizedTest'] or ./MODIFIERS/ANNOTATION/IDENT[@text='RepeatedTest'])]/IDENT"/>
 
   <!-- The Thread.sleep ban only ever applies inside these three modules: every other module's
        file path fails this negative-lookahead match and is fully exempt. -->

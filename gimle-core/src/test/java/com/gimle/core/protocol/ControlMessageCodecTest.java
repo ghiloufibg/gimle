@@ -89,7 +89,7 @@ class ControlMessageCodecTest {
 
   @ParameterizedTest
   @MethodSource("allMessageVariants")
-  void roundTripsEveryMessageVariant(ControlMessage original) {
+  void round_trips_every_message_variant(ControlMessage original) {
     String encoded = ControlMessageCodec.encode(original);
     ControlMessage decoded = ControlMessageCodec.decode(encoded);
     assertEquals(original, decoded);
@@ -97,7 +97,7 @@ class ControlMessageCodecTest {
 
   @ParameterizedTest
   @MethodSource("allMessageVariants")
-  void encodedFormIsASingleLine(ControlMessage original) {
+  void encoded_form_is_a_single_line(ControlMessage original) {
     String encoded = ControlMessageCodec.encode(original);
     assertFalse(encoded.contains("\n"), "encoded frame must not contain a raw newline: " + encoded);
     assertFalse(
@@ -106,7 +106,7 @@ class ControlMessageCodecTest {
 
   @ParameterizedTest
   @MethodSource("freeTextEdgeCases")
-  void nackReasonWithNewlinesAndSpacesRoundTrips(String reason) {
+  void nack_reason_with_newlines_and_spaces_round_trips(String reason) {
     ControlMessage.Nack original = new ControlMessage.Nack("corr-1", reason);
     String encoded = ControlMessageCodec.encode(original);
     assertFalse(
@@ -117,7 +117,7 @@ class ControlMessageCodecTest {
 
   @ParameterizedTest
   @MethodSource("freeTextEdgeCases")
-  void installArtifactPathWithSpecialCharactersRoundTrips(String suffix) {
+  void install_artifact_path_with_special_characters_round_trips(String suffix) {
     ControlMessage.InstallModule original =
         new ControlMessage.InstallModule("corr-1", "C:\\path " + suffix);
     String encoded = ControlMessageCodec.encode(original);

@@ -2782,7 +2782,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.raft.RaftCodec`
-- **Test coverage**: `RaftCodecTest#roundTripsThroughStreams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`
+- **Test coverage**: `RaftCodecTest#round_trips_through_streams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`
 - **Gherkin scenario**:
   ```gherkin
   Given an arbitrarily-constructed RaftRpc; When written and read back via RaftCodec; Then the decoded value equals the original; a forged oversized/negative length prefix is rejected before allocation.
@@ -3016,7 +3016,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.rpc.StoreCodec`
-- **Test coverage**: `StoreCodecTest#roundTripsThroughStreams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`
+- **Test coverage**: `StoreCodecTest#round_trips_through_streams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`
 - **Gherkin scenario**:
   ```gherkin
   Given any StoreRpc request/response; When written and read back through StoreCodec; Then the decoded value equals the original exactly.
@@ -3408,7 +3408,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.fabric.transport.FabricCodec`
-- **Test coverage**: `FabricCodecTest#roundTripsThroughStreams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`
+- **Test coverage**: `FabricCodecTest#round_trips_through_streams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`
 - **Gherkin scenario**:
   ```gherkin
   Given a FabricFrame.InvokeRequest with tracestate/baggage; When written and read back through FabricCodec; Then the decoded frame equals the original; forged length/param counts are rejected before allocating.
@@ -3525,7 +3525,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.fabric.cluster.SwimCodec`
-- **Test coverage**: `SwimCodecTest#roundTripsThroughADatagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`
+- **Test coverage**: `SwimCodecTest#round_trips_through_a_datagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`
 - **Gherkin scenario**:
   ```gherkin
   Given any SwimMessage variant; When encoded and decoded via SwimCodec; Then the decoded value equals the original; a forged huge piggyback count or unrecognized protocol version fails cleanly.

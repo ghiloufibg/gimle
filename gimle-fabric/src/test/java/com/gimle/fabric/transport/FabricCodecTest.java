@@ -42,7 +42,7 @@ class FabricCodecTest {
 
   @ParameterizedTest
   @MethodSource("allFrameVariants")
-  void roundTripsThroughStreams(FabricFrame original) throws IOException {
+  void round_trips_through_streams(FabricFrame original) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     FabricCodec.write(buffer, original);
     FabricFrame decoded = FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray()));

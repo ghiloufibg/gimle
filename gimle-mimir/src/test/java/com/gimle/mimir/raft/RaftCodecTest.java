@@ -100,7 +100,7 @@ class RaftCodecTest {
 
   @ParameterizedTest
   @MethodSource("simpleRpcVariants")
-  void roundTripsThroughStreams(RaftRpc original) throws IOException {
+  void round_trips_through_streams(RaftRpc original) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     RaftCodec.write(buffer, original);
     RaftRpc decoded = RaftCodec.read(new ByteArrayInputStream(buffer.toByteArray()));

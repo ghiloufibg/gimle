@@ -8,9 +8,8 @@ import com.gimle.andvari.MavenCoordinates.MetadataFile;
 import org.junit.jupiter.api.Test;
 
 /**
- * The GAV-path-to-module-coordinate translation in isolation from any HTTP surface -- the
- * canonicalization rule the design calls out as needing to be "stated, tested, and never left
- * implicit".
+ * The GAV-path-to-module-coordinate translation in isolation from any HTTP surface. This
+ * canonicalization rule must be stated and tested explicitly, never left implicit.
  */
 class MavenCoordinatesTest {
 

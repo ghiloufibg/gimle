@@ -233,7 +233,7 @@ class StoreCodecTest {
 
   @ParameterizedTest
   @MethodSource("variants")
-  void roundTripsThroughStreams(StoreRpc original) throws IOException {
+  void round_trips_through_streams(StoreRpc original) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     StoreCodec.write(buffer, original);
     StoreRpc decoded = StoreCodec.read(new ByteArrayInputStream(buffer.toByteArray()));

@@ -2435,7 +2435,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Raft RPC Wire Codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.",
-      "otherTestCoverage": "`RaftCodecTest#roundTripsThroughStreams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`",
+      "otherTestCoverage": "`RaftCodecTest#round_trips_through_streams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`",
       "sourceLocations": [
         "`com.gimle.mimir.raft.RaftCodec`"
       ]
@@ -2758,7 +2758,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Store RPC Wire Codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.",
-      "otherTestCoverage": "`StoreCodecTest#roundTripsThroughStreams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`",
+      "otherTestCoverage": "`StoreCodecTest#round_trips_through_streams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`",
       "sourceLocations": [
         "`com.gimle.mimir.rpc.StoreCodec`"
       ]
@@ -3263,7 +3263,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Fabric Frame Wire Codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fabric`'s own unit test does.",
-      "otherTestCoverage": "`FabricCodecTest#roundTripsThroughStreams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`",
+      "otherTestCoverage": "`FabricCodecTest#round_trips_through_streams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`",
       "sourceLocations": [
         "`com.gimle.fabric.transport.FabricCodec`"
       ]
@@ -3411,7 +3411,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"SWIM Wire Codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fabric`'s own unit test does.",
-      "otherTestCoverage": "`SwimCodecTest#roundTripsThroughADatagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`",
+      "otherTestCoverage": "`SwimCodecTest#round_trips_through_a_datagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`",
       "sourceLocations": [
         "`com.gimle.fabric.cluster.SwimCodec`"
       ]

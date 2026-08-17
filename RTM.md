@@ -1980,7 +1980,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Raft RPC Wire Codec" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `RaftCodecTest#roundTripsThroughStreams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`
+- **Other test coverage (non-Holmgang, informational only)**: `RaftCodecTest#round_trips_through_streams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change`
 - **Source location(s)**: `com.gimle.mimir.raft.RaftCodec`
 
 #### GIMLE-151 — Atomic Durable File Writes
@@ -2152,7 +2152,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Store RPC Wire Codec" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `StoreCodecTest#roundTripsThroughStreams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`
+- **Other test coverage (non-Holmgang, informational only)**: `StoreCodecTest#round_trips_through_streams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash`
 - **Source location(s)**: `com.gimle.mimir.rpc.StoreCodec`
 
 #### GIMLE-169 — RBAC Authorization Engine
@@ -2435,7 +2435,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Fabric Frame Wire Codec" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fabric`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `FabricCodecTest#roundTripsThroughStreams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`
+- **Other test coverage (non-Holmgang, informational only)**: `FabricCodecTest#round_trips_through_streams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating`
 - **Source location(s)**: `com.gimle.fabric.transport.FabricCodec`
 
 #### GIMLE-199 — Cross-JVM Object Marshalling
@@ -2516,7 +2516,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "SWIM Wire Codec" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fabric`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `SwimCodecTest#roundTripsThroughADatagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`
+- **Other test coverage (non-Holmgang, informational only)**: `SwimCodecTest#round_trips_through_a_datagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag`
 - **Source location(s)**: `com.gimle.fabric.cluster.SwimCodec`
 
 #### GIMLE-208 — Service Catalog Delta Wire Codec
@@ -6041,20 +6041,20 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-027 | gimle-core | Startup banner rendering with terminal color/Unicode auto-detection | Internal/Infra | `GimleBannerTest`, `GimleVersionTest` |
 | GIMLE-028 | gimle-core | Single-write length-prefixed wire framing | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-029 | gimle-core | Hand-rolled JSON parser/writer | Internal/Infra | `JsonTest` (nested objects/arrays, negative/exponent numbers, escaped strings, round trip, escapes special chars, malformed throws) |
-| GIMLE-150 | gimle-mimir | Raft RPC Wire Codec | Internal/Infra | `RaftCodecTest#roundTripsThroughStreams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change` |
+| GIMLE-150 | gimle-mimir | Raft RPC Wire Codec | Internal/Infra | `RaftCodecTest#round_trips_through_streams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change` |
 | GIMLE-151 | gimle-mimir | Atomic Durable File Writes | Internal/Infra | `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back` |
 | GIMLE-154 | gimle-mimir | Replicated Mutation Catalog (StateMutation) | Internal/Infra | `RaftCodecTest#round_trips_role_rolebinding_and_account_mutations_through_a_log_entry`, `#round_trips_an_append_instance_event_mutation_with_and_without_a_cause_summary`, `#round_trips_an_append_audit_event_mutation_allowed_and_denied_with_and_without_scope` |
 | GIMLE-166 | gimle-mimir | Store Node Leader-Only Write Gating | Internal/Infra | `StoreNodeTest#a_non_leader_rejects_a_propose_with_not_leader_and_no_hint_yet`, `#a_non_leader_rejects_a_heartbeat_a_lease_acquire_and_a_lease_release`, `#a_non_leader_rejects_an_add_server_request_with_not_leader` |
 | GIMLE-167 | gimle-mimir | Store Client Connection Timeout Bounds | Internal/Infra | `StoreConnectionTimeoutTest#a_connection_that_accepts_but_never_responds_times_out_instead_of_blocking_forever` |
-| GIMLE-168 | gimle-mimir | Store RPC Wire Codec | Internal/Infra | `StoreCodecTest#roundTripsThroughStreams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash` |
+| GIMLE-168 | gimle-mimir | Store RPC Wire Codec | Internal/Infra | `StoreCodecTest#round_trips_through_streams`, `#round_trips_a_weighted_autoscale_policy_with_every_weight_present`, `#round_trips_an_account_result_carrying_a_password_hash` |
 | GIMLE-177 | gimle-mimir | Shared Domain Binary Codec | Internal/Infra | `DomainCodecTest#a_vessel_spec_round_trips_through_the_wire`, `#an_absent_vessel_spec_round_trips_as_empty`, `#a_deployment_spec_with_a_vessel_round_trips` |
 | GIMLE-178 | gimle-mimir | Store Process Bootstrap with TLS Rotation Ticker | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-179 | gimle-mimir | Store/Raft Metrics Instrumentation | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-180 | gimle-mimir | module-info JPMS Boundary for gimle-mimir | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-197 | gimle-fabric | Fabric Call Timeout Enforcement | Internal/Infra | `FabricClientTest#a_peer_that_accepts_but_never_responds_times_out_within_the_configured_bound`, `#a_refused_connection_fails_fast_without_waiting_out_the_timeout` |
-| GIMLE-198 | gimle-fabric | Fabric Frame Wire Codec | Internal/Infra | `FabricCodecTest#roundTripsThroughStreams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating` |
+| GIMLE-198 | gimle-fabric | Fabric Frame Wire Codec | Internal/Infra | `FabricCodecTest#round_trips_through_streams`, `#round_trips_a_non_empty_tracestate_and_baggage`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_forged_huge_param_count_before_allocating` |
 | GIMLE-199 | gimle-fabric | Cross-JVM Object Marshalling | Internal/Infra | NONE recorded in the baseline |
-| GIMLE-207 | gimle-fabric | SWIM Wire Codec | Internal/Infra | `SwimCodecTest#roundTripsThroughADatagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag` |
+| GIMLE-207 | gimle-fabric | SWIM Wire Codec | Internal/Infra | `SwimCodecTest#round_trips_through_a_datagram`, `#a_forged_huge_piggyback_count_fails_cleanly_instead_of_preallocating`, `#rejects_an_unrecognized_version_before_decoding_the_tag` |
 | GIMLE-208 | gimle-fabric | Service Catalog Delta Wire Codec | Internal/Infra | `ServiceCatalogCodecTest#round_trips_a_catalog_delta`, `#round_trips_an_empty_delta_list`, `#a_forged_huge_delta_count_fails_cleanly_instead_of_preallocating` |
 | GIMLE-209 | gimle-fabric | Reflective Cross-Module Method Dispatch | Internal/Infra | Exercised indirectly through `FabricServiceRegistryInvokeByNameTest`/`FabricServerTest` — NONE dedicated |
 | GIMLE-210 | gimle-fabric | module-info JPMS Boundary for gimle-fabric | Internal/Infra | NONE recorded in the baseline |

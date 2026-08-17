@@ -48,7 +48,7 @@ class VersionTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"1.2", "1.2.3.4", "v1.2.3", "1.2.x", "", "1.02.3", "-1.0.0"})
-  void rejectsMalformedVersionText(String malformed) {
+  void rejects_malformed_version_text(String malformed) {
     assertThrows(IllegalArgumentException.class, () -> Version.parse(malformed));
   }
 
