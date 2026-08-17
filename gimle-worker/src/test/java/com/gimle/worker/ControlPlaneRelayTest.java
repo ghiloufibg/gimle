@@ -48,6 +48,7 @@ class ControlPlaneRelayTest {
     }
     if (socketPath != null) {
       Files.deleteIfExists(socketPath);
+      Files.deleteIfExists(socketPath.getParent());
     }
   }
 

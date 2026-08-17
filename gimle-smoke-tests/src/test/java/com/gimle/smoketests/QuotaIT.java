@@ -98,41 +98,6 @@ class QuotaIT extends GreeterSmokeClusterSupport {
   }
 
   /**
-   * Polls {@code isActive(baseUrl, deploymentName)} every ~100ms for {@code window}, failing only
-   * if a false read fails to recover within a short confirmation window -- tolerating an isolated
-   * stale read the same way the loop this replaced did, while still holding continuously rather
-   * than sleeping blind and sampling once at the end.
-   */
-  private void assertStaysActive(
-      String baseUrl, String deploymentName, Duration window, String message)
-      throws InterruptedException {
-    long deadlineNanos = System.nanoTime() + window.toNanos();
-    do {
-      if (!isActive(baseUrl, deploymentName)) {
-        assertTrue(recoversWithin(baseUrl, deploymentName, Duration.ofSeconds(5)), message);
-      }
-      Thread.sleep(100);
-    } while (System.nanoTime() < deadlineNanos);
-  }
-
-  /**
-   * True once {@code isActive(baseUrl, deploymentName)} reads true again within {@code window} --
-   * the confirmation window a transient stale read is given before {@link #assertStaysActive}
-   * concludes a real eviction happened.
-   */
-  private boolean recoversWithin(String baseUrl, String deploymentName, Duration window)
-      throws InterruptedException {
-    long deadlineNanos = System.nanoTime() + window.toNanos();
-    do {
-      if (isActive(baseUrl, deploymentName)) {
-        return true;
-      }
-      Thread.sleep(500);
-    } while (System.nanoTime() < deadlineNanos);
-    return false;
-  }
-
-  /**
    * The admission-time counterpart to the flag-but-don't-evict scenario above. {@code
    * TenantQuotaPlugin} is a real, already-implemented 409 rejection at submission time -- distinct
    * from {@code QuotaReconciler}'s own after-the-fact flag for a quota lowered *below* what's

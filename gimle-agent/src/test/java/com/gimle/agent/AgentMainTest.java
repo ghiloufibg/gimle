@@ -664,37 +664,42 @@ class AgentMainTest {
             "orders-service", 5, v2.id(), "/does/not/matter.jar", Optional.empty());
 
     Path socketPath = Files.createTempDirectory("gimle-rename-notify").resolve("worker.sock");
-    try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
-      server.bind(UnixDomainSocketAddress.of(socketPath));
-      try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
-        workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
-        try (SocketChannel agentRaw = server.accept()) {
-          WorkerConnection workerSide = new WorkerConnection(workerRaw);
-          WorkerConnection agentSide = new WorkerConnection(agentRaw);
-          SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, agentSide);
-          Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-          supervised.put("orders-service#5", instance);
-          Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
+    try {
+      try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+        server.bind(UnixDomainSocketAddress.of(socketPath));
+        try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
+          workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
+          try (SocketChannel agentRaw = server.accept()) {
+            WorkerConnection workerSide = new WorkerConnection(workerRaw);
+            WorkerConnection agentSide = new WorkerConnection(agentRaw);
+            SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, agentSide);
+            Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+            supervised.put("orders-service#5", instance);
+            Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
 
-          AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
-          AgentMain.renameInPlace(
-              "orders-service#1",
-              renamed,
-              instance,
-              supervised,
-              instanceShippers,
-              new CapacityTracker(1_000_000_000L, 4000L));
+            AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
+            AgentMain.renameInPlace(
+                "orders-service#1",
+                renamed,
+                instance,
+                supervised,
+                instanceShippers,
+                new CapacityTracker(1_000_000_000L, 4000L));
 
-          Optional<ControlMessage> received = workerSide.receive();
-          assertTrue(received.isPresent());
-          assertTrue(received.get() instanceof ControlMessage.RenameInstance);
-          ControlMessage.RenameInstance renameMessage =
-              (ControlMessage.RenameInstance) received.get();
-          assertEquals(v2.id(), renameMessage.id());
-          assertEquals("orders-service", renameMessage.deploymentName());
-          assertEquals(1, renameMessage.instanceIndex());
+            Optional<ControlMessage> received = workerSide.receive();
+            assertTrue(received.isPresent());
+            assertTrue(received.get() instanceof ControlMessage.RenameInstance);
+            ControlMessage.RenameInstance renameMessage =
+                (ControlMessage.RenameInstance) received.get();
+            assertEquals(v2.id(), renameMessage.id());
+            assertEquals("orders-service", renameMessage.deploymentName());
+            assertEquals(1, renameMessage.instanceIndex());
+          }
         }
       }
+    } finally {
+      Files.deleteIfExists(socketPath);
+      Files.deleteIfExists(socketPath.getParent());
     }
   }
 }

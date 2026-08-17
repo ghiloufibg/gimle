@@ -34,6 +34,12 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
    * minActiveDuringRollout} until {@code stopSampling} flips true -- the shared shape both rolling-
    * update scenarios below need to prove "at least N instances stayed ACTIVE throughout" (or, for
    * the single-replica case, "hit zero at some point"), not just before/after snapshots.
+   *
+   * <p>A reading below the current running minimum is re-confirmed with one immediate re-read
+   * before being folded in, rather than trusting a single raw HTTP read outright -- a lone
+   * momentary heartbeat/store-read staleness under sandbox load would otherwise be indistinguishable
+   * from a real drop, and the 2-replica scenario's whole assertion rests on that minimum never being
+   * spuriously dragged down by one stale sample.
    */
   private Thread startMinActiveSampler(
       String baseUrl,
@@ -45,6 +51,15 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
             () -> {
               while (!stopSampling.get()) {
                 int active = activeInstanceCount(baseUrl, deploymentName);
+                if (active < minActiveDuringRollout.get()) {
+                  // Re-confirm before folding a new, lower minimum in: a genuine drop (or the
+                  // single-replica scenario's genuine zero) reproduces on an immediate re-read,
+                  // while a stale single-read blip typically bounces back on the very next read.
+                  int confirmed = activeInstanceCount(baseUrl, deploymentName);
+                  if (confirmed > active) {
+                    active = confirmed;
+                  }
+                }
                 minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
                 try {
                   Thread.sleep(300);

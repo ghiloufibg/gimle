@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -85,14 +86,19 @@ public final class HilmirTestJarBuilder {
 
   /** Compiles one standalone class (no module-info) and returns its raw {@code .class} bytes. */
   public static byte[] compileClass(String binaryName, String javaSource) {
+    Path classesDir = null;
     try {
-      Path classesDir = Files.createTempDirectory("gimle-hilmir-test-classes-");
+      classesDir = Files.createTempDirectory("gimle-hilmir-test-classes-");
       HilmirTestJarBuilder builder = new HilmirTestJarBuilder().withClass(binaryName, javaSource);
       builder.compile(classesDir);
       Path classFile = classesDir.resolve(binaryName.replace('.', '/') + ".class");
       return Files.readAllBytes(classFile);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
+    } finally {
+      if (classesDir != null) {
+        deleteRecursively(classesDir);
+      }
     }
   }
 
@@ -118,9 +124,10 @@ public final class HilmirTestJarBuilder {
   }
 
   public Path build(Path outputDir, String jarFileName) {
+    Path classesDir = null;
     try {
       Files.createDirectories(outputDir);
-      Path classesDir = Files.createTempDirectory("gimle-hilmir-test-classes-");
+      classesDir = Files.createTempDirectory("gimle-hilmir-test-classes-");
       if (!sources.isEmpty() || moduleInfoSource != null) {
         compile(classesDir);
       }
@@ -129,6 +136,13 @@ public final class HilmirTestJarBuilder {
       return jarPath;
     } catch (IOException e) {
       throw new UncheckedIOException(e);
+    } finally {
+      // Compiler output, not the jar itself -- nothing keeps this directory open once the jar has
+      // been written, unlike the module-layer jars this produces (kept around under a deliberate
+      // @TempDir(NEVER) at call sites, since a live classloader may still hold one open).
+      if (classesDir != null) {
+        deleteRecursively(classesDir);
+      }
     }
   }
 
@@ -196,6 +210,25 @@ public final class HilmirTestJarBuilder {
         jarOut.write(extra.getValue());
         jarOut.closeEntry();
       }
+    }
+  }
+
+  private static void deleteRecursively(Path root) {
+    if (!Files.exists(root)) {
+      return;
+    }
+    try (var walk = Files.walk(root)) {
+      walk.sorted(Comparator.reverseOrder())
+          .forEach(
+              path -> {
+                try {
+                  Files.deleteIfExists(path);
+                } catch (IOException e) {
+                  throw new UncheckedIOException(e);
+                }
+              });
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
   }
 

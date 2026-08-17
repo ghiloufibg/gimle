@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.jar.Attributes;
@@ -77,13 +78,40 @@ public final class TestModuleBuilder {
   }
 
   public Path build(Path outputDir, String jarFileName) {
+    Path classesDir = null;
     try {
       Files.createDirectories(outputDir);
-      Path classesDir = Files.createTempDirectory("gimle-test-classes-");
+      classesDir = Files.createTempDirectory("gimle-test-classes-");
       compile(classesDir);
       Path jarPath = outputDir.resolve(jarFileName);
       writeJar(classesDir, jarPath);
       return jarPath;
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    } finally {
+      // Compiler output, not the jar itself -- unlike the module-layer jar this produces (kept
+      // around under a deliberate @TempDir(NEVER) at the call site, since a live classloader may
+      // still hold it open), nothing keeps this directory open once the jar has been written.
+      if (classesDir != null) {
+        deleteRecursively(classesDir);
+      }
+    }
+  }
+
+  private static void deleteRecursively(Path root) {
+    if (!Files.exists(root)) {
+      return;
+    }
+    try (var walk = Files.walk(root)) {
+      walk.sorted(Comparator.reverseOrder())
+          .forEach(
+              path -> {
+                try {
+                  Files.deleteIfExists(path);
+                } catch (IOException e) {
+                  throw new UncheckedIOException(e);
+                }
+              });
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

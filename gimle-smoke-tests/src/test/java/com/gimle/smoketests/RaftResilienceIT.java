@@ -168,8 +168,15 @@ class RaftResilienceIT extends GreeterSmokeClusterSupport {
     killWithDescendants(cluster.storeProcesses().get(0));
     killed.set(true);
 
-    // Keep writing well past any realistic re-election/recovery window.
-    Thread.sleep(Duration.ofSeconds(30).toMillis());
+    // Wait for the surviving majority to actually resume serving writes (not just outlast the
+    // pre-kill batch), then hold a short margin past that first post-kill acknowledgment so a few
+    // more real writes land -- rather than always waiting out a flat 30s regardless of how quickly
+    // the cluster actually recovers. 30s remains the outer bound if recovery never happens at all.
+    long recoveryDeadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+    while (acknowledgedAfterKill.get() < 1 && System.nanoTime() < recoveryDeadline) {
+      Thread.sleep(200);
+    }
+    Thread.sleep(Duration.ofSeconds(5).toMillis());
     stopWriting.set(true);
     writer.join(Duration.ofSeconds(10).toMillis());
 

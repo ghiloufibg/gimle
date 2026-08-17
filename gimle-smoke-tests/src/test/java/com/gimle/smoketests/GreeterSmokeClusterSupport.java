@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -2504,6 +2505,49 @@ abstract class GreeterSmokeClusterSupport {
     } catch (Exception e) {
       return false;
     }
+  }
+
+  /**
+   * Polls {@code condition} every ~100ms for {@code window}, failing only if a false read fails to
+   * recover within {@code confirmWithin} -- tolerating a single isolated stale/transient read (a
+   * momentary heartbeat/store-read blip under sandbox load, not a real state change) rather than
+   * treating any one-off false reading in the middle of a long-held assertion as conclusive. Shared
+   * by every real-cluster scenario asserting "this condition stays true (or false) throughout a
+   * window," not just a before/after snapshot.
+   */
+  void assertConditionHoldsThroughout(
+      BooleanSupplier condition, Duration window, Duration confirmWithin, String message)
+      throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + window.toNanos();
+    do {
+      if (!condition.getAsBoolean() && !recoversWithin(condition, confirmWithin)) {
+        fail(message);
+      }
+      Thread.sleep(100);
+    } while (System.nanoTime() < deadlineNanos);
+  }
+
+  /**
+   * True once {@code condition} reads true again within {@code window} -- the confirmation window a
+   * transient false read is given before {@link #assertConditionHoldsThroughout} concludes the
+   * condition genuinely stopped holding.
+   */
+  boolean recoversWithin(BooleanSupplier condition, Duration window) throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + window.toNanos();
+    do {
+      if (condition.getAsBoolean()) {
+        return true;
+      }
+      Thread.sleep(500);
+    } while (System.nanoTime() < deadlineNanos);
+    return false;
+  }
+
+  /** {@link #assertConditionHoldsThroughout} specialized to "deployment stays fully ACTIVE." */
+  void assertStaysActive(String baseUrl, String deploymentName, Duration window, String message)
+      throws InterruptedException {
+    assertConditionHoldsThroughout(
+        () -> isActive(baseUrl, deploymentName), window, Duration.ofSeconds(5), message);
   }
 
   /**

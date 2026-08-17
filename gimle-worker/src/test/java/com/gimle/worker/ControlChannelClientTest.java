@@ -1,8 +1,8 @@
 package com.gimle.worker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.ControlMessage;
 import java.io.BufferedReader;
@@ -49,6 +49,7 @@ class ControlChannelClientTest {
     }
     if (socketPath != null) {
       Files.deleteIfExists(socketPath);
+      Files.deleteIfExists(socketPath.getParent());
     }
   }
 
@@ -71,7 +72,7 @@ class ControlChannelClientTest {
     try (ControlChannelClient client =
         ControlChannelClient.connectWithRetry(
             UnixDomainSocketAddress.of(socketPath), Duration.ofMillis(30), Duration.ofSeconds(5))) {
-      assertTrue(true, "connected without throwing");
+      assertNotNull(client);
     } finally {
       listenerThread.join(Duration.ofSeconds(5).toMillis());
     }
