@@ -41,7 +41,11 @@ public final class ControlChannelServer implements AutoCloseable {
     Files.deleteIfExists(socketPath);
     // The socket file's parent is a dedicated temp directory created solely to hold it
     // (Files.createTempDirectory("gimle-worker-uds-")) -- empty by the time we get here, so it's
-    // safe to remove too rather than leaking one directory per worker start.
-    Files.deleteIfExists(socketPath.getParent());
+    // safe to remove too rather than leaking one directory per worker start. getParent() is null
+    // only for a root path, which socketPath (always inside that temp directory) never is.
+    Path parent = socketPath.getParent();
+    if (parent != null) {
+      Files.deleteIfExists(parent);
+    }
   }
 }
