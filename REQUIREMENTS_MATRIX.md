@@ -54,7 +54,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-042 | Stable failure-signature hashing for flaky-test clustering | Internal/Infra / Testing | Complete | Yes |
 | GIMLE-043 | Module dependency resolution with cycle detection | Module System | Complete | Yes |
 | GIMLE-044 | Module registry (install bookkeeping, idempotent re-install, content-mismatch rejection) | Module System | Complete | Yes |
-| GIMLE-045 | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED,… | Module System | Complete | Yes |
+| GIMLE-045 | Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED) | Module System | Complete | Yes |
 | GIMLE-046 | Dynamic per-module-version JPMS ModuleLayer construction | Module System | Complete | Yes |
 | GIMLE-047 | Unnamed-module readability grant for bundled hooks/probes | Module System / Internal-Infra | Complete | Yes |
 | GIMLE-048 | Classloader leak detection via PhantomReference | Module System / Internal-Infra | Complete | Yes |
@@ -62,7 +62,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-050 | Best-effort leak retaining-path attribution via JFR OldObjectSample | Module System / Internal-Infra | Complete | Yes |
 | GIMLE-051 | Module lifecycle hooks (reflectively instantiated, JPMS-exported) | Module System | Complete | Yes |
 | GIMLE-052 | Job-kind run-to-completion hooks | Module System | Complete | Yes |
-| GIMLE-053 | Module context API (in-flight tracking, service lookup, config, data dir, control-plane r… | Module System | Complete | Yes |
+| GIMLE-053 | Module context API (in-flight tracking, service lookup, config, data dir, control-plane relay) | Module System | Complete | Yes |
 | GIMLE-054 | In-worker round-robin service registry with version-aware cutover | Module System | Complete | Yes |
 | GIMLE-055 | Cross-tier name-driven service invocation | Module System | Complete | Yes |
 | GIMLE-056 | Same-worker cross-module service publish/discover | Module System | Complete | Yes |
@@ -98,7 +98,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-086 | Per-module bounded virtual-thread scheduler | Worker Supervision | Complete | Yes |
 | GIMLE-087 | OpenTelemetry context propagation across virtual-thread dispatch | Observability | Complete | Yes |
 | GIMLE-088 | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | Complete | Yes |
-| GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget e… | Worker Supervision / Self-Healing | Complete | Yes |
+| GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion | Worker Supervision / Self-Healing | Complete | Yes |
 | GIMLE-090 | Readiness-driven service registry availability (without restart) | Health / Fabric | Complete | Yes |
 | GIMLE-091 | Stopping/Uninstalled teardown of scheduler, probes, and service registry | Worker Supervision / Module System | Complete | Yes |
 | GIMLE-092 | Job-kind module execution (run-to-completion, not probed) | Module System | Complete | Yes |
@@ -140,7 +140,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-128 | Merged node-level SYSTEM log view | Observability | Complete | None |
 | GIMLE-129 | `hs_err_pid*.log` crash-dump listing and fetch | Observability / Cgroup Management | Complete | Yes |
 | GIMLE-130 | Node-agent log/metrics shipping to Muninn (own + supervised) | Observability | Complete | Yes |
-| GIMLE-131 | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-val… | Fabric / Config | Complete | Yes |
+| GIMLE-131 | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | Complete | Yes |
 | GIMLE-132 | Node capacity/instance-observation heartbeat reporting | Observability / Worker Supervision | Complete | Yes |
 | GIMLE-133 | Instance-event forwarding (worker-reported and agent-originated) to control plane | Observability | Complete | Partial |
 | GIMLE-134 | Node placement-label registration | Config | Complete | None |
@@ -398,7 +398,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-386 | Operator account management | CLI / Security | Complete | Yes |
 | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | CLI / Security | Complete | Partial |
 | GIMLE-388 | Dual table/JSON output formatting | CLI / Internal-Infra | Complete | Yes |
-| GIMLE-389 | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware H… | Internal-Infra | Complete | Yes |
+| GIMLE-389 | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client | Internal-Infra | Complete | Yes |
 | GIMLE-390 | Topology validation (`hilmir validate`) | Release Management | Complete | Yes |
 | GIMLE-391 | Cluster launch planning (`hilmir plan`) | Release Management | Complete | Yes |
 | GIMLE-392 | Real multi-process cluster bring-up (`hilmir up`) | Release Management | Complete | Yes |
@@ -406,7 +406,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-394 | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Release Management / Security | Complete | Yes |
 | GIMLE-395 | Raft store membership add (`hilmir store add`) | Release Management | Complete | Yes |
 | GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Release Management | Complete | Yes |
-| GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgra… | Release Management | Complete | Yes |
+| GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Release Management | Complete | Yes |
 | GIMLE-398 | Bundle-based fresh release deployment (`hilmir deploy`) | Release Management | Complete | Yes |
 | GIMLE-399 | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Release Management | Complete | Yes |
 | GIMLE-400 | Release rollback to a prior revision (`hilmir rollback`) | Release Management | Complete | Yes |
@@ -429,7 +429,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-417 | TCP-connect readiness polling | Internal/Infra | Complete | Yes |
 | GIMLE-418 | `mvn gimle:agent` — spawn a real node agent (plus its worker command tail) | Build Tooling | Complete | None |
 | GIMLE-419 | `mvn gimle:bootstrap` — full local-dev cluster orchestration in one foreground command | Build Tooling | Complete | None |
-| GIMLE-420 | Process-launcher Maven goals for individual platform processes (`controlplane`/`store`/`f… | Build Tooling | Complete | None |
+| GIMLE-420 | Process-launcher Maven goals for individual platform processes (`controlplane`/`store`/`fafnir`/`muninn`/`andvari`/`tls-init`) | Build Tooling | Complete | None |
 | GIMLE-421 | `mvn gimle:deploy` — apply a deployment manifest via a real CLI subprocess | Build Tooling | Complete | None |
 | GIMLE-422 | `mvn gimle:doctor` — run hilmir doctor against the invoking project's own built jar | Build Tooling | Complete | Yes |
 | GIMLE-423 | `mvn gimle:init` — scaffold manifests for the invoking project's own built jar | Build Tooling | Complete | Yes |
@@ -443,7 +443,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-431 | Internal — Aether-based cross-module runtime classpath resolution | Internal/Infra | Complete | None |
 | GIMLE-432 | Internal — host-matching java/mvn executable resolution and subprocess supervision | Internal/Infra | Complete | Yes |
 | GIMLE-433 | Internal — git commit/branch capture for run identification | Internal/Infra | Complete | None |
-| GIMLE-434 | Internal — surefire report discovery and totals aggregation, including flaky-testcase cou… | Internal/Infra | Complete | Yes |
+| GIMLE-434 | Internal — surefire report discovery and totals aggregation, including flaky-testcase counting | Internal/Infra | Complete | Yes |
 | GIMLE-435 | Operator session login / logout | Web Console / Auth | Complete | Yes |
 | GIMLE-436 | Session bootstrap & 401 handling | Web Console / Auth | Complete | Yes |
 | GIMLE-437 | Cluster Overview dashboard | Web Console / Frontend | Complete | None |
@@ -534,7 +534,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-522 | Multi-tenant quota enforcement (flag-not-evict, and admission rejection) | Cluster Validation | Complete | Yes |
 | GIMLE-523 | Circuit breaker excludes a consistently-failing replica | Cluster Validation | Complete | Yes |
 | GIMLE-524 | Gossip/SWIM failure detection across real separate agent processes | Cluster Validation | Complete | Yes |
-| GIMLE-525 | Observability data survives agent death (Muninn fallback) and control-plane metrics round… | Cluster Validation | Complete | Yes |
+| GIMLE-525 | Observability data survives agent death (Muninn fallback) and control-plane metrics round-trip | Cluster Validation | Complete | Yes |
 | GIMLE-526 | Worker-tier metrics/trace relay to Muninn via the agent | Cluster Validation | Complete | Yes |
 | GIMLE-527 | Artifact registry (Andvari) resolution path end to end | Cluster Validation | Complete | Yes |
 | GIMLE-528 | External HTTP request reaches a fabric service through the gateway | Cluster Validation | Complete | Yes |
@@ -1125,7 +1125,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given two failure messages differing only in an embedded port number, When both hashed via FailureSignature.of, Then identical signature; a genuinely different message produces a different one.
   ```
 
-
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1401,7 +1400,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.
   ```
 
-
 ### gimle-os
 
 #### GIMLE-064 — Pluggable resource-limiter abstraction
@@ -1481,7 +1479,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a volume request exceeding the target filesystem's usable space, When LocalDiskVolumeManager.allocate is called, Then GimleVolumeException reporting insufficient space; allocating twice for the same index is idempotent.
   ```
-
 
 ### gimle-pki
 
@@ -1601,7 +1598,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.
   ```
-
 
 ### gimle-worker
 
@@ -1982,7 +1978,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When the worker loads the module's ModuleLayer and instantiates those classes
   Then they cast cleanly against this JVM's own platform interface types, thanks to explicit Module.addReads granted by ModuleLayerFactory
   ```
-
 
 ### gimle-agent
 
@@ -2596,7 +2591,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And exports only com.gimle.agent
   ```
 
-
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -3184,7 +3178,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported.
   ```
 
-
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -3576,7 +3569,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given the gimle-fabric module descriptor; When gimle-worker requires com.gimle.fabric; Then it can access cluster/catalog/registry/transport/balance/breaker/trace, nothing unexported.
   ```
-
 
 ### gimle-controlplane
 
@@ -4425,7 +4417,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a deployment has 3 ready instances reporting different request rates; When GET /metrics; Then a per-deployment row with the averaged rates is returned.
   ```
 
-
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -4700,7 +4691,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given module-info.java for com.gimle.fafnir; When compiled/linked; Then only com.gimle.fafnir.secret and com.gimle.fafnir are exported.
   ```
-
 
 ### gimle-andvari
 
@@ -4990,7 +4980,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given Andvari is running; When GET /status; Then process-level status is returned with no RBAC check.
   ```
 
-
 ### gimle-muninn
 
 #### GIMLE-319 — Node platform-log ingest
@@ -5004,9 +4993,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer in plaintext mode
-    When a client POSTs a valid NDJSON batch to /ingest/logs/nodes/{nodeId}/{category}
-    Then the response is 200 with the count of appended lines
-    And each line becomes readable back from /logs/nodes/{nodeId}/{category}
+  When a client POSTs a valid NDJSON batch to /ingest/logs/nodes/{nodeId}/{category}
+  Then the response is 200 with the count of appended lines
+  And each line becomes readable back from /logs/nodes/{nodeId}/{category}
   ```
 
 #### GIMLE-320 — Instance-log ingest
@@ -5020,9 +5009,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer
-    When a client POSTs an NDJSON batch to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category}
-    Then the response is 200
-    And the lines are readable back from /logs/instances/{deploymentName}/{instanceIndex}/{category}
+  When a client POSTs an NDJSON batch to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category}
+  Then the response is 200
+  And the lines are readable back from /logs/instances/{deploymentName}/{instanceIndex}/{category}
   ```
 
 #### GIMLE-321 — Node/instance log read with cursor paging
@@ -5036,9 +5025,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given logs previously ingested for a nodeId/category
-    When a client issues GET /logs/nodes/{nodeId}/{category}?cursor=...&limit=...
-    Then the response returns up to `limit` lines older than `cursor`, oldest-first
-    And includes olderCursor/newerCursor for continued paging
+  When a client issues GET /logs/nodes/{nodeId}/{category}?cursor=...&limit=...
+  Then the response returns up to `limit` lines older than `cursor`, oldest-first
+  And includes olderCursor/newerCursor for continued paging
   ```
 
 #### GIMLE-322 — `follow=true` rejection on Muninn reads
@@ -5052,8 +5041,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer
-    When a client requests GET /logs/nodes/{nodeId}/{category}?follow=true
-    Then the response is 400 explaining Muninn only serves shipped history
+  When a client requests GET /logs/nodes/{nodeId}/{category}?follow=true
+  Then the response is 400 explaining Muninn only serves shipped history
   ```
 
 #### GIMLE-323 — Metrics ingest
@@ -5067,9 +5056,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer
-    When a client POSTs an NDJSON batch of counter/timer lines to /ingest/metrics/{processKind}/{processId}
-    Then the response is 200
-    And the measurements (including percentiles, when present) round-trip exactly on read
+  When a client POSTs an NDJSON batch of counter/timer lines to /ingest/metrics/{processKind}/{processId}
+  Then the response is 200
+  And the measurements (including percentiles, when present) round-trip exactly on read
   ```
 
 #### GIMLE-324 — Metrics read
@@ -5096,9 +5085,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer
-    When a client POSTs an NDJSON batch of span lines to /ingest/traces/{processKind}/{processId}
-    Then the response is 200
-    And span fields (traceId, spanId, name, custom attributes like http.method) round-trip on read
+  When a client POSTs an NDJSON batch of span lines to /ingest/traces/{processKind}/{processId}
+  Then the response is 200
+  And span fields (traceId, spanId, name, custom attributes like http.method) round-trip on read
   ```
 
 #### GIMLE-326 — Traces read
@@ -5125,10 +5114,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given lines timestamped across two different UTC calendar days
-    When they are appended to the same subtree
-    Then two separate day files are created
-    And a late-arriving (out-of-order) line appends into the correct existing day file
-    And a subsequent read returns all lines sorted oldest-first regardless of append/arrival order
+  When they are appended to the same subtree
+  Then two separate day files are created
+  And a late-arriving (out-of-order) line appends into the correct existing day file
+  And a subsequent read returns all lines sorted oldest-first regardless of append/arrival order
   ```
 
 #### GIMLE-328 — All-or-nothing batch validation on ingest
@@ -5142,9 +5131,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a batch containing one valid line and one line missing "timestamp"
-    When the batch is appended
-    Then the whole append throws IllegalArgumentException
-    And nothing from the batch is written to disk
+  When the batch is appended
+  Then the whole append throws IllegalArgumentException
+  And nothing from the batch is written to disk
   ```
 
 #### GIMLE-329 — Windows-safe on-disk path sanitization for colon-bearing processId
@@ -5158,9 +5147,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a subtreePath containing a literal colon (e.g. "metrics/CONTROLPLANE/127.0.0.1:8080")
-    When lines are appended and then read back
-    Then the write succeeds by substituting "_" for ":" in the on-disk directory name only
-    And the returned data's processId (from the URL, never the directory name) is unchanged
+  When lines are appended and then read back
+  Then the write succeeds by substituting "_" for ":" in the on-disk directory name only
+  And the returned data's processId (from the URL, never the directory name) is unchanged
   ```
 
 #### GIMLE-330 — Path-segment validation / directory-traversal defense
@@ -5174,8 +5163,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a request path with a segment like "..%2F..%2Fetc"
-    When it is decoded and matched against PATH_SEGMENT
-    Then the request is rejected with 400 before any filesystem access happens
+  When it is decoded and matched against PATH_SEGMENT
+  Then the request is rejected with 400 before any filesystem access happens
   ```
 
 #### GIMLE-331 — Age-based retention sweep
@@ -5189,10 +5178,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a day file older than the configured retentionDays
-    When the retention sweep runs
-    Then that file is deleted
-    And a day file within the window is left untouched
-    And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op
+  When the retention sweep runs
+  Then that file is deleted
+  And a day file within the window is left untouched
+  And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op
   ```
 
 #### GIMLE-332 — Plaintext-default transport with loud unauthenticated-mode warning
@@ -5206,9 +5195,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given gimle.transport.protocol is unset
-    When MuninnMain starts
-    Then MuninnServer binds a plain HttpServer
-    And a WARN log line states every /ingest/* and read call is unauthenticated
+  When MuninnMain starts
+  Then MuninnServer binds a plain HttpServer
+  And a WARN log line states every /ingest/* and read call is unauthenticated
   ```
 
 #### GIMLE-333 — mTLS transport mode
@@ -5222,8 +5211,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given gimle.transport.protocol=tls and valid cert/key/CA files
-    When a client with a CA-signed leaf certificate connects
-    Then the HTTPS request succeeds and reports transportProtocol=TLS
+  When a client with a CA-signed leaf certificate connects
+  Then the HTTPS request succeeds and reports transportProtocol=TLS
   ```
 
 #### GIMLE-334 — Zero-downtime TLS material reload on certificate rotation
@@ -5237,8 +5226,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer in TLS mode with an established client connection
-    When the certificate/key files are overwritten and reloadTlsMaterial() is called
-    Then a brand-new connection at the same port succeeds against the reloaded listener
+  When the certificate/key files are overwritten and reloadTlsMaterial() is called
+  Then a brand-new connection at the same port succeeds against the reloaded listener
   ```
 
 #### GIMLE-335 — Node-identity check on node-log ingest
@@ -5252,8 +5241,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given TLS mode and a client certificate with CN "node-x"
-    When it POSTs to /ingest/logs/nodes/node-y/PLATFORM
-    Then the request is rejected 403 (certificate identity does not match nodeId)
+  When it POSTs to /ingest/logs/nodes/node-y/PLATFORM
+  Then the request is rejected 403 (certificate identity does not match nodeId)
   ```
 
 #### GIMLE-336 — Instance-owner check on instance-log ingest
@@ -5267,8 +5256,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given TLS mode and StoreClient.listAssignments() has no assignment matching (deploymentName, instanceIndex, callerNodeId)
-    When the caller POSTs to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category}
-    Then the request is rejected 403
+  When the caller POSTs to /ingest/logs/instances/{deploymentName}/{instanceIndex}/{category}
+  Then the request is rejected 403
   ```
 
 #### GIMLE-337 — Verified-certificate-presence check on metrics/traces ingest
@@ -5282,8 +5271,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given TLS mode
-    When a request to /ingest/metrics/{processKind}/{processId} arrives with no verifiable peer certificate
-    Then it is rejected 403 ("no verified client certificate")
+  When a request to /ingest/metrics/{processKind}/{processId} arrives with no verifiable peer certificate
+  Then it is rejected 403 ("no verified client certificate")
   ```
 
 #### GIMLE-338 — Read surface has no RBAC/authorization re-check (documented-vs-actual gap)
@@ -5297,8 +5286,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer (plaintext or TLS)
-    When any client issues GET /logs/nodes/{nodeId}/{category} (or /metrics/*, /traces/*, /logs/instances/*)
-    Then the request is served with no principal/authorization check of any kind
+  When any client issues GET /logs/nodes/{nodeId}/{category} (or /metrics/*, /traces/*, /logs/instances/*)
+  Then the request is served with no principal/authorization check of any kind
   ```
 
 #### GIMLE-339 — `/status` operational endpoint
@@ -5312,11 +5301,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running MuninnServer
-    When GET /status is issued
-    Then it returns 200 with uptimeSeconds and transportProtocol
-    And a non-GET method is rejected with 405
+  When GET /status is issued
+  Then it returns 200 with uptimeSeconds and transportProtocol
+  And a non-GET method is rejected with 405
   ```
-
 
 ### gimle-observability
 
@@ -5331,9 +5319,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given no tracer provider has been installed yet in this JVM
-    When GimleTracing.installDefault() is called (even multiple times)
-    Then a working SdkTracerProvider using LoggingSpanExporter/SimpleSpanProcessor is installed exactly once
-    And GlobalOpenTelemetry exposes it
+  When GimleTracing.installDefault() is called (even multiple times)
+  Then a working SdkTracerProvider using LoggingSpanExporter/SimpleSpanProcessor is installed exactly once
+  And GlobalOpenTelemetry exposes it
   ```
 
 #### GIMLE-341 — Configurable, batched span exporter installation
@@ -5347,8 +5335,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a custom SpanExporter (e.g. a capturing test double or MuninnSpanExporter)
-    When GimleTracing.install(exporter) is called
-    Then a real span created afterward reaches that exporter
+  When GimleTracing.install(exporter) is called
+  Then a real span created afterward reaches that exporter
   ```
 
 #### GIMLE-342 — Bounded-wait tracer flush
@@ -5362,9 +5350,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a tracer installed with a BatchSpanProcessor and a pending unexported span
-    When GimleTracing.flush() is called
-    Then the span is exported before the call returns (bounded to 2 seconds)
-    And calling flush() before any install is a no-op
+  When GimleTracing.flush() is called
+  Then the span is exported before the call returns (bounded to 2 seconds)
+  And calling flush() before any install is a no-op
   ```
 
 #### GIMLE-343 — Periodic log-file shipping to Muninn
@@ -5378,9 +5366,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an active log file with new lines since the last shipped cursor
-    When a shipping tick runs and Muninn accepts the batch (2xx)
-    Then the cursor advances to the last shipped line's timestamp
-    But when the POST fails, the cursor does not advance, and the same lines are retried next tick
+  When a shipping tick runs and Muninn accepts the batch (2xx)
+  Then the cursor advances to the last shipped line's timestamp
+  But when the POST fails, the cursor does not advance, and the same lines are retried next tick
   ```
 
 #### GIMLE-344 — Periodic Micrometer metrics shipping
@@ -5394,8 +5382,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a MeterRegistry with counters/timers
-    When a metrics shipping tick fires
-    Then one NDJSON line per meter is POSTed to Muninn's /ingest/metrics/* path
+  When a metrics shipping tick fires
+  Then one NDJSON line per meter is POSTed to Muninn's /ingest/metrics/* path
   ```
 
 #### GIMLE-345 — One-shot trace-batch and prepared-batch shipping
@@ -5409,9 +5397,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a list of span lines, or a pre-serialized NDJSON body
-    When shipTraceBatch(...)/shipPreparedBatch(...) is called
-    Then exactly one immediate POST is made per configured endpoint, with no periodic ticker started
-    And an empty batch/body is a no-op (no POST made)
+  When shipTraceBatch(...)/shipPreparedBatch(...) is called
+  Then exactly one immediate POST is made per configured endpoint, with no periodic ticker started
+  And an empty batch/body is a no-op (no POST made)
   ```
 
 #### GIMLE-346 — Multi-endpoint best-effort fan-out shipping
@@ -5425,9 +5413,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given two configured Muninn endpoints, one of which is down
-    When a batch is shipped
-    Then the batch still lands on the reachable endpoint
-    And the tick is considered successful (cursor advances) because at least one endpoint accepted it
+  When a batch is shipped
+  Then the batch still lands on the reachable endpoint
+  And the tick is considered successful (cursor advances) because at least one endpoint accepted it
   ```
 
 #### GIMLE-347 — In-memory (non-persisted) log-shipping cursor
@@ -5441,10 +5429,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   (documented tradeoff, not directly assertion-tested as a restart scenario)
-    ```
-    Given a MuninnShipper instance
-    When the owning process restarts
-    Then the next shipping tick re-ships from "nothing shipped yet" (logCursor is a plain field, not persisted)
   ```
 
 #### GIMLE-348 — Micrometer meter → NDJSON codec
@@ -5458,10 +5442,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a registry with a Counter, a Gauge, and a Timer built with publishPercentiles
-    When MeterSnapshotCodec.toNdjson(registry) is called
-    Then each meter becomes one JSON line with name/type/tags/measurements
-    And the Timer's line additionally carries a "percentiles" map
-    And a Timer without percentiles configured omits the "percentiles" key entirely
+  When MeterSnapshotCodec.toNdjson(registry) is called
+  Then each meter becomes one JSON line with name/type/tags/measurements
+  And the Timer's line additionally carries a "percentiles" map
+  And a Timer without percentiles configured omits the "percentiles" key entirely
   ```
 
 #### GIMLE-349 — OpenTelemetry span → NDJSON codec
@@ -5475,9 +5459,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a batch of SpanData with custom attributes (e.g. http.method)
-    When SpanLineCodec.toNdjson(spans) is called
-    Then each span becomes one line with timestamp/traceId/spanId/parentSpanId/name/kind/status
-    And every span attribute is flattened directly onto that same line
+  When SpanLineCodec.toNdjson(spans) is called
+  Then each span becomes one line with timestamp/traceId/spanId/parentSpanId/name/kind/status
+  And every span attribute is flattened directly onto that same line
   ```
 
 #### GIMLE-350 — `MuninnSpanExporter` (OpenTelemetry SDK integration)
@@ -5491,9 +5475,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a MuninnSpanExporter wrapping a MuninnShipper pointed at a real ingest stub
-    When export(spans) is called
-    Then the spans reach the stub's /ingest/traces/* endpoint with the expected shape
-    And export() always returns CompletableResultCode.ofSuccess(), even when shipping throws
+  When export(spans) is called
+  Then the spans reach the stub's /ingest/traces/* endpoint with the expected shape
+  And export() always returns CompletableResultCode.ofSuccess(), even when shipping throws
   ```
 
 #### GIMLE-351 — JFR-based per-module CPU/allocation attribution
@@ -5507,10 +5491,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a module registered under a thread-name prefix "gimle-<module>-<version>-"
-    When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix
-    Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix
-    And events from unregistered/unclassifiable threads are ignored
-    And JFR being unavailable degrades to "no samples" rather than failing the worker
+  When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix
+  Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix
+  And events from unregistered/unclassifiable threads are ignored
+  And JFR being unavailable degrades to "no samples" rather than failing the worker
   ```
 
 #### GIMLE-352 — Per-process tagged Micrometer metrics wrappers
@@ -5524,10 +5508,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a fresh metrics wrapper (e.g. ApiServerMetrics) with an in-memory SimpleMeterRegistry
-    When recordRequest(endpoint, verb, latency, error=true) is called
-    Then the latency Timer, the count Counter, and the errors Counter are all incremented/recorded
-    And requestCount/errorCount return 0 for a tag combination never recorded
-    And different endpoint/verb (or ModuleId, or rpcKind) combinations are tracked independently
+  When recordRequest(endpoint, verb, latency, error=true) is called
+  Then the latency Timer, the count Counter, and the errors Counter are all incremented/recorded
+  And requestCount/errorCount return 0 for a tag combination never recorded
+  And different endpoint/verb (or ModuleId, or rpcKind) combinations are tracked independently
   ```
 
 #### GIMLE-353 — WorkerMetrics thread-count / metaspace gauges
@@ -5541,8 +5525,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given WorkerMetrics.recordThreadCount(moduleId, 5) then recordThreadCount(moduleId, 9)
-    When the gauge is read
-    Then it reflects 9 (the latest value), not the first recorded value
+  When the gauge is read
+  Then it reflects 9 (the latest value), not the first recorded value
   ```
 
 #### GIMLE-354 — Fafnir authz-failure counter (rate-limiting signal)
@@ -5556,9 +5540,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a FafnirMetrics instance
-    When recordAuthzFailure("GET") is called
-    Then gimle.fafnir.authz.failures{verb=GET} increments
-    And authzFailureCount for an unrecorded verb returns 0
+  When recordAuthzFailure("GET") is called
+  Then gimle.fafnir.authz.failures{verb=GET} increments
+  And authzFailureCount for an unrecorded verb returns 0
   ```
 
 #### GIMLE-355 — Muninn endpoint list parsing from config
@@ -5572,11 +5556,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a config value of "host1:9090, host2:9090,,host3:9090"
-    When MuninnShipper.parseEndpoints(value) is called
-    Then it returns ["host1:9090", "host2:9090", "host3:9090"], trimmed and blanks dropped
-    And a null/blank value returns an empty list
+  When MuninnShipper.parseEndpoints(value) is called
+  Then it returns ["host1:9090", "host2:9090", "host3:9090"], trimmed and blanks dropped
+  And a null/blank value returns an empty list
   ```
-
 
 ### gimle-gateway
 
@@ -5591,9 +5574,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a FabricRoute "/greet" bound to interface Greeter, version 1, method "greet", ParamType.STRING
-    When a POST /greet request arrives with body "Gimlé"
-    Then ModuleContext#invokeServiceByName is called with the coerced argument
-    And the response is 200 with the real return value as plain text
+  When a POST /greet request arrives with body "Gimlé"
+  Then ModuleContext#invokeServiceByName is called with the coerced argument
+  And the response is 200 with the real return value as plain text
   ```
 
 #### GIMLE-357 — Fabric-route argument coercion (`ParamType`)
@@ -5607,9 +5590,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a FabricRoute with ParamType.INT
-    When a request body that isn't a valid integer is POSTed
-    Then the response is 400 with a message naming the expected type
-    And a NONE-typed route is only ever served on GET; every other type is served on POST
+  When a request body that isn't a valid integer is POSTed
+  Then the response is 400 with a message naming the expected type
+  And a NONE-typed route is only ever served on GET; every other type is served on POST
   ```
 
 #### GIMLE-358 — Vessel-route HTTP reverse-proxy dispatch
@@ -5623,9 +5606,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a VesselRoute "/api/orders" -> deployment "orders-service", port "HTTP_PORT"
-    When a PUT /api/orders request with a JSON body arrives
-    Then a resolved live instance receives the same method, path, and body unchanged
-    And the gateway's response is exactly that instance's status and body
+  When a PUT /api/orders request with a JSON body arrives
+  Then a resolved live instance receives the same method, path, and body unchanged
+  And the gateway's response is exactly that instance's status and body
   ```
 
 #### GIMLE-359 — Vessel-endpoint resolution with TTL cache
@@ -5639,10 +5622,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a resolved endpoint list cached at time T with TTL=5s
-    When resolve() is called again before T+5s
-    Then no new relay call is made (cache hit)
-    When resolve() is called after T+5s
-    Then a fresh relay call is made
+  When resolve() is called again before T+5s
+  Then no new relay call is made (cache hit)
+  When resolve() is called after T+5s
+  Then a fresh relay call is made
   ```
 
 #### GIMLE-360 — Round-robin load balancing over ready vessel endpoints
@@ -5656,9 +5639,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given two ready endpoints for a deployment
-    When four consecutive requests are dispatched
-    Then both endpoints are hit, alternating in round-robin order
-    And an endpoint missing the named port or missing a host is never selected
+  When four consecutive requests are dispatched
+  Then both endpoints are hit, alternating in round-robin order
+  And an endpoint missing the named port or missing a host is never selected
   ```
 
 #### GIMLE-361 — Stale-cache fallback on endpoint-refresh failure
@@ -5672,9 +5655,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a cached endpoint list from a prior successful refresh
-    When the TTL expires and the next refresh returns 504
-    Then resolve() still returns the previously-cached Ready endpoint, with a warning logged
-    But if no list was ever cached and the refresh fails, resolve() returns Unavailable
+  When the TTL expires and the next refresh returns 504
+  Then resolve() still returns the previously-cached Ready endpoint, with a warning logged
+  But if no list was ever cached and the refresh fails, resolve() returns Unavailable
   ```
 
 #### GIMLE-362 — Vessel-route error surfacing (no ready endpoint / connect failure)
@@ -5688,11 +5671,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a deployment with zero live/ready endpoints
-    When a vessel route is dispatched
-    Then the response is 503
-    Given a resolved endpoint that refuses the TCP connection
-    When the proxy call is attempted
-    Then the response is a clean 502, not an uncaught exception
+  When a vessel route is dispatched
+  Then the response is 503
+  Given a resolved endpoint that refuses the TCP connection
+  When the proxy call is attempted
+  Then the response is a clean 502, not an uncaught exception
   ```
 
 #### GIMLE-363 — Route-table config DSL parsing
@@ -5706,9 +5689,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and "#" comments
-    When GatewayRouteConfig.parse(text) is called
-    Then blank/comment lines are ignored and each remaining line becomes the correct route type
-    And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number
+  When GatewayRouteConfig.parse(text) is called
+  Then blank/comment lines are ignored and each remaining line becomes the correct route type
+  And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number
   ```
 
 #### GIMLE-364 — Duplicate route-path rejection at config-parse time
@@ -5722,8 +5705,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a config with two lines both declaring path "/api/orders" (one FABRIC, one VESSEL, or same-kind duplicates)
-    When GatewayRouteConfig.parse is called
-    Then it throws GatewayConfigException before any route table is built
+  When GatewayRouteConfig.parse is called
+  Then it throws GatewayConfigException before any route table is built
   ```
 
 #### GIMLE-365 — Gateway HTTP server bootstrap via module lifecycle hooks
@@ -5737,10 +5720,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given required config keys gateway.port and gateway.routes are present
-    When onStart(ctx) runs
-    Then an HttpServer binds on 0.0.0.0:{port}, one context per configured route, using a virtual-thread-per-task executor
-    And onStop() stops the server and flips readiness to false
-    And a missing/non-integer gateway.port throws GatewayConfigException before binding
+  When onStart(ctx) runs
+  Then an HttpServer binds on 0.0.0.0:{port}, one context per configured route, using a virtual-thread-per-task executor
+  And onStop() stops the server and flips readiness to false
+  And a missing/non-integer gateway.port throws GatewayConfigException before binding
   ```
 
 #### GIMLE-366 — Gateway liveness and readiness probes
@@ -5754,10 +5737,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given GatewayHooks has not yet run onStart
-    Then GatewayReadinessProbe.isReady() returns false
-    When onStart completes successfully (port bound)
-    Then GatewayReadinessProbe.isReady() returns true
-    And GatewayLivenessProbe.isAlive() always returns true
+  Then GatewayReadinessProbe.isReady() returns false
+  When onStart completes successfully (port bound)
+  Then GatewayReadinessProbe.isReady() returns true
+  And GatewayLivenessProbe.isAlive() always returns true
   ```
 
 #### GIMLE-367 — HTTP status-code error mapping across the dispatcher
@@ -5771,11 +5754,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a request to a path with no configured route
-    Then the response is 404
-    Given a fabric route invoked with the wrong HTTP verb
-    Then the response is 405
-    Given a downstream fabric call that throws
-    Then the response is 502
+  Then the response is 404
+  Given a fabric route invoked with the wrong HTTP verb
+  Then the response is 405
+  Given a downstream fabric call that throws
+  Then the response is 502
   ```
 
 #### GIMLE-368 — Boot-only platform-layer JPMS workaround (`requires static`)
@@ -5789,11 +5772,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   (structural/build-time behavior, not a runtime scenario)
-    ```
-    Given gimle-gateway's module-info.java declares "requires static com.gimle.module"
-    When the module system resolves this module's ModuleLayer
-    Then resolution succeeds even with no gimle-api module present
-    And ModuleLifecycleHooks/LivenessProbe/ReadinessProbe/Json are still reachable at runtime via ModuleLayerFactory's explicit readability grant
   ```
 
 #### GIMLE-369 — Vessel proxy: no TLS, no header forwarding (v1 scope limitation)
@@ -5807,9 +5785,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a vessel target that reads a custom request header
-    When a request carrying that header is proxied through the gateway
-    Then the header is not forwarded to the target (only method/path/body cross)
-    And the connection to the target is always plain HTTP, never HTTPS
+  When a request carrying that header is proxied through the gateway
+  Then the header is not forwarded to the target (only method/path/body cross)
+  And the connection to the target is always plain HTTP, never HTTPS
   ```
 
 #### GIMLE-370 — Fabric route "quiet success" ambiguity for a misrouted service name
@@ -5823,10 +5801,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a FabricRoute naming a service interface nothing currently exports
-    When a request is dispatched to that route
-    Then the response is 200 with an empty body (not an error)
+  When a request is dispatched to that route
+  Then the response is 200 with an empty body (not an error)
   ```
-
 
 ### gimle-cli
 
@@ -6076,7 +6053,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given no --server and no GIMLE_SERVER, When any verb runs, Then "no control-plane server configured" and exit 1, no stack trace; a 307 with no Location reports "control plane leader is currently unknown".
   ```
-
 
 ### gimle-hilmir
 
@@ -6444,7 +6420,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a port that never opens, When awaitPortOpen is called with a short timeout, Then times out with a clear message; an already-listening port returns immediately.
   ```
 
-
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -6667,7 +6642,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a mix of testsuite-rooted and testsuites-wrapped XML files, When SurefireReports.totals is called, Then counts summed correctly; a testcase with a flakyFailure element counts once regardless of rerun attempts; unparseable files are warned about and skipped.
   ```
-
 
 ### gimle-console
 
@@ -7009,7 +6983,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a real control plane with greeter-provider/consumer deployed, When the Playwright suite runs, Then Deployments/Logs screens reflect genuine real state.
   ```
 
-
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -7089,7 +7062,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given an API call fails, When the error propagates to the store, Then `ErrorBanner` renders the message.
   ```
-
 
 ### gimle-andvari-console
 
@@ -7197,7 +7169,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard.
   ```
 
-
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -7290,7 +7261,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given the console is served, When I navigate to any route, Then no authentication check or redirect occurs.
   ```
-
 
 ### gimle-saga
 
@@ -7476,7 +7446,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the console jar is bundled, When SagaMain starts, Then `/console` serves the SPA; absent, `/console` is disabled with a log line.
   ```
 
-
 ### gimle-testkit
 
 #### GIMLE-496 — Poll-until-condition primitive (`Await`)
@@ -7570,7 +7539,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a condition times out or a process dies, When the failure is raised, Then the error message includes the last ClusterView, process liveness, recent harness events, and recent platform events.
   ```
 
-
 ### gimle-examples
 
 #### GIMLE-503 — `hello-module` — minimal inert deployable fixture
@@ -7624,7 +7592,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given greeter-load-generator deployed with load.port via tenant config, When an HTTP GET hits /call, Then it performs a real lookupService(Greeter.class)+greet("Gatling") call and reflects 200/502/503 based on outcome.
   ```
-
 
 ### gimle-smoke-tests
 
@@ -7913,7 +7880,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given greeter-provider and gimle-gateway deployed as a DaemonSet on an edge-labeled node, When an external client hits the gateway, Then the response reflects a real fabric call to greeter-provider.
   ```
-
 
 ### gimle-holmgang
 
@@ -8320,7 +8286,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given `mvn -pl gimle-dist -am install -P dist-with-jre` produced the tarball, When `docker compose -f docker-compose.bundled-jre.yml up` runs, Then every service launches off `jre/<component>/bin/java` from a shared volume, with agent alone using a real eclipse-temurin base image.
   ```
 
-
 ### gimle-dist
 
 #### GIMLE-560 — Standalone CLI distribution archive
@@ -8387,4 +8352,3 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.
   ```
-

@@ -46,20 +46,20 @@ final class RtmCheckConfigTest {
   }
 
   @Test
-  void rtm_file_defaults_to_rtm_md_one_directory_up() {
-    assertEquals(Path.of("..", "RTM.md"), RtmCheckConfig.rtmFile());
+  void rtm_file_defaults_to_rtm_json_one_directory_up() {
+    assertEquals(Path.of("..", "rtm.json"), RtmCheckConfig.rtmFile());
   }
 
   @Test
   void rtm_file_honors_an_override_property() {
-    System.setProperty(FILE_PROPERTY, "/some/other/RTM.md");
-    assertEquals(Path.of("/some/other/RTM.md"), RtmCheckConfig.rtmFile());
+    System.setProperty(FILE_PROPERTY, "/some/other/rtm.json");
+    assertEquals(Path.of("/some/other/rtm.json"), RtmCheckConfig.rtmFile());
   }
 
   @Test
   void rtm_file_falls_back_to_the_default_for_a_blank_override() {
     System.setProperty(FILE_PROPERTY, "   ");
-    assertEquals(Path.of("..", "RTM.md"), RtmCheckConfig.rtmFile());
+    assertEquals(Path.of("..", "rtm.json"), RtmCheckConfig.rtmFile());
   }
 
   @Test

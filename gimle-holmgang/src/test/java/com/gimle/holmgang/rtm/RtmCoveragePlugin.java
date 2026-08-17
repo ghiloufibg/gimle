@@ -13,8 +13,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Registered as a Cucumber plugin on the {@code HolmgangIT} suite (see its own {@code
  * PLUGIN_PROPERTY_NAME} configuration), this is the release-readiness gate: once every scenario in
- * the run has finished, it reads {@code RTM.md} and fails the whole suite if any implemented
- * requirement (i.e. not marked {@code Removed}) still has {@code Coverage: Not Covered} -- unless
+ * the run has finished, it reads {@code rtm.json} and fails the whole suite if any implemented
+ * requirement (i.e. not marked {@code Removed}) still has {@code coverage: "Not Covered"} -- unless
  * explicitly whitelisted via {@link RtmCheckConfig#excludedIds()}. See {@link RtmCheckConfig} for
  * how to disable or configure it.
  *
@@ -46,7 +46,7 @@ public final class RtmCoveragePlugin implements ConcurrentEventListener {
 
     if (!result.unknownExcludedIds().isEmpty()) {
       log.warn(
-          "gimle.holmgang.rtmCheck.exclude names IDs not found among RTM.md's implemented"
+          "gimle.holmgang.rtmCheck.exclude names IDs not found among rtm.json's implemented"
               + " requirements (typo, or the requirement was renumbered/removed): {}",
           result.unknownExcludedIds());
     }
@@ -59,12 +59,12 @@ public final class RtmCoveragePlugin implements ConcurrentEventListener {
       return;
     }
 
-    final String message = formatFailure(document, result);
+    final String message = formatFailure(result);
     log.error(message);
     throw new HolmgangException(message);
   }
 
-  private static String formatFailure(final RtmDocument document, final CoverageResult result) {
+  private static String formatFailure(final CoverageResult result) {
     final StringBuilder sb = new StringBuilder(System.lineSeparator());
     sb.append("RTM check FAILED: ")
         .append(result.notCovered().size())
@@ -78,7 +78,7 @@ public final class RtmCoveragePlugin implements ConcurrentEventListener {
           .append(" -- ")
           .append(entry.feature())
           .append(" [")
-          .append(document.categoryOf(entry.id()))
+          .append(entry.category())
           .append(']')
           .append(System.lineSeparator());
     }

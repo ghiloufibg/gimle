@@ -28,9 +28,10 @@ import org.junit.platform.suite.api.Suite;
  * or the Saga collector.
  *
  * <p>{@code RtmCoveragePlugin} runs last, after every scenario above has already finished: the
- * release-readiness gate that fails this suite if {@code RTM.md} reports any implemented
- * requirement with no Holmgang Cucumber coverage. See its own javadoc and {@code
- * com.gimle.holmgang.rtm.RtmCheckConfig} for how to configure or disable it.
+ * release-readiness gate that fails this suite if {@code rtm.json} (the structured source of truth
+ * {@code RTM.md} is itself rendered from) reports any implemented requirement with no Holmgang
+ * Cucumber coverage. See its own javadoc and {@code com.gimle.holmgang.rtm.RtmCheckConfig} for how
+ * to configure or disable it.
  */
 @Suite
 @IncludeEngines("cucumber")

@@ -9,9 +9,10 @@ import java.util.Set;
  * The one place the RTM coverage gate's own configuration is decided, mirroring {@link
  * com.gimle.holmgang.WorkDirs}'s style: {@code -Dgimle.holmgang.rtmCheck.enabled=true|false}
  * (default {@code true} -- release-readiness is opt-out, not opt-in), an optional {@code
- * -Dgimle.holmgang.rtmCheck.file=<path>} override for where {@code RTM.md} is read from (default
- * {@code ../RTM.md}, relative to this module's own working directory when Maven runs it -- the repo
- * root, one level up from {@code gimle-holmgang} itself), and {@code
+ * -Dgimle.holmgang.rtmCheck.file=<path>} override for where {@code rtm.json} is read from (default
+ * {@code ../rtm.json}, relative to this module's own working directory when Maven runs it -- the
+ * repo root, one level up from {@code gimle-holmgang} itself -- the structured JSON source of truth
+ * {@code RTM.md} is itself rendered from, not the Markdown file), and {@code
  * -Dgimle.holmgang.rtmCheck.exclude=GIMLE-012,GIMLE-018} for known/accepted gaps to whitelist
  * without disabling the whole check.
  */
@@ -20,7 +21,7 @@ public final class RtmCheckConfig {
   private static final String ENABLED_PROPERTY = "gimle.holmgang.rtmCheck.enabled";
   private static final String FILE_PROPERTY = "gimle.holmgang.rtmCheck.file";
   private static final String EXCLUDE_PROPERTY = "gimle.holmgang.rtmCheck.exclude";
-  private static final Path DEFAULT_RTM_FILE = Path.of("..", "RTM.md");
+  private static final Path DEFAULT_RTM_FILE = Path.of("..", "rtm.json");
 
   private RtmCheckConfig() {}
 
