@@ -1,0 +1,13 @@
+# kind: DaemonSet -- an ALTERNATE manifest for the exact same inventory-service jar, deployed
+# instead of (not alongside) statefulset.yaml. Deliberately the same module/code: Kind is a
+# scheduling-and-placement concern the control plane's own reconcilers handle, not something the
+# module's own Java code has to know about or implement differently -- this is the concrete proof
+# of that. Under this manifest, "one instance per matching, uncordoned node" replaces
+# StatefulSet's ordered per-index identity; there is no replicas: field at all here on purpose --
+# DaemonSet's own count is recomputed from live node state every reconcile tick, never stored.
+kind: DaemonSet
+name: inventory-service-daemonset
+module:
+  name: com.example.inventory
+  version: 1.0.0
+artifactPath: gimle-examples/orders-platform/inventory-service/target/inventory-service.jar

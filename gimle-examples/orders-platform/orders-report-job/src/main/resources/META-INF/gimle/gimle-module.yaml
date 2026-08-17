@@ -1,0 +1,19 @@
+# No health: section -- a Job-kind module runs to completion, never "ready to serve", so there's
+# nothing for a liveness/readiness probe to answer. TIER_1 (shared worker) rather than TIER_2:
+# unlike orders-service/inventory-service, this module never needs to guarantee its fabric lookups
+# skip the same-worker shortcut for a specific test's sake -- it's just a short-lived job, and a
+# dedicated worker JVM for something that runs a few seconds and exits isn't worth the density
+# cost in a real deployment.
+name: com.example.reporting
+version: 1.0.0
+isolation:
+  tier: TIER_1
+resources:
+  request:
+    memory: 96Mi
+    cpu: 50m
+  limit:
+    memory: 192Mi
+    cpu: 200m
+lifecycle:
+  jobHooks: com.example.reporting.OrdersReportJobHooks

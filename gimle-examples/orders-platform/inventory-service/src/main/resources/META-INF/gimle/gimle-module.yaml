@@ -1,0 +1,19 @@
+name: com.example.inventory
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 96Mi
+    cpu: 50m
+  limit:
+    memory: 192Mi
+    cpu: 200m
+exports:
+  - service: com.example.inventory.InventoryLevels
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.inventory.provider.InventoryServiceHooks
+health:
+  liveness: com.example.inventory.provider.InventoryLivenessProbe
+  readiness: com.example.inventory.provider.InventoryReadinessProbe

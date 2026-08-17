@@ -1,0 +1,10 @@
+# kind: Deployment -- one of the two long-running services in this app, and the one exercising
+# Gimlé's plain replica-managed workload kind (see ../README.md for how the other four kinds are
+# covered by the sibling modules in this directory).
+kind: Deployment
+name: orders-service-deployment
+module:
+  name: com.example.orders
+  version: 1.0.0
+artifactPath: gimle-examples/orders-platform/orders-service/target/orders-service.jar
+replicas: 1

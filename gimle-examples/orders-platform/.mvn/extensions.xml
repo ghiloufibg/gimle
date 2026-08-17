@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Deliberately empty. Maven's own core-extension discovery walks up from the invocation directory
+  looking for the nearest .mvn/, and this tree sits nested inside the real Gimlé checkout, whose
+  own .mvn/extensions.xml enables the maven-build-cache-extension and maven-profiler repo-wide.
+  Without this file, building this standalone cowboy app (mvn -f
+  gimle-examples/orders-platform/pom.xml package) would silently inherit both, including the
+  build-cache extension writing a stray "${user.home}" directory here (an unresolved property in
+  its own generated staging path when applied outside the checkout it was configured for). This
+  file makes this .mvn/ the nearest one, so the search stops here and neither extension loads.
+-->
+<extensions xmlns="http://maven.apache.org/EXTENSIONS/1.2.0"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/EXTENSIONS/1.2.0 http://maven.apache.org/xsd/core-extensions-1.2.0.xsd">
+</extensions>

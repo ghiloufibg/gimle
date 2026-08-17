@@ -1,0 +1,12 @@
+# kind: Job -- an ALTERNATE manifest for the exact same orders-report-job jar and gimle-module.yaml
+# as cronjob.yaml, run once on demand (e.g. `gimle apply -f job.yaml`) instead of waiting for the
+# next scheduled firing. Same JobHooks class either way -- CronJob is just "fire this same kind of
+# Job on a schedule," not a different execution model, which is exactly what reusing this jar
+# unchanged demonstrates.
+kind: Job
+name: orders-report-job-once
+module:
+  name: com.example.reporting
+  version: 1.0.0
+artifactPath: gimle-examples/orders-platform/orders-report-job/target/orders-report-job.jar
+activeDeadlineSeconds: 60

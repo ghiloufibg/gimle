@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Deliberately NOT parented on the real ../../pom.xml (com.gimle:gimle), unlike every other
+    gimle-examples/* module. This tree is a cowboy application: a hand-built, Spring-based
+    microservices app used to manually validate a running Gimlé cluster, not platform code. It is
+    NOT listed in the root pom.xml's modules list, so a plain reactor build (mvn verify from the
+    repo root) never discovers or touches anything under this directory. Build it explicitly
+    instead:
+
+      mvn -f gimle-examples/orders-platform/pom.xml package
+
+    Do NOT add a module entry for this directory to the root pom.xml: that would pull this Spring
+    dependency tree, its own looser formatting, and its own build/test posture into the platform's
+    own reactor and CI, defeating the entire point of keeping it separate. See README.md in this
+    directory for what the app is and how to deploy it.
+  -->
+  <groupId>com.example.gimle-orders-platform</groupId>
+  <artifactId>orders-platform</artifactId>
+  <version>0.1.0</version>
+  <packaging>pom</packaging>
+
+  <name>Orders Platform (Gimlé manual-validation app)</name>
+  <description>
+    A lightweight Spring microservices app hosted as real Gimlé modules -- not platform code, a
+    hand-built cowboy application for manually validating a running Gimlé cluster end to end.
+  </description>
+
+  <modules>
+    <module>orders-service</module>
+    <module>inventory-service</module>
+    <module>orders-report-job</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+
+    <!-- The platform version this app was last built against. gimle-module/gimle-core aren't
+         published anywhere this standalone tree resolves from, so it depends on the exact jars a
+         real Gimlé build already installed into the local repository (mvn install from the repo
+         root). Bump this by hand if the platform's own version moves; there's no shared property
+         to inherit it from since this pom deliberately has no parent. -->
+    <gimle.platform.version>0.1.0-alpha.1</gimle.platform.version>
+    <slf4j.version>2.0.17</slf4j.version>
+
+    <!-- spring-context alone (no spring-web/spring-webmvc, no embedded servlet container): each
+         service's own DI wiring, nothing else. Inter-service calls go over Gimlé's own fabric
+         ServiceRegistry (ctx.registerService/ctx.lookupService), the same real cross-worker
+         mechanism gimle-examples/greeter-provider and greeter-consumer already prove out, not a
+         second HTTP layer bolted on top of the platform's own service mesh. -->
+    <spring.version>6.2.1</spring.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-module</artifactId>
+        <version>${gimle.platform.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-context</artifactId>
+        <version>${spring.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <!--
+              Every module here has a real module-info.java naming only com.gimle.module,
+              org.slf4j, java.logging, and java.desktop in its "requires" clauses; Spring itself
+              is never named there, on purpose. Maven's own module-path/classpath split follows
+              that requires graph: nothing that isn't reachable from it lands on the module path,
+              so spring-context and everything it pulls in resolve on the plain classpath instead,
+              even though spring-context.jar itself ships a real module-info of its own.
+
+              A module compiled against classpath-resident types still needs explicit permission to
+              read them, since JPMS strong encapsulation otherwise hides the classpath's unnamed
+              module from a named one: that's what the two compilerArgs below grant here, at
+              compile time only (they don't touch the compiled module-info.class, so nothing about
+              this survives into the shaded jar as a real "requires"). At runtime none of this
+              applies at all: once maven-shade-plugin has physically merged Spring's classes into
+              this same module's own jar (see each module's own pom.xml), they're just same-module
+              classes needing no cross-module readability grant of any kind.
+            -->
+            <compilerArgs>
+              <arg>--add-reads</arg>
+              <arg>${gimle.moduleName}=ALL-UNNAMED</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.6.0</version>
+          <executions>
+            <execution>
+              <phase>package</phase>
+              <goals>
+                <goal>shade</goal>
+              </goals>
+              <configuration>
+                <!-- Never tree-shake: Spring resolves most of what it calls via reflection
+                     (bean instantiation, @Configuration/@Bean method invocation), which a
+                     bytecode-usage-based minimizer can't see and would happily strip as
+                     "unreferenced". -->
+                <minimizeJar>false</minimizeJar>
+                <!-- maven-shade-plugin drops every module-info.class it encounters while merging,
+                     ours included and not just the dependencies', so without this transformer the
+                     shaded jar would fall back to being an unnamed automatic module and
+                     ModuleArtifactReader/ModuleLayerFactory (which require a real named module)
+                     would refuse it outright. This puts back exactly the one module-info.class
+                     this project's own compile produced, verbatim, after the merge already
+                     dropped every module-info.class, including the dependencies' ones: exactly
+                     what's wanted, since those libraries are no longer separate modules once
+                     shaded in, just plain packages inside this one. -->
+                <transformers>
+                  <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                    <resource>module-info.class</resource>
+                    <file>${project.build.outputDirectory}/module-info.class</file>
+                  </transformer>
+                </transformers>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

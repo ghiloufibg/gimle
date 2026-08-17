@@ -1,0 +1,15 @@
+# kind: CronJob -- the primary way to run this module: a fresh Job fires every 5 minutes (fast
+# enough to watch fire more than once during a short manual-validation session, unlike a more
+# realistic once-a-day schedule), each one looking up orders-service and inventory-service over
+# the fabric and logging a report. See ../README.md for how the other four workload kinds are
+# covered by the sibling modules in this directory.
+kind: CronJob
+name: orders-report-cronjob
+schedule: "*/5 * * * *"
+concurrencyPolicy: Forbid
+jobTemplate:
+  module:
+    name: com.example.reporting
+    version: 1.0.0
+  artifactPath: gimle-examples/orders-platform/orders-report-job/target/orders-report-job.jar
+  activeDeadlineSeconds: 60

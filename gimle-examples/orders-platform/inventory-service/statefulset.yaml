@@ -1,0 +1,11 @@
+# kind: StatefulSet -- the primary way to run inventory-service: each replica gets a stable
+# identity and OrderedReady rollout (index i+1 never placed before index i is ready), the natural
+# fit for a service that owns its own stock state per replica. See ../README.md for how the other
+# four workload kinds are covered by the sibling modules in this directory.
+kind: StatefulSet
+name: inventory-service-statefulset
+module:
+  name: com.example.inventory
+  version: 1.0.0
+artifactPath: gimle-examples/orders-platform/inventory-service/target/inventory-service.jar
+replicas: 1
