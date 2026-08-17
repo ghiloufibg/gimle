@@ -1,0 +1,59 @@
+# Build-up of leader election + log replication in gimle-mimir's RaftNode, a 3-node cluster. Each
+# step deletes the previous step's edges (indexed-edge null) before adding its own, so the board
+# never accumulates stale arrows the way a naive cumulative steps: diagram would for a protocol
+# this chatty. Render: .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/raft-consensus.d2
+direction: down
+
+classes: {
+  follower: {style: {fill: "#ffffff"; stroke: "#2a5a8c"}}
+  candidate: {style: {fill: "#e0c07f"; font-color: "#1b1b1d"; stroke: "#a6822f"}}
+  leader: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  settled: {style: {opacity: 0.9}}
+}
+
+steps: {
+  1: {
+    n1: "Node A\nCANDIDATE\n(election timer fired,\n150-300ms randomized)" {class: candidate}
+    n2: "Node B\nFOLLOWER" {class: follower}
+    n3: "Node C\nFOLLOWER" {class: follower}
+    n1 -> n2: RequestVote(term=2) {style.animated: true}
+    n1 -> n3: RequestVote(term=2) {style.animated: true}
+  }
+  2: {
+    (n1 -> n2)[0]: null
+    (n1 -> n3)[0]: null
+    n1.class: candidate
+    n2 -> n1: "vote granted -- candidate's log\nis at least as up-to-date" {style.animated: true}
+    n3 -> n1: vote granted {style.animated: true}
+  }
+  3: {
+    (n2 -> n1)[0]: null
+    (n3 -> n1)[0]: null
+    n1: "Node A\nLEADER\n(2 of 3 = majority,\n(peers+1)/2 + 1)" {class: leader}
+    n2.class: settled
+    n3.class: settled
+    n1 -> n2: AppendEntries (heartbeat, every 50ms) {style.animated: true}
+    n1 -> n3: AppendEntries (heartbeat, every 50ms) {style.animated: true}
+  }
+  4: {
+    (n1 -> n2)[0]: null
+    (n1 -> n3)[0]: null
+    n1.class: leader
+    client: Client {class: candidate}
+    client -> n1: "propose(x=1)" {style.animated: true}
+    n1: "Node A\nLEADER\nown log: [..., x=1]" {class: leader}
+  }
+  5: {
+    (client -> n1)[0]: null
+    client.class: settled
+    n1 -> n2: "AppendEntries(x=1)" {style.animated: true}
+    n1 -> n3: "AppendEntries(x=1)" {style.animated: true}
+  }
+  6: {
+    (n1 -> n2)[0]: null
+    (n1 -> n3)[0]: null
+    n2 -> n1: ack {style.animated: true}
+    n3 -> n1: ack {style.animated: true}
+    n1: "Node A\nLEADER\ncommitted, applied,\nclient unblocked" {class: leader}
+  }
+}

@@ -1,0 +1,58 @@
+# Build-up of SWIM-style failure detection in gimle-fabric's GossipMember, a 4-node cluster. Each
+# step deletes edges from the prior step (indexed-edge null) that its own new edges would
+# otherwise overlap. Render: .claude/skills/bragi/scripts/render-diagrams.sh gimle-docs/diagrams/swim-gossip.d2
+direction: down
+
+classes: {
+  alive: {style: {fill: "#ffffff"; stroke: "#2a5a8c"}}
+  prober: {style: {fill: "#2a5a8c"; font-color: "#ffffff"; stroke: "#1e3f61"}}
+  suspect: {style: {fill: "#e0c07f"; font-color: "#1b1b1d"; stroke: "#a6822f"}}
+  dead: {style: {fill: "#d97b7b"; font-color: "#ffffff"; stroke: "#a34e4e"}}
+  settled: {style: {opacity: 0.9}}
+}
+
+steps: {
+  1: {
+    a: "Node A" {class: prober}
+    b: "Node B" {class: alive}
+    c: "Node C" {class: alive}
+    d: "Node D" {class: alive}
+    a -> b: "direct ping\n(every protocolPeriod, 1s)" {style.animated: true}
+  }
+  2: {
+    (a -> b)[0]: null
+    a.class: settled
+    b: "Node B\nno ack within pingTimeout\n(500ms, health-scaled)" {class: suspect}
+  }
+  3: {
+    b.class: suspect
+    c.class: settled
+    d.class: settled
+    a -> c: "PingReq(target=B)" {style.animated: true}
+    a -> d: "PingReq(target=B)" {style.animated: true}
+    c -> b: "indirect ping\n(fanout=3, capped by\ncluster size)" {style.animated: true}
+    d -> b: indirect ping {style.animated: true}
+  }
+  4: {
+    (a -> c)[0]: null
+    (a -> d)[0]: null
+    (c -> b)[0]: null
+    (d -> b)[0]: null
+    c.class: settled
+    d.class: settled
+    b: "Node B\nSUSPECT\n(overall deadline passed,\nno direct or indirect ack)" {class: suspect}
+  }
+  5: {
+    a.class: settled
+    b: "Node B\nDEAD\n(suspicionTimeout ~3s\nelapsed, never refuted)" {class: dead}
+  }
+  6: {
+    a -> c: "piggyback: B=DEAD\n(on next ping/ack)" {style.animated: true}
+    a -> d: "piggyback: B=DEAD" {style.animated: true}
+    backstop: "anti-entropy sync (~30s) is the backstop\nif piggyback gossip is ever missed" {
+      shape: text
+      style.italic: true
+      style.font-size: 14
+    }
+  }
+}
