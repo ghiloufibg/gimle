@@ -42,6 +42,7 @@ one load scenario can run on a machine at a time.)
 | Surtr scale/churn workload runner (`SurtrWorkload`, `SurtrRunner`, `SurtrReport`) | `com.gimle.holmgang.surtr` |
 | Saga run-report writer (`SagaCollector`, `SagaCucumberPlugin`, `SagaJUnitListener`, `SagaWriter`) | `com.gimle.holmgang.saga` |
 | Saga report console template (embedded into each run's `holmgang-report.html`) | `src/test/resources/saga/saga-console.html` |
+| RTM coverage gate (`RtmCoverageChecker`, `RtmCoveragePlugin`, `RtmCheckConfig`) | `com.gimle.holmgang.rtm` |
 | Workload documents | `src/test/resources/workloads/*.yaml` |
 | Gatling load (`LoadGenerator`, simulation) | `com.gimle.holmgang.load` |
 | Recorded write workloads | `com.gimle.holmgang.workload` |
@@ -138,6 +139,42 @@ under the collector's own run ID (the same one naming its `target/holmgang/saga/
 directory); pass `-Dgimle.saga.runId=<id>` matching a run already open in Saga (for example one
 `SagaTestListener` is streaming the same suite's own test results into) to fold the attachments
 into that run instead.
+
+## RTM coverage gate
+
+Once every scenario in a `-Pvalidation` run has finished, `RtmCoveragePlugin` reads the repo
+root's `rtm.json` -- the structured JSON source of truth `RTM.md` is itself rendered from via
+`scripts/generate_requirements_docs.py`, not the rendered Markdown -- and fails the whole run if
+any *implemented* requirement (anything not marked `Removed`) still has `coverage: "Not Covered"`
+-- a release-readiness gate, not a scenario. It runs last, after the file-writing/reporting
+plugins above, and never interrupts or skips a scenario that's already running: it only ever adds
+one final pass/fail check once the suite is otherwise done. On success it prints a one-line
+summary (`RTM check passed: 42/42 requirements covered by Holmgang Cucumber tests.`); on failure
+it prints every uncovered requirement's ID, feature name, and category, followed by what to do
+about it.
+
+Enabled by default (`true`) -- release-readiness is opt-out, not opt-in -- and configured the same
+way every other property in this module is, via system properties:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `-Dgimle.holmgang.rtmCheck.enabled` | `true` | Set `false` to skip the gate entirely for this run. |
+| `-Dgimle.holmgang.rtmCheck.exclude` | _(empty)_ | Comma-separated requirement IDs (e.g. `GIMLE-012,GIMLE-018`) to whitelist -- a known/accepted gap, without disabling the whole gate. |
+| `-Dgimle.holmgang.rtmCheck.file` | `../rtm.json` | Override where `rtm.json` is read from, relative to this module's own working directory (the repo root by default). |
+
+```sh
+mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.holmgang.rtmCheck.enabled=false
+mvn -pl gimle-holmgang verify -Pvalidation -Dgimle.holmgang.rtmCheck.exclude=GIMLE-012,GIMLE-018
+```
+
+If the gate is enabled and `rtm.json` is missing or unreadable, the run fails loudly explaining
+where it looked and how to fix it (regenerate it with `scripts/generate_requirements_docs.py`,
+point `-Dgimle.holmgang.rtmCheck.file` at the right one, or disable the gate) -- it never silently
+skips the check just because the file wasn't found. Parsing reads `rtm.json`'s own `requirements`
+array directly (id/feature/category/status/coverage per entry, each requirement carrying its own
+category -- no separate lookup table to cross-reference); it fails loudly rather than silently
+passing if the JSON is malformed, isn't an object with a `requirements` array, or that array parses
+to zero entries.
 
 ## Failure forensics
 
