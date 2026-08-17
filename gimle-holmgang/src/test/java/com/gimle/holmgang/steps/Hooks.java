@@ -93,6 +93,9 @@ public final class Hooks {
     for (final String tenant : List.copyOf(world.tenants)) {
       bestEffort(() -> cluster.api().deleteTenant(tenant));
     }
+    for (final String statefulSet : List.copyOf(world.statefulSets)) {
+      bestEffort(() -> cluster.api().deleteStatefulSet(statefulSet));
+    }
   }
 
   private static void bestEffort(final Runnable cleanup) {

@@ -36,6 +36,11 @@ public final class ClusterSteps {
     world.cluster().storeLeader().killWithDescendants();
   }
 
+  @When("store {int} is restarted")
+  public void storeIsRestarted(final int storeIndex) {
+    world.cluster().store(storeIndex).restart();
+  }
+
   @When("a new store node joins the cluster")
   public void aNewStoreNodeJoinsTheCluster() {
     world.cluster().addStore();

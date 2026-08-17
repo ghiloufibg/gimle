@@ -31,6 +31,7 @@ public final class ScenarioWorld {
       String moduleName, String version, int replicas, Optional<String> tenantId) {}
 
   final Map<String, DeployedModule> deployments = new LinkedHashMap<>();
+  final List<String> statefulSets = new ArrayList<>();
   final List<String> tenants = new ArrayList<>();
   final List<String> cordonedNodes = new ArrayList<>();
   final Deque<InvariantGuard> guards = new ArrayDeque<>();
@@ -49,6 +50,17 @@ public final class ScenarioWorld {
    * Which store index a partition step isolated, remembered since the cluster's leader moves on.
    */
   Integer isolatedStoreIndex;
+
+  /** The tenant id a ghost-write step proposed directly to an isolated leader, and its outcome. */
+  String ghostWriteTenantId;
+
+  CompletableFuture<Void> ghostWriteOutcome;
+
+  /** Whether the most recent lease acquire/renew attempt was granted. */
+  Boolean lastLeaseGranted;
+
+  /** The node id a StatefulSet sticky-binding scenario captured before a reschedule. */
+  String rememberedNodeId;
 
   private GimleCluster cluster;
   private boolean destructive;

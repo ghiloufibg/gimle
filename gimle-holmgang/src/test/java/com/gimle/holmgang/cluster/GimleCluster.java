@@ -281,6 +281,38 @@ public final class GimleCluster implements AutoCloseable {
     }
   }
 
+  /**
+   * An open {@link StoreClient} dialing exactly one store's own client port, never any other -- the
+   * caller's own single-address endpoint list means a leader-only call this client issues (propose,
+   * a lease grant) can only ever land on {@code index}, with no fallback to a differently-addressed
+   * peer the way {@link #api()}'s pooled client would otherwise transparently provide. What a
+   * scenario proving a specific replica's own behavior (a still-self-believing isolated leader's
+   * ghost write) needs instead of that transparency. The caller owns the returned client and must
+   * close it.
+   */
+  public StoreClient openStoreClient(final int index) {
+    return new StoreClient(List.of(new InetSocketAddress(host(), storeClientPorts.get(index))));
+  }
+
+  /**
+   * An open {@link StoreClient} over every currently-live store endpoint, exactly like {@link
+   * #withStoreClient}'s own endpoint-gathering but handed back open for the caller to issue many
+   * calls across (a bulk write loop) before closing it themselves, rather than the private helper's
+   * single-call-then-close shape.
+   */
+  public StoreClient openStoreClient() {
+    final List<SocketAddress> live = new ArrayList<>();
+    for (int i = 0; i < stores.size(); i++) {
+      if (stores.get(i).isAlive()) {
+        live.add(new InetSocketAddress(host(), storeClientPorts.get(i)));
+      }
+    }
+    if (live.isEmpty()) {
+      throw new HolmgangException("no live store endpoint to query");
+    }
+    return new StoreClient(live);
+  }
+
   /** The leading store's Raft id, empty while no answering member currently names one. */
   public Optional<String> storeLeaderId() {
     try {
@@ -368,7 +400,8 @@ public final class GimleCluster implements AutoCloseable {
     stores.get(index).killWithDescendants();
   }
 
-  private String storeRaftId(final int index) {
+  /** The Raft id a store reports for itself -- what {@link #storeLeaderId()} compares against. */
+  public String storeRaftId(final int index) {
     return host() + ":" + storeRaftPorts.get(index);
   }
 

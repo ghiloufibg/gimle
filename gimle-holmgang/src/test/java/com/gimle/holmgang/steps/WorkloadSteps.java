@@ -6,6 +6,7 @@ import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.cluster.ClusterApi;
 import com.gimle.holmgang.topology.QuotaSpec;
 import com.gimle.holmgang.workload.RecordingWorkload;
+import com.gimle.testkit.Await;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
@@ -107,6 +108,42 @@ public final class WorkloadSteps {
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new HolmgangException("interrupted while awaiting the submitted write", e);
+    }
+  }
+
+  /**
+   * The negative counterpart to {@link #theClusterAcceptsWritesAgain}: spin-polls the same real
+   * write path for the whole window (via {@link Await}, this codebase's one shared no-fixed-sleep
+   * primitive) and fails the instant any attempt succeeds -- what proves a learner genuinely never
+   * counts toward quorum (only its voting peers do), rather than merely "eventually some write got
+   * through." {@link Await#until} always throws once its own timeout elapses without the condition
+   * turning true; here that timeout is exactly the success case, so it is caught and swallowed,
+   * while a write actually succeeding propagates as the real, distinct failure.
+   */
+  @Then("the cluster does not accept writes for {int}s")
+  public void theClusterDoesNotAcceptWritesFor(final int seconds) {
+    try {
+      Await.until(
+          () -> {
+            final int status =
+                world
+                    .cluster()
+                    .api()
+                    .tryPutTenant(
+                        "no-quorum-probe-" + System.nanoTime(), QuotaSpec.of(1024, 10, 1));
+            if (status == 200) {
+              throw new HolmgangException(
+                  "a write unexpectedly succeeded (status 200) while quorum should not be"
+                      + " reachable");
+            }
+            return false;
+          },
+          Duration.ofSeconds(seconds));
+    } catch (final HolmgangException e) {
+      throw e;
+    } catch (final AssertionError expectedTimeout) {
+      // Await's own "never became true within the window" -- exactly what "still refuses writes"
+      // means for this negative assertion.
     }
   }
 

@@ -2209,9 +2209,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a candidate whose log lags the current leader's log; When its RequestVote arrives elsewhere first; Then the vote is denied because the candidate's log isn't at least as up to date.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A stale, partitioned follower cannot win an election despite outracing the cluster's term",
+          "whyThisCounts": "Partitions a genuinely non-leader store away from its peers (resolved dynamically, never the leader itself) while a background writer keeps committing through the surviving majority, letting the isolated node's own term climb via repeated failed elections while its log falls behind; once healed, asserts the first leader reported afterward is never the stale node -- proving RequestVote's candidate-log-up-to-date check rejected its vote despite its higher term."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftNodeSafetyMechanicsTest#a_candidate_with_a_stale_log_never_wins_even_when_its_request_vote_arrives_first`",
       "sourceLocations": [
         "`RaftNode#onRequestVote` (`candidateUpToDate` check)"
@@ -2276,9 +2282,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/partition-tolerance.feature",
+          "scenario": "A leader's write proposed while partitioned is truncated and never resurfaces",
+          "whyThisCounts": "Proposes a tenant write directly against the isolated (still self-believing) leader's own client port -- not the pooled, any-endpoint API client -- guaranteeing the proposal actually reaches the node under test; asserts the proposal is refused within the propose timeout (never hangs) and that the tenant never becomes readable even after the partition heals and the cluster recovers, proving the ghost write was truncated from the leader's own log rather than silently resurfacing."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftNodeSafetyMechanicsTest#a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns`, `#a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated`",
       "sourceLocations": [
         "`RaftNode#awaitAppliedThrowing`",
@@ -2292,9 +2304,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "Writes 10,500 entries directly through the real StoreClient production API, forcing the leader's log past its own compaction threshold before a brand-new, empty-log store joins as a learner; the joining node can only catch up via a chunked InstallSnapshot transfer at that point (plain AppendEntries replay is impossible past the compacted floor), and the scenario later confirms the bulk-written data (including the very last entry) is genuinely readable after the new store rejoins the working cluster."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftClusterTest#a_far_behind_follower_catches_up_via_install_snapshot_not_full_log_replay`, `RaftNodeSafetyMechanicsTest#an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives`, `#a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered`, `#an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one`",
       "sourceLocations": [
         "`RaftNode#sendInstallSnapshot`",
@@ -2309,9 +2327,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "The same 10,500-entry direct write forces RaftNode's own SNAPSHOT_THRESHOLD compaction to run automatically; the scenario's later steps (a store restart in the persistence scenario, and the joining learner's own forced snapshot-only catch-up here) are only possible because compaction genuinely ran and discarded entries below the floor, observed indirectly through the platform continuing to serve every bulk-written tenant correctly afterward."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftLogTest#install_snapshot_persists_and_discards_compacted_entries`",
       "sourceLocations": [
         "`RaftNode#maybeCompactLocked`",
@@ -2372,9 +2396,15 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/raft-resilience.feature",
+          "scenario": "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted",
+          "whyThisCounts": "After the new store joins as a non-voting learner, the scenario immediately kills two of the three original voters (leaving only one original voter and the still-catching-up learner alive) and asserts the cluster refuses every write for a real window -- a majority of the original three-voter configuration is unreachable, and the learner's own vote/ack cannot substitute for a real voter's, proving it genuinely does not count toward quorum until promoted. Restarting one original voter afterward restores quorum and confirms recovery."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftMembershipChangeTest#a_freshly_added_learner_does_not_block_or_count_toward_commit_quorum`, `#a_learner_is_promoted_to_a_full_voting_member_once_its_log_catches_up`, `#a_never_caught_up_learner_stays_non_voting_indefinitely`",
       "sourceLocations": [
         "`RaftNode#learners`",
@@ -2416,9 +2446,20 @@
       "category": "Raft Consensus",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The cluster functions end to end over mutual TLS",
+          "whyThisCounts": "Boots a genuine 3-replica store cluster entirely over mutual TLS and drives a real deployment to ACTIVE plus a real secret round-trip -- neither is reachable without real Raft leader election and log replication succeeding across every mTLS-secured RaftTransport/PeerConnection hop."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The audit trail records and filters real authorization decisions over mutual TLS",
+          "whyThisCounts": "Two real tenant writes against the same mTLS store cluster succeed and are independently observable via the audit trail, reinforcing that election and replication over mTLS are working, not merely assumed."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`RaftClusterTlsTest#leader_election_and_write_replication_work_over_mtls`, `#leader_crash_triggers_re_election_over_mtls`, `#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_transport`, `#a_peer_cert_not_signed_by_the_configured_ca_is_rejected_at_handshake`",
       "sourceLocations": [
         "`com.gimle.mimir.raft.RaftTransport`",
@@ -2462,9 +2503,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable from the freshly-opened StateStore instance -- a genuine process restart against the same directory, not an in-process reopen."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
       "sourceLocations": [
         "`com.gimle.mimir.store.StateStore`"
@@ -2477,9 +2524,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "The 10,500 direct writes exceed RaftNode's own compaction threshold before the restart, so the respawned store process can only rebuild its pre-restart state from its own persisted snapshot (the log below the compaction floor no longer exists to replay) -- and every resource kind written before the restart, including the snapshot-covered bulk tenants, comes back identical."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_snapshot_carries_reconciler_instance_state_and_restores_it`, `#a_snapshot_carries_instance_events_and_restores_them`, `#a_snapshot_carries_audit_events_and_restores_them`, `RaftCodecTest#round_trips_a_state_snapshot`",
       "sourceLocations": [
         "`StateStore#snapshot`",
@@ -2509,9 +2562,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "Node heartbeats update continuously for a live node",
+          "whyThisCounts": "Confirms a real node agent's own heartbeat is observed and tracked (GET /nodes reflecting putNodeHeartbeat/getNodeHeartbeat) and that it continues to advance over real wall-clock time, proving the mechanism is a live, continuously-updated read path rather than a one-shot registration."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StoreNodeTest#a_leader_reads_back_a_heartbeat_it_just_accepted`, `rpc/StoreClientClusterTest#heartbeat_reads_are_leader_routed_and_never_answer_empty_from_a_stale_follower`",
       "sourceLocations": [
         "`StateStore#putNodeHeartbeat`",
@@ -2526,9 +2585,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "A lease is exclusive to its holder until it expires",
+          "whyThisCounts": "Drives the real StoreClient#tryAcquireOrRenewLease/#releaseLease production API directly: one holder acquires a lease, a second is denied while it is still held, and the second holder succeeds only once the TTL has actually expired -- the full grant/contention/expiry lifecycle against a live cluster."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#a_free_lease_is_granted_to_the_first_caller`, `#the_current_holder_can_renew_its_own_lease`, `#a_different_holder_is_denied_while_the_lease_is_still_valid`, `#a_different_holder_is_granted_once_the_lease_has_expired`, `rpc/StoreClientClusterTest#leases_are_acquired_renewed_and_released_through_the_client`",
       "sourceLocations": [
         "`StateStore#tryAcquireOrRenewLease`",
@@ -2544,9 +2609,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "An instance's event log is capped and returns newest first",
+          "whyThisCounts": "Relays 55 real InstanceEvents through the same POST /nodes/{nodeId}/events route a real node agent uses, pushing a live instance's event log past StateStore's MAX_EVENTS_PER_INSTANCE cap, then confirms exactly 50 events remain and are strictly newest-first -- proving both the retention prune and the ordering."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`",
       "sourceLocations": [
         "`StateStore#putInstanceEvent`",
@@ -2561,9 +2632,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given events across different principals/resources/tenants; When listAuditEvents is called with filters; Then only matching events are returned newest-first, and concurrent appends never lose/duplicate/exceed the cap.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/mtls.feature",
+          "scenario": "The audit trail records and filters real authorization decisions over mutual TLS",
+          "whyThisCounts": "Audit recording only happens over an authenticated (HTTPS) exchange, so this runs under the real mTLS topology: two tenant writes for two different tenants produce real audit events, and GET /audit filtered by tenant id both finds the matching entry and excludes the other tenant's -- proving listAuditEvents' own filtering against real, distinguishing data."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#audit_events_filter_by_principal_resource_kind_tenant_and_since_independently`, `#audit_events_beyond_the_retention_cap_prune_the_oldest_first`, `#concurrent_audit_event_appends_never_exceed_the_cap_or_lose_or_duplicate_an_event`",
       "sourceLocations": [
         "`StateStore#putAuditEvent`",
@@ -2601,9 +2678,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an index never placed before; When first placed on node A via putStatefulSetIndexNode; Then a later rolling-update replacement of that index is placed on node A again; the binding survives ordinary assignment removal, cleared only on permanent index removal.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-mechanics.feature",
+          "scenario": "A StatefulSet ordinal index stays bound to the node it first lands on",
+          "whyThisCounts": "Deploys a real StatefulSet, records which of the topology's two nodes its sole ordinal index first landed on, kills the worker hosting it, and confirms the self-healing replacement instance is rescheduled onto the identical node -- putStatefulSetIndexNode's own sticky binding surviving a real reschedule, not just its own unit-level round trip."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`StateStore#putStatefulSetIndexNode`/`#getStatefulSetIndexNode`",
@@ -2663,9 +2746,15 @@
       "category": "State Store",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
+          "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
+          "whyThisCounts": "A custom Role, RoleBinding, and Account are each created through the real /roles, /rolebindings, and /accounts HTTP surface, then confirmed readable again after the store process is fully restarted against the same on-disk directory -- all three round-tripping through a real process restart, not merely an in-memory read-back."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
       "sourceLocations": [
         "`StateStore#putRole`/`#putRoleBinding`/`#putAccount`"
@@ -2802,9 +2891,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a cron expression restricting both day-of-month and day-of-week; When mostRecentDueInstant is evaluated; Then a moment matching either restricted field counts as due; an invalid expression is rejected at parse time.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A CronJob schedule fires on the day-of-month/day-of-week OR quirk",
+          "whyThisCounts": "Builds a schedule from today's own real UTC date -- today's weekday but a deliberately different day of month, both fields restricted -- and confirms the CronJobReconciler actually schedules a run from it, which is only possible if CronSchedule.mostRecentDueInstant applies the documented OR quirk (either restricted field matching is enough) rather than requiring both."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CronScheduleTest#day_of_month_and_day_of_week_both_restricted_combine_with_or`, `#range_and_step_combine`, `#comma_list_matches_any_listed_value`, `#wrong_field_count_throws`, `#inverted_range_throws`, `#zero_step_throws`",
       "sourceLocations": [
         "`com.gimle.mimir.cron.CronSchedule`"
@@ -2817,9 +2912,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with a weighted autoscale block; When DeploymentManifestParser.parse is called; Then a DeploymentSpec carrying the exact weighted AutoscalePolicy is produced; maxUnavailable=0 with no maxSurge is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A weighted autoscale policy is accepted, an unreplaceable disruption budget is rejected",
+          "whyThisCounts": "Submits a Deployment manifest with a full weighted autoscale block (mode, per-signal weights) through the real /deployments admission surface and confirms it is accepted, then submits maxUnavailable: 0, maxSurge: 0 on another and confirms the real 400 rejection -- both DeploymentManifestParser's weighted-policy parsing and DisruptionBudget's own invariant, against the real HTTP API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`DeploymentManifestParserTest#parses_a_weighted_autoscale_block_with_per_signal_weights`, `#accepts_a_nonzero_max_surge`, `#rejects_max_unavailable_0_with_no_max_surge_to_rescue_it`, `#accepts_max_unavailable_0_paired_with_a_nonzero_max_surge_for_a_pure_surge_rollout`, `DisruptionBudgetTest#max_unavailable_and_max_surge_must_not_both_be_0`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.DeploymentManifestParser`",
@@ -2835,9 +2936,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given placement.antiAffinity: true; When DaemonSetManifestParser.parse is called; Then parsing throws; a nonzero disruption.maxSurge is likewise rejected while 0 is accepted.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A DaemonSet rejects anti-affinity and nonzero surge but accepts zero surge",
+          "whyThisCounts": "Submits three DaemonSet manifests through the real /daemonsets admission surface: placement.antiAffinity: true and disruption.maxSurge: 1 are each rejected with 400, while maxSurge: 0 is accepted -- exercising DaemonSetManifestParser's own reject-outright posture for both fields against the real API, not just its unit tests."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`DaemonSetManifestParserTest#placement_anti_affinity_field_is_rejected_outright`, `#disruption_max_surge_field_is_rejected_outright_if_nonzero`, `#disruption_max_surge_field_set_to_0_is_accepted`, `#rejects_a_max_unavailable_of_0`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.DaemonSetManifestParser`",
@@ -2851,9 +2958,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A CronJob applies sensible defaults and rejects an invalid schedule or concurrency policy",
+          "whyThisCounts": "Submits a CronJob manifest with no explicit backoffLimit through the real /cronjobs admission surface and confirms it is accepted (the parser's own default applies), then confirms a malformed cron expression and an unknown concurrencyPolicy value are each rejected with a real 400."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`CronJobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_and_concurrency_policy`, `#invalid_cron_schedule_throws`, `#unknown_concurrency_policy_throws`, `JobManifestParserTest#parses_a_minimal_manifest_defaulting_backoff_limit_to_six`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.CronJobManifestParser`",
@@ -2869,9 +2982,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "A StatefulSet accepts zero replicas and rejects a negative count",
+          "whyThisCounts": "Submits a StatefulSet manifest with replicas: 0 through the real /statefulsets admission surface and confirms it is accepted, then confirms replicas: -1 is rejected with a real 400 -- StatefulSetSpec's own boundary against the real HTTP API."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`StatefulSetManifestParserTest#parses_a_minimal_manifest`, `#zero_replicas_is_legal`, `#negative_replicas_throws`, `#parses_a_vessel_block`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.StatefulSetManifestParser`",
@@ -2885,9 +3004,15 @@
       "category": "Config",
       "status": "Active",
       "statusNote": "",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "An unrecognized manifest kind is rejected via the dispatching parser",
+          "whyThisCounts": "Submits a manifest with kind: Bogus through the real /deployments admission surface and confirms the real 400 rejection, which can only come from ManifestParser's own kind-dispatch switch falling through to GimleManifestException.unknownKind."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`ManifestParserTest#kind_deployment_dispatches_to_deployment_manifest_parser`",
       "sourceLocations": [
         "`com.gimle.mimir.manifest.ManifestParser`"

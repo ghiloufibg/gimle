@@ -42,6 +42,24 @@ public final class TenantSteps {
         .putTenant(tenantId, QuotaSpec.of(maxMemoryBytes, maxCpuMillicores, maxInstances));
   }
 
+  /**
+   * A direct read-side check for a tenant written outside the normal deploy/workload steps --
+   * bounded, not single-shot: {@code StoreClient}'s own reads round-robin across every configured
+   * store endpoint with no leader-awareness (see its own javadoc), so a read landing on a replica
+   * that has only just rejoined or been promoted can legitimately still be catching up for a brief
+   * real window after the cluster as a whole already accepts writes again.
+   */
+  @Then("within {int}s tenant {string} is readable")
+  public void withinSecondsTenantIsReadable(final int seconds, final String tenantId) {
+    world
+        .cluster()
+        .when()
+        .probe(
+            "tenant " + tenantId + " is readable",
+            () -> world.cluster().api().tenantExists(tenantId))
+        .await(Duration.ofSeconds(seconds));
+  }
+
   @Given("secret {string} = {string} for tenant {string}")
   public void secretForTenant(final String key, final String value, final String tenantId) {
     world.cluster().api().putSecret(tenantId, key, value);

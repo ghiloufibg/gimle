@@ -78,6 +78,37 @@ public final class ClusterApi {
         "account creation");
   }
 
+  public void putRole(final String name, final String resource, final String verb) {
+    final String body =
+        Json.write(Map.of("permissions", List.of(Map.of("resource", resource, "verb", verb))));
+    expectOk("PUT", "/roles/" + name, body, "role creation");
+  }
+
+  /**
+   * {@code true} once {@code GET /roles/{name}} answers 200 -- the read side of {@link #putRole}.
+   */
+  public boolean roleExists(final String name) {
+    final Optional<HttpResponse<String>> response = tryGet("/roles/" + name);
+    return response.isPresent() && response.get().statusCode() == 200;
+  }
+
+  public void putRoleBinding(final String id, final String subject, final String roleName) {
+    final String body = Json.write(Map.of("subject", subject, "roleName", roleName));
+    expectOk("PUT", "/rolebindings/" + id, body, "role binding creation");
+  }
+
+  /** The read side of {@link #putRoleBinding}, {@code true} once {@code GET} answers 200. */
+  public boolean roleBindingExists(final String id) {
+    final Optional<HttpResponse<String>> response = tryGet("/rolebindings/" + id);
+    return response.isPresent() && response.get().statusCode() == 200;
+  }
+
+  /** The read side of {@link #putAccount}, {@code true} once {@code GET} answers 200. */
+  public boolean accountExists(final String username) {
+    final Optional<HttpResponse<String>> response = tryGet("/accounts/" + username);
+    return response.isPresent() && response.get().statusCode() == 200;
+  }
+
   public void putSecret(final String tenantId, final String key, final String value) {
     final String body =
         Json.write(
@@ -260,6 +291,10 @@ public final class ClusterApi {
     expectOkNoBody("DELETE", "/deployments/" + deploymentName, "deployment deletion");
   }
 
+  public void deleteStatefulSet(final String name) {
+    expectOkNoBody("DELETE", "/statefulsets/" + name, "statefulset deletion");
+  }
+
   public void deleteTenant(final String tenantId) {
     expectOkNoBody("DELETE", "/tenants/" + tenantId, "tenant deletion");
   }
@@ -428,11 +463,162 @@ public final class ClusterApi {
   }
 
   private List<Map<String, Object>> instancesOf(final String deploymentName) {
-    final Optional<HttpResponse<String>> response = tryGet("/deployments/" + deploymentName);
+    return instancesUnder("/deployments/" + deploymentName);
+  }
+
+  /** Shared by every workload kind's status route -- each returns the identical instances shape. */
+  private List<Map<String, Object>> instancesUnder(final String path) {
+    final Optional<HttpResponse<String>> response = tryGet(path);
     if (response.isEmpty() || response.get().statusCode() != 200) {
       return List.of();
     }
     return Json.asObjectList(Json.asObject(Json.parse(response.get().body())).get("instances"));
+  }
+
+  /** Like {@link #submitDeployment}, but for a {@code kind: StatefulSet} manifest. */
+  public void submitStatefulSet(
+      final String name,
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final int replicas,
+      final Optional<String> tenantId) {
+    expectOk(
+        "PUT",
+        "/statefulsets/" + name,
+        """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: %s
+          version: %s
+        artifactPath: %s
+        replicas: %d
+        %s"""
+            .formatted(
+                name,
+                moduleName,
+                moduleVersion,
+                jar.toAbsolutePath(),
+                replicas,
+                tenantId.map(id -> "tenantId: " + id + "\n").orElse("")),
+        "statefulset submission");
+  }
+
+  /**
+   * {@code GET /cronjobs/{name}}'s own {@code lastScheduleTime}, present only once the real
+   * reconciler has actually fired this CronJob at least once. Empty on any read failure too.
+   */
+  public Optional<String> cronJobLastScheduleTime(final String name) {
+    final Optional<HttpResponse<String>> response = tryGet("/cronjobs/" + name);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return Optional.empty();
+    }
+    final Object value = Json.asObject(Json.parse(response.get().body())).get("lastScheduleTime");
+    return value instanceof String s ? Optional.of(s) : Optional.empty();
+  }
+
+  /**
+   * {@link #placements(String)}'s counterpart for a StatefulSet's own {@code /statefulsets} route.
+   */
+  public List<InstancePlacement> statefulSetPlacements(final String name) {
+    final List<InstancePlacement> placements = new ArrayList<>();
+    for (final Map<String, Object> instance : instancesUnder("/statefulsets/" + name)) {
+      final String state =
+          instance.get("observation") instanceof Map<?, ?> observation
+              ? String.valueOf(observation.get("lifecycleState"))
+              : "UNOBSERVED";
+      placements.add(
+          new InstancePlacement(
+              ((Number) instance.get("instanceIndex")).intValue(),
+              String.valueOf(instance.get("nodeId")),
+              state));
+    }
+    return placements;
+  }
+
+  /**
+   * A raw {@code PUT} of {@code yaml} against {@code path} (e.g. {@code /daemonsets/foo}), status
+   * code only -- the generic entry point for manifest-kind parsing/validation scenarios that need
+   * to submit a hand-built manifest (including a deliberately invalid one) and assert on acceptance
+   * or rejection, rather than on the deployment ever reaching a live state.
+   */
+  public int tryPutManifest(final String path, final String yaml) {
+    try {
+      return httpClient
+          .send(
+              HttpRequest.newBuilder(URI.create(baseUrl + path))
+                  .method("PUT", HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new HolmgangException(
+          "manifest submission attempt failed against " + baseUrl + path, e);
+    }
+  }
+
+  /**
+   * {@code GET /audit}, filtered exactly as the real API filters it -- each entry's own {@code
+   * resourceKind}/{@code tenantId} as parsed JSON maps, newest-first as the server already returns
+   * them. Empty (never a hard failure) when the read itself fails, matching every other best-effort
+   * reader in this class.
+   */
+  public List<Map<String, Object>> auditEvents(
+      final Optional<String> resourceKind, final Optional<String> tenantId) {
+    final StringBuilder path = new StringBuilder("/audit?");
+    resourceKind.ifPresent(kind -> path.append("resource=").append(kind).append('&'));
+    tenantId.ifPresent(tenant -> path.append("tenant=").append(tenant).append('&'));
+    final Optional<HttpResponse<String>> response = tryGet(path.toString());
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return List.of();
+    }
+    return Json.asObjectList(Json.parse(response.get().body()));
+  }
+
+  /**
+   * {@code lastHeartbeatAt} off {@code GET /nodes} for one node -- present only once that node has
+   * ever reported a heartbeat the leader observed. Empty on any read failure or absent node.
+   */
+  public Optional<String> nodeLastHeartbeatAt(final String nodeId) {
+    final Optional<HttpResponse<String>> response = tryGet("/nodes");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return Optional.empty();
+    }
+    for (final Object entry : Json.asArray(Json.parse(response.get().body()))) {
+      final Map<String, Object> node = Json.asObject(entry);
+      if (nodeId.equals(node.get("nodeId")) && node.get("lastHeartbeatAt") instanceof String at) {
+        return Optional.of(at);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * {@code POST /nodes/{nodeId}/events}, the exact relay route a real node agent posts its own
+   * worker-reported {@link com.gimle.core.protocol.InstanceEvent}s through -- reused directly here
+   * rather than a synthetic shortcut, since the route's own contract (an event id, deployment name,
+   * instance index, kind, message, occurrence time) is already a plain JSON body any caller can
+   * post.
+   */
+  public void postInstanceEvent(
+      final String nodeId,
+      final String eventId,
+      final String deploymentName,
+      final int instanceIndex,
+      final String kind,
+      final String message,
+      final long occurredAtEpochMilli) {
+    final String body =
+        Json.write(
+            Map.of(
+                "id", eventId,
+                "deploymentName", deploymentName,
+                "instanceIndex", instanceIndex,
+                "kind", kind,
+                "message", message,
+                "occurredAtEpochMilli", occurredAtEpochMilli));
+    expectOk("POST", "/nodes/" + nodeId + "/events", body, "instance event relay");
   }
 
   private Optional<HttpResponse<String>> tryGet(final String path) {
