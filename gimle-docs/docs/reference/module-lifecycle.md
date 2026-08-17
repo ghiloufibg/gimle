@@ -4,18 +4,16 @@ sidebar_position: 1
 
 # Module lifecycle
 
-Every module instance moves through the same states, deliberately OSGi-like:
+Every module instance moves through the same states, deliberately OSGi-like. The animation below
+builds the chain up one transition at a time, with the event that triggers each transition on the
+edge (source: `diagrams/module-lifecycle.d2`; a non-animated version showing the complete chain
+at once is at [`/diagrams/module-lifecycle-static.svg`](pathname:///diagrams/module-lifecycle-static.svg)):
 
-```mermaid
-stateDiagram-v2
-    [*] --> INSTALLED
-    INSTALLED --> RESOLVED
-    RESOLVED --> STARTING
-    STARTING --> ACTIVE
-    ACTIVE --> STOPPING
-    STOPPING --> UNINSTALLED
-    UNINSTALLED --> [*]
-```
+<img
+  src="/diagrams/module-lifecycle.svg"
+  alt="Module lifecycle built up step by step: INSTALLED, then RESOLVED once dependencies are satisfied, STARTING while the ModuleLayer is built and hooks run, ACTIVE when the readiness probe passes, STOPPING while draining, and UNINSTALLED after the layer is disposed"
+  width="320"
+/>
 
 - **INSTALLED** — the artifact (JAR + `gimle-module.yaml`) has been accepted but its dependencies
   haven't been resolved yet.
