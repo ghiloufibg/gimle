@@ -60,7 +60,8 @@ class RollingUpdateIT extends GreeterSmokeClusterSupport {
                     active = confirmed;
                   }
                 }
-                minActiveDuringRollout.updateAndGet(min -> Math.min(min, active));
+                int observedActive = active;
+                minActiveDuringRollout.updateAndGet(min -> Math.min(min, observedActive));
                 try {
                   Thread.sleep(300);
                 } catch (InterruptedException e) {
