@@ -1,8 +1,8 @@
 package com.gimle.fafnir.secret;
 
+import com.gimle.core.hash.Sha256;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.SortedMap;
@@ -47,15 +47,11 @@ public record KeyRing(byte activeKeyId, Map<Byte, SecretKey> keysById) {
    */
   public String fingerprint() {
     SortedMap<Byte, SecretKey> sorted = new TreeMap<>(keysById);
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      for (Map.Entry<Byte, SecretKey> entry : sorted.entrySet()) {
-        digest.update(ByteBuffer.allocate(1).put(entry.getKey()).array());
-        digest.update(entry.getValue().getEncoded());
-      }
-      return HexFormat.of().formatHex(digest.digest());
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 unavailable", e);
+    MessageDigest digest = Sha256.sha256Digest();
+    for (Map.Entry<Byte, SecretKey> entry : sorted.entrySet()) {
+      digest.update(ByteBuffer.allocate(1).put(entry.getKey()).array());
+      digest.update(entry.getValue().getEncoded());
     }
+    return HexFormat.of().formatHex(digest.digest());
   }
 }

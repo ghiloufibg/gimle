@@ -21,4 +21,6 @@ module com.gimle.core {
   exports com.gimle.core.web;
   exports com.gimle.core.codec;
   exports com.gimle.core.saga;
+  exports com.gimle.core.io;
+  exports com.gimle.core.hash;
 }

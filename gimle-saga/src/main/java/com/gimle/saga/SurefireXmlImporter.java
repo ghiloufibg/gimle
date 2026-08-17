@@ -1,5 +1,6 @@
 package com.gimle.saga;
 
+import com.gimle.core.hash.Sha256;
 import com.gimle.core.saga.FailureSignature;
 import com.gimle.core.saga.SagaEvent;
 import java.io.ByteArrayInputStream;
@@ -9,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
@@ -353,13 +353,7 @@ public final class SurefireXmlImporter {
   }
 
   private static String derivedRunId(List<byte[]> contents) {
-    MessageDigest digest;
-    try {
-      digest = MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      // Every JDK ships SHA-256; reaching here means a broken runtime, not a caller error.
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
+    MessageDigest digest = Sha256.sha256Digest();
     for (byte[] content : contents) {
       digest.update(content);
     }

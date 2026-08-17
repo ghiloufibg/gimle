@@ -1,6 +1,7 @@
 package com.gimle.module.artifact;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.hash.Sha256;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.module.descriptor.ModuleDescriptorParser;
@@ -8,9 +9,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -50,19 +48,6 @@ public final class ModuleArtifactReader {
   }
 
   private static String sha256Of(Path jarPath) throws IOException {
-    MessageDigest digest;
-    try {
-      digest = MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 is a mandatory JCA algorithm", e);
-    }
-    try (InputStream in = Files.newInputStream(jarPath)) {
-      byte[] buffer = new byte[8192];
-      int read;
-      while ((read = in.read(buffer)) != -1) {
-        digest.update(buffer, 0, read);
-      }
-    }
-    return HexFormat.of().formatHex(digest.digest());
+    return Sha256.sha256Hex(jarPath);
   }
 }

@@ -1,8 +1,9 @@
 package com.gimle.andvari;
 
+import com.gimle.core.hash.Sha256;
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -12,7 +13,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -84,47 +84,6 @@ public final class ArtifactStore {
   public static final class ArtifactTooLargeException extends RuntimeException {
     ArtifactTooLargeException(long maxArtifactBytes) {
       super("upload exceeds the maximum allowed artifact size of " + maxArtifactBytes + " bytes");
-    }
-  }
-
-  /**
-   * Aborts a push mid-stream once more than {@code maxBytes} have been read, so an oversized
-   * upload's excess bytes are never fully written to the temp file (or read at all past the limit)
-   * before being rejected -- the same "never buffer/write more than necessary" discipline {@link
-   * #copyAndDigest} and {@link #put} already follow, just extended to the reject path.
-   */
-  private static final class SizeLimitedInputStream extends FilterInputStream {
-    private final long maxBytes;
-    private long readSoFar;
-
-    SizeLimitedInputStream(InputStream in, long maxBytes) {
-      super(in);
-      this.maxBytes = maxBytes;
-    }
-
-    @Override
-    public int read() throws IOException {
-      int b = super.read();
-      if (b != -1) {
-        countAndCheck(1);
-      }
-      return b;
-    }
-
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-      int n = super.read(b, off, len);
-      if (n > 0) {
-        countAndCheck(n);
-      }
-      return n;
-    }
-
-    private void countAndCheck(int justRead) {
-      readSoFar += justRead;
-      if (readSoFar > maxBytes) {
-        throw new ArtifactTooLargeException(maxBytes);
-      }
     }
   }
 
@@ -208,7 +167,10 @@ public final class ArtifactStore {
     try {
       MessageDigest digest = sha256Digest();
       try (DigestInputStream digesting =
-          new DigestInputStream(new SizeLimitedInputStream(body, maxArtifactBytes), digest)) {
+          new DigestInputStream(
+              new SizeLimitedInputStream(
+                  body, maxArtifactBytes, exceeded -> new ArtifactTooLargeException(maxArtifactBytes)),
+              digest)) {
         sizeBytes = Files.copy(digesting, tempFile, StandardCopyOption.REPLACE_EXISTING);
       }
       sha256 = HexFormat.of().formatHex(digest.digest());
@@ -491,11 +453,6 @@ public final class ArtifactStore {
   }
 
   private static MessageDigest sha256Digest() {
-    try {
-      return MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      // SHA-256 is mandatory in every conforming JRE; this is unreachable on a working JDK.
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
+    return Sha256.sha256Digest();
   }
 }

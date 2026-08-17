@@ -1,6 +1,7 @@
 package com.gimle.module.artifact;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.hash.Sha256;
 import com.gimle.core.module.ModuleId;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,7 +14,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
@@ -200,10 +200,6 @@ public final class ArtifactPullCache {
   }
 
   private static MessageDigest sha256Digest() {
-    try {
-      return MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 is a mandatory JCA algorithm", e);
-    }
+    return Sha256.sha256Digest();
   }
 }

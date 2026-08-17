@@ -1,10 +1,12 @@
 package com.gimle.gateway;
 
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -37,6 +39,11 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   private static final Logger log = LoggerFactory.getLogger(GatewayHooks.class);
 
   static final AtomicBoolean ready = new AtomicBoolean(false);
+
+  // Every inbound gateway route ultimately fully buffers its request body into memory (see
+  // handle/GatewayDispatcher) -- cap it rather than reading an unbounded stream whole, the same
+  // "attacker-controlled surface" discipline Muninn/Saga's own ingest endpoints already apply.
+  private static final long MAX_REQUEST_BODY_BYTES = 50L * 1024 * 1024;
 
   private HttpServer server;
 
@@ -80,16 +87,35 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
 
   private void handle(GatewayDispatcher dispatcher, HttpExchange exchange) {
     try {
-      String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body;
+      try (InputStream requestBody =
+          new SizeLimitedInputStream(
+              exchange.getRequestBody(),
+              MAX_REQUEST_BODY_BYTES,
+              exceeded -> new RequestTooLargeException(MAX_REQUEST_BODY_BYTES))) {
+        body = new String(requestBody.readAllBytes(), StandardCharsets.UTF_8);
+      }
       GatewayDispatcher.GatewayResponse response =
           dispatcher.dispatch(
               exchange.getRequestMethod(), exchange.getRequestURI().getPath(), body);
       respond(exchange, response.status(), response.body());
+    } catch (RequestTooLargeException e) {
+      respond(exchange, 413, e.getMessage());
     } catch (IOException e) {
       log.warn("gimle-gateway failed reading a request body: {}", e.getMessage());
       respond(exchange, 500, "failed reading request body");
     } finally {
       exchange.close();
+    }
+  }
+
+  /**
+   * Thrown by {@link #handle} once a request body has streamed past {@code
+   * MAX_REQUEST_BODY_BYTES}.
+   */
+  private static final class RequestTooLargeException extends RuntimeException {
+    RequestTooLargeException(long maxBytes) {
+      super("request body exceeds the maximum allowed size of " + maxBytes + " bytes");
     }
   }
 

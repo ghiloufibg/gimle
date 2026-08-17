@@ -1,13 +1,14 @@
 package com.gimle.saga;
 
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.saga.SagaEvent;
 import com.gimle.core.saga.SagaEventCodec;
+import com.gimle.core.web.HttpResponses;
 import com.gimle.core.web.SpaStaticHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -403,76 +404,26 @@ public final class SagaServer implements AutoCloseable {
     }
   }
 
-  /**
-   * Aborts a read mid-stream once more than {@code maxBytes} have been read, so an oversized
-   * ingest/import body's excess bytes are never fully buffered before being rejected.
-   */
-  private static final class SizeLimitedInputStream extends FilterInputStream {
-    private final long maxBytes;
-    private long readSoFar;
-
-    SizeLimitedInputStream(InputStream in, long maxBytes) {
-      super(in);
-      this.maxBytes = maxBytes;
-    }
-
-    @Override
-    public int read() throws IOException {
-      int b = super.read();
-      if (b != -1) {
-        countAndCheck(1);
-      }
-      return b;
-    }
-
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-      int n = super.read(b, off, len);
-      if (n > 0) {
-        countAndCheck(n);
-      }
-      return n;
-    }
-
-    private void countAndCheck(int justRead) {
-      readSoFar += justRead;
-      if (readSoFar > maxBytes) {
-        throw new BodyTooLargeException(maxBytes);
-      }
-    }
-  }
-
   private static String readBody(HttpExchange exchange) throws IOException {
     try (InputStream body =
-        new SizeLimitedInputStream(exchange.getRequestBody(), MAX_INGEST_BODY_BYTES)) {
+        new SizeLimitedInputStream(
+            exchange.getRequestBody(),
+            MAX_INGEST_BODY_BYTES,
+            exceeded -> new BodyTooLargeException(MAX_INGEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
   }
 
   private static void respond(HttpExchange exchange, int status, String body) throws IOException {
-    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respond(exchange, status, body);
   }
 
   private static void respondJson(HttpExchange exchange, int status, Object value)
       throws IOException {
-    byte[] bytes = Json.write(value).getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respondJson(exchange, status, value);
   }
 
   private static void respondQuietly(HttpExchange exchange, int status, String body) {
-    try {
-      respond(exchange, status, body);
-    } catch (IOException e) {
-      log.warn("failed to write error response: {}", e.getMessage());
-    }
+    HttpResponses.respondQuietly(exchange, status, body);
   }
 }

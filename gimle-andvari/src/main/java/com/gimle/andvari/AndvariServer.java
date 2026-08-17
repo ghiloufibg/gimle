@@ -9,6 +9,7 @@ import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.hash.Sha256;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
@@ -43,8 +44,6 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -52,7 +51,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -721,13 +719,7 @@ public final class AndvariServer implements AutoCloseable {
   }
 
   private static String sha256Hex(byte[] bytes) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(bytes));
-    } catch (NoSuchAlgorithmException e) {
-      // SHA-256 is mandatory in every conforming JRE; this is unreachable on a working JDK.
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
+    return Sha256.sha256Hex(bytes);
   }
 
   /**
@@ -936,7 +928,7 @@ public final class AndvariServer implements AutoCloseable {
       exchange
           .getResponseHeaders()
           .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
-      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of())));
+      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of()), false));
     } catch (IOException | RuntimeException e) {
       log.warn("login request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -980,11 +972,11 @@ public final class AndvariServer implements AutoCloseable {
       }
       Optional<Principal> principal = resolvePrincipal(exchange);
       if (principal.isPresent()) {
-        respondJson(exchange, 200, principalToJson(principal.get()));
+        respondJson(exchange, 200, principalToJson(principal.get(), false));
         return;
       }
       if (!(exchange instanceof HttpsExchange)) {
-        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of())));
+        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of()), true));
         return;
       }
       respondQuietly(exchange, 401, "not authenticated");
@@ -995,10 +987,11 @@ public final class AndvariServer implements AutoCloseable {
     }
   }
 
-  private static Map<String, Object> principalToJson(Principal principal) {
+  private static Map<String, Object> principalToJson(Principal principal, boolean anonymous) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("username", principal.name());
     map.put("groups", List.copyOf(principal.groups()));
+    map.put("anonymous", anonymous);
     return map;
   }
 

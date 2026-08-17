@@ -15,6 +15,7 @@ import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.HttpResponses;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.raft.StateMutation;
@@ -29,7 +30,6 @@ import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -867,30 +867,16 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   private static void respond(HttpExchange exchange, int status, String body) throws IOException {
-    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respond(exchange, status, body);
   }
 
   private static void respondJson(HttpExchange exchange, int status, Object value)
       throws IOException {
-    byte[] bytes = Json.write(value).getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respondJson(exchange, status, value);
   }
 
   private static void respondQuietly(HttpExchange exchange, int status, String body) {
-    try {
-      respond(exchange, status, body);
-    } catch (IOException e) {
-      log.warn("failed to write error response: {}", e.getMessage());
-    }
+    HttpResponses.respondQuietly(exchange, status, body);
   }
 
   /**

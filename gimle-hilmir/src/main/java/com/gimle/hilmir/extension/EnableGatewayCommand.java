@@ -1,5 +1,6 @@
 package com.gimle.hilmir.extension;
 
+import com.gimle.core.hash.Sha256;
 import com.gimle.hilmir.HilmirException;
 import com.gimle.hilmir.doctor.DoctorClusterCheck;
 import com.gimle.hilmir.doctor.DoctorClusterCheck.RegistryOutcome;
@@ -7,16 +8,12 @@ import com.gimle.hilmir.release.ControlPlaneApi;
 import com.gimle.hilmir.release.DeployCommand;
 import com.gimle.hilmir.release.UpgradeCommand;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 
@@ -158,19 +155,11 @@ public final class EnableGatewayCommand {
   }
 
   private static String sha256Hex(Path file) {
-    try (InputStream in = Files.newInputStream(file)) {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] buffer = new byte[8192];
-      int read;
-      while ((read = in.read(buffer)) != -1) {
-        digest.update(buffer, 0, read);
-      }
-      return HexFormat.of().formatHex(digest.digest());
+    try {
+      return Sha256.sha256Hex(file);
     } catch (IOException e) {
       throw new UncheckedIOException(
           "failed reading " + file + " to compute its digest: " + e.getMessage(), e);
-    } catch (NoSuchAlgorithmException e) {
-      throw new HilmirException("SHA-256 not available in this JVM", e);
     }
   }
 }

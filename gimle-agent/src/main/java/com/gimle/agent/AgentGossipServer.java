@@ -1,14 +1,12 @@
 package com.gimle.agent;
 
-import com.gimle.core.protocol.Json;
+import com.gimle.core.web.HttpResponses;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberState;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,29 +78,15 @@ final class AgentGossipServer implements AutoCloseable {
   // ---- shared plumbing, matching AgentLogServer's own response helpers ----
 
   private static void respond(HttpExchange exchange, int status, String body) throws IOException {
-    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respond(exchange, status, body);
   }
 
   private static void respondJson(HttpExchange exchange, int status, Object value)
       throws IOException {
-    byte[] bytes = Json.write(value).getBytes(StandardCharsets.UTF_8);
-    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
-    exchange.sendResponseHeaders(status, bytes.length);
-    try (OutputStream out = exchange.getResponseBody()) {
-      out.write(bytes);
-    }
+    HttpResponses.respondJson(exchange, status, value);
   }
 
   private static void respondQuietly(HttpExchange exchange, int status, String body) {
-    try {
-      respond(exchange, status, body);
-    } catch (IOException e) {
-      log.warn("failed to write error response: {}", e.getMessage());
-    }
+    HttpResponses.respondQuietly(exchange, status, body);
   }
 }
