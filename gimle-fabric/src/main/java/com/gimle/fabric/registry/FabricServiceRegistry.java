@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +81,15 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final Optional<String> selfTenantId;
   private final double maxEjectionPercent;
   private final boolean defaultDenyCrossTenant;
+
+  /**
+   * Cap on distinct tracked endpoints in {@link #breakers}, so long-lived-process endpoint churn
+   * (worker respawns minting new ports) can't grow it without bound. Not a real LRU -- just
+   * arbitrary-entry eviction once the cap is exceeded via {@link #breakerFor}, cheap and good
+   * enough since a mistakenly evicted still-live endpoint simply gets a fresh circuit breaker on
+   * its next lookup.
+   */
+  private static final int MAX_BREAKER_ENTRIES = 2000;
 
   private final Map<ServiceEndpoint, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final LeastOutstandingRequestsSelector<ServiceEndpoint> selector =
@@ -243,7 +253,6 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public <T> Optional<T> lookup(Class<T> iface) {
     Optional<T> local = localRegistry.lookup(iface);
     if (local.isPresent()) {
@@ -276,7 +285,19 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     if (chosen == null) {
       return Optional.empty();
     }
-    return Optional.of((T) createProxy(iface, chosen));
+    return Optional.of(castProxy(createProxy(iface, chosen)));
+  }
+
+  /**
+   * The one unchecked cast behind {@link #lookup}'s dynamic {@link Proxy} return: {@code
+   * createProxy} builds a {@code Proxy} instance for exactly the interface {@code T} the caller
+   * asked for, but the proxy machinery itself only ever hands back a plain {@code Object} -- a
+   * typesafe heterogeneous container pattern with no way to encode the witness at the call site
+   * itself, so the cast is isolated here rather than spanning the surrounding method.
+   */
+  @SuppressWarnings("unchecked")
+  private static <T> T castProxy(Object proxy) {
+    return (T) proxy;
   }
 
   /**
@@ -533,9 +554,19 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   private CircuitBreaker breakerFor(ServiceEndpoint endpoint) {
-    return breakers.computeIfAbsent(
-        endpoint,
-        key -> new CircuitBreaker(breakerWindowSize, breakerErrorRateThreshold, breakerCooldown));
+    CircuitBreaker breaker =
+        breakers.computeIfAbsent(
+            endpoint,
+            key ->
+                new CircuitBreaker(breakerWindowSize, breakerErrorRateThreshold, breakerCooldown));
+    if (breakers.size() > MAX_BREAKER_ENTRIES) {
+      Iterator<ServiceEndpoint> it = breakers.keySet().iterator();
+      if (it.hasNext()) {
+        it.next();
+        it.remove();
+      }
+    }
+    return breaker;
   }
 
   private <T> T createProxy(Class<T> iface, ServiceEndpoint endpoint) {

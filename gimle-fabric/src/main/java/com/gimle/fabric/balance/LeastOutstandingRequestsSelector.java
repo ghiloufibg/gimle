@@ -1,6 +1,7 @@
 package com.gimle.fabric.balance;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -15,6 +16,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class LeastOutstandingRequestsSelector<E> {
 
+  /**
+   * Cap on distinct tracked endpoints, so long-lived-process endpoint churn (worker respawns
+   * minting new ports) can't grow {@link #outstanding} without bound. Not a real LRU -- just an
+   * arbitrary-entry eviction once the cap is exceeded, cheap and good enough since a mistakenly
+   * evicted still-live endpoint simply gets a fresh zeroed counter on its next lookup.
+   */
+  private static final int MAX_TRACKED_ENDPOINTS = 2000;
+
   private final Map<E, AtomicInteger> outstanding = new ConcurrentHashMap<>();
   private final AtomicInteger roundRobinCursor = new AtomicInteger();
 
@@ -25,7 +34,7 @@ public final class LeastOutstandingRequestsSelector<E> {
     int minOutstanding = Integer.MAX_VALUE;
     List<E> tied = new ArrayList<>();
     for (E candidate : candidates) {
-      int count = outstanding.computeIfAbsent(candidate, key -> new AtomicInteger()).get();
+      int count = counterFor(candidate).get();
       if (count < minOutstanding) {
         minOutstanding = count;
         tied.clear();
@@ -39,7 +48,19 @@ public final class LeastOutstandingRequestsSelector<E> {
   }
 
   public void begin(E candidate) {
-    outstanding.computeIfAbsent(candidate, key -> new AtomicInteger()).incrementAndGet();
+    counterFor(candidate).incrementAndGet();
+  }
+
+  private AtomicInteger counterFor(E candidate) {
+    AtomicInteger counter = outstanding.computeIfAbsent(candidate, key -> new AtomicInteger());
+    if (outstanding.size() > MAX_TRACKED_ENDPOINTS) {
+      Iterator<E> it = outstanding.keySet().iterator();
+      if (it.hasNext()) {
+        it.next();
+        it.remove();
+      }
+    }
+    return counter;
   }
 
   public void end(E candidate) {

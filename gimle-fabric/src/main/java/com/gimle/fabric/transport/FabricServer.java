@@ -197,15 +197,29 @@ public final class FabricServer implements AutoCloseable {
       SocketChannel connection;
       try {
         connection = serverChannel.accept();
+      } catch (IOException e) {
+        if (closed || !serverChannel.isOpen()) {
+          log.warn("fabric server accept loop failed: {}", e.getMessage());
+          return;
+        }
+        // Transient failure (e.g. EMFILE under load) with the listener still open -- keep
+        // accepting rather than silently killing the endpoint while health probes stay green.
+        log.warn("fabric server accept failed, retrying: {}", e.getMessage());
+        if (!pauseBeforeRetry()) {
+          return;
+        }
+        continue;
+      }
+      try {
         if (connection.getLocalAddress() instanceof InetSocketAddress) {
           // TCP only -- a Unix domain socket has no Nagle to disable, and rejects the option.
           connection.setOption(StandardSocketOptions.TCP_NODELAY, true);
         }
       } catch (IOException e) {
-        if (!closed) {
-          log.warn("fabric server accept loop failed: {}", e.getMessage());
-        }
-        return;
+        log.warn(
+            "failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
+        closeQuietly(connection);
+        continue;
       }
       Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serve(connection));
     }
@@ -216,14 +230,51 @@ public final class FabricServer implements AutoCloseable {
       Socket connection;
       try {
         connection = serverSocket.accept();
+      } catch (IOException e) {
+        if (closed || serverSocket.isClosed()) {
+          log.warn("fabric server accept loop failed: {}", e.getMessage());
+          return;
+        }
+        // Transient failure (e.g. EMFILE under load) with the listener still open -- keep
+        // accepting rather than silently killing the endpoint while health probes stay green.
+        log.warn("fabric server accept failed, retrying: {}", e.getMessage());
+        if (!pauseBeforeRetry()) {
+          return;
+        }
+        continue;
+      }
+      try {
         connection.setTcpNoDelay(true); // see FabricClient: the response half of the round trip
       } catch (IOException e) {
-        if (!closed) {
-          log.warn("fabric server accept loop failed: {}", e.getMessage());
-        }
-        return;
+        log.warn(
+            "failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
+        closeQuietly(connection);
+        continue;
       }
       Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serve(connection));
+    }
+  }
+
+  /**
+   * Brief pause between accept retries so a persistent failure (e.g. exhausted file descriptors)
+   * doesn't hot-spin the listener thread. Returns {@code false} if interrupted, signalling the
+   * caller to stop looping.
+   */
+  private static boolean pauseBeforeRetry() {
+    try {
+      Thread.sleep(100);
+      return true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+  }
+
+  private static void closeQuietly(Closeable connection) {
+    try {
+      connection.close();
+    } catch (IOException e) {
+      log.debug("failed to close rejected fabric connection: {}", e.getMessage());
     }
   }
 
