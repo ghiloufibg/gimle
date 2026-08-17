@@ -14,3 +14,9 @@ Feature: Mutual TLS operation
   Scenario: An anonymous client cannot write
     Given a running cluster from topology "mtls"
     Then an anonymous tenant write is rejected with status 401
+
+  @module-lifecycle-coverage
+  Scenario: A tenant write is recorded in the durable audit trail
+    Given a running cluster from topology "mtls"
+    And a tenant "audit-tenant" with quota 268435456 bytes memory, 1000 millicores and 10 instances
+    Then within 30s the audit trail records an allowed WRITE on TENANT for tenant "audit-tenant"

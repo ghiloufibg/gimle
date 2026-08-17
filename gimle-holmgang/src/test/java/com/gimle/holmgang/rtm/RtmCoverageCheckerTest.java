@@ -20,7 +20,8 @@ import org.junit.jupiter.api.io.TempDir;
 final class RtmCoverageCheckerTest {
 
   private static String validJson() {
-    return """
+    return
+"""
         {
           "requirements": [
             {"id": "GIMLE-001", "feature": "Covered thing", "category": "Widgetry", \
@@ -108,7 +109,7 @@ final class RtmCoverageCheckerTest {
   @Test
   void extra_unrecognized_json_fields_are_ignored() {
     final String json =
-        """
+"""
         {
           "metadata": {"scanDate": "2026-08-17"},
           "requirements": [
@@ -172,7 +173,7 @@ final class RtmCoverageCheckerTest {
   @Test
   void an_entry_with_a_malformed_id_fails_loudly() {
     final String json =
-        """
+"""
         {"requirements": [{"id": "NOT-AN-ID", "feature": "Thing", "category": "Widgetry", \
 "status": "Active", "coverage": "Covered"}]}
 """;
@@ -184,7 +185,7 @@ final class RtmCoverageCheckerTest {
   @Test
   void an_entry_with_an_unrecognized_coverage_value_fails_loudly() {
     final String json =
-        """
+"""
         {"requirements": [{"id": "GIMLE-001", "feature": "Thing", "category": "Widgetry", \
 "status": "Active", "coverage": "Maybe"}]}
 """;
@@ -196,7 +197,7 @@ final class RtmCoverageCheckerTest {
   @Test
   void an_entry_missing_a_required_field_fails_loudly() {
     final String json =
-        """
+"""
         {"requirements": [{"id": "GIMLE-001", "feature": "Thing", "status": "Active", \
 "coverage": "Covered"}]}
 """; // no "category"
@@ -208,7 +209,7 @@ final class RtmCoverageCheckerTest {
   @Test
   void an_entry_with_a_blank_required_field_fails_loudly() {
     final String json =
-        """
+"""
         {"requirements": [{"id": "GIMLE-001", "feature": "  ", "category": "Widgetry", \
 "status": "Active", "coverage": "Covered"}]}
 """;
