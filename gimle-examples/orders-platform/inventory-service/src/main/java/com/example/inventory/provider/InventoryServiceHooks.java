@@ -2,6 +2,7 @@ package com.example.inventory.provider;
 
 import com.example.inventory.InventoryLevels;
 import com.example.orders.OrderCatalog;
+import com.gimle.core.exception.GimleClusterException;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import java.time.Duration;
@@ -68,7 +69,17 @@ public final class InventoryServiceHooks implements ModuleLifecycleHooks {
       MDC.setContextMap(mdcTags);
     }
     while (!stopped) {
-      reconcileOnce(ctx, stockLedger);
+      // A background loop must survive a single bad tick, not die from it: lookupService throws
+      // GimleClusterException rather than returning empty when literally nobody in the cluster has
+      // ever exported OrderCatalog yet (see FabricServiceRegistry#lookup) -- an ordinary state
+      // right after a fresh cluster boot, before orders-service's own registration has propagated
+      // through the gossip catalog. Uncaught, that exception would terminate this virtual thread
+      // for good on its very first unlucky tick, silently ending reconciliation forever.
+      try {
+        reconcileOnce(ctx, stockLedger);
+      } catch (GimleClusterException e) {
+        log.warn("no OrderCatalog available yet; orders-service may not have registered it yet");
+      }
       sleep(RECONCILE_INTERVAL);
     }
   }
