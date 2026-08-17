@@ -45,24 +45,32 @@ export const useRunDetailStore = create<RunDetailState>((set, get) => ({
   follow: () => {
     const { runId, following, events } = get();
     if (!runId || following) return;
-    const unsubscribe = runsRepository.followRunEvents(runId, events.length, (event) => {
-      set((s) => {
-        const events = [...s.events, event];
-        if (!s.detail) return { events };
-        const seen = new Set(events.map((e) => e.testId));
-        const moduleProgress = s.detail.moduleProgress.map((m) => {
-          const done = [...seen].filter((id) => id.startsWith(`${m.module}:`)).length;
-          const failed = events.filter(
-            (e) => e.testId.startsWith(`${m.module}:`) && e.outcome === "FAILED",
-          ).length;
-          // A backend that can't preview the planned test count ahead of time (no historical
-          // baseline to compare against) reports `total` as "completed so far" -- grow it
-          // alongside `done` rather than capping, so the bar tracks reality instead of stalling.
-          return { ...m, total: Math.max(m.total, done), completed: done, failed };
+    const unsubscribe = runsRepository.followRunEvents(
+      runId,
+      events.length,
+      (event) => {
+        set((s) => {
+          const events = [...s.events, event];
+          if (!s.detail) return { events };
+          const seen = new Set(events.map((e) => e.testId));
+          const moduleProgress = s.detail.moduleProgress.map((m) => {
+            const done = [...seen].filter((id) => id.startsWith(`${m.module}:`)).length;
+            const failed = events.filter(
+              (e) => e.testId.startsWith(`${m.module}:`) && e.outcome === "FAILED",
+            ).length;
+            // A backend that can't preview the planned test count ahead of time (no historical
+            // baseline to compare against) reports `total` as "completed so far" -- grow it
+            // alongside `done` rather than capping, so the bar tracks reality instead of stalling.
+            return { ...m, total: Math.max(m.total, done), completed: done, failed };
+          });
+          return { events, detail: { ...s.detail, moduleProgress } };
         });
-        return { events, detail: { ...s.detail, moduleProgress } };
-      });
-    });
+      },
+      (error) => {
+        if (!error) return;
+        set({ following: false, error: error.message });
+      },
+    );
     set({ unsubscribe, following: true });
   },
   unfollow: () => {

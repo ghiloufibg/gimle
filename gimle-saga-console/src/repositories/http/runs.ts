@@ -53,6 +53,7 @@ export class HttpRunsRepository implements RunsRepository {
     runId: string,
     cursor: number,
     onEvent: (event: TestResultEvent) => void,
+    onEnd?: (error?: Error) => void,
   ): Unsubscribe {
     const controller = new AbortController();
     let seen = 0;
@@ -76,11 +77,19 @@ export class HttpRunsRepository implements RunsRepository {
         onEvent(event);
       },
       controller.signal,
-    ).catch((e: unknown) => {
-      if (!controller.signal.aborted) {
+    ).then(
+      // A resolved promise covers both a natural stream end and an aborted one (streamNdjsonLines
+      // swallows the abort's rejection internally) -- either way this is a clean end.
+      () => onEnd?.(),
+      (e: unknown) => {
+        if (controller.signal.aborted) {
+          onEnd?.();
+          return;
+        }
         console.error(`saga: event stream for run ${runId} failed`, e);
-      }
-    });
+        onEnd?.(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
     return () => controller.abort();
   }
 

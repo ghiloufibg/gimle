@@ -106,6 +106,7 @@ export class MockRunsRepository implements RunsRepository {
     runId: string,
     _cursor: number,
     onEvent: (event: TestResultEvent) => void,
+    _onEnd?: (error?: Error) => void,
   ): Unsubscribe {
     const run = MOCK_RUNS.find((r) => r.runId === runId);
     if (!run || run.status !== "live") return () => {};

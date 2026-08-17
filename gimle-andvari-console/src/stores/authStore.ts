@@ -38,8 +38,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       const principal = await authRepo.login(username, password);
       set({ principal, pending: false, bootstrapped: true, error: null });
       return true;
-    } catch {
-      set({ pending: false, error: "invalid username or password" });
+    } catch (error) {
+      set({ pending: false, error: error instanceof Error ? error.message : "login failed" });
       return false;
     }
   },

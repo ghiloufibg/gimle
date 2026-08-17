@@ -1,4 +1,3 @@
-import "./lib/error-capture";
 import "./styles.css";
 
 import { StrictMode } from "react";

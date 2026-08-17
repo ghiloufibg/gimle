@@ -112,7 +112,14 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
         };
       });
     } catch (error) {
-      set({ error: messageOf(error) });
+      set((state) => {
+        const current = state.revealed[key];
+        if (!current) return { error: messageOf(error) } as Partial<SecretsState>;
+        return {
+          revealed: { ...state.revealed, [key]: { ...current, loading: false } },
+          error: messageOf(error),
+        };
+      });
     }
   },
 
