@@ -257,6 +257,41 @@ class AgentMainTest {
   }
 
   @Test
+  void observation_json_reports_the_instances_self_reported_ports() {
+    // Regression coverage for the module-hosted analog of a vessel's own allocatedPorts: a
+    // module's ModuleContext#reportPort call reaches this instance's ports field via the worker's
+    // own MetricsReport, and observationJson must fold it into the heartbeat the exact same way
+    // vesselObservationJson already does for a Vessel -- this is what lets
+    // ServiceEndpointResolver#solePort resolve a live endpoint for an ordinary module deployment,
+    // not just a Vessel workload.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "web-ui", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+    instance.ports = Map.of("HTTP_PORT", 8080);
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals(Map.of("HTTP_PORT", 8080), observation.get("ports"));
+  }
+
+  @Test
+  void observation_json_reports_no_ports_for_an_instance_that_never_reported_any() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "web-ui", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals(Map.of(), observation.get("ports"));
+  }
+
+  @Test
   void observation_json_reports_a_completed_job_run_as_alive_but_not_ready() {
     // Regression test locking in observationJson's own documented reasoning: alive is an exclusion
     // check ("not FAILED"), not an inclusion list, so a COMPLETED job run already reports

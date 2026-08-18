@@ -404,7 +404,9 @@ public final class WorkerMain {
    * to diff against and reports {@code 0} rather than a spurious spike from "0 to whatever it's
    * accumulated since startup." Queue depth comes straight from that module's own {@code
    * BoundedModuleScheduler}, when one exists yet (it doesn't during the brief window between a
-   * module going ACTIVE and {@code WorkerRuntime} finishing wiring its scheduler).
+   * module going ACTIVE and {@code WorkerRuntime} finishing wiring its scheduler). {@code ports}
+   * carries whatever that module's own hook code has reported via {@code ModuleContext#reportPort}
+   * -- empty for the overwhelming majority of modules, which never call it.
    */
   private static void metricsReportLoop(
       ControlChannelClient channel,
@@ -446,7 +448,8 @@ public final class WorkerMain {
                   memoryBytesUsed,
                   requestRatePerSecond,
                   queueDepth,
-                  errorRatePerSecond));
+                  errorRatePerSecond,
+                  runtime.reportedPortsFor(id)));
         }
       } catch (RuntimeException e) {
         log.warn("metrics report tick failed", e);

@@ -50,7 +50,8 @@ public final class ControlMessageCodec {
               Long.toString(m.memoryBytesUsed()),
               Double.toString(m.requestRatePerSecond()),
               Integer.toString(m.queueDepth()),
-              Double.toString(m.errorRatePerSecond()));
+              Double.toString(m.errorRatePerSecond()),
+              escape(encodePorts(m.ports())));
       case ControlMessage.InstanceEventOccurred m ->
           line(
               "INSTANCE_EVENT",
@@ -149,7 +150,8 @@ public final class ControlMessageCodec {
               Long.parseLong(field(fields, 3)),
               Double.parseDouble(field(fields, 4)),
               Integer.parseInt(field(fields, 5)),
-              Double.parseDouble(field(fields, 6)));
+              Double.parseDouble(field(fields, 6)),
+              decodePorts(unescape(field(fields, 7))));
       case "INSTANCE_EVENT" -> {
         boolean causePresent = Boolean.parseBoolean(field(fields, 6));
         String causeSummary = unescape(field(fields, 7));
@@ -322,6 +324,26 @@ public final class ControlMessageCodec {
               (String) entry.get("name"), (String) entry.get("tenantId"), allowedCallerTenantIds));
     }
     return rules;
+  }
+
+  /**
+   * A reported-ports map is variable-length and free-form-keyed, the same shape problem {@link
+   * #encodeNetworkPolicies(List)} already solves for a variable-length rule list -- reuses {@link
+   * Json} the same way, rather than inventing yet another bespoke delimiter scheme for a map this
+   * one field wide.
+   */
+  private static String encodePorts(Map<String, Integer> ports) {
+    return Json.write(new LinkedHashMap<String, Object>(ports));
+  }
+
+  /** Inverse of {@link #encodePorts(Map)}. */
+  private static Map<String, Integer> decodePorts(String json) {
+    Map<String, Object> raw = Json.asObject(Json.parse(json));
+    Map<String, Integer> ports = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : raw.entrySet()) {
+      ports.put(entry.getKey(), ((Number) entry.getValue()).intValue());
+    }
+    return ports;
   }
 
   private static String escape(String text) {

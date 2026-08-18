@@ -164,6 +164,18 @@ public final class WorkerRuntime {
     return Optional.ofNullable(schedulers.get(id));
   }
 
+  /**
+   * Every port {@code id}'s hook code has reported back via its own {@link
+   * ModuleContext#reportPort}, if it has resolved a context at all -- empty for the overwhelming
+   * majority of modules, which never call {@code reportPort}. Lets {@code WorkerMain}'s own
+   * periodic metrics report fold a module's self-reported ports into the same {@code
+   * ControlMessage.MetricsReport} it already sends, without that loop needing to reach into {@link
+   * ModuleController} directly.
+   */
+  public Map<String, Integer> reportedPortsFor(ModuleId id) {
+    return controller.context(id).map(ModuleContext::reportedPorts).orElse(Map.of());
+  }
+
   public void onLifecycleEvent(LifecycleEvent event) {
     switch (event) {
       case LifecycleEvent.Active active -> onActive(active.id());
