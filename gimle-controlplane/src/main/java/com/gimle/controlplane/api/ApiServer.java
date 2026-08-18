@@ -13,6 +13,9 @@ import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
+import com.gimle.controlplane.service.ServiceEndpoint;
+import com.gimle.controlplane.service.ServiceEndpointResolver;
+import com.gimle.controlplane.service.ServiceRegistry;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
@@ -66,6 +69,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
@@ -208,6 +212,11 @@ public final class ApiServer implements AutoCloseable {
           .connectTimeout(Duration.ofSeconds(5))
           .build();
   private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
+  // See ServiceRegistry's own javadoc: in-memory/per-replica, the same non-durable posture
+  // loginThrottle below already has, until ServiceSpec gets a persisted home in gimle-mimir.
+  // Shared with ControlPlaneMain's own ServiceReconciler via #serviceRegistry() the same way
+  // metrics() is shared, so both read/write the identical instance this replica's routes do.
+  private final ServiceRegistry serviceRegistry = new ServiceRegistry();
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -359,6 +368,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
     target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
     target.createContext("/endpoints/", instrument("endpoints", this::handleEndpoints));
+    target.createContext("/services/", instrument("services", this::handleService));
+    target.createContext("/services", instrument("services", this::handleServicesCollection));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -432,6 +443,15 @@ public final class ApiServer implements AutoCloseable {
    */
   public ApiServerMetrics metrics() {
     return metrics;
+  }
+
+  /**
+   * Public so {@code ControlPlaneMain} can hand this same registry to a {@code ServiceReconciler}
+   * ticking alongside every other reconciler -- see {@link #serviceRegistry}'s own field javadoc
+   * for why this isn't a constructor parameter instead.
+   */
+  public ServiceRegistry serviceRegistry() {
+    return serviceRegistry;
   }
 
   /**
@@ -900,6 +920,198 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  // ---- /services, /services/{name}, /services/{name}/endpoints ----
+
+  /**
+   * {@code POST /services} (create/replace by the name the submitted body carries) and {@code GET
+   * /services} (list every one) -- collected onto the bare {@code /services} context the same way
+   * {@code /deployments} separates its own collection route from {@code /deployments/{name}}'s
+   * per-resource one. {@code POST}, not {@code PUT}, because a {@link ServiceSpec} names itself in
+   * the request body rather than the URL path -- unlike every {@code WorkloadSpec} kind, which
+   * travels as a YAML manifest {@link ManifestParser} already dispatches on {@code kind:}, a
+   * Service travels as plain JSON (matching this class's own "hand-rolled JSON for traffic that
+   * isn't an operator-facing manifest" convention) since it isn't a {@code WorkloadSpec} itself.
+   */
+  private void handleServicesCollection(HttpExchange exchange) {
+    try {
+      switch (exchange.getRequestMethod()) {
+        case "POST" -> handlePostService(exchange);
+        case "GET" -> handleServicesList(exchange);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("services request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Same two-check re-tenanting guard {@link #dispatchResourceRequest}'s own PUT branch applies: a
+   * caller needs write access under the submitted tenant, and, only if a same-named Service already
+   * exists under a different tenant, write access under that existing tenant too -- otherwise a
+   * grant scoped to one tenant could silently steal a Service out of another it has no access to.
+   * Field validation itself is entirely {@link ServiceSpec}'s own constructor's job; an {@link
+   * IllegalArgumentException} it throws is caught by {@link #handleServicesCollection} and mapped
+   * to 400, the same mapping {@link #dispatchResourceRequest} gives every other kind's own manifest
+   * validation failure.
+   */
+  private void handlePostService(HttpExchange exchange) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String name = (String) body.get("name");
+    if (name == null || name.isBlank()) {
+      respond(exchange, 400, "missing service name");
+      return;
+    }
+    Optional<String> tenantId =
+        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+    Set<String> deploymentNames = new LinkedHashSet<>();
+    if (body.get("deploymentNames") instanceof List<?> rawNames) {
+      for (Object rawName : rawNames) {
+        deploymentNames.add(String.valueOf(rawName));
+      }
+    }
+    int port = ((Number) body.get("port")).intValue();
+    int targetPort = body.get("targetPort") instanceof Number n ? n.intValue() : port;
+
+    Optional<Optional<String>> existingTenant =
+        serviceRegistry.get(name).map(ServiceSpec::tenantId);
+    boolean authorized = requireAuthorized(exchange, ResourceKind.SERVICE, Verb.WRITE, tenantId);
+    if (authorized && existingTenant.isPresent() && !existingTenant.get().equals(tenantId)) {
+      authorized =
+          requireAuthorized(exchange, ResourceKind.SERVICE, Verb.WRITE, existingTenant.get());
+    }
+    if (authorized && !rejectIfReservedSystemTenant(exchange, tenantId)) {
+      ServiceSpec spec = new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
+      serviceRegistry.put(spec);
+      respond(exchange, 200, "ok");
+    }
+  }
+
+  /** Every Service, in the same shape {@link #handleGetService} returns for one. */
+  private void handleServicesList(HttpExchange exchange) throws IOException {
+    if (!requireAuthorized(exchange, ResourceKind.SERVICE, Verb.READ, Optional.empty())) {
+      return;
+    }
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    respondJson(
+        exchange, 200, serviceRegistry.list().stream().map(ApiServer::serviceToJson).toList());
+  }
+
+  /**
+   * {@code GET}/{@code DELETE /services/{name}}, plus the {@code /services/{name}/endpoints}
+   * sub-route -- resolved the same way {@code /cronjobs/{name}/trigger} carries a second path
+   * segment under one context.
+   */
+  private void handleService(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/services/");
+      int slash = tail.indexOf('/');
+      String name = slash < 0 ? tail : tail.substring(0, slash);
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing service name");
+        return;
+      }
+      if (slash >= 0) {
+        String subResource = tail.substring(slash + 1);
+        if (!"endpoints".equals(subResource)) {
+          respond(exchange, 404, "unknown service endpoint: " + subResource);
+          return;
+        }
+        handleServiceEndpoints(exchange, name);
+        return;
+      }
+      Optional<String> tenant =
+          serviceRegistry.get(name).map(ServiceSpec::tenantId).orElse(Optional.empty());
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.READ, tenant)) {
+            handleGetService(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.DELETE, tenant)) {
+            serviceRegistry.remove(name);
+            respond(exchange, 200, "ok");
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("service request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleGetService(HttpExchange exchange, String name) throws IOException {
+    Optional<ServiceSpec> spec = serviceRegistry.get(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such service: " + name);
+      return;
+    }
+    respondJson(exchange, 200, serviceToJson(spec.get()));
+  }
+
+  /**
+   * Computed live off the current store snapshot via {@link ServiceEndpointResolver}, exactly like
+   * {@code GET /endpoints/{name}} already does for every other workload kind -- never served from
+   * {@code ServiceRegistry}'s own reconciler-populated cache, so a caller never sees a result stale
+   * by up to one reconcile interval. An empty {@code endpoints} array is a valid 200, not a 404 --
+   * "no live backing instance yet" is a normal transient state as long as the Service itself
+   * exists.
+   */
+  private void handleServiceEndpoints(HttpExchange exchange, String name) throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Optional<ServiceSpec> spec = serviceRegistry.get(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such service: " + name);
+      return;
+    }
+    if (!authorizeEndpointsRead(exchange, ResourceKind.SERVICE, spec.get().tenantId())) {
+      return;
+    }
+    respondJson(exchange, 200, serviceEndpointsToJson(spec.get()));
+  }
+
+  private Map<String, Object> serviceEndpointsToJson(ServiceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    map.put("port", spec.port());
+    map.put("targetPort", spec.targetPort());
+    List<Map<String, Object>> endpoints = new ArrayList<>();
+    for (ServiceEndpoint endpoint : ServiceEndpointResolver.resolve(storeClient, spec)) {
+      Map<String, Object> entry = new LinkedHashMap<>();
+      entry.put("host", endpoint.host());
+      entry.put("port", endpoint.port());
+      endpoints.add(entry);
+    }
+    map.put("endpoints", endpoints);
+    return map;
+  }
+
+  private static Map<String, Object> serviceToJson(ServiceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    spec.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
+    map.put("deploymentNames", List.copyOf(spec.deploymentNames()));
+    map.put("port", spec.port());
+    map.put("targetPort", spec.targetPort());
+    return map;
   }
 
   // ---- /jobs/{name}, /jobs ----

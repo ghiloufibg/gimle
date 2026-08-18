@@ -13,6 +13,7 @@ import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.JobReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
+import com.gimle.controlplane.reconcile.ServiceReconciler;
 import com.gimle.controlplane.reconcile.StatefulSetReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.banner.GimleBanner;
@@ -235,6 +236,11 @@ public final class ControlPlaneMain {
             storeClient, port, secretKeyFilePath, fafnirClient, muninnClient, artifactResolver);
     apiServer.start();
     String selfApiAddress = selfHost + ":" + apiServer.port();
+    // Reads/writes apiServer's own ServiceRegistry -- see that class's javadoc for why Service
+    // state is this replica's own in-memory copy rather than a StoreClient-backed one, unlike
+    // every reconciler constructed above.
+    ServiceReconciler serviceReconciler =
+        new ServiceReconciler(apiServer.serviceRegistry(), storeClient);
 
     // Same --muninn-endpoint value doing double duty: the MuninnClient above reads a gone
     // node/instance's shipped history back, this shipper ships this replica's own request
@@ -310,7 +316,8 @@ public final class ControlPlaneMain {
                 jobReconciler,
                 cronJobReconciler,
                 daemonSetReconciler,
-                statefulSetReconciler);
+                statefulSetReconciler,
+                serviceReconciler);
           }
         };
     // Unconditional -- not lease-gated like the reconcile tick above: this replica's own
@@ -434,7 +441,8 @@ public final class ControlPlaneMain {
       JobReconciler jobReconciler,
       CronJobReconciler cronJobReconciler,
       DaemonSetReconciler daemonSetReconciler,
-      StatefulSetReconciler statefulSetReconciler) {
+      StatefulSetReconciler statefulSetReconciler,
+      ServiceReconciler serviceReconciler) {
     runOne("replicaCount", replicaCountReconciler::reconcileOnce);
     runOne("health", healthReconciler::reconcileOnce);
     runOne("autoscale", autoscaleReconciler::reconcileOnce);
@@ -447,6 +455,9 @@ public final class ControlPlaneMain {
     runOne("job", jobReconciler::reconcileOnce);
     runOne("daemonSet", daemonSetReconciler::reconcileOnce);
     runOne("statefulSet", statefulSetReconciler::reconcileOnce);
+    // Touches only ServiceRegistry's own endpoint cache -- invisible to, and with no ordering
+    // dependency on, any reconciler above.
+    runOne("service", serviceReconciler::reconcileOnce);
   }
 
   // Each reconciler gets its own isolated failure boundary so one reconciler's exception (e.g. a
