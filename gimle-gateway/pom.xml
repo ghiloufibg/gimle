@@ -45,5 +45,13 @@
       <artifactId>slf4j-api</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- Test-only: real CA-signed certificate material for GatewayHooksTlsTest, the same way
+         ApiServerTlsTest/FafnirServerTlsTest/MuninnServerTlsTest/AndvariServerTlsTest already
+         generate theirs. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-pki</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

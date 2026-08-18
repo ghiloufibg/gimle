@@ -11,6 +11,13 @@
 # See GatewayHooks's own javadoc for the two keys' exact meaning, and GatewayRouteConfig's own
 # javadoc for the route-table format the second one holds.
 #
+# TLS termination at this instance's own listener is not a config key at all: it follows the same
+# cluster-wide -Dgimle.transport.protocol=tls system property (plus -Dgimle.tls.certFile/keyFile/
+# caFile) every other TLS-capable listener in this codebase reads -- set it on the node agent's own
+# launch command and it's forwarded onto every worker JVM that agent spawns, this gateway's own
+# worker included, with nothing gateway-specific to configure. Plaintext (the default) needs none
+# of this. See GatewayHooks#createHttpServer's own javadoc for exactly how the swap happens.
+#
 # tenantId: gimle-system only ever admits through a gimle:operators-group credential -- see
 # ApiServer#rejectIfReservedSystemTenant. placement.requiredLabels: [edge] matches how an operator
 # marks a machine as an edge node today: `-Dgimle.node.labels=edge` on that node's own AgentMain

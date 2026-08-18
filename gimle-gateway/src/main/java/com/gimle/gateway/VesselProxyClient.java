@@ -11,13 +11,13 @@ import java.time.Duration;
 
 /**
  * The plain outbound HTTP call a {@link GatewayRoute.VesselRoute} or {@link
- * GatewayRoute.ServiceRoute} makes to a resolved {@link HostPort} -- no TLS (matching the gateway's
- * own existing plaintext-only posture, see this module's own README/deployment.yaml), and no header
- * forwarding in either direction: only the inbound request's method, path, and body are proxied,
- * and only the downstream response's status and body are handed back, a deliberate v1 narrowing
- * rather than an oversight (forwarding an arbitrary header set correctly -- stripping hop-by-hop
- * headers, rewriting {@code Host}, not double-setting {@code Content-Length} -- is real work this
- * increment doesn't attempt).
+ * GatewayRoute.ServiceRoute} makes to a resolved {@link HostPort} -- always plaintext, independent
+ * of whether {@link GatewayHooks} terminated TLS on the inbound side or not (see that class's own
+ * javadoc: this is TLS *termination*, not a TLS relay) -- and no header forwarding in either
+ * direction: only the inbound request's method, path, and body are proxied, and only the downstream
+ * response's status and body are handed back, a deliberate v1 narrowing rather than an oversight
+ * (forwarding an arbitrary header set correctly -- stripping hop-by-hop headers, rewriting {@code
+ * Host}, not double-setting {@code Content-Length} -- is real work this increment doesn't attempt).
  *
  * <p>Both connection establishment and the request as a whole are bounded (see {@link
  * #CONNECT_TIMEOUT}/{@link #REQUEST_TIMEOUT}) -- the same "a caller must never hang forever on a
