@@ -155,6 +155,9 @@ class MachineLauncherRestartRoleIntegrationTest {
       assertEquals(restarted.pid(), controlPlaneAfter.pid());
     } finally {
       MachineLauncher.down(runtime.dataRoot(), capture(new ByteArrayOutputStream()));
+      // Pre-empt @TempDir's own single-attempt cleanup: see MachineLauncherIntegrationTest's own
+      // identical call for why.
+      LaunchTestSupport.drainTempDir(tempDir);
     }
   }
 

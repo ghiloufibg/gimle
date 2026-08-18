@@ -46,7 +46,7 @@ public final class MachineLauncher {
   private static final Duration READINESS_TIMEOUT = Duration.ofMinutes(2);
   private static final Duration ONE_SHOT_TIMEOUT = Duration.ofSeconds(60);
   private static final Duration KILL_GRACE_PERIOD = Duration.ofSeconds(5);
-  private static final Duration LOG_FILE_RELEASE_TIMEOUT = Duration.ofSeconds(2);
+  private static final Duration FILE_RELEASE_TIMEOUT = Duration.ofSeconds(10);
   private static final Pattern BOOTSTRAP_TOKEN_PATTERN = Pattern.compile("bootstrap token: (\\S+)");
 
   private MachineLauncher() {}
@@ -426,29 +426,36 @@ public final class MachineLauncher {
       handle.destroyForcibly();
       awaitExit(handle, KILL_GRACE_PERIOD);
     }
-    awaitLogFileReleased(dataRoot.resolve(record.logFile()));
+    // Both files a subsequent spawn() for this same command id will immediately rewrite: the log
+    // file (restartRole's replacement process redirects to the identical path) and the @argfile
+    // JavaArgFile.rewrite truncates-and-overwrites -- restartRole reuses the killed record's own
+    // command id, so both paths collide with whatever this just-dead process itself last touched.
+    awaitFileReleased(dataRoot.resolve(record.logFile()));
+    awaitFileReleased(dataRoot.resolve(record.id() + ".args"));
     out.println("stopped " + record.role() + " " + record.id() + " (pid " + record.pid() + ")");
   }
 
   /**
-   * On Windows, a just-terminated process's own OS handle to its redirected log file can outlive
-   * {@link ProcessHandle#onExit()} resolving by a few milliseconds -- so a caller that touches that
-   * file immediately after {@code down}/{@code restartRole} returns (an operator archiving logs, or
-   * this launcher's own tests deleting their temp directory) can still race an "in use by another
-   * process" failure even though the process is confirmed dead. Polls briefly for the file to become
-   * exclusively openable before returning; a no-op in practice on POSIX, which never locks a file
-   * this way to begin with. Best-effort: gives up silently after {@link #LOG_FILE_RELEASE_TIMEOUT}
-   * rather than failing the whole {@code down}, since an unrelated tool (a tailing log viewer, an
-   * antivirus scan) could hold the file open indefinitely for reasons outside this launcher's own
-   * control.
+   * On Windows, a just-terminated process's own OS handle to a file it had open (its redirected log
+   * file, or the {@code @argfile} the JVM launcher itself read at startup) can outlive {@link
+   * ProcessHandle#onExit()} resolving by a few milliseconds -- so a caller that touches that same
+   * path immediately after {@code down}/{@code restartRole} returns (an operator archiving logs,
+   * {@code restartRole}'s own replacement spawn rewriting the identical {@code @argfile} for a
+   * same-id restart, or this launcher's own tests deleting their temp directory) can still race an
+   * "in use by another process" failure even though the process is confirmed dead. Polls briefly
+   * for the file to become exclusively openable before returning; a no-op in practice on POSIX,
+   * which never locks a file this way to begin with. Best-effort: gives up silently after {@link
+   * #FILE_RELEASE_TIMEOUT} rather than failing the whole {@code down}, since an unrelated tool (a
+   * tailing log viewer, an antivirus scan) could hold the file open indefinitely for reasons
+   * outside this launcher's own control.
    */
-  private static void awaitLogFileReleased(final Path logFile) {
-    if (Files.notExists(logFile)) {
+  private static void awaitFileReleased(final Path file) {
+    if (Files.notExists(file)) {
       return;
     }
-    final long deadline = System.nanoTime() + LOG_FILE_RELEASE_TIMEOUT.toNanos();
+    final long deadline = System.nanoTime() + FILE_RELEASE_TIMEOUT.toNanos();
     while (System.nanoTime() < deadline) {
-      try (FileChannel ignored = FileChannel.open(logFile, StandardOpenOption.WRITE)) {
+      try (FileChannel ignored = FileChannel.open(file, StandardOpenOption.WRITE)) {
         return;
       } catch (final IOException e) {
         try {

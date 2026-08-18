@@ -72,6 +72,9 @@ class HilmirCliDownStatusEndToEndTest {
       awaitDead(fixture);
     } finally {
       fixture.destroyForcibly();
+      // Pre-empt @TempDir's own single-attempt cleanup: see MachineLauncherIntegrationTest's own
+      // identical call for why -- this test's own fixture.log is exactly the file that races it.
+      LaunchTestSupport.drainTempDir(tempDir);
     }
   }
 

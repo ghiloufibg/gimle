@@ -135,6 +135,11 @@ class MachineLauncherIntegrationTest {
       assertProcessGone(m2Records.get(0).pid());
       assertThrows(HilmirException.class, () -> RunLedger.read(m1Runtime.dataRoot()));
       assertThrows(HilmirException.class, () -> RunLedger.read(m2Runtime.dataRoot()));
+      // Pre-empt @TempDir's own single-attempt cleanup: on Windows, this test's own two just-killed
+      // fixture processes can hold their redirected log files open a little longer than down()
+      // alone
+      // waits out, and @TempDir never retries.
+      LaunchTestSupport.drainTempDir(tempDir);
     }
   }
 
