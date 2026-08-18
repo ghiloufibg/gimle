@@ -1,8 +1,8 @@
 ${C_GOLD}      /\      ${C_GOLD_B}  ____ ___ __  __ _     _____ ${C_RESET}
 ${C_GOLD}    /----\    ${C_GOLD_B} / ___|_ _|  \/  | |   | ____|${C_RESET}
 ${C_GOLD}  /--------\  ${C_GOLD_B}| |  _ | || |\/| | |   |  _|  ${C_RESET}
-${C_GOLD} /${C_MINT}~~~  ~~~${C_GOLD}\ ${C_GOLD_B}| |_| || || |  | | |___| |___ ${C_RESET}
+${C_GOLD} /${C_MINT}~~~~  ~~~~${C_GOLD}\ ${C_GOLD_B}| |_| || || |  | | |___| |___ ${C_RESET}
 ${C_SLATE}|${C_MINT}#  ##  ##  #${C_SLATE}|${C_GOLD_B} \____|___|_|  |_|_____|_____|${C_RESET}
-${C_SLATE}+--------------+${C_RESET}
+${C_SLATE}+------------+${C_RESET}
 ${C_MINT}  > ${C_GOLD_B}${app.name}${C_SLATE} :: ${C_MINT}${app.description}${C_SLATE}  .  v${app.version}${C_RESET}
 ${C_SLATE}  the hall that stands through ragnarok${C_RESET}

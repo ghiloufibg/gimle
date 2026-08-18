@@ -25,6 +25,20 @@ runtime:
   dataRoot: /data
   useBundledJre: false
 
+# AnsiPalette's own auto-detection (see gimle-core) turns color off here by default: each process's
+# console output is redirect-to-file, not a real terminal, from the JVM's own point of view, the
+# same as any other piped/redirected command. But entrypoint.sh's whole reason for tailing that file
+# back onto this container's stdout is so a person watches it live via "docker logs -f"/Docker
+# Desktop, in a real color-capable terminal -- so force color on rather than let the redirect
+# silently disable it for every process an operator is actually meant to be looking at directly.
+jvm:
+  store: ["-Dgimle.color=always"]
+  controlPlane: ["-Dgimle.color=always"]
+  fafnir: ["-Dgimle.color=always"]
+  muninn: ["-Dgimle.color=always"]
+  andvari: ["-Dgimle.color=always"]
+  agent: ["-Dgimle.color=always"]
+
 store:
   replicas:
     - machine: store
