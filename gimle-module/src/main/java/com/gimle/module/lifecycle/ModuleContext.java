@@ -1,6 +1,7 @@
 package com.gimle.module.lifecycle;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -76,4 +77,27 @@ public interface ModuleContext {
 
   /** The outcome of one {@link #relayControlPlaneRead} call: an HTTP status code and body. */
   record RelayResult(int status, String body) {}
+
+  /**
+   * A hosted module declares one of its own runtime-bound listener ports back to the platform --
+   * e.g. an {@code onStart} hook that just called {@code HttpServer.create(...)} on some port
+   * additionally reports it under a name of its own choosing, so a {@code ServiceSpec} fronting
+   * this deployment can resolve a live endpoint the same way it already can for a Vessel's declared
+   * ports. {@code name} is this module's own choice, not a fixed vocabulary -- it ends up as the
+   * key in {@code InstanceObservation.ports()}, the same env-var-name-keyed shape {@code
+   * VesselEnvValue.PortAllocation} already populates that map under, so a {@code ServiceSpec}'s own
+   * {@code targetPort} resolution logic doesn't need to know or care which side reported it.
+   * Calling this more than once under the same {@code name} replaces the previously reported value
+   * -- a module that re-binds is expected to report again, not to have accumulated stale entries.
+   * Never required: a module that never calls this reports no ports at all, exactly today's
+   * behavior.
+   */
+  void reportPort(String name, int port);
+
+  /**
+   * Every port this instance has reported via {@link #reportPort} so far, keyed by the name it was
+   * reported under. Empty for the overwhelming majority of modules, which never call {@link
+   * #reportPort} at all.
+   */
+  Map<String, Integer> reportedPorts();
 }

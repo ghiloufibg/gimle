@@ -9,6 +9,7 @@ import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -32,6 +33,8 @@ class ControlMessageCodecTest {
         new ControlMessage.MetricsReport(ID, 250L, 134217728L),
         new ControlMessage.MetricsReport(ID, 250L, 134217728L, 12.5, 7),
         new ControlMessage.MetricsReport(ID, 250L, 134217728L, 12.5, 7, 1.5),
+        new ControlMessage.MetricsReport(
+            ID, 250L, 134217728L, 12.5, 7, 1.5, Map.of("HTTP_PORT", 8080, "ADMIN_PORT", 9090)),
         new ControlMessage.ServiceRegistered(
             ID, new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"))),
         new ControlMessage.ServiceUnregistered(

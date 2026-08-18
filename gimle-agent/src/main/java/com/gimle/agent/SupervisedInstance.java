@@ -4,6 +4,7 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.os.VolumeHandle;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -74,6 +75,15 @@ final class SupervisedInstance {
   volatile double errorRatePerSecond;
 
   volatile int queueDepth;
+
+  /**
+   * This module instance's own self-reported ports (via {@code ModuleContext#reportPort}), from its
+   * most recently received {@code MetricsReport} -- the module-hosted analog of {@link
+   * SupervisedVessel#allocatedPorts}, empty until the module's hook code reports anything (which
+   * the overwhelming majority of modules never do). Empty until the first report arrives, same
+   * "degrade, don't fail" posture as every other optional field here.
+   */
+  volatile Map<String, Integer> ports = Map.of();
 
   /**
    * Present only when {@link #descriptor} declares {@code volume:} and allocation succeeded --

@@ -33,6 +33,7 @@ public final class SimpleModuleContext implements ModuleContext {
   private final Optional<Path> dataDirectory;
   private final Function<String, RelayResult> relay;
   private final AtomicInteger inFlight = new AtomicInteger();
+  private final Map<String, Integer> reportedPorts = new ConcurrentHashMap<>();
 
   public SimpleModuleContext(ModuleId id, ServiceRegistry serviceRegistry) {
     this(id, serviceRegistry, new ConcurrentHashMap<>());
@@ -114,5 +115,21 @@ public final class SimpleModuleContext implements ModuleContext {
   @Override
   public RelayResult relayControlPlaneRead(String path) {
     return relay.apply(path);
+  }
+
+  @Override
+  public void reportPort(String name, int port) {
+    if (name == null || name.isBlank()) {
+      throw new IllegalArgumentException("reported port name must not be blank");
+    }
+    if (port < 1 || port > 65535) {
+      throw new IllegalArgumentException("reported port out of range: " + port);
+    }
+    reportedPorts.put(name, port);
+  }
+
+  @Override
+  public Map<String, Integer> reportedPorts() {
+    return Map.copyOf(reportedPorts);
   }
 }

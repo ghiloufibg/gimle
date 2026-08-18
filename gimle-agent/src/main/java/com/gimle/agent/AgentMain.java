@@ -793,6 +793,7 @@ public final class AgentMain {
     observation.put("requestRatePerSecond", instance.requestRatePerSecond);
     observation.put("errorRatePerSecond", instance.errorRatePerSecond);
     observation.put("queueDepth", instance.queueDepth);
+    observation.put("ports", instance.ports);
     return observation;
   }
 
@@ -1842,6 +1843,7 @@ public final class AgentMain {
     instance.requestRatePerSecond = 0;
     instance.errorRatePerSecond = 0;
     instance.queueDepth = 0;
+    instance.ports = Map.of();
   }
 
   /**
@@ -2178,6 +2180,7 @@ public final class AgentMain {
                     target.requestRatePerSecond = metrics.requestRatePerSecond();
                     target.errorRatePerSecond = metrics.errorRatePerSecond();
                     target.queueDepth = metrics.queueDepth();
+                    target.ports = metrics.ports();
                   });
         } else if (message instanceof ControlMessage.RelayControlPlaneRead relayRead) {
           handleRelayRead(relayRead, connection, httpClient, baseUrl);

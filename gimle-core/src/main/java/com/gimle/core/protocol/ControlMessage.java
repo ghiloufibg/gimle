@@ -4,6 +4,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Agent&harr;worker control-channel frames: install/start/stop commands and periodic
@@ -46,6 +47,11 @@ public sealed interface ControlMessage {
    * three-argument constructor below instead of inventing values it doesn't have. {@code
    * errorRatePerSecond} was added after the other two; the pre-existing five-argument constructor
    * is preserved as an overload defaulting it to {@code 0} so no earlier call site needs updating.
+   * {@code ports}, keyed by the name a hosted module reported it under via {@code
+   * ModuleContext#reportPort}, was added last -- every earlier constructor shape is preserved as an
+   * overload defaulting it to an empty map, matching this same record's own precedent for {@code
+   * errorRatePerSecond}. Empty for the overwhelming majority of modules, which never call {@code
+   * reportPort} at all.
    */
   record MetricsReport(
       ModuleId id,
@@ -53,11 +59,19 @@ public sealed interface ControlMessage {
       long memoryBytesUsed,
       double requestRatePerSecond,
       int queueDepth,
-      double errorRatePerSecond)
+      double errorRatePerSecond,
+      Map<String, Integer> ports)
       implements ControlMessage {
 
+    public MetricsReport {
+      if (ports == null) {
+        throw new IllegalArgumentException("ports must not be null; use Map.of()");
+      }
+      ports = Map.copyOf(ports);
+    }
+
     public MetricsReport(ModuleId id, long cpuMillicoresUsed, long memoryBytesUsed) {
-      this(id, cpuMillicoresUsed, memoryBytesUsed, 0.0, 0, 0.0);
+      this(id, cpuMillicoresUsed, memoryBytesUsed, 0.0, 0, 0.0, Map.of());
     }
 
     public MetricsReport(
@@ -66,7 +80,25 @@ public sealed interface ControlMessage {
         long memoryBytesUsed,
         double requestRatePerSecond,
         int queueDepth) {
-      this(id, cpuMillicoresUsed, memoryBytesUsed, requestRatePerSecond, queueDepth, 0.0);
+      this(id, cpuMillicoresUsed, memoryBytesUsed, requestRatePerSecond, queueDepth, 0.0, Map.of());
+    }
+
+    /** The pre-{@code ports} full-detail shape, kept for existing call sites. */
+    public MetricsReport(
+        ModuleId id,
+        long cpuMillicoresUsed,
+        long memoryBytesUsed,
+        double requestRatePerSecond,
+        int queueDepth,
+        double errorRatePerSecond) {
+      this(
+          id,
+          cpuMillicoresUsed,
+          memoryBytesUsed,
+          requestRatePerSecond,
+          queueDepth,
+          errorRatePerSecond,
+          Map.of());
     }
   }
 
