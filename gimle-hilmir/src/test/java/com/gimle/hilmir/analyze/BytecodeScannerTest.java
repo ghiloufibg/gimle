@@ -121,6 +121,108 @@ class BytecodeScannerTest {
   }
 
   @Test
+  void detects_connecting_socket_construction() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.OpensOutboundSocket",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.net.Socket;
+            public class OpensOutboundSocket {
+              void go() throws Exception {
+                new Socket("example.invalid", 80);
+              }
+            }
+            """);
+    assertTrue(hazards.makesOutboundConnection());
+  }
+
+  @Test
+  void detects_bare_connect_call_after_no_arg_socket_construction() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.ConnectsSocketSeparately",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.net.InetSocketAddress;
+            import java.net.Socket;
+            public class ConnectsSocketSeparately {
+              void go() throws Exception {
+                Socket socket = new Socket();
+                socket.connect(new InetSocketAddress("example.invalid", 80));
+              }
+            }
+            """);
+    assertTrue(hazards.makesOutboundConnection());
+  }
+
+  @Test
+  void a_bare_no_arg_socket_construction_with_no_connect_call_is_not_flagged() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.ConstructsSocketOnly",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.net.Socket;
+            public class ConstructsSocketOnly {
+              Socket socket() { return new Socket(); }
+            }
+            """);
+    assertFalse(hazards.makesOutboundConnection());
+  }
+
+  @Test
+  void detects_socket_channel_open() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.OpensSocketChannel",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.nio.channels.SocketChannel;
+            public class OpensSocketChannel {
+              void go() throws Exception {
+                SocketChannel.open();
+              }
+            }
+            """);
+    assertTrue(hazards.makesOutboundConnection());
+  }
+
+  @Test
+  void detects_http_client_construction_via_static_factory() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.BuildsHttpClientViaFactory",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.net.http.HttpClient;
+            public class BuildsHttpClientViaFactory {
+              void go() {
+                HttpClient.newHttpClient();
+              }
+            }
+            """);
+    assertTrue(hazards.makesOutboundConnection());
+  }
+
+  @Test
+  void detects_http_client_construction_via_builder() {
+    ClassHazards hazards =
+        scan(
+            "com.gimle.hilmir.analyze.fixture.BuildsHttpClientViaBuilder",
+            """
+            package com.gimle.hilmir.analyze.fixture;
+            import java.net.http.HttpClient;
+            public class BuildsHttpClientViaBuilder {
+              void go() {
+                HttpClient.newBuilder().build();
+              }
+            }
+            """);
+    assertTrue(hazards.makesOutboundConnection());
+  }
+
+  @Test
   void detects_static_executor_with_no_shutdown_call() {
     ClassHazards hazards =
         scan(

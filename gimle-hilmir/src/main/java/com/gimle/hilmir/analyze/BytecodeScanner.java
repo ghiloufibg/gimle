@@ -40,6 +40,7 @@ public final class BytecodeScanner {
     boolean loadsNativeLibrary = false;
     boolean opensServerSocket = false;
     boolean constructsNonDaemonThread = false;
+    boolean makesOutboundConnection = false;
 
     for (MethodModel method : model.methods()) {
       Optional<CodeModel> code = method.code();
@@ -61,6 +62,8 @@ public final class BytecodeScanner {
             loadsNativeLibrary = true;
           } else if (isServerSocketCallSite(owner, name)) {
             opensServerSocket = true;
+          } else if (isOutboundConnectionCallSite(owner, name, invoke.type().stringValue())) {
+            makesOutboundConnection = true;
           } else if (name.equals("setDaemon")) {
             methodCallsSetDaemon = true;
           }
@@ -90,6 +93,7 @@ public final class BytecodeScanner {
         constructsNonDaemonThread,
         loadsNativeLibrary,
         opensServerSocket,
+        makesOutboundConnection,
         hasUnshutdownStaticExecutor(model),
         declaredInterfaces,
         hasNoArgConstructor);
@@ -101,6 +105,38 @@ public final class BytecodeScanner {
     return (owner.equals("java/net/ServerSocket") && name.equals("<init>"))
         || (owner.equals("java/nio/channels/ServerSocketChannel") && name.equals("open"))
         || (owner.equals("com/sun/net/httpserver/HttpServer") && name.equals("create"));
+  }
+
+  // The common, JDK-only ways a plain module could open an outbound connection to somewhere
+  // outside the platform:
+  //  - Socket's connecting constructors (host/port first, whatever trailing args follow) --
+  //    Socket() itself and Socket(Proxy)/Socket(SocketImpl) don't connect on construction and are
+  //    deliberately not matched here.
+  //  - Socket.connect(...) as a call site of its own, not just the constructor -- a module using
+  //    the no-arg Socket() constructor followed by a separate connect() call would otherwise slip
+  //    past a constructor-only check entirely.
+  //  - SocketChannel.open, matched by name alone regardless of descriptor: its no-arg overload
+  //    returns an unconnected channel for a later connect() call and its one-arg overload connects
+  //    immediately, the same open()-always-flagged posture already used for ServerSocketChannel.
+  //  - HttpClient construction (the static factory and the builder's build()), not each individual
+  //    request made through a client afterward -- one client is typically built once and reused for
+  //    many calls, so flagging every request would multiply findings without adding information.
+  private static boolean isOutboundConnectionCallSite(
+      String owner, String name, String descriptor) {
+    if (owner.equals("java/net/Socket")) {
+      if (name.equals("<init>")) {
+        return descriptor.startsWith("(Ljava/lang/String;I")
+            || descriptor.startsWith("(Ljava/net/InetAddress;I");
+      }
+      return name.equals("connect");
+    }
+    if (owner.equals("java/nio/channels/SocketChannel")) {
+      return name.equals("open");
+    }
+    if (owner.equals("java/net/http/HttpClient")) {
+      return name.equals("newHttpClient");
+    }
+    return owner.equals("java/net/http/HttpClient$Builder") && name.equals("build");
   }
 
   /**

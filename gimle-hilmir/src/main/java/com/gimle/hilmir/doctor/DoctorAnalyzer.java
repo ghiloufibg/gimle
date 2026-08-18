@@ -59,6 +59,7 @@ public final class DoctorAnalyzer {
     checkSystemExit(primary.classHazards(), intent, findings);
     checkLeakRisk(primary.classHazards(), findings);
     checkBindsOwnPort(primary.classHazards(), findings);
+    checkMakesOutboundCalls(primary.classHazards(), findings);
     checkSplitPackage(primary, extras, findings);
     checkBundledLoggingBinding(primary, extras, findings);
 
@@ -357,6 +358,20 @@ public final class DoctorAnalyzer {
                     className
                         + " opens a server socket -- informational only, the platform has no"
                         + " ingress story for a plain module today")));
+  }
+
+  private static void checkMakesOutboundCalls(
+      Map<String, ClassHazards> classHazards, List<DoctorFinding> out) {
+    forEachHazard(
+        classHazards,
+        ClassHazards::makesOutboundConnection,
+        className ->
+            out.add(
+                info(
+                    "MAKES_OUTBOUND_CALLS",
+                    className
+                        + " makes outbound network calls -- informational only, nothing on this"
+                        + " platform restricts a module's outbound traffic today")));
   }
 
   private static void checkSplitPackage(
