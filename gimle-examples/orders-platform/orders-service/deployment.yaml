@@ -1,10 +1,29 @@
 # kind: Deployment -- one of the two long-running services in this app, and the one exercising
 # Gimlé's plain replica-managed workload kind (see ../README.md for how the other four kinds are
 # covered by the sibling modules in this directory).
+#
+# tenantId -- required for ctx.config(...) delivery to reach this instance at all (an untenanted
+# instance gets none, ever: see AgentMain#deliverConfig's own early return on an empty tenantId).
+# orders-service now reads real delivered config (its Postgres connection details) -- see
+# ../README.md's "Surviving redeploy with a real database" section for the gimle set config /
+# gimle secret set commands this manifest depends on having already been run. Shares the same
+# tenant web-ui already uses; nothing about that tenant's quota or secrets is service-specific.
+#
+# autoscale -- targetCpuUtilizationPercent is set deliberately unreachable (200%) so
+# targetRequestRatePerSecond is the signal that actually decides replica count, the same
+# AutoscaleIT/gimle-smoke-tests trick this mirrors: real load, not synthetic CPU pressure, is what
+# ../orders-load-generator/deployment.yaml exists to drive. See ../README.md's "Watching
+# AutoscaleReconciler scale this for real" section.
 kind: Deployment
 name: orders-service-deployment
+tenantId: orders-platform
 module:
   name: com.example.orders
-  version: 1.0.0
+  version: 1.1.0
 artifactPath: gimle-examples/orders-platform/orders-service/target/orders-service.jar
 replicas: 1
+autoscale:
+  minReplicas: 1
+  maxReplicas: 2
+  targetCpuUtilizationPercent: 200
+  targetRequestRatePerSecond: 5.0

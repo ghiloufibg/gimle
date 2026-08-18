@@ -3,6 +3,7 @@ package com.example.webui.provider;
 import com.example.inventory.InventoryLevels;
 import com.example.orders.OrderCatalog;
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import com.sun.net.httpserver.HttpExchange;
@@ -30,8 +31,9 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
  * inventory-service purely over Gimlé's own fabric the same way {@code OrdersReportJobHooks}
  * does, never sharing a classloader or a compile-time jar with either.
  *
- * <p>The fixed port ({@link #PORT}) is a deliberate simplification, not a platform feature: a
- * plain Gimlé module has no port-allocation mechanism of its own (that exists only for {@code
+ * <p>Binding a real port at all ({@link #DEFAULT_PORT}, overridable via {@link
+ * #WEB_PORT_CONFIG_KEY}) is a deliberate simplification, not a platform feature: a plain Gimlé
+ * module has no port-allocation mechanism of its own (that exists only for {@code
  * VesselSpec}-hosted processes, which in turn have no fabric access at all -- neither hosting mode
  * offers both). What *is* a platform feature now is {@code ctx.reportPort} in {@link
  * #onStart}: it folds this instance's chosen port into the same per-tick metrics report a
@@ -63,8 +65,13 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
 
   private static final Logger log = LoggerFactory.getLogger(WebUiHooks.class);
 
-  /** See this class's own javadoc for why this is fixed rather than platform-allocated. */
-  private static final int PORT = 8090;
+  /** See this class's own javadoc for why a real port is bound at all rather than
+   * platform-allocated; {@link #WEB_PORT_CONFIG_KEY} exists only so a second tenant's own instance
+   * (see ../../README.md's "Restricting cross-tenant access" section) doesn't collide with this
+   * tenant's own default when both land on the same node. */
+  private static final String WEB_PORT_CONFIG_KEY = "web.port";
+
+  private static final int DEFAULT_PORT = 8090;
 
   /** The {@code gimle secret set orders-platform ...} key gating {@code POST /api/orders} -- see
    * this class's own javadoc. */
@@ -94,11 +101,12 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
               + " will refuse every request until it is",
           ADMIN_TOKEN_CONFIG_KEY);
     }
+    int port = ctx.config(WEB_PORT_CONFIG_KEY).map(Integer::parseInt).orElse(DEFAULT_PORT);
 
     try {
-      httpServer = HttpServer.create(new InetSocketAddress(PORT), 0);
+      httpServer = HttpServer.create(new InetSocketAddress(port), 0);
     } catch (IOException e) {
-      throw new UncheckedIOException("web-ui could not bind port " + PORT, e);
+      throw new UncheckedIOException("web-ui could not bind port " + port, e);
     }
     httpServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     httpServer.createContext("/", new StaticPageHandler(indexHtml));
@@ -110,10 +118,10 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
     // control-plane-declared Service fronting this deployment needs to resolve a live endpoint
     // for it. See ../README.md's "Reaching the web UI from outside the cluster" section for the
     // Service/gateway path this makes possible.
-    ctx.reportPort("http", PORT);
+    ctx.reportPort("http", port);
 
     ready.set(true);
-    log.info("web-ui serving on port {} (GET /, GET /api/inventory, POST /api/orders)", PORT);
+    log.info("web-ui serving on port {} (GET /, GET /api/inventory, POST /api/orders)", port);
   }
 
   @Override
@@ -262,12 +270,14 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
     }
   }
 
-  /** Shared by both API handlers: treats "nobody has ever exported this yet" the same as "not
-   * currently available" rather than a 500 -- see this class's own javadoc. */
+  /** Shared by both API handlers: treats "nobody has ever exported this yet" (no one in the
+   * cluster ever registered it) and "a NetworkPolicySpec rejects this instance's own tenant as a
+   * caller" (see ../../README.md's "Restricting cross-tenant access" section) both the same as
+   * "not currently available" rather than a 500 -- see this class's own javadoc. */
   private static <T> Optional<T> lookupQuietly(java.util.function.Supplier<Optional<T>> lookup) {
     try {
       return lookup.get();
-    } catch (GimleClusterException e) {
+    } catch (GimleClusterException | GimleFabricAuthorizationException e) {
       return Optional.empty();
     }
   }

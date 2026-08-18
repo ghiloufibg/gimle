@@ -3,6 +3,7 @@ package com.example.inventory.provider;
 import com.example.inventory.InventoryLevels;
 import com.example.orders.OrderCatalog;
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import java.time.Duration;
@@ -73,12 +74,19 @@ public final class InventoryServiceHooks implements ModuleLifecycleHooks {
       // GimleClusterException rather than returning empty when literally nobody in the cluster has
       // ever exported OrderCatalog yet (see FabricServiceRegistry#lookup) -- an ordinary state
       // right after a fresh cluster boot, before orders-service's own registration has propagated
-      // through the gossip catalog. Uncaught, that exception would terminate this virtual thread
-      // for good on its very first unlucky tick, silently ending reconciliation forever.
+      // through the gossip catalog. GimleFabricAuthorizationException is the other real,
+      // non-transient case: a NetworkPolicySpec now scoped to orders-service's own tenant rejects
+      // this module's calls outright, since this module stays deliberately untenanted (see
+      // ../../README.md's "Restricting cross-tenant access" section) -- an untenanted caller is
+      // never permitted once any such policy exists, platform-wide, not something specific to this
+      // app. Both are caught the same way: uncaught, either would terminate this virtual thread for
+      // good on its very first unlucky tick, silently ending reconciliation forever.
       try {
         reconcileOnce(ctx, stockLedger);
       } catch (GimleClusterException e) {
         log.warn("no OrderCatalog available yet; orders-service may not have registered it yet");
+      } catch (GimleFabricAuthorizationException e) {
+        log.warn("OrderCatalog call rejected by a network policy: {}", e.getMessage());
       }
       sleep(RECONCILE_INTERVAL);
     }

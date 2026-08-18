@@ -3,6 +3,7 @@ package com.example.reporting;
 import com.example.inventory.InventoryLevels;
 import com.example.orders.OrderCatalog;
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.module.lifecycle.CompletionStatus;
 import com.gimle.module.lifecycle.JobHooks;
 import com.gimle.module.lifecycle.ModuleContext;
@@ -63,13 +64,18 @@ public final class OrdersReportJobHooks implements JobHooks {
    * literally nobody in the cluster has ever exported the interface yet (see
    * {@code FabricServiceRegistry#lookup}) -- exactly the "raced a fresh cluster boot" case this
    * retry exists for, so it's treated the same as an empty result rather than left to fail the
-   * whole attempt on its very first unlucky poll. */
+   * whole attempt on its very first unlucky poll. {@link GimleFabricAuthorizationException} is
+   * caught the same way, for a different reason: this module stays deliberately untenanted (see
+   * ../../README.md's "Restricting cross-tenant access" section), so a NetworkPolicySpec now
+   * scoped to orders-service's own tenant rejects every attempt identically -- retrying gains
+   * nothing, but degrading to "unavailable" is still this module's own documented behavior for a
+   * missing collaborator, not a reason to fail the whole job. */
   private static <T> Optional<T> awaitService(Supplier<Optional<T>> lookup) {
     for (int attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++) {
       Optional<T> found;
       try {
         found = lookup.get();
-      } catch (GimleClusterException e) {
+      } catch (GimleClusterException | GimleFabricAuthorizationException e) {
         found = Optional.empty();
       }
       if (found.isPresent()) {

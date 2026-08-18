@@ -1,0 +1,16 @@
+name: com.example.ordersload
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 64Mi
+    cpu: 50m
+  limit:
+    memory: 128Mi
+    cpu: 300m
+lifecycle:
+  hooks: com.example.ordersload.OrdersLoadGeneratorHooks
+health:
+  liveness: com.example.ordersload.OrdersLoadGeneratorLivenessProbe
+  readiness: com.example.ordersload.OrdersLoadGeneratorReadinessProbe

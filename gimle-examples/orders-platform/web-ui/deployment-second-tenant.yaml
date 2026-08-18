@@ -1,0 +1,25 @@
+# kind: Deployment -- the exact same web-ui.jar as ../web-ui/deployment.yaml, deployed a second
+# time under a second, independent tenant, purely to give ../orders-service/networkpolicy.yaml
+# something real to reject and then, once you've edited its allowedCallerTenantIds, something real
+# to permit. See ../README.md's "Restricting cross-tenant access, for real this time" section for
+# the full walkthrough.
+#
+# web.port -- WebUiHooks reads this optional config key (default 8090) precisely so this second
+# instance doesn't collide with the original web-ui-deployment's own port if the scheduler lands
+# both on the same node. Set it before applying this manifest:
+#
+#   gimle set tenant orders-platform-2 --max-memory-bytes 268435456 --max-cpu-millicores 500 --max-instances 2
+#   gimle set config orders-platform-2 web.port 8092
+#
+# This tenant never places an order (that needs its own orders.admin-token secret, out of scope
+# for this walkthrough, which only exercises GET /api/inventory's OrderCatalog half) -- POST
+# /api/orders on this instance simply 503s the same way web-ui-deployment's own did before its
+# secret was ever set.
+kind: Deployment
+name: web-ui-tenant2-deployment
+tenantId: orders-platform-2
+module:
+  name: com.example.webui
+  version: 1.1.1
+artifactPath: gimle-examples/orders-platform/web-ui/target/web-ui.jar
+replicas: 1

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-orders-platform</groupId>
+    <artifactId>orders-platform</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>orders-load-generator</artifactId>
+  <packaging>jar</packaging>
+
+  <description>
+    Same bridge gimle-examples/greeter-load-generator establishes: translates inbound HTTP requests
+    into real ModuleContext#lookupService(OrderCatalog.class) calls, so an external load tool
+    (curl in a loop, hey, wrk -- anything that can hit one HTTP endpoint at a controlled rate) turns
+    into orders-service's own real, worker-reported requestRatePerSecond, the actual signal
+    AutoscaleReconciler reads -- not a synthetic stand-in for it. No Spring, no shading needed:
+    unlike its three siblings this module has no third-party dependency at all.
+  </description>
+
+  <properties>
+    <gimle.moduleName>com.example.ordersload</gimle.moduleName>
+    <finalName>orders-load-generator</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

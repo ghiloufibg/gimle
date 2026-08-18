@@ -34,6 +34,14 @@
       <groupId>org.springframework</groupId>
       <artifactId>spring-context</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
@@ -46,6 +54,24 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <!-- Appended to the parent's own module-info.class transformer (see that pom's
+                   comment), not replacing it: the org.postgresql.Driver JDBC SPI registration
+                   (META-INF/services/java.sql.Driver) has to survive the shade merge the same
+                   way this module's own module-info.class does, or java.sql.DriverManager never
+                   finds the driver once Spring/Postgres/HikariCP are all merged into one jar. -->
+              <transformers combine.children="append">
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

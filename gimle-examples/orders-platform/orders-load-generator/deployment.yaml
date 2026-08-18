@@ -1,0 +1,15 @@
+# kind: Deployment -- the HTTP-to-fabric bridge documented on OrdersLoadGeneratorHooks. Not one of
+# this app's "five workload kinds" showcase modules (see ../README.md) -- it exists purely to give
+# ../orders-service/deployment.yaml's own autoscale policy real request-rate traffic to react to.
+#
+# tenantId -- required for ctx.config(...) delivery to reach this instance at all, the same reason
+# web-ui/orders-service need one. Reuses the same orders-platform tenant; this module reads only
+# orders.load-port, a plain (non-secret) value.
+kind: Deployment
+name: orders-load-generator-deployment
+tenantId: orders-platform
+module:
+  name: com.example.ordersload
+  version: 1.0.0
+artifactPath: gimle-examples/orders-platform/orders-load-generator/target/orders-load-generator.jar
+replicas: 1

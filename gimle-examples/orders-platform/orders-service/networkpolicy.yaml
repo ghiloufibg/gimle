@@ -1,0 +1,26 @@
+# kind: NetworkPolicy -- like web-ui's own networkpolicy.yaml, checked-in documentation for a
+# POST /networkpolicies body, not something `gimle:deploy` consumes:
+#
+#   curl -X POST http://localhost:8080/networkpolicies -H 'Content-Type: application/json' \
+#     -d '{"name":"orders-service-deny-cross-tenant","tenantId":"orders-platform",
+#          "deploymentNames":["orders-service-deployment"],"allowedCallerTenantIds":[]}'
+#
+# Unlike web-ui's own policy, this one has a real, observable effect on the fabric path: unlike
+# web-ui, orders-service DOES export a fabric service (OrderCatalog), so
+# FabricServer.checkNetworkPolicyPermitted actually has something here to gate. See
+# ../README.md's "Restricting cross-tenant access, for real this time" section for the full
+# second-tenant walkthrough this file is the first half of -- short version: same-tenant callers
+# (orders-platform, i.e. this app's own web-ui/orders-load-generator) are always permitted
+# regardless of this policy; a second tenant's own web-ui instance is rejected until it's added to
+# allowedCallerTenantIds below; and -- worth knowing before you apply this -- inventory-service and
+# orders-report-job are BOTH deliberately untenanted (see ../README.md's "Placing orders requires a
+# real secret" section for why), and an untenanted caller is never permitted once any policy exists
+# for a tenant, platform-wide, regardless of deploymentNames scoping. Applying this policy is
+# expected to make their own OrderCatalog lookups degrade to "unavailable" too, gracefully (see
+# InventoryServiceHooks/OrdersReportJobHooks' own GimleFabricAuthorizationException handling) --
+# that's this policy doing exactly what it says, not a bug in either module.
+name: orders-service-deny-cross-tenant
+tenantId: orders-platform
+deploymentNames:
+  - orders-service-deployment
+allowedCallerTenantIds: []

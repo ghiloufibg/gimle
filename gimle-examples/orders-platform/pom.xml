@@ -35,6 +35,7 @@
     <module>inventory-service</module>
     <module>orders-report-job</module>
     <module>web-ui</module>
+    <module>orders-load-generator</module>
   </modules>
 
   <properties>
@@ -55,6 +56,12 @@
          mechanism gimle-examples/greeter-provider and greeter-consumer already prove out, not a
          second HTTP layer bolted on top of the platform's own service mesh. -->
     <spring.version>6.2.1</spring.version>
+
+    <!-- orders-service only (see its own pom.xml): a real JDBC pool against a real Postgres,
+         proving the module system survives a live external connection across a Tier 2 redeploy
+         instead of every module here keeping in-memory-only state. -->
+    <postgresql.version>42.7.13</postgresql.version>
+    <hikaricp.version>7.1.0</hikaricp.version>
   </properties>
 
   <dependencyManagement>
@@ -75,6 +82,16 @@
         <groupId>org.springframework</groupId>
         <artifactId>spring-context</artifactId>
         <version>${spring.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.zaxxer</groupId>
+        <artifactId>HikariCP</artifactId>
+        <version>${hikaricp.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

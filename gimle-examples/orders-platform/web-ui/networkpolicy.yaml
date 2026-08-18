@@ -6,14 +6,16 @@
 #     -d '{"name":"web-ui-deny-cross-tenant","tenantId":"orders-platform",
 #          "deploymentNames":["web-ui-deployment"],"allowedCallerTenantIds":[]}'
 #
-# Deliberately optional, and honest about what it does and doesn't cover in this single-tenant
-# sandbox app -- see ../README.md's "Restricting cross-tenant access (optional)" section for the
-# full explanation. Short version: web-ui exports no fabric service of its own (it only consumes
+# Deliberately optional, and honest about what it does and doesn't cover in this app. See
+# ../README.md's "Restricting cross-tenant access (optional)" section for the full explanation.
+# Short version: web-ui exports no fabric service of its own (it only consumes
 # OrderCatalog/InventoryLevels), so FabricServer.checkNetworkPolicyPermitted has nothing here to
 # gate -- that check only ever applies to a module that exports one, which in this app means
-# orders-service/inventory-service, and neither is tenant-scoped (deliberately, for the
-# config-delivery reasons ../README.md already documents), so a NetworkPolicySpec can't target
-# them without first giving them a tenant, which this file doesn't do. What this policy *does* do:
+# orders-service/inventory-service. orders-service is tenant-scoped now (see its own
+# deployment.yaml) -- see ../orders-service/networkpolicy.yaml for the policy that actually
+# targets it, and ../README.md's "Restricting cross-tenant access, for real this time" section for
+# the walkthrough that policy supports. inventory-service stays untenanted, so it still can't be
+# targeted by name here. What *this* policy (scoped to web-ui, not orders-service) does do:
 # demonstrates Bifrost's own fail-closed behavior (com.gimle.agent.bifrost.BifrostProxy) --
 # if Bifrost is enabled on the node hosting web-ui, this policy makes it refuse to proxy web-ui's
 # Service to any same-node caller, since Bifrost has no caller identity to check the policy's

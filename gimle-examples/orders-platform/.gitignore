@@ -1,0 +1,7 @@
+# This tree builds standalone (see pom.xml's own comment on why it's excluded from the root
+# reactor), so it needs its own .gitignore rather than relying on the repo root's -- target/ is
+# already covered there, but maven-shade-plugin writes dependency-reduced-pom.xml next to each
+# shaded module's own pom.xml, outside target/, every time it runs (regenerated content, not
+# authored).
+target/
+dependency-reduced-pom.xml

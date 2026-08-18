@@ -1,0 +1,35 @@
+# A local Postgres for orders-service's OrderBook -- see README.md's "Surviving redeploy with a
+# real database" section. Deliberately its own tiny compose file, independent of
+# gimle-holmgang/compose/*.yml: this app's whole point is manual validation against WHATEVER
+# running Gimlé cluster you already have (a local `mvn gimle:*` dev cluster, or one of the
+# holmgang compose scenarios), never a specific one -- bundling Postgres into the platform's own
+# validation infra would tie the two together for no reason.
+#
+#   docker compose -f gimle-examples/orders-platform/docker-compose.yml up -d
+#
+# Published on the docker host's own 5432 (matching OrdersServiceHooks' DEFAULT_DB_URL,
+# jdbc:postgresql://localhost:5432/orders) -- reachable as "localhost" from a worker JVM that
+# itself runs directly on your machine (the local `mvn gimle:*` dev cluster). If your worker
+# instead runs inside a container sharing a different network namespace (e.g.
+# docker-compose.full-jre.yml's own agent service), point orders-service at this container by
+# name instead:
+#
+#   gimle set config orders-platform orders.db-url jdbc:postgresql://host.docker.internal:5432/orders
+#
+# (or run this compose file's postgres service on the same "gimle" network as that cluster and use
+# its service name instead of host.docker.internal -- either works, this file just doesn't assume
+# which topology you're validating against).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orders-demo-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - orders-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  orders-postgres-data: {}
