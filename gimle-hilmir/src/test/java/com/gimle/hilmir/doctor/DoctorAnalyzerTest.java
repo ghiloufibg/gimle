@@ -251,6 +251,57 @@ class DoctorAnalyzerTest {
   }
 
   @Test
+  void an_outbound_http_client_construction_is_flagged_informational() throws Exception {
+    Path jar =
+        HilmirTestJarBuilder.create()
+            // java.net.http isn't implicitly readable the way java.base is -- the fixture's own
+            // module-info must require it explicitly for HttpClient to resolve at compile time.
+            .withModuleInfo("module com.example.caller { requires java.net.http; }")
+            .withDescriptor(HilmirTestJarBuilder.minimalDescriptor("com.example.caller", "1.0.0"))
+            .withClass(
+                "com.example.caller.Main",
+                """
+                package com.example.caller;
+                import java.net.http.HttpClient;
+                public class Main {
+                  public Main() {}
+                  void go() { HttpClient.newHttpClient(); }
+                }
+                """)
+            .build(tempDir, "caller.jar");
+
+    List<DoctorFinding> findings = analyze(jar, DoctorHostingIntent.MODULE);
+    DoctorFinding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("MAKES_OUTBOUND_CALLS"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(finding.severity() == DoctorSeverity.INFO);
+    assertFalse(hasError(findings), "expected no errors, got: " + findings);
+  }
+
+  @Test
+  void a_class_with_no_outbound_network_calls_is_not_flagged() throws Exception {
+    Path jar =
+        HilmirTestJarBuilder.create()
+            .withModuleInfo(HilmirTestJarBuilder.minimalModuleInfo("com.example.quiet"))
+            .withDescriptor(HilmirTestJarBuilder.minimalDescriptor("com.example.quiet", "1.0.0"))
+            .withClass(
+                "com.example.quiet.Widget",
+                """
+                package com.example.quiet;
+                public class Widget {
+                  public Widget() {}
+                  public int add(int a, int b) { return a + b; }
+                }
+                """)
+            .build(tempDir, "quiet.jar");
+
+    List<DoctorFinding> findings = analyze(jar, DoctorHostingIntent.MODULE);
+    assertFalse(findings.stream().anyMatch(f -> f.code().equals("MAKES_OUTBOUND_CALLS")));
+  }
+
+  @Test
   void a_flat_non_modular_jar_under_module_intent_is_a_warning_not_an_error() throws Exception {
     Path jar =
         HilmirTestJarBuilder.create()
