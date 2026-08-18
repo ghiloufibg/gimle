@@ -10,13 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /**
- * The plain outbound HTTP call a {@link GatewayRoute.VesselRoute} makes to a resolved {@link
- * VesselEndpointCache.HostPort} -- no TLS (matching the gateway's own existing plaintext-only
- * posture, see this module's own README/deployment.yaml), and no header forwarding in either
- * direction: only the inbound request's method, path, and body are proxied, and only the downstream
- * response's status and body are handed back, a deliberate v1 narrowing rather than an oversight
- * (forwarding an arbitrary header set correctly -- stripping hop-by-hop headers, rewriting {@code
- * Host}, not double-setting {@code Content-Length} -- is real work this increment doesn't attempt).
+ * The plain outbound HTTP call a {@link GatewayRoute.VesselRoute} or {@link
+ * GatewayRoute.ServiceRoute} makes to a resolved {@link HostPort} -- no TLS (matching the gateway's
+ * own existing plaintext-only posture, see this module's own README/deployment.yaml), and no header
+ * forwarding in either direction: only the inbound request's method, path, and body are proxied,
+ * and only the downstream response's status and body are handed back, a deliberate v1 narrowing
+ * rather than an oversight (forwarding an arbitrary header set correctly -- stripping hop-by-hop
+ * headers, rewriting {@code Host}, not double-setting {@code Content-Length} -- is real work this
+ * increment doesn't attempt).
  *
  * <p>Both connection establishment and the request as a whole are bounded (see {@link
  * #CONNECT_TIMEOUT}/{@link #REQUEST_TIMEOUT}) -- the same "a caller must never hang forever on a
@@ -35,9 +36,8 @@ final class VesselProxyClient {
     this.client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
-  GatewayResponse proxy(
-      VesselEndpointCache.HostPort target, String httpMethod, String path, String body) {
-    URI uri = URI.create("http://" + target.host() + ":" + target.port() + path);
+  GatewayResponse proxy(String host, int port, String httpMethod, String path, String body) {
+    URI uri = URI.create("http://" + host + ":" + port + path);
     HttpRequest.BodyPublisher bodyPublisher =
         (body == null || body.isEmpty())
             ? HttpRequest.BodyPublishers.noBody()

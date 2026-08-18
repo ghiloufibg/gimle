@@ -8,6 +8,7 @@ import com.gimle.core.module.Version;
 import com.gimle.gateway.GatewayDispatcher.GatewayResponse;
 import com.gimle.gateway.GatewayRoute.FabricRoute;
 import com.gimle.gateway.GatewayRoute.FabricRoute.ParamType;
+import com.gimle.gateway.GatewayRoute.ServiceRoute;
 import com.gimle.gateway.GatewayRoute.VesselRoute;
 import com.gimle.module.lifecycle.ModuleContext.RelayResult;
 import com.gimle.module.lifecycle.SimpleModuleContext;
@@ -138,6 +139,92 @@ class GatewayDispatcherTest {
     GatewayResponse response = dispatcher.dispatch("POST", "/nope", "x");
 
     assertEquals(404, response.status());
+  }
+
+  @Test
+  void a_host_constrained_route_matches_only_the_declared_host_header() {
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> "Hello, " + name + "!"),
+            List.of(
+                new FabricRoute(
+                    Optional.of("greeter.example.com"),
+                    "/greet",
+                    GREETER_IFACE,
+                    1,
+                    "greet",
+                    ParamType.STRING)));
+
+    GatewayResponse matched = dispatcher.dispatch("POST", "/greet", "Gimlé", "greeter.example.com");
+
+    assertEquals(200, matched.status());
+    assertEquals("Hello, Gimlé!", matched.body());
+  }
+
+  @Test
+  void a_host_constrained_route_falls_through_to_404_on_a_mismatched_host_header() {
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> name),
+            List.of(
+                new FabricRoute(
+                    Optional.of("greeter.example.com"),
+                    "/greet",
+                    GREETER_IFACE,
+                    1,
+                    "greet",
+                    ParamType.STRING)));
+
+    GatewayResponse mismatched = dispatcher.dispatch("POST", "/greet", "x", "other.example.com");
+    GatewayResponse noHostAtAll = dispatcher.dispatch("POST", "/greet", "x", null);
+
+    assertEquals(404, mismatched.status());
+    assertEquals(404, noHostAtAll.status());
+  }
+
+  @Test
+  void a_host_unconstrained_route_is_unaffected_by_host_based_routing() {
+    // Regression: a route declared with no HOST segment must keep matching every request exactly
+    // as it did before this route kind gained an optional host constraint.
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> "Hello, " + name + "!"),
+            List.of(new FabricRoute("/greet", GREETER_IFACE, 1, "greet", ParamType.STRING)));
+
+    GatewayResponse noHostHeader = dispatcher.dispatch("POST", "/greet", "Gimlé", null);
+    GatewayResponse anyHostHeader =
+        dispatcher.dispatch("POST", "/greet", "Gimlé", "anything.at.all");
+    GatewayResponse threeArgOverload = dispatcher.dispatch("POST", "/greet", "Gimlé");
+
+    assertEquals(200, noHostHeader.status());
+    assertEquals("Hello, Gimlé!", noHostHeader.body());
+    assertEquals(200, anyHostHeader.status());
+    assertEquals(200, threeArgOverload.status());
+  }
+
+  @Test
+  void a_host_constrained_route_falls_through_to_a_host_unconstrained_sibling_at_the_same_path() {
+    // Two routes at the same path: one requires a specific host, the other has no constraint and
+    // serves as the default for every other host -- ordinary virtual-hosting with a fallback. A
+    // request whose Host matches neither the specific route (wrong value) still succeeds via the
+    // fallback rather than 404ing, which is what this test actually proves.
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> "fallback:" + name),
+            List.of(
+                new FabricRoute(
+                    Optional.of("specific.example.com"),
+                    "/greet",
+                    GREETER_IFACE,
+                    1,
+                    "greet",
+                    ParamType.STRING),
+                new FabricRoute("/greet", GREETER_IFACE, 1, "greet", ParamType.STRING)));
+
+    GatewayResponse viaFallback = dispatcher.dispatch("POST", "/greet", "x", "unrelated.host.com");
+
+    assertEquals(200, viaFallback.status());
+    assertEquals("fallback:x", viaFallback.body());
   }
 
   @Test
@@ -369,6 +456,88 @@ class GatewayDispatcherTest {
     GatewayResponse response = dispatcher.dispatch("GET", "/api/orders", "");
 
     assertEquals(502, response.status());
+  }
+
+  @Test
+  void
+      a_service_route_resolves_and_proxies_to_the_real_target_with_method_path_body_and_response_intact()
+          throws IOException {
+    AtomicReference<String> seenMethod = new AtomicReference<>();
+    AtomicReference<String> seenPath = new AtomicReference<>();
+    AtomicReference<String> seenBody = new AtomicReference<>();
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/api/payments",
+        exchange -> {
+          seenMethod.set(exchange.getRequestMethod());
+          seenPath.set(exchange.getRequestURI().getPath());
+          seenBody.set(
+              new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+          byte[] response = "payment accepted".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(201, response.length);
+          exchange.getResponseBody().write(response);
+          exchange.close();
+        });
+    stub.start();
+    this.vesselStub = stub;
+    int port = stub.getAddress().getPort();
+
+    // The exact shape the control plane's own GET /services/{name}/endpoints returns: a flat
+    // object naming the service plus an "endpoints" array of plain {host, port} pairs -- no
+    // portName lookup, unlike a vessel route's own /endpoints/{name} shape.
+    RelayResult relayResult =
+        new RelayResult(
+            200,
+            "{\"name\":\"payments\",\"port\":8080,\"targetPort\":8080,"
+                + "\"endpoints\":[{\"host\":\"127.0.0.1\",\"port\":"
+                + port
+                + "}]}");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(ctx, List.of(new ServiceRoute("/api/payments", "payments")));
+
+    GatewayResponse response = dispatcher.dispatch("PUT", "/api/payments", "{\"amount\":42}");
+
+    assertEquals(201, response.status());
+    assertEquals("payment accepted", response.body());
+    assertEquals("PUT", seenMethod.get());
+    assertEquals("/api/payments", seenPath.get());
+    assertEquals("{\"amount\":42}", seenBody.get());
+  }
+
+  @Test
+  void a_service_route_for_a_service_with_no_ready_endpoints_returns_a_clear_error_not_a_200() {
+    RelayResult relayResult =
+        new RelayResult(200, "{\"name\":\"payments\",\"port\":8080,\"endpoints\":[]}");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(ctx, List.of(new ServiceRoute("/api/payments", "payments")));
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/payments", "");
+
+    assertTrue(response.status() >= 400);
+  }
+
+  @Test
+  void a_service_route_reuses_the_cached_endpoint_list_across_dispatcher_instances_seam() {
+    // GatewayDispatcher's package-private constructor lets a test hand it a ServiceEndpointCache
+    // built with an explicit clock -- exercised in full in ServiceEndpointCacheTest; this test only
+    // proves the seam itself wires through to real dispatch.
+    SimpleModuleContext ctx =
+        contextWithRelay(new RelayResult(200, "{\"name\":\"payments\",\"endpoints\":[]}"));
+    ServiceEndpointCache cache =
+        new ServiceEndpointCache(ctx, Duration.ofSeconds(1), Clock.systemUTC());
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx,
+            List.of(new ServiceRoute("/api/payments", "payments")),
+            new VesselEndpointCache(ctx),
+            cache,
+            new VesselProxyClient());
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/payments", "");
+
+    assertTrue(response.status() >= 400);
   }
 
   @Test

@@ -201,9 +201,6 @@ final class VesselEndpointCache {
 
   private record CacheEntry(List<Endpoint> endpoints, Instant fetchedAt) {}
 
-  /** A resolved, dialable target for a vessel proxy call. */
-  record HostPort(String host, int port) {}
-
   /** The result of one {@link #resolve} call. */
   sealed interface Outcome permits Outcome.Ready, Outcome.Unavailable {
 

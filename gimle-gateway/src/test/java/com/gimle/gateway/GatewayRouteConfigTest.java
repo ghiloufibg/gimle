@@ -7,8 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.gateway.GatewayRoute.FabricRoute;
 import com.gimle.gateway.GatewayRoute.FabricRoute.ParamType;
+import com.gimle.gateway.GatewayRoute.ServiceRoute;
 import com.gimle.gateway.GatewayRoute.VesselRoute;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class GatewayRouteConfigTest {
@@ -35,6 +37,119 @@ class GatewayRouteConfigTest {
 
     FabricRoute route = assertInstanceOf(FabricRoute.class, routes.get(0));
     assertEquals(ParamType.NONE, route.paramType());
+  }
+
+  @Test
+  void a_fabric_route_with_no_host_segment_matches_any_host() {
+    List<GatewayRoute> routes =
+        GatewayRouteConfig.parse(
+            "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
+
+    assertEquals(Optional.empty(), routes.get(0).host());
+  }
+
+  @Test
+  void a_host_segment_attaches_the_declared_hostname_to_a_fabric_route() {
+    List<GatewayRoute> routes =
+        GatewayRouteConfig.parse(
+            "HOST greeter.example.com FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet"
+                + " STRING\n");
+
+    FabricRoute route = assertInstanceOf(FabricRoute.class, routes.get(0));
+    assertEquals(Optional.of("greeter.example.com"), route.host());
+    assertEquals("/greet", route.path());
+    assertEquals("greet", route.methodName());
+  }
+
+  @Test
+  void a_host_segment_attaches_the_declared_hostname_to_a_vessel_route() {
+    List<GatewayRoute> routes =
+        GatewayRouteConfig.parse(
+            "HOST orders.example.com VESSEL /api/orders orders-service" + " HTTP_PORT\n");
+
+    VesselRoute route = assertInstanceOf(VesselRoute.class, routes.get(0));
+    assertEquals(Optional.of("orders.example.com"), route.host());
+    assertEquals("orders-service", route.deploymentName());
+  }
+
+  @Test
+  void a_host_segment_with_no_hostname_after_it_is_rejected() {
+    GatewayConfigException thrown =
+        assertThrows(
+            GatewayConfigException.class,
+            () -> GatewayRouteConfig.parse("HOST VESSEL /api/orders orders-service HTTP_PORT"));
+    assertTrue(thrown.getMessage().contains("HOST"));
+  }
+
+  @Test
+  void parses_a_single_valid_service_route() {
+    List<GatewayRoute> routes = GatewayRouteConfig.parse("SERVICE /api/payments payments\n");
+
+    assertEquals(1, routes.size());
+    ServiceRoute route = assertInstanceOf(ServiceRoute.class, routes.get(0));
+    assertEquals("/api/payments", route.path());
+    assertEquals("payments", route.serviceName());
+    assertEquals(Optional.empty(), route.host());
+  }
+
+  @Test
+  void a_service_line_with_the_wrong_number_of_fields_is_rejected() {
+    GatewayConfigException thrown =
+        assertThrows(
+            GatewayConfigException.class, () -> GatewayRouteConfig.parse("SERVICE /api/payments"));
+    assertTrue(thrown.getMessage().contains("line 1"));
+    assertTrue(thrown.getMessage().contains("SERVICE"));
+  }
+
+  @Test
+  void a_service_path_not_starting_with_a_slash_is_rejected() {
+    assertThrows(
+        GatewayConfigException.class,
+        () -> GatewayRouteConfig.parse("SERVICE api/payments payments"));
+  }
+
+  @Test
+  void a_blank_service_name_is_rejected() {
+    // Not reachable via whitespace splitting (same reasoning as the blank-vessel-field tests
+    // below) -- goes straight at the record's own constructor instead.
+    assertThrows(GatewayConfigException.class, () -> new ServiceRoute("/api/payments", ""));
+  }
+
+  @Test
+  void the_same_path_under_two_different_hosts_is_not_a_duplicate() {
+    String config =
+        """
+        HOST a.example.com VESSEL /api/orders orders-a HTTP_PORT
+        HOST b.example.com VESSEL /api/orders orders-b HTTP_PORT
+        """;
+
+    List<GatewayRoute> routes = GatewayRouteConfig.parse(config);
+
+    assertEquals(2, routes.size());
+  }
+
+  @Test
+  void a_host_constrained_route_and_a_host_unconstrained_route_may_share_a_path() {
+    String config =
+        """
+        HOST a.example.com VESSEL /api/orders orders-a HTTP_PORT
+        VESSEL /api/orders orders-default HTTP_PORT
+        """;
+
+    List<GatewayRoute> routes = GatewayRouteConfig.parse(config);
+
+    assertEquals(2, routes.size());
+  }
+
+  @Test
+  void the_same_path_under_the_same_host_twice_is_rejected() {
+    String config =
+        """
+        HOST a.example.com VESSEL /api/orders orders-a HTTP_PORT
+        HOST a.example.com VESSEL /api/orders orders-b HTTP_PORT
+        """;
+
+    assertThrows(GatewayConfigException.class, () -> GatewayRouteConfig.parse(config));
   }
 
   @Test
