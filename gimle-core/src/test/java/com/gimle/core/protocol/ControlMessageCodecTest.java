@@ -60,7 +60,12 @@ class ControlMessageCodecTest {
             List.of(
                 new NetworkPolicyRule("deny-by-default", "acme", Set.of()),
                 new NetworkPolicyRule(
-                    "allow list with spaces", "acme corp", Set.of("partner one", "partner-two")))),
+                    "allow list with spaces", "acme corp", Set.of("partner one", "partner-two")),
+                new NetworkPolicyRule(
+                    "deployment-scoped",
+                    "acme",
+                    Optional.of(Set.of("orders-service", "payments-service")),
+                    Set.of("partner-tenant")))),
         new ControlMessage.NetworkPoliciesUpdated(List.of()),
         new ControlMessage.MetricsSnapshot(
             "worker-1",

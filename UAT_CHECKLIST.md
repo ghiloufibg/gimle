@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 573
+- **Total requirements**: 574
 - **Covered by automated (Holmgang Cucumber) test**: 116
-- **Not covered by automated test**: 457
+- **Not covered by automated test**: 458
 - **Release-readiness (automated coverage)**: 20.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,7 +20,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 36 | 5 | 31 | 13.9% |
 | gimle-mimir | 47 | 31 | 16 | 66.0% |
-| gimle-fabric | 31 | 1 | 30 | 3.2% |
+| gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 66 | 13 | 53 | 19.7% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
 | gimle-andvari | 22 | 2 | 20 | 9.1% |
@@ -664,6 +664,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
 | [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
+
+#### Networking/Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Given a NetworkPolicySpec scoped to deployment "orders-service" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call. Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name. Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to. | No |
 
 #### Service Fabric
 

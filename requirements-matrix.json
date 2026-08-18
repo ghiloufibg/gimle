@@ -11148,6 +11148,31 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-574",
+      "module": "gimle-fabric",
+      "feature": "Per-deployment-scoped NetworkPolicySpec enforcement",
+      "category": "Networking/Security",
+      "userStory": "As a platform operator, I want a NetworkPolicySpec scoped to specific deployments (not the whole tenant) to actually restrict cross-tenant traffic against just those deployments, so I can apply a narrower policy than tenant-wide without it silently going unenforced.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java` (`deploymentNames`, `appliesToDeployment`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessageCodec.java` (`encodeNetworkPolicies`/`decodeNetworkPolicies`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/networkpolicy/HttpNetworkPolicySource.java` (relays deployment-scoped rules, no longer filters them out)",
+        "`gimle-agent/src/main/java/com/gimle/agent/NetworkPolicyRelay.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`deploymentNameOf`, `checkNetworkPolicyPermitted`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`bindFabricServer` wires `InstanceIdentityRegistry` through as `deploymentNameOf`)"
+      ],
+      "testCoverageDetail": "`NetworkPolicyRuleTest` (deployment-scoping predicate: matches its named deployment, never matches a different one, never matches an unknown one, tenant-wide rule matches everything); `HttpNetworkPolicySourceTest` (parses both an empty deploymentNames array as tenant-wide and a populated one as scoped); `FabricServerTest` (a_deployment_scoped_network_policy_restricts_a_call_targeting_that_deployment, a_deployment_scoped_network_policy_never_restricts_a_call_targeting_a_different_deployment, a_deployment_scoped_network_policy_never_restricts_a_target_with_no_known_deployment_name); `ControlMessageCodecTest`'s round-trip list now includes a deployment-scoped rule",
+      "gherkinSteps": [
+        "Given a NetworkPolicySpec scoped to deployment \"orders-service\" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call.",
+        "Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name.",
+        "Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

@@ -235,14 +235,15 @@ public sealed interface ControlMessage {
       implements ControlMessage {}
 
   /**
-   * The agent relaying its most recent poll of the control plane's own tenant-wide {@code
-   * NetworkPolicySpec}s down to this worker -- a worker has no outbound network identity of its own
-   * to poll the control plane directly, the same reason {@link CatalogUpdate} and {@link
-   * ConfigDelivered} already travel this same direction over this same channel. A full replacement
-   * of the previously-held set each time, not a delta, matching {@code CatalogUpdate}'s own
-   * eventually-consistent, level-triggered posture: a missed message self-heals on the agent's next
-   * poll tick rather than leaving stale policy state behind. Per-deployment-scoped policies are
-   * never included -- see {@link NetworkPolicyRule}'s own javadoc for why.
+   * The agent relaying its most recent poll of the control plane's own {@code NetworkPolicySpec}s
+   * down to this worker -- a worker has no outbound network identity of its own to poll the control
+   * plane directly, the same reason {@link CatalogUpdate} and {@link ConfigDelivered} already
+   * travel this same direction over this same channel. A full replacement of the previously-held
+   * set each time, not a delta, matching {@code CatalogUpdate}'s own eventually-consistent,
+   * level-triggered posture: a missed message self-heals on the agent's next poll tick rather than
+   * leaving stale policy state behind. Carries both tenant-wide and per-deployment-scoped policies
+   * -- {@link NetworkPolicyRule#deploymentNames()} distinguishes them; the receiving {@code
+   * FabricServer} resolves each inbound call's own target deployment to decide which apply.
    */
   record NetworkPoliciesUpdated(List<NetworkPolicyRule> rules) implements ControlMessage {
 

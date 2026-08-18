@@ -74,6 +74,7 @@ public final class FabricServer implements AutoCloseable {
   private final Optional<WorkerMetrics> metrics;
   private final Function<ModuleId, List<ServiceExport>> exportsOf;
   private final Optional<String> selfTenantId;
+  private final Function<ModuleId, Optional<String>> deploymentNameOf;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   private volatile List<NetworkPolicyRule> networkPolicies = List.of();
   private volatile boolean closed;
@@ -157,6 +158,9 @@ public final class FabricServer implements AutoCloseable {
    * is exactly correct: an untenanted worker (system-tenant workloads) is never a policy's own
    * {@code tenantId}, matching {@code NetworkPolicySpec}'s own constructor validation that {@code
    * tenantId} is never blank.
+   *
+   * <p>Back-compat: defaults {@code deploymentNameOf} to "no deployment known for any module" --
+   * see the 8-arg constructor.
    */
   public FabricServer(
       ServiceRegistry localRegistry,
@@ -166,6 +170,39 @@ public final class FabricServer implements AutoCloseable {
       Optional<WorkerMetrics> metrics,
       Function<ModuleId, List<ServiceExport>> exportsOf,
       Optional<String> selfTenantId) {
+    this(
+        localRegistry,
+        interfaceLoader,
+        contextLookup,
+        executorLookup,
+        metrics,
+        exportsOf,
+        selfTenantId,
+        id -> Optional.empty());
+  }
+
+  /**
+   * {@code deploymentNameOf} resolves an inbound call's target {@code ModuleId} to the deployment
+   * name it was installed under (the worker's own {@code InstanceIdentityRegistry}, in production)
+   * -- unlike {@code selfTenantId}, this genuinely is per-request: a single worker JVM can host
+   * instances from several different deployments under Tier 1 density, so "which deployment does
+   * this call's target belong to" can't be answered once at construction time the way "which tenant
+   * does this worker serve" can. Used only to decide whether a per-deployment-scoped {@link
+   * NetworkPolicyRule} applies to a given call; a tenant-wide rule matches regardless of what this
+   * function returns. Absent (every other constructor) means every deployment-scoped rule is
+   * treated as not applying to any target -- exactly correct for a test or a worker not wired with
+   * a real identity registry, since there is nothing to prove a scoped rule's deployment name
+   * against.
+   */
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Optional<WorkerMetrics> metrics,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Optional<String> selfTenantId,
+      Function<ModuleId, Optional<String>> deploymentNameOf) {
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
     this.contextLookup = contextLookup;
@@ -173,11 +210,12 @@ public final class FabricServer implements AutoCloseable {
     this.metrics = metrics;
     this.exportsOf = exportsOf;
     this.selfTenantId = selfTenantId;
+    this.deploymentNameOf = deploymentNameOf;
   }
 
   /**
-   * Replaces the tenant-wide {@link NetworkPolicyRule} set this listener currently enforces --
-   * called by the worker each time its agent relays a fresh poll of the control plane's own {@code
+   * Replaces the {@link NetworkPolicyRule} set this listener currently enforces -- called by the
+   * worker each time its agent relays a fresh poll of the control plane's own {@code
    * NetworkPolicySpec} registry down this worker's control channel (see {@link
    * #checkNetworkPolicyPermitted}). A full replacement, not a merge: the caller always passes the
    * complete currently-known set, the same level-triggered posture {@code
@@ -426,21 +464,29 @@ public final class FabricServer implements AutoCloseable {
   }
 
   /**
-   * The tenant-wide analogue of {@link #checkTenantPermitted}: independently re-checks an inbound
-   * call against whatever currently-held {@link NetworkPolicyRule} restricts <em>this worker's own
-   * tenant</em> -- the target's tenant, since a worker hosts modules for exactly one tenant --
-   * rather than trusting that a caller only ever reached this listener because some upstream filter
-   * already enforced it, the same "forwarded claim, independently re-checked" posture {@link
-   * #checkTenantPermitted} already applies to {@code ServiceExport}. A no-op for an untenanted
-   * worker ({@link #selfTenantId} absent): no {@code NetworkPolicySpec} can ever name an untenanted
-   * worker as its own {@code tenantId}, so there is nothing to check against.
+   * The {@link NetworkPolicyRule} analogue of {@link #checkTenantPermitted}: independently
+   * re-checks an inbound call against every currently-held rule that restricts <em>this call's own
+   * target</em> -- rather than trusting that a caller only ever reached this listener because some
+   * upstream filter already enforced it, the same "forwarded claim, independently re-checked"
+   * posture {@link #checkTenantPermitted} already applies to {@code ServiceExport}. A rule applies
+   * when both its {@code tenantId} matches this worker's own tenant (a worker hosts modules for
+   * exactly one tenant, so "the target's tenant" is simply {@link #selfTenantId}) and {@link
+   * NetworkPolicyRule#appliesToDeployment} accepts {@code owner}'s own deployment name, resolved
+   * fresh per call via {@link #deploymentNameOf} since one worker can host several deployments. A
+   * no-op for an untenanted worker ({@link #selfTenantId} absent): no {@code NetworkPolicySpec} can
+   * ever name an untenanted worker as its own {@code tenantId}, so there is nothing to check
+   * against.
    */
-  private void checkNetworkPolicyPermitted(FabricFrame.InvokeRequest request) {
+  private void checkNetworkPolicyPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
     if (selfTenantId.isEmpty()) {
       return;
     }
+    Optional<String> deploymentName = deploymentNameOf.apply(owner);
     for (NetworkPolicyRule rule : networkPolicies) {
       if (!rule.tenantId().equals(selfTenantId.get())) {
+        continue;
+      }
+      if (!rule.appliesToDeployment(deploymentName)) {
         continue;
       }
       if (!rule.permitsCallerTenant(request.callerTenantId())) {
@@ -468,7 +514,7 @@ public final class FabricServer implements AutoCloseable {
                         "no local service registered for " + request.interfaceName()));
 
     checkTenantPermitted(owned.owner(), request);
-    checkNetworkPolicyPermitted(request);
+    checkNetworkPolicyPermitted(owned.owner(), request);
 
     Class<?>[] paramTypes =
         ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), interfaceLoader);

@@ -101,14 +101,14 @@ class NetworkPolicyRelayTest {
     }
 
     @Override
-    public List<NetworkPolicyRule> fetchTenantWidePolicies() {
+    public List<NetworkPolicyRule> fetchPolicies() {
       return rules;
     }
   }
 
   private static final class FailingSource implements NetworkPolicySource {
     @Override
-    public List<NetworkPolicyRule> fetchTenantWidePolicies() throws IOException {
+    public List<NetworkPolicyRule> fetchPolicies() throws IOException {
       throw new IOException("control plane unreachable");
     }
   }

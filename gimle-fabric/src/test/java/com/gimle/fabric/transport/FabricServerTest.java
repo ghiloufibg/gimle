@@ -529,4 +529,99 @@ class FabricServerTest {
 
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
+
+  private FabricServer serverWithSelfTenantAndDeployment(
+      SimpleServiceRegistry registry,
+      Optional<String> selfTenantId,
+      Optional<String> deploymentName) {
+    return new FabricServer(
+        registry,
+        Greeter.class.getClassLoader(),
+        id -> Optional.empty(),
+        id -> Optional.empty(),
+        Optional.empty(),
+        id -> List.of(),
+        selfTenantId,
+        id -> deploymentName);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_deployment_scoped_network_policy_restricts_a_call_targeting_that_deployment()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server =
+        serverWithSelfTenantAndDeployment(
+            registry, Optional.of("tenant-a"), Optional.of("greeter-deployment"));
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "deny-by-default",
+                "tenant-a",
+                Optional.of(Set.of("greeter-deployment")),
+                Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_deployment_scoped_network_policy_never_restricts_a_call_targeting_a_different_deployment()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server =
+        serverWithSelfTenantAndDeployment(
+            registry, Optional.of("tenant-a"), Optional.of("other-deployment"));
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "deny-by-default",
+                "tenant-a",
+                Optional.of(Set.of("greeter-deployment")),
+                Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_deployment_scoped_network_policy_never_restricts_a_target_with_no_known_deployment_name()
+      throws Exception {
+    // deploymentNameOf returning Optional.empty() (a worker not wired with a real identity
+    // registry, or an instance the platform never assigned one to) means a deployment-scoped rule
+    // has nothing to prove its own scope against -- it must not apply, the same "can only be
+    // proven to apply, not assumed to" posture NetworkPolicyRule#appliesToDeployment documents.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenantAndDeployment(registry, Optional.of("tenant-a"), Optional.empty());
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "deny-by-default",
+                "tenant-a",
+                Optional.of(Set.of("greeter-deployment")),
+                Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
 }

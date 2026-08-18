@@ -15,14 +15,16 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Polls a {@link NetworkPolicySource} (the control plane's own {@code GET /networkpolicies}, in
- * production) on a fixed interval and relays the full current tenant-wide {@code NetworkPolicySpec}
- * set down to every worker this agent currently supervises, over the same per-instance control
- * channel {@link WorkerConnection} already carries {@code CatalogUpdate}/ {@code ConfigDelivered}
- * traffic on -- a worker has no outbound network identity of its own to poll the control plane
- * directly (see {@code ModuleContext}'s own javadoc). Level-triggered like {@code BifrostProxy}:
- * each poll relays whatever the source reports right now in full, not a diff against a remembered
- * previous poll, so a missed or failed tick self-heals on the next one instead of leaving a
- * worker's cached policy set stale.
+ * production) on a fixed interval and relays the full current {@code NetworkPolicySpec} set -- both
+ * tenant-wide and per-deployment-scoped -- down to every worker this agent currently supervises,
+ * over the same per-instance control channel {@link WorkerConnection} already carries {@code
+ * CatalogUpdate}/{@code ConfigDelivered} traffic on -- a worker has no outbound network identity of
+ * its own to poll the control plane directly (see {@code ModuleContext}'s own javadoc). Deciding
+ * which relayed rules actually apply to which locally-hosted module is the receiving {@code
+ * FabricServer}'s job, not this relay's -- it always ships the full set unfiltered. Level-triggered
+ * like {@code BifrostProxy}: each poll relays whatever the source reports right now in full, not a
+ * diff against a remembered previous poll, so a missed or failed tick self-heals on the next one
+ * instead of leaving a worker's cached policy set stale.
  *
  * <p>Lives directly in {@code com.gimle.agent} (unlike Bifrost's own poller, which sits in its own
  * {@code bifrost} subpackage) because relaying requires reading {@link
@@ -69,15 +71,15 @@ final class NetworkPolicyRelay implements AutoCloseable {
   }
 
   /**
-   * Fetches the current tenant-wide policy set and relays it, unchanged, to every currently
-   * connected supervised worker. Public and callable directly (not only from {@link #start()}'s own
+   * Fetches the current policy set and relays it, unchanged, to every currently connected
+   * supervised worker. Public and callable directly (not only from {@link #start()}'s own
    * scheduler) so tests can drive a poll deterministically instead of racing a wall-clock timer --
    * the same reason {@code BifrostProxy#pollOnce} is public.
    */
   synchronized void pollOnce() {
     List<NetworkPolicyRule> rules;
     try {
-      rules = source.fetchTenantWidePolicies();
+      rules = source.fetchPolicies();
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();

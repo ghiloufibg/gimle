@@ -303,6 +303,9 @@ public final class ControlMessageCodec {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("name", rule.name());
       entry.put("tenantId", rule.tenantId());
+      // Always a present (possibly empty) array, never an absent field, the same convention
+      // ApiServer#networkPolicyToJson already establishes: an empty array means tenant-wide.
+      entry.put("deploymentNames", rule.deploymentNames().map(List::copyOf).orElse(List.of()));
       entry.put("allowedCallerTenantIds", List.copyOf(rule.allowedCallerTenantIds()));
       array.add(entry);
     }
@@ -319,9 +322,16 @@ public final class ControlMessageCodec {
       for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
         allowedCallerTenantIds.add((String) tenantId);
       }
+      Set<String> deploymentNames = new LinkedHashSet<>();
+      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
+        deploymentNames.add((String) deploymentName);
+      }
       rules.add(
           new NetworkPolicyRule(
-              (String) entry.get("name"), (String) entry.get("tenantId"), allowedCallerTenantIds));
+              (String) entry.get("name"),
+              (String) entry.get("tenantId"),
+              deploymentNames.isEmpty() ? Optional.empty() : Optional.of(deploymentNames),
+              allowedCallerTenantIds));
     }
     return rules;
   }

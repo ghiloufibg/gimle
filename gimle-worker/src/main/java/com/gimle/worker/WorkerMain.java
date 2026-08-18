@@ -163,7 +163,14 @@ public final class WorkerMain {
     WorkerMetrics workerMetrics = new WorkerMetrics();
     FabricBinding fabricBinding =
         bindFabricServer(
-            taggedLocal, interfaceLoader, controller, runtime, workerMetrics, registry, tenantId);
+            taggedLocal,
+            interfaceLoader,
+            controller,
+            runtime,
+            workerMetrics,
+            registry,
+            tenantId,
+            identityRegistry);
     FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
     startBackgroundWork(
         fabricBinding.server(), channel, workerId, activeModules, workerMetrics, runtime);
@@ -501,7 +508,8 @@ public final class WorkerMain {
       WorkerRuntime runtime,
       WorkerMetrics metrics,
       ModuleRegistry registry,
-      Optional<String> tenantId)
+      Optional<String> tenantId,
+      InstanceIdentityRegistry identityRegistry)
       throws IOException {
     FabricServer server =
         new FabricServer(
@@ -511,7 +519,8 @@ public final class WorkerMain {
             id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit),
             Optional.of(metrics),
             owner -> registry.artifact(owner).descriptor().exports(),
-            tenantId);
+            tenantId,
+            id -> identityRegistry.lookup(id).map(InstanceIdentity::deploymentName));
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));

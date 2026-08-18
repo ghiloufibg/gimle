@@ -588,6 +588,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | New | Not Covered | — |
 | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | New | Not Covered | — |
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
+| GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2717,6 +2718,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario drives two tenants' modules through a real cluster and asserts a cross-tenant fabric call that bypasses FabricServiceRegistry's own caller-side filter is still rejected by the receiving worker. To close: a scenario would need two tenant-scoped modules, one exporting a tenant-restricted service and one holding another tenant's identity, plus a step that dials the raw ServiceEndpoint address directly (not through the registry's own lookup) to prove FabricServer's own listener-side re-check independently rejects it -- something no current .feature file attempts.
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`
+
+#### GIMLE-574 — Per-deployment-scoped NetworkPolicySpec enforcement
+
+- **Category**: Networking/Security
+- **Status**: New  _(closes the per-deployment-scoping gap left open by the earlier tenant-wide-only NetworkPolicySpec enforcement lane)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no scenario proving deployment-scoped (as opposed to tenant-wide) NetworkPolicySpec enforcement end to end. To close: extend a network-policy feature file with a scenario declaring a policy scoped to one of two deployments in the same tenant and asserting only calls to that deployment are restricted.
+- **Other test coverage (non-Holmgang, informational only)**: `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`
 
 ### gimle-controlplane
 
@@ -6098,7 +6108,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**457 of 573 requirements are Not Covered.**
+**458 of 574 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6365,6 +6375,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-572 | gimle-mimir | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail |
+| GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
 | GIMLE-571 | gimle-module | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
 | GIMLE-084 | gimle-worker | Durable InstanceEvent emission per lifecycle transition | Observability | NONE recorded in the baseline |

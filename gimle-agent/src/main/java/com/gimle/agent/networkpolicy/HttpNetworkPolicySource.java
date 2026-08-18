@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -36,8 +37,7 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
   }
 
   @Override
-  public List<NetworkPolicyRule> fetchTenantWidePolicies()
-      throws IOException, InterruptedException {
+  public List<NetworkPolicyRule> fetchPolicies() throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(controlPlaneBaseUrl.resolve("/networkpolicies"))
             .timeout(REQUEST_TIMEOUT)
@@ -53,21 +53,23 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);
-      // Tenant-wide only: a policy scoped to specific deployments (a non-empty deploymentNames
-      // array) is filtered out right here rather than delivered and ignored downstream --
-      // enforcing it would need this worker to know which deployment(s) it hosts, plumbing this
-      // first delivery slice deliberately doesn't add. See NetworkPolicyRule's own javadoc.
-      if (entry.get("deploymentNames") instanceof List<?> deploymentNames
-          && !deploymentNames.isEmpty()) {
-        continue;
-      }
       Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
       for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
         allowedCallerTenantIds.add((String) tenantId);
       }
+      // An empty array is ApiServer#networkPolicyToJson's own convention for "tenant-wide" --
+      // mirrors NetworkPolicySpec#deploymentNames' Optional.empty() the same way that write side
+      // does, without needing to distinguish "field absent" from "field present but empty".
+      Set<String> deploymentNames = new LinkedHashSet<>();
+      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
+        deploymentNames.add((String) deploymentName);
+      }
       rules.add(
           new NetworkPolicyRule(
-              (String) entry.get("name"), (String) entry.get("tenantId"), allowedCallerTenantIds));
+              (String) entry.get("name"),
+              (String) entry.get("tenantId"),
+              deploymentNames.isEmpty() ? Optional.empty() : Optional.of(deploymentNames),
+              allowedCallerTenantIds));
     }
     return rules;
   }

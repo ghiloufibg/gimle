@@ -9882,6 +9882,22 @@
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/BytecodeScanner.java`",
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/doctor/DoctorAnalyzer.java`"
       ]
+    },
+    {
+      "id": "GIMLE-574",
+      "module": "gimle-fabric",
+      "feature": "Per-deployment-scoped NetworkPolicySpec enforcement",
+      "category": "Networking/Security",
+      "status": "New",
+      "statusNote": "closes the per-deployment-scoping gap left open by the earlier tenant-wide-only NetworkPolicySpec enforcement lane",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang's Cucumber suite has no scenario proving deployment-scoped (as opposed to tenant-wide) NetworkPolicySpec enforcement end to end. To close: extend a network-policy feature file with a scenario declaring a policy scoped to one of two deployments in the same tenant and asserting only calls to that deployment are restricted.",
+      "otherTestCoverage": "`NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`"
+      ]
     }
   ]
 }

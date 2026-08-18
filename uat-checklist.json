@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 573,
+    "totalRequirements": 574,
     "coveredByAutomatedTest": 116,
-    "notCoveredByAutomatedTest": 457,
+    "notCoveredByAutomatedTest": 458,
     "releaseReadinessPercent": 20.2
   },
   "items": [
@@ -6305,6 +6305,17 @@
       "category": "Build Tooling",
       "feature": "Doctor advisory-only outbound-connection hazard detection",
       "step": "Given a module jar whose bytecode constructs a connecting java.net.Socket, opens a SocketChannel, or builds a java.net.http.HttpClient, When `hilmir doctor` analyzes it, Then it reports MAKES_OUTBOUND_CALLS at INFO severity, explaining that nothing on the platform restricts a module's outbound traffic today. Given a module jar with no outbound-connection call sites, When `hilmir doctor` analyzes it, Then MAKES_OUTBOUND_CALLS is not reported.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-574",
+      "module": "gimle-fabric",
+      "category": "Networking/Security",
+      "feature": "Per-deployment-scoped NetworkPolicySpec enforcement",
+      "step": "Given a NetworkPolicySpec scoped to deployment \"orders-service\" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call. Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name. Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

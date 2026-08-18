@@ -582,6 +582,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | Complete | Yes |
 | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | Complete | Yes |
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | Build Tooling | Complete | Yes |
+| GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3634,6 +3635,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"], When a caller wire-carrying callerTenantId "tenant-b" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException.
   Given the same restricted export, When a caller carrying callerTenantId "tenant-a" dials directly, Then the listener's own re-check permits the call through.
   Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default.
+  ```
+
+#### GIMLE-574 — Per-deployment-scoped NetworkPolicySpec enforcement
+
+- **Category**: Networking/Security
+- **User story**: As a platform operator, I want a NetworkPolicySpec scoped to specific deployments (not the whole tenant) to actually restrict cross-tenant traffic against just those deployments, so I can apply a narrower policy than tenant-wide without it silently going unenforced.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java` (`deploymentNames`, `appliesToDeployment`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessageCodec.java` (`encodeNetworkPolicies`/`decodeNetworkPolicies`), `gimle-agent/src/main/java/com/gimle/agent/networkpolicy/HttpNetworkPolicySource.java` (relays deployment-scoped rules, no longer filters them out), `gimle-agent/src/main/java/com/gimle/agent/NetworkPolicyRelay.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`deploymentNameOf`, `checkNetworkPolicyPermitted`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`bindFabricServer` wires `InstanceIdentityRegistry` through as `deploymentNameOf`)
+- **Test coverage**: `NetworkPolicyRuleTest` (deployment-scoping predicate: matches its named deployment, never matches a different one, never matches an unknown one, tenant-wide rule matches everything); `HttpNetworkPolicySourceTest` (parses both an empty deploymentNames array as tenant-wide and a populated one as scoped); `FabricServerTest` (a_deployment_scoped_network_policy_restricts_a_call_targeting_that_deployment, a_deployment_scoped_network_policy_never_restricts_a_call_targeting_a_different_deployment, a_deployment_scoped_network_policy_never_restricts_a_target_with_no_known_deployment_name); `ControlMessageCodecTest`'s round-trip list now includes a deployment-scoped rule
+- **Gherkin scenario**:
+  ```gherkin
+  Given a NetworkPolicySpec scoped to deployment "orders-service" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call.
+  Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name.
+  Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to.
   ```
 
 ### gimle-controlplane
