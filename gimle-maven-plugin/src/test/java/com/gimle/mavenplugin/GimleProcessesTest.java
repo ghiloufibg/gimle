@@ -21,6 +21,30 @@ class GimleProcessesTest {
     assertEquals(Optional.of(launcher), GimleProcesses.mavenLauncherUnder(home.toString()));
   }
 
+  /**
+   * Every real Maven distribution's {@code bin/} -- including one resolved through the Maven
+   * Wrapper -- carries both {@code mvn} (the POSIX shell script) and {@code mvn.cmd} (the Windows
+   * batch launcher) as plain regular files side by side. An OS-blind existence check finds {@code
+   * mvn} first regardless of platform and hands it to {@link ProcessBuilder} on Windows too, where
+   * {@code CreateProcess} rejects it outright (error 193, "not a valid Win32 application") since it
+   * has no PE header. The resolved launcher must track the actual platform, not file-list order.
+   */
+  @Test
+  void when_both_launchers_exist_the_platform_appropriate_one_is_chosen(@TempDir Path home)
+      throws Exception {
+    Path binDir = Files.createDirectories(home.resolve("bin"));
+    Path shellScript = binDir.resolve("mvn");
+    Path windowsBatch = binDir.resolve("mvn.cmd");
+    Files.writeString(shellScript, "#!/bin/sh\n");
+    Files.writeString(windowsBatch, "@ECHO OFF\r\n");
+
+    Path expected =
+        System.getProperty("os.name", "").toLowerCase().contains("win")
+            ? windowsBatch
+            : shellScript;
+    assertEquals(Optional.of(expected), GimleProcesses.mavenLauncherUnder(home.toString()));
+  }
+
   @Test
   void a_home_without_the_launcher_yields_empty(@TempDir Path home) {
     assertTrue(GimleProcesses.mavenLauncherUnder(home.toString()).isEmpty());

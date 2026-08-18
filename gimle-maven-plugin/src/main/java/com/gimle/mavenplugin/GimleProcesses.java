@@ -98,8 +98,18 @@ final class GimleProcesses {
     return Optional.empty();
   }
 
+  /**
+   * {@code mvn} (the POSIX shell script) and {@code mvn.cmd} (the Windows batch launcher) both
+   * exist as plain regular files side by side in every real Maven distribution's {@code bin/} --
+   * including one resolved through the Maven Wrapper -- so an OS-blind existence check finds {@code
+   * mvn} first on every platform and hands it to {@link ProcessBuilder} on Windows too, where
+   * {@code CreateProcess} rejects it outright (error 193, "not a valid Win32 application"): it has
+   * no PE header, only a shebang line Windows itself can't interpret. The candidate order must
+   * follow {@link #isWindows()}, not a fixed list.
+   */
   private static Optional<Path> firstLauncherIn(Path directory) {
-    for (String candidate : List.of("mvn", "mvn.cmd")) {
+    List<String> candidates = isWindows() ? List.of("mvn.cmd", "mvn") : List.of("mvn", "mvn.cmd");
+    for (String candidate : candidates) {
       Path path = directory.resolve(candidate);
       if (Files.isRegularFile(path)) {
         return Optional.of(path);
