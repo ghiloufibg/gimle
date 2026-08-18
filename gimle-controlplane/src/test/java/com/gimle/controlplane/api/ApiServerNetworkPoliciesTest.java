@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -237,6 +238,49 @@ class ApiServerNetworkPoliciesTest {
                 .build());
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
     assertEquals(List.of("partner-b"), spec.get("allowedCallerTenantIds"));
+  }
+
+  /**
+   * The actual bug this persistence swap fixes: {@code NetworkPolicyRegistry} used to hold an
+   * in-memory map per {@code ApiServer} replica, so a policy created against one replica was
+   * invisible to another. Two {@code ApiServer} instances here share one {@link InProcessStore}
+   * through two independent {@code StoreClient} connections -- the same "one store cluster, N
+   * stateless control-plane replicas" shape production runs, just over loopback instead of a real
+   * network -- proving a policy POSTed to one is now visible via {@code GET /networkpolicies} on
+   * the other.
+   */
+  @Test
+  @Timeout(10)
+  void a_network_policy_posted_to_one_replica_is_visible_on_a_second_replica() throws Exception {
+    try (StoreClient secondReplicaClient = inProcessStore.newClient();
+        ApiServer secondReplica = new ApiServer(secondReplicaClient, 0, inProcessFafnir.client())) {
+      secondReplica.start();
+      String secondBaseUrl = "http://localhost:" + secondReplica.port();
+
+      HttpResponse<String> post =
+          send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies"))
+                  .POST(
+                      HttpRequest.BodyPublishers.ofString(
+                          tenantWidePolicyJson("deny-by-default", "acme", "partner-tenant")))
+                  .build());
+      assertEquals(200, post.statusCode());
+
+      HttpResponse<String> getFromSecondReplica =
+          send(
+              HttpRequest.newBuilder(URI.create(secondBaseUrl + "/networkpolicies/deny-by-default"))
+                  .GET()
+                  .build());
+      assertEquals(200, getFromSecondReplica.statusCode());
+      Map<String, Object> spec = Json.asObject(Json.parse(getFromSecondReplica.body()));
+      assertEquals("deny-by-default", spec.get("name"));
+      assertEquals("acme", spec.get("tenantId"));
+
+      HttpResponse<String> listFromSecondReplica =
+          send(
+              HttpRequest.newBuilder(URI.create(secondBaseUrl + "/networkpolicies")).GET().build());
+      assertEquals(1, Json.asArray(Json.parse(listFromSecondReplica.body())).size());
+    }
   }
 
   @Test

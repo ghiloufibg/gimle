@@ -54,7 +54,8 @@ class RaftLogTest {
         Set.of(), // cordonedNodes
         List.of(), // instanceEvents
         List.of(), // auditEvents
-        List.of()); // services
+        List.of(), // services
+        List.of()); // networkPolicies
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -90,7 +91,8 @@ class RaftLogTest {
         base.cordonedNodes(),
         base.instanceEvents(),
         base.auditEvents(),
-        base.services());
+        base.services(),
+        base.networkPolicies());
   }
 
   @Test

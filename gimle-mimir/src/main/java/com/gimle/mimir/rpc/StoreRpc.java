@@ -13,6 +13,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
@@ -66,6 +67,8 @@ public sealed interface StoreRpc {
           ListDeployments,
           GetService,
           ListServices,
+          GetNetworkPolicy,
+          ListNetworkPolicies,
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
@@ -143,6 +146,8 @@ public sealed interface StoreRpc {
           DeploymentListResult,
           ServiceResult,
           ServiceListResult,
+          NetworkPolicyResult,
+          NetworkPolicyListResult,
           AssignmentListResult,
           NodeRegistrationListResult,
           TenantListResult,
@@ -212,6 +217,10 @@ public sealed interface StoreRpc {
   record GetService(String name) implements Request {}
 
   record ListServices() implements Request {}
+
+  record GetNetworkPolicy(String name) implements Request {}
+
+  record ListNetworkPolicies() implements Request {}
 
   record ListAssignmentsFor(String deploymentName) implements Request {}
 
@@ -421,6 +430,10 @@ public sealed interface StoreRpc {
   record ServiceResult(boolean present, ServiceSpec value) implements Response {}
 
   record ServiceListResult(List<ServiceSpec> values) implements Response {}
+
+  record NetworkPolicyResult(boolean present, NetworkPolicySpec value) implements Response {}
+
+  record NetworkPolicyListResult(List<NetworkPolicySpec> values) implements Response {}
 
   record AssignmentListResult(List<InstanceAssignment> values) implements Response {}
 

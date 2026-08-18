@@ -1,37 +1,51 @@
 package com.gimle.controlplane.networkpolicy;
 
 import com.gimle.mimir.manifest.NetworkPolicySpec;
+import com.gimle.mimir.raft.MutationSink;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StoreReader;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * This {@code ApiServer} replica's own view of every declared {@link NetworkPolicySpec}, keyed by
- * name -- in-memory only, the same non-durable, per-replica posture {@code
- * com.gimle.controlplane.service.ServiceRegistry} already documents for {@code ServiceSpec}, and
- * for the identical reason: a {@code NetworkPolicySpec} has no persisted home in {@code
- * gimle-mimir} yet, so one declared against one control-plane replica is visible only to that
- * replica until it gets one -- a real limitation for a multi-replica control plane, unaffected by
- * every single-replica deployment (including every test in this module).
+ * Every declared {@link NetworkPolicySpec}, persisted through {@code gimle-mimir}'s {@link
+ * StoreReader}/{@link MutationSink} the same way {@code
+ * com.gimle.controlplane.service.ServiceRegistry} persists {@code ServiceSpec} -- a policy created
+ * against one control-plane replica is visible to every other replica reading the same store
+ * cluster, not just the replica it was submitted to. This class itself holds no spec state of its
+ * own; it's a thin, {@code ApiServer}-route-shaped facade over {@code store}/{@code mutations},
+ * kept so every {@code /networkpolicies*} handler's call shape ({@code put}/{@code get}/{@code
+ * list}/{@code remove}) stays unchanged from before this class delegated instead of stored.
  */
 public final class NetworkPolicyRegistry {
 
-  private final Map<String, NetworkPolicySpec> policies = new ConcurrentHashMap<>();
+  private final StoreReader store;
+  private final MutationSink mutations;
+
+  /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
+  public NetworkPolicyRegistry(StateStore store) {
+    this(store, mutation -> mutation.applyTo(store));
+  }
+
+  public NetworkPolicyRegistry(StoreReader store, MutationSink mutations) {
+    this.store = store;
+    this.mutations = mutations;
+  }
 
   public void put(NetworkPolicySpec spec) {
-    policies.put(spec.name(), spec);
+    mutations.propose(new StateMutation.PutNetworkPolicy(spec));
   }
 
   public Optional<NetworkPolicySpec> get(String name) {
-    return Optional.ofNullable(policies.get(name));
+    return store.getNetworkPolicy(name);
   }
 
   public List<NetworkPolicySpec> list() {
-    return List.copyOf(policies.values());
+    return store.listNetworkPolicies();
   }
 
   public void remove(String name) {
-    policies.remove(name);
+    mutations.propose(new StateMutation.RemoveNetworkPolicy(name));
   }
 }

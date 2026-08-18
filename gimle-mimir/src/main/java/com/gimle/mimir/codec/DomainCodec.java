@@ -34,6 +34,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -146,6 +147,44 @@ public final class DomainCodec {
     int port = in.readInt();
     int targetPort = in.readInt();
     return new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
+  }
+
+  public static void writeNetworkPolicySpec(DataOutputStream out, NetworkPolicySpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    out.writeUTF(spec.tenantId());
+    Optional<Set<String>> deploymentNames = spec.deploymentNames();
+    out.writeBoolean(deploymentNames.isPresent());
+    if (deploymentNames.isPresent()) {
+      out.writeInt(deploymentNames.get().size());
+      for (String deploymentName : deploymentNames.get()) {
+        out.writeUTF(deploymentName);
+      }
+    }
+    out.writeInt(spec.allowedCallerTenantIds().size());
+    for (String tenantId : spec.allowedCallerTenantIds()) {
+      out.writeUTF(tenantId);
+    }
+  }
+
+  public static NetworkPolicySpec readNetworkPolicySpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    String tenantId = in.readUTF();
+    Optional<Set<String>> deploymentNames = Optional.empty();
+    if (in.readBoolean()) {
+      int deploymentNameCount = in.readInt();
+      Set<String> names = new LinkedHashSet<>();
+      for (int i = 0; i < deploymentNameCount; i++) {
+        names.add(in.readUTF());
+      }
+      deploymentNames = Optional.of(names);
+    }
+    int allowedCallerTenantIdCount = in.readInt();
+    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
+    for (int i = 0; i < allowedCallerTenantIdCount; i++) {
+      allowedCallerTenantIds.add(in.readUTF());
+    }
+    return new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
   }
 
   public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {

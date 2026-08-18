@@ -28,6 +28,7 @@ import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobManifestParser;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetManifestParser;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -72,6 +73,7 @@ public final class StateStore implements StoreReader {
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
   private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
+  private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
   private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
@@ -185,6 +187,7 @@ public final class StateStore implements StoreReader {
     try {
       Files.createDirectories(deploymentsDir());
       Files.createDirectories(servicesDir());
+      Files.createDirectories(networkPoliciesDir());
       Files.createDirectories(assignmentsDir());
       Files.createDirectories(jobsDir());
       Files.createDirectories(jobRunsDir());
@@ -260,6 +263,26 @@ public final class StateStore implements StoreReader {
   public void removeService(String name) {
     deleteQuietly(serviceFile(name));
     services.remove(name);
+  }
+
+  // ---- network policies ----
+
+  public void putNetworkPolicy(NetworkPolicySpec spec) {
+    writeAtomically(networkPolicyFile(spec.name()), networkPolicySpecToYaml(spec));
+    networkPolicies.put(spec.name(), spec);
+  }
+
+  public Optional<NetworkPolicySpec> getNetworkPolicy(String name) {
+    return Optional.ofNullable(networkPolicies.get(name));
+  }
+
+  public List<NetworkPolicySpec> listNetworkPolicies() {
+    return List.copyOf(networkPolicies.values());
+  }
+
+  public void removeNetworkPolicy(String name) {
+    deleteQuietly(networkPolicyFile(name));
+    networkPolicies.remove(name);
   }
 
   // ---- assignments ----
@@ -1083,7 +1106,8 @@ public final class StateStore implements StoreReader {
             .collect(Collectors.toUnmodifiableSet()),
         instanceEvents.values().stream().flatMap(List::stream).toList(),
         auditEventsSnapshotOrder(),
-        List.copyOf(services.values()));
+        List.copyOf(services.values()),
+        List.copyOf(networkPolicies.values()));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1113,6 +1137,7 @@ public final class StateStore implements StoreReader {
   public void restoreFromSnapshot(StateSnapshot snapshot) {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
     List.copyOf(services.keySet()).forEach(this::removeService);
+    List.copyOf(networkPolicies.keySet()).forEach(this::removeNetworkPolicy);
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
@@ -1199,6 +1224,7 @@ public final class StateStore implements StoreReader {
     // auditEventsSnapshotOrder() above), reproducing identical MAX_AUDIT_EVENTS pruning on replay.
     snapshot.auditEvents().forEach(this::putAuditEvent);
     snapshot.services().forEach(this::putService);
+    snapshot.networkPolicies().forEach(this::putNetworkPolicy);
   }
 
   /**
@@ -1269,6 +1295,14 @@ public final class StateStore implements StoreReader {
 
   private Path serviceFile(String name) {
     return servicesDir().resolve(name + ".yaml");
+  }
+
+  private Path networkPoliciesDir() {
+    return root.resolve("networkpolicies");
+  }
+
+  private Path networkPolicyFile(String name) {
+    return networkPoliciesDir().resolve(name + ".yaml");
   }
 
   private Path assignmentFile(String deploymentName, int instanceIndex) {
@@ -1522,6 +1556,13 @@ public final class StateStore implements StoreReader {
         file -> {
           ServiceSpec spec = serviceSpecFromMap(loadMap(file));
           services.put(spec.name(), spec);
+        });
+    loadEach(
+        networkPoliciesDir(),
+        "*.yaml",
+        file -> {
+          NetworkPolicySpec spec = networkPolicySpecFromMap(loadMap(file));
+          networkPolicies.put(spec.name(), spec);
         });
     loadEach(
         assignmentsDir(),
@@ -2304,6 +2345,36 @@ public final class StateStore implements StoreReader {
         deploymentNames,
         ((Number) root.get("port")).intValue(),
         ((Number) root.get("targetPort")).intValue());
+  }
+
+  private static String networkPolicySpecToYaml(NetworkPolicySpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("name", spec.name());
+    root.put("tenantId", spec.tenantId());
+    spec.deploymentNames().ifPresent(names -> root.put("deploymentNames", new ArrayList<>(names)));
+    root.put("allowedCallerTenantIds", new ArrayList<>(spec.allowedCallerTenantIds()));
+    return new Yaml().dump(root);
+  }
+
+  private static NetworkPolicySpec networkPolicySpecFromMap(Map<?, ?> root) {
+    Optional<Set<String>> deploymentNames = Optional.empty();
+    List<?> rawDeploymentNames = (List<?>) root.get("deploymentNames");
+    if (rawDeploymentNames != null) {
+      Set<String> names = new LinkedHashSet<>();
+      for (Object rawName : rawDeploymentNames) {
+        names.add((String) rawName);
+      }
+      deploymentNames = Optional.of(names);
+    }
+    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
+    for (Object rawTenantId : (List<?>) root.get("allowedCallerTenantIds")) {
+      allowedCallerTenantIds.add((String) rawTenantId);
+    }
+    return new NetworkPolicySpec(
+        (String) root.get("name"),
+        (String) root.get("tenantId"),
+        deploymentNames,
+        allowedCallerTenantIds);
   }
 
   private static String configEntryToYaml(ConfigEntry entry) {

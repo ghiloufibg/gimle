@@ -222,12 +222,11 @@ public final class ApiServer implements AutoCloseable {
   // read/write
   // the identical instance this replica's routes do.
   private final ServiceRegistry serviceRegistry;
-  // Same in-memory/per-replica posture loginThrottle below has, for the identical reason:
-  // NetworkPolicySpec has no persisted home in gimle-mimir yet either (unlike ServiceSpec, which
-  // gained one above). Read by gimle-agent's own poller (GET /networkpolicies below), never by a
-  // reconciler -- nothing in this process itself needs to act on a NetworkPolicySpec, only relay
-  // it downstream unchanged.
-  private final NetworkPolicyRegistry networkPolicyRegistry = new NetworkPolicyRegistry();
+  // Specs persist through storeClient into the Raft-replicated store, the same as ServiceRegistry
+  // above and every other resource kind here -- see NetworkPolicyRegistry's own javadoc. Read by
+  // gimle-agent's own poller (GET /networkpolicies below), never by a reconciler -- nothing in this
+  // process itself needs to act on a NetworkPolicySpec, only relay it downstream unchanged.
+  private final NetworkPolicyRegistry networkPolicyRegistry;
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -335,6 +334,7 @@ public final class ApiServer implements AutoCloseable {
     this.storeClient = storeClient;
     this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
+    this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.artifactResolver =

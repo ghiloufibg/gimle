@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.RaftCodec;
@@ -149,6 +150,10 @@ public final class StoreCodec {
   private static final byte TAG_LIST_SERVICES = 95;
   private static final byte TAG_SERVICE_RESULT = 96;
   private static final byte TAG_SERVICE_LIST_RESULT = 97;
+  private static final byte TAG_GET_NETWORK_POLICY = 98;
+  private static final byte TAG_LIST_NETWORK_POLICIES = 99;
+  private static final byte TAG_NETWORK_POLICY_RESULT = 100;
+  private static final byte TAG_NETWORK_POLICY_LIST_RESULT = 101;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -219,6 +224,11 @@ public final class StoreCodec {
           out.writeUTF(v.name());
         }
         case StoreRpc.ListServices v -> out.writeByte(TAG_LIST_SERVICES);
+        case StoreRpc.GetNetworkPolicy v -> {
+          out.writeByte(TAG_GET_NETWORK_POLICY);
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListNetworkPolicies v -> out.writeByte(TAG_LIST_NETWORK_POLICIES);
         case StoreRpc.ListAssignmentsFor v -> {
           out.writeByte(TAG_LIST_ASSIGNMENTS_FOR);
           out.writeUTF(v.deploymentName());
@@ -403,6 +413,20 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (ServiceSpec s : v.values()) {
             DomainCodec.writeServiceSpec(out, s);
+          }
+        }
+        case StoreRpc.NetworkPolicyResult v -> {
+          out.writeByte(TAG_NETWORK_POLICY_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeNetworkPolicySpec(out, v.value());
+          }
+        }
+        case StoreRpc.NetworkPolicyListResult v -> {
+          out.writeByte(TAG_NETWORK_POLICY_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (NetworkPolicySpec s : v.values()) {
+            DomainCodec.writeNetworkPolicySpec(out, s);
           }
         }
         case StoreRpc.JobSpecResult v -> {
@@ -681,6 +705,8 @@ public final class StoreCodec {
         case TAG_LIST_DEPLOYMENTS -> new StoreRpc.ListDeployments();
         case TAG_GET_SERVICE -> new StoreRpc.GetService(in.readUTF());
         case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
+        case TAG_GET_NETWORK_POLICY -> new StoreRpc.GetNetworkPolicy(in.readUTF());
+        case TAG_LIST_NETWORK_POLICIES -> new StoreRpc.ListNetworkPolicies();
         case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
@@ -762,6 +788,19 @@ public final class StoreCodec {
             values.add(DomainCodec.readServiceSpec(in));
           }
           yield new StoreRpc.ServiceListResult(values);
+        }
+        case TAG_NETWORK_POLICY_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.NetworkPolicyResult(
+              present, present ? DomainCodec.readNetworkPolicySpec(in) : null);
+        }
+        case TAG_NETWORK_POLICY_LIST_RESULT -> {
+          int count = in.readInt();
+          List<NetworkPolicySpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readNetworkPolicySpec(in));
+          }
+          yield new StoreRpc.NetworkPolicyListResult(values);
         }
         case TAG_JOB_SPEC_RESULT -> {
           boolean present = in.readBoolean();

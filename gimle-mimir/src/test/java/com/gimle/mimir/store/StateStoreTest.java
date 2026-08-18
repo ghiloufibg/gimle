@@ -24,6 +24,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
 import java.nio.file.Files;
@@ -60,6 +61,7 @@ class StateStoreTest {
 
     assertTrue(Files.isDirectory(root.resolve("deployments")));
     assertTrue(Files.isDirectory(root.resolve("services")));
+    assertTrue(Files.isDirectory(root.resolve("networkpolicies")));
     assertTrue(Files.isDirectory(root.resolve("assignments")));
     assertTrue(Files.isDirectory(root.resolve("nodes")));
   }
@@ -140,6 +142,35 @@ class StateStoreTest {
     StateStore reloaded = new StateStore(root);
     assertTrue(reloaded.getService("orders").isEmpty());
     assertTrue(reloaded.listServices().isEmpty());
+  }
+
+  @Test
+  void network_policy_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("networkpolicy-roundtrip");
+    StateStore store = new StateStore(root);
+    NetworkPolicySpec spec =
+        new NetworkPolicySpec(
+            "orders-policy", "tenant-1", Optional.of(Set.of("orders-service")), Set.of("tenant-2"));
+
+    store.putNetworkPolicy(spec);
+    assertEquals(Optional.of(spec), store.getNetworkPolicy("orders-policy"));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(Optional.of(spec), reloaded.getNetworkPolicy("orders-policy"));
+    assertEquals(List.of(spec), reloaded.listNetworkPolicies());
+  }
+
+  @Test
+  void removed_network_policy_is_gone_after_reload() {
+    Path root = tempDir.resolve("networkpolicy-remove");
+    StateStore store = new StateStore(root);
+    store.putNetworkPolicy(new NetworkPolicySpec("orders-policy", "tenant-1", Set.of("tenant-2")));
+    store.removeNetworkPolicy("orders-policy");
+
+    assertTrue(store.getNetworkPolicy("orders-policy").isEmpty());
+    StateStore reloaded = new StateStore(root);
+    assertTrue(reloaded.getNetworkPolicy("orders-policy").isEmpty());
+    assertTrue(reloaded.listNetworkPolicies().isEmpty());
   }
 
   @Test
