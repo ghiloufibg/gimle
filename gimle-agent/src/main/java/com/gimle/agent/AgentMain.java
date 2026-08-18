@@ -1,5 +1,7 @@
 package com.gimle.agent;
 
+import com.gimle.agent.bifrost.BifrostProxy;
+import com.gimle.agent.bifrost.HttpServiceSource;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleClusterException;
@@ -205,6 +207,15 @@ public final class AgentMain {
     // a resolution a different configured one could have answered.
     String andvariEndpoint = System.getProperty("gimle.agent.andvariEndpoint");
     List<URI> andvariBaseUrls = parseAndvariEndpoints(andvariEndpoint, baseUrl.getScheme());
+    // Off by default -- an agent that never sets this property behaves exactly as it did before
+    // Bifrost existed. Poll interval is its own separate property so an operator can tune
+    // convergence latency without touching the control-plane-loop TICK_INTERVAL above, which
+    // governs unrelated work.
+    boolean bifrostEnabled =
+        Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostEnabled", "false"));
+    Duration bifrostPollInterval =
+        Duration.ofMillis(
+            Long.parseLong(System.getProperty("gimle.agent.bifrostPollIntervalMillis", "5000")));
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
@@ -303,6 +314,16 @@ public final class AgentMain {
 
     register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
+
+    // Independent of the tick loop below (its own self-scheduled poller, same shape as the
+    // MuninnShipper construction above): a caller on this node dials a service's synthesized
+    // loopback ClusterIP, and Bifrost forwards to one of that service's live endpoints.
+    if (bifrostEnabled) {
+      BifrostProxy bifrostProxy =
+          new BifrostProxy(new HttpServiceSource(httpClient, baseUrl), bifrostPollInterval);
+      bifrostProxy.start();
+      log.info("agent {} started bifrost service proxy", nodeId);
+    }
 
     while (!Thread.currentThread().isInterrupted()) {
       long tickStartNanos = System.nanoTime();
