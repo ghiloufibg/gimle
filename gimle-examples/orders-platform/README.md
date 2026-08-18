@@ -35,9 +35,12 @@ entry below):
   `ApiServer` already uses). Every request looks up `OrderCatalog`/`InventoryLevels` over the
   fabric fresh, the same graceful-degradation pattern `orders-report-job` already establishes —
   this is the one client in the app a person outside the cluster can drive directly from a
-  browser, instead of another hosted module's own code. See
+  browser, instead of another hosted module's own code. It also reports its own port
+  (`ctx.reportPort`), the one thing that lets a control-plane `Service`/`gimle-gateway` route
+  reach it by name instead of a node-specific address — see
   [Reaching the web UI from outside the cluster](#reaching-the-web-ui-from-outside-the-cluster)
-  below for why its port needs a different publishing story than the other three modules'.
+  below for the full story, and why its port still needs a different publishing story than the
+  other three modules' fabric-only traffic.
   Also the only module in this app that's tenant-scoped and reads delivered config at all:
   `POST /api/orders` requires an `X-Admin-Token` header matching a real secret Fafnir delivers —
   see [Placing orders requires a real secret](#placing-orders-requires-a-real-secret) below.
@@ -117,19 +120,70 @@ no port-allocation mechanism of its own — that exists only for `VesselSpec`-ho
 which in turn have no fabric access at all (confirmed: no `ModuleContext`, no `ctx.lookupService`,
 nothing — see `VesselSpec`'s own javadoc in `gimle-core`). Neither hosting mode offers both a
 fabric connection and platform-managed ports, so a fixed port is the deliberate, simplest choice
-here, not a gap.
+here, not a gap. What *does* come from the platform now is discoverability: `WebUiHooks#onStart`
+calls `ctx.reportPort("http", 8090)`, folding the port into this instance's own metrics report the
+same way a Vessel's own agent-allocated port already does — which is what lets a
+control-plane-declared `Service` resolve a live endpoint for it (see below), regardless of which
+node the scheduler actually placed the instance on.
+
+### The recommended path: a Service, fronted by the gateway
+
+1. **Declare a `Service`** fronting `web-ui-deployment` — see `service.yaml` in this directory for
+   the full `POST /services` body and why it's a checked-in doc file rather than something
+   `gimle:deploy` consumes (a Service isn't one of the five workload manifest kinds). Apply it
+   after `web-ui-deployment` reaches `ACTIVE`:
+
+   ```sh
+   curl -X POST http://localhost:8080/services -H 'Content-Type: application/json' \
+     -d '{"name":"web-ui","tenantId":"orders-platform","deploymentNames":["web-ui-deployment"],
+          "port":80,"targetPort":8090}'
+   ```
+
+   `GET /services/web-ui/endpoints` now resolves to wherever the real instance actually landed —
+   no more caring which node that was.
+
+2. **Add a gateway route.** `gimle-gateway` is an ordinary opt-in `DaemonSet` module elsewhere in
+   this repo, not deployed by this app itself; if one is already running in your cluster (see
+   `gimle-docs/docs/architecture/service-fabric.md` for how it's brought up), add these lines to
+   its `gateway.routes` config value:
+
+   ```
+   SERVICE /api/inventory web-ui
+   SERVICE /api/orders    web-ui
+   SERVICE /             web-ui
+   ```
+
+   Now the gateway's own already-published address is the one thing that needs reaching from
+   outside the cluster — not `web-ui`'s node, not its port, and (unlike the old fixed-port story)
+   it round-robins across every live replica if `web-ui-deployment` is ever scaled past
+   `replicas: 1`, something the raw-port approach below has no way to do at all.
+
+   ```sh
+   curl http://<gateway-host>:<gateway-port>/api/inventory
+   curl -X POST http://<gateway-host>:<gateway-port>/api/orders -H 'Content-Type: application/json' \
+     -H 'X-Admin-Token: <the same token>' -d '{"sku":"widget","quantity":2}'
+   ```
+
+3. **Optional: give it a DNS name.** Once the Service exists, `web-ui.orders-platform.svc.gimle.local`
+   is resolvable by `gimle-skald` — a stable name to put in a `HOST` line instead of a raw gateway
+   address, if a resolver in your environment points at Skald:
+
+   ```
+   HOST web-ui.orders-platform.svc.gimle.local SERVICE / web-ui
+   ```
+
+### The direct path: still works, useful for quick local debugging
+
+Nothing above removes `web-ui`'s own real bound port — it's still there, still fixed, still
+reachable directly if the node it landed on is reachable at all:
 
 - **Local `mvn gimle:*` cluster** (`gimle-console/LOCAL_DEV.md`): the agent runs directly on your
-  own machine, so `http://localhost:8090/` is already reachable the moment `web-ui-deployment`
-  reaches `ACTIVE` — nothing extra to configure.
+  own machine, so `http://localhost:8090/` is reachable the moment `web-ui-deployment` reaches
+  `ACTIVE` — nothing extra to configure.
 - **`docker-compose.full-jre.yml`** (`gimle-holmgang/compose/`): the worker JVM hosting `web-ui`
-  runs as a subprocess inside the `agent` container, sharing its network namespace — unlike
-  andvari/fafnir/controlplane, each their own platform process with their own container and their
-  own already-published port. The compose file's own `agent` service publishes `8090:8090` for
-  exactly this reason; `http://localhost:8090/` reaches it from the docker host the same way
-  `http://localhost:8080/console` already reaches the control plane's own console.
-
-Either way, once it's up:
+  runs as a subprocess inside the `agent` container, sharing its network namespace. The compose
+  file's own `agent` service publishes `8090:8090` for exactly this reason; `http://localhost:8090/`
+  reaches it from the docker host.
 
 ```sh
 curl http://localhost:8090/api/inventory
@@ -137,7 +191,32 @@ curl -X POST http://localhost:8090/api/orders -H 'Content-Type: application/json
   -d '{"sku":"widget","quantity":2}'
 ```
 
-or just open `http://localhost:8090/` in a browser for the page itself.
+or just open `http://localhost:8090/` in a browser for the page itself. This is the one path that
+bypasses the Service/gateway entirely, so it's also the one to reach for if you're debugging
+whether a problem is in `web-ui` itself or in the Service/gateway layer in front of it.
+
+## Restricting cross-tenant access (optional)
+
+`networkpolicy.yaml` in this directory declares a deny-by-default `NetworkPolicySpec` scoped to
+`web-ui-deployment` — apply it the same way as `service.yaml`, via `POST /networkpolicies`. Worth
+being precise about what it actually restricts in this single-tenant sandbox, rather than
+overstating it:
+
+- **It has no effect on the gateway route above.** `gimle-gateway`'s own `SERVICE` route has no
+  tenant-policy check of its own — external reachability is an operator's own opt-in publishing
+  decision, a different concern from inter-tenant fabric traffic, which is what `NetworkPolicySpec`
+  actually governs.
+- **It has no effect via `FabricServer` either**, because `web-ui` doesn't export a fabric service
+  of its own (it only *consumes* `OrderCatalog`/`InventoryLevels`) — `FabricServer.checkNetworkPolicyPermitted`
+  only ever gates inbound calls to a module that exports one. In this app that's `orders-service`/
+  `inventory-service`, and neither is tenant-scoped (deliberately, for the config-delivery reasons
+  above), so a policy can't target them without first giving them a tenant — out of scope for this
+  file.
+- **What it does demonstrate**: if `gimle-bifrost` is enabled on the node hosting `web-ui`
+  (`-Dgimle.agent.bifrostEnabled=true`), this policy makes `BifrostProxy` refuse to proxy `web-ui`'s
+  Service to any same-node caller — Bifrost relays opaque bytes for whatever protocol a caller
+  speaks, so it has no caller identity to check the policy's `allowedCallerTenantIds` against, and
+  fails closed rather than risk silently bypassing a restriction the tenant opted into.
 
 ## Placing orders requires a real secret
 

@@ -33,9 +33,13 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
  * <p>The fixed port ({@link #PORT}) is a deliberate simplification, not a platform feature: a
  * plain Gimlé module has no port-allocation mechanism of its own (that exists only for {@code
  * VesselSpec}-hosted processes, which in turn have no fabric access at all -- neither hosting mode
- * offers both). Reaching this server from outside the cluster is purely a matter of publishing
- * this same port on whichever machine's agent container ends up running it -- see {@code
- * docker-compose.full-jre.yml}'s own {@code agent} service for the one line that does it.
+ * offers both). What *is* a platform feature now is {@code ctx.reportPort} in {@link
+ * #onStart}: it folds this instance's chosen port into the same per-tick metrics report a
+ * Vessel's own agent-allocated port already rides, which is what lets a control-plane-declared
+ * {@code Service} fronting this deployment resolve a live endpoint for it -- see ../README.md's
+ * "Reaching the web UI from outside the cluster" section for the {@code gimle-gateway}
+ * {@code SERVICE}-route path that endpoint resolution makes possible, in place of the old
+ * per-environment manual port-publish story.
  *
  * <p>Every fabric lookup here is retried per-request the same graceful-degradation way {@code
  * InventoryServiceHooks}'s reconcile loop and {@code OrdersReportJobHooks}'s retry helper already
@@ -101,6 +105,12 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
     httpServer.createContext("/api/inventory", new InventoryHandler(ctx, webUiService));
     httpServer.createContext("/api/orders", new PlaceOrderHandler(ctx, webUiService, adminToken));
     httpServer.start();
+    // Folds into this instance's own per-tick MetricsReport the identical way a Vessel's own
+    // agent-allocated port already does, landing in InstanceObservation.ports() -- what a
+    // control-plane-declared Service fronting this deployment needs to resolve a live endpoint
+    // for it. See ../README.md's "Reaching the web UI from outside the cluster" section for the
+    // Service/gateway path this makes possible.
+    ctx.reportPort("http", PORT);
 
     ready.set(true);
     log.info("web-ui serving on port {} (GET /, GET /api/inventory, POST /api/orders)", PORT);

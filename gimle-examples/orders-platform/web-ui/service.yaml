@@ -1,0 +1,24 @@
+# kind: Service -- not one of the five workload manifest kinds this app's own README table lists
+# (Deployment/StatefulSet/DaemonSet/CronJob/Job), so `gimle:deploy` doesn't consume this file
+# directly the way it does deployment.yaml: a Service is a control-plane resource declared
+# through gimle-controlplane's own POST /services API, not a scheduled workload. This file exists
+# purely as the documented, checked-in source of truth for that POST body -- apply it with:
+#
+#   curl -X POST http://localhost:8080/services -H 'Content-Type: application/json' \
+#     -d '{"name":"web-ui","tenantId":"orders-platform","deploymentNames":["web-ui-deployment"],
+#          "port":80,"targetPort":8090}'
+#
+# (adjust the base URL for a non-local control plane). Requires web-ui-deployment to already
+# exist and its instance to have called ctx.reportPort("http", 8090) -- see WebUiHooks#onStart --
+# for ServiceEndpointResolver to ever resolve a live endpoint from this Service.
+#
+# Once created, GET /services/web-ui/endpoints resolves to wherever the real instance actually
+# landed, and the gateway.routes example in ../README.md can proxy to it by name instead of a
+# node-specific address -- see that section for the full external-reachability story this Service
+# is the first half of.
+name: web-ui
+tenantId: orders-platform
+deploymentNames:
+  - web-ui-deployment
+port: 80
+targetPort: 8090
