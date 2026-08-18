@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 565,
+    "totalRequirements": 570,
     "coveredByAutomatedTest": 116,
-    "notCoveredByAutomatedTest": 449,
-    "releaseReadinessPercent": 20.5
+    "notCoveredByAutomatedTest": 454,
+    "releaseReadinessPercent": 20.4
   },
   "items": [
     {
@@ -6217,6 +6217,61 @@
       "category": "Packaging",
       "feature": "Distribution archive checksums and SBOM generation",
       "step": "Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-566",
+      "module": "gimle-controlplane",
+      "category": "Reconciliation / Service Fabric",
+      "feature": "Service abstraction: stable name, CRUD API, and endpoint reconciliation",
+      "step": "Given a Service \"orders\" selecting deployment \"orders-service\" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of \"orders-service\", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-567",
+      "module": "gimle-fabric",
+      "category": "Fabric / Multi-tenancy",
+      "feature": "Fabric listener-side tenant re-check on inbound service calls",
+      "step": "Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"], When a caller wire-carrying callerTenantId \"tenant-b\" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId \"tenant-a\" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-568",
+      "module": "gimle-agent",
+      "category": "Service Fabric",
+      "feature": "gimle-bifrost: per-node service proxy (kube-proxy analogue)",
+      "step": "Given BifrostProxy polling a ServiceSource that reports Service \"orders\" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints. Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed. Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-569",
+      "module": "gimle-skald",
+      "category": "Service Fabric",
+      "feature": "gimle-skald: cluster DNS server resolving Service names to live endpoints",
+      "step": "Given SkaldServer's directory cache holds \"orders.acme.svc.gimle.local\" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-570",
+      "module": "gimle-gateway",
+      "category": "Gateway/Routing",
+      "feature": "Gateway virtual-host routing and Service-backed (SERVICE) route kind",
+      "step": "Given two routes declared at the same path, one HOST orders.example.com and one host-unconstrained, When a request arrives with Host: orders.example.com, Then the host-constrained route serves it; When a request arrives with a different or missing Host header, Then the host-unconstrained sibling serves it instead. Given a route declared HOST orders.example.com only, When a request arrives with a non-matching Host header, Then the response is 404, not a fallback to any other route at that path. Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

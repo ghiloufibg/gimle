@@ -574,6 +574,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-562 | Cluster-machine platform distribution archive | Packaging | Complete | Partial |
 | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | Complete | Partial |
 | GIMLE-564 | Distribution archive checksums and SBOM generation | Packaging | Complete | None |
+| GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Reconciliation / Service Fabric | Complete | Yes |
+| GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Fabric / Multi-tenancy | Complete | Yes |
+| GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | Complete | Yes |
+| GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | Complete | Yes |
+| GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | Gateway/Routing | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2591,6 +2596,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And exports only com.gimle.agent
   ```
 
+#### GIMLE-568 — gimle-bifrost: per-node service proxy (kube-proxy analogue)
+
+- **Category**: Service Fabric
+- **User story**: As a module author, I want to dial a Service by its synthesized loopback ClusterIP address from any node and have that node's own agent transparently forward my connection to one of the Service's currently live backing instances, round-robin, without needing to resolve endpoints myself.
+- **Status**: Complete for v1's stated scope (round-robin only, no locality- or load-aware selection); opt-in via -Dgimle.agent.bifrostEnabled=true, off by default
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/LoopbackAddressAllocator.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/HttpServiceSource.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceSource.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (bifrostEnabled wiring)
+- **Test coverage**: `BifrostProxyTest` (round_robin_rotates_across_multiple_endpoints, a_service_disappearing_from_the_source_closes_its_listener, a_new_service_appearing_gets_a_new_listener); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given BifrostProxy polling a ServiceSource that reports Service "orders" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints.
+  Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed.
+  Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services.
+  ```
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -3570,6 +3590,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the gimle-fabric module descriptor; When gimle-worker requires com.gimle.fabric; Then it can access cluster/catalog/registry/transport/balance/breaker/trace, nothing unexported.
   ```
 
+#### GIMLE-567 — Fabric listener-side tenant re-check on inbound service calls
+
+- **Category**: Fabric / Multi-tenancy
+- **User story**: As a platform operator, I want the receiving worker of a cross-hop fabric call to independently re-verify the caller's tenant against the target service's own declared allowedTenantIds, so a caller cannot bypass tenant scoping by dialing a raw ServiceEndpoint address directly instead of going through FabricServiceRegistry's own caller-side filter.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`dispatch`/`checkTenantPermitted`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java` (`InvokeRequest.callerTenantId`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`
+- **Test coverage**: `FabricServerTest` (a_caller_bypassing_the_registry_and_dialing_directly_is_rejected_by_the_listeners_own_check, an_untenanted_caller_is_rejected_against_a_restricted_export, a_caller_from_the_allowed_tenant_is_permitted_through_the_listeners_own_check, an_export_with_no_tenant_restriction_permits_any_caller); `FabricCodecTest`'s `callerTenantId` round-trip assertions
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"], When a caller wire-carrying callerTenantId "tenant-b" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException.
+  Given the same restricted export, When a caller carrying callerTenantId "tenant-a" dials directly, Then the listener's own re-check permits the call through.
+  Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default.
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -4415,6 +4450,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a deployment has 3 ready instances reporting different request rates; When GET /metrics; Then a per-deployment row with the averaged rates is returned.
+  ```
+
+#### GIMLE-566 — Service abstraction: stable name, CRUD API, and endpoint reconciliation
+
+- **Category**: Reconciliation / Service Fabric
+- **User story**: As a module author, I want to declare a stable Service name in front of one or more Deployments' replicas, so a caller addresses a fixed name/port instead of chasing the ephemeral per-instance addresses those replicas actually listen on.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpoint.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/services`, `/services/{name}`, `/services/{name}/endpoints`)
+- **Test coverage**: `ServiceReconcilerTest` (an_empty_store_converges_to_an_empty_endpoint_list, a_store_with_active_and_ready_instances_already_present_converges_to_their_endpoints, an_instance_reported_alive_but_not_ready_yet_contributes_no_endpoint, endpoints_are_aggregated_across_every_deployment_name_in_the_selector, one_services_failure_does_not_prevent_another_from_reconciling, reconciling_again_after_a_backing_instance_goes_away_clears_its_endpoint); `ApiServerServicesTest` (post_then_get_a_service_round_trips, a_target_port_distinct_from_port_round_trips, get_of_an_unknown_service_is_404, delete_removes_a_service, services_list_endpoint_returns_every_service, a_missing_service_name_on_post_is_a_400, an_empty_deployment_names_is_a_400, endpoints_route_returns_the_exact_contract_shape_for_a_live_ready_instance, endpoints_route_returns_200_with_an_empty_array_when_no_backing_instance_is_live_yet, endpoints_route_for_an_unknown_service_is_404, posting_the_same_name_again_replaces_the_prior_spec); `ServiceRegistryTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port.
+  Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing.
+  Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely.
   ```
 
 ### gimle-fafnir
@@ -5803,6 +5853,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a FabricRoute naming a service interface nothing currently exports
   When a request is dispatched to that route
   Then the response is 200 with an empty body (not an error)
+  ```
+
+#### GIMLE-570 — Gateway virtual-host routing and Service-backed (SERVICE) route kind
+
+- **Category**: Gateway/Routing
+- **User story**: As a platform operator, I want to declare gateway routes constrained to a specific Host header, and route a path to a control-plane-declared Service's live endpoints, so one gateway can front multiple virtual hosts and proxy to a Service directly instead of only a named Deployment port or a fabric call.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayDispatcher.java` (`selectRoute`, `dispatchService`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRoute.java` (`host()`, `ServiceRoute`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java` (`HOST <hostname>` prefix, `SERVICE` route kind), `gimle-gateway/src/main/java/com/gimle/gateway/ServiceEndpointCache.java`
+- **Test coverage**: `GatewayDispatcherTest` (a_host_constrained_route_matches_only_the_declared_host_header, a_host_constrained_route_falls_through_to_404_on_a_mismatched_host_header, a_host_unconstrained_route_is_unaffected_by_host_based_routing, a_host_constrained_route_falls_through_to_a_host_unconstrained_sibling_at_the_same_path, a_service_route_for_a_service_with_no_ready_endpoints_returns_a_clear_error_not_a_200, a_service_route_reuses_the_cached_endpoint_list_across_dispatcher_instances_seam); `ServiceEndpointCacheTest` (resolves_a_ready_endpoint_to_its_host_and_port, relays_to_the_services_endpoints_path_for_the_named_service, skips_endpoints_missing_a_usable_host_or_port, round_robins_across_every_ready_endpoint_over_repeated_calls, a_call_within_the_ttl_does_not_relay_again, a_call_past_the_ttl_relays_again, a_non_2xx_refresh_falls_back_to_the_stale_cached_list, a_terminal_relay_status_with_nothing_cached_yet_is_a_clear_error, an_unparsable_relay_body_with_nothing_cached_yet_is_a_clear_error, an_empty_endpoint_list_is_a_clear_error_not_a_silent_200, a_response_with_no_endpoints_field_at_all_is_a_clear_error)
+- **Gherkin scenario**:
+  ```gherkin
+  Given two routes declared at the same path, one HOST orders.example.com and one host-unconstrained, When a request arrives with Host: orders.example.com, Then the host-constrained route serves it; When a request arrives with a different or missing Host header, Then the host-unconstrained sibling serves it instead.
+  Given a route declared HOST orders.example.com only, When a request arrives with a non-matching Host header, Then the response is 404, not a fallback to any other route at that path.
+  Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200.
   ```
 
 ### gimle-cli
@@ -8351,4 +8416,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.
+  ```
+
+### gimle-skald
+
+#### GIMLE-569 — gimle-skald: cluster DNS server resolving Service names to live endpoints
+
+- **Category**: Service Fabric
+- **User story**: As a module author, I want to resolve a Service's name via standard DNS (<service>[.<tenant>].svc.gimle.local) to a live backing address, so any DNS-capable client can reach a Service without depending on the control plane's HTTP API directly.
+- **Status**: Complete for v1's stated scope: only a standard A query against the svc.gimle.local zone is answered; anything else (wrong opcode, non-A type, unknown/uncached name) gets a well-formed NOTIMP/NXDOMAIN reply, not silence. Polling the control plane stays plain HTTP for this first slice, no mTLS path yet.
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/ServiceDnsNames.java`
+- **Test coverage**: `SkaldServerTest` (answers_a_tenant_scoped_hit_with_one_a_record, answers_an_untenanted_hit_and_round_robins_across_endpoints, answers_unknown_name_with_nxdomain, answers_unsupported_query_type_with_notimp, answers_unsupported_opcode_with_notimp, drops_a_malformed_datagram_instead_of_replying); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record.
+  Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN.
+  Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence.
   ```
