@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
@@ -152,6 +153,15 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public List<DeploymentSpec> listDeployments() {
     return ((StoreRpc.DeploymentListResult) sendRead(new StoreRpc.ListDeployments())).values();
+  }
+
+  public Optional<ServiceSpec> getService(String name) {
+    StoreRpc.ServiceResult r = (StoreRpc.ServiceResult) sendRead(new StoreRpc.GetService(name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<ServiceSpec> listServices() {
+    return ((StoreRpc.ServiceListResult) sendRead(new StoreRpc.ListServices())).values();
   }
 
   public List<InstanceAssignment> listAssignmentsFor(String deploymentName) {

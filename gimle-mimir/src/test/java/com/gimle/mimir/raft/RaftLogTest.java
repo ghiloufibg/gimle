@@ -53,7 +53,8 @@ class RaftLogTest {
         List.of(), // reconcilerInstanceStates
         Set.of(), // cordonedNodes
         List.of(), // instanceEvents
-        List.of()); // auditEvents
+        List.of(), // auditEvents
+        List.of()); // services
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -88,7 +89,8 @@ class RaftLogTest {
         base.reconcilerInstanceStates(),
         base.cordonedNodes(),
         base.instanceEvents(),
-        base.auditEvents());
+        base.auditEvents(),
+        base.services());
   }
 
   @Test

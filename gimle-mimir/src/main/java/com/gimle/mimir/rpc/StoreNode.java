@@ -10,6 +10,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
@@ -64,6 +65,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetTenant r -> tenantResult(store.getTenant(r.id()));
       case StoreRpc.GetDeployment r -> deploymentResult(store.getDeployment(r.name()));
       case StoreRpc.ListDeployments r -> new StoreRpc.DeploymentListResult(store.listDeployments());
+      case StoreRpc.GetService r -> serviceResult(store.getService(r.name()));
+      case StoreRpc.ListServices r -> new StoreRpc.ServiceListResult(store.listServices());
       case StoreRpc.ListAssignmentsFor r ->
           new StoreRpc.AssignmentListResult(store.listAssignmentsFor(r.deploymentName()));
       case StoreRpc.IsQuotaViolating r ->
@@ -254,6 +257,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.DeploymentResult(true, v))
         .orElseGet(() -> new StoreRpc.DeploymentResult(false, null));
+  }
+
+  private static StoreRpc.ServiceResult serviceResult(Optional<ServiceSpec> value) {
+    return value
+        .map(v -> new StoreRpc.ServiceResult(true, v))
+        .orElseGet(() -> new StoreRpc.ServiceResult(false, null));
   }
 
   private static StoreRpc.JobSpecResult jobSpecResult(Optional<JobSpec> value) {

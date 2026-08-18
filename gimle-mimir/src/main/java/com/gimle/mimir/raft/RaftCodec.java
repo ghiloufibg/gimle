@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -110,6 +111,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_STATEFULSET_INDEX_NODE = 45;
   private static final byte MUT_ADD_SURGE_INDEX = 46;
   private static final byte MUT_REMOVE_SURGE_INDEX = 47;
+  private static final byte MUT_PUT_SERVICE = 48;
+  private static final byte MUT_REMOVE_SERVICE = 49;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -369,6 +372,14 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_DEPLOYMENT);
         out.writeUTF(m.name());
       }
+      case StateMutation.PutService m -> {
+        out.writeByte(MUT_PUT_SERVICE);
+        DomainCodec.writeServiceSpec(out, m.spec());
+      }
+      case StateMutation.RemoveService m -> {
+        out.writeByte(MUT_REMOVE_SERVICE);
+        out.writeUTF(m.name());
+      }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
         DomainCodec.writeInstanceAssignment(out, m.assignment());
@@ -584,6 +595,8 @@ public final class RaftCodec {
       case MUT_PUT_DEPLOYMENT ->
           new StateMutation.PutDeployment(DomainCodec.readDeploymentSpec(in));
       case MUT_REMOVE_DEPLOYMENT -> new StateMutation.RemoveDeployment(in.readUTF());
+      case MUT_PUT_SERVICE -> new StateMutation.PutService(DomainCodec.readServiceSpec(in));
+      case MUT_REMOVE_SERVICE -> new StateMutation.RemoveService(in.readUTF());
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
@@ -805,6 +818,10 @@ public final class RaftCodec {
       for (AuditEvent event : snapshot.auditEvents()) {
         DomainCodec.writeAuditEvent(out, event);
       }
+      out.writeInt(snapshot.services().size());
+      for (ServiceSpec spec : snapshot.services()) {
+        DomainCodec.writeServiceSpec(out, spec);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -976,6 +993,11 @@ public final class RaftCodec {
       for (int i = 0; i < auditEventCount; i++) {
         auditEvents.add(DomainCodec.readAuditEvent(in));
       }
+      List<ServiceSpec> services = new ArrayList<>();
+      int serviceCount = in.readInt();
+      for (int i = 0; i < serviceCount; i++) {
+        services.add(DomainCodec.readServiceSpec(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -1004,7 +1026,8 @@ public final class RaftCodec {
           reconcilerInstanceStates,
           cordonedNodes,
           instanceEvents,
-          auditEvents);
+          auditEvents,
+          services);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

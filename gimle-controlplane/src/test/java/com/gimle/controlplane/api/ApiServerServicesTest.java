@@ -14,6 +14,7 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.InstanceAssignment;
 import java.io.IOException;
 import java.net.URI;
@@ -309,6 +310,45 @@ class ApiServerServicesTest {
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/services/nope/endpoints")).GET().build());
     assertEquals(404, response.statusCode());
+  }
+
+  /**
+   * The actual bug this persistence swap fixes: {@code ServiceRegistry} used to hold an in-memory
+   * map per {@code ApiServer} replica, so a Service created against one replica was invisible to
+   * another. Two {@code ApiServer} instances here share one {@link InProcessStore} through two
+   * independent {@code StoreClient} connections -- the same "one store cluster, N stateless
+   * control-plane replicas" shape production runs, just over loopback instead of a real network --
+   * proving a Service POSTed to one is now visible via {@code GET /services} on the other.
+   */
+  @Test
+  @Timeout(10)
+  void a_service_posted_to_one_replica_is_visible_on_a_second_replica() throws Exception {
+    try (StoreClient secondReplicaClient = inProcessStore.newClient();
+        ApiServer secondReplica = new ApiServer(secondReplicaClient, 0, inProcessFafnir.client())) {
+      secondReplica.start();
+      String secondBaseUrl = "http://localhost:" + secondReplica.port();
+
+      HttpResponse<String> post =
+          send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+                  .POST(
+                      HttpRequest.BodyPublishers.ofString(
+                          serviceJson("orders", "orders-service", 8080)))
+                  .build());
+      assertEquals(200, post.statusCode());
+
+      HttpResponse<String> getFromSecondReplica =
+          send(
+              HttpRequest.newBuilder(URI.create(secondBaseUrl + "/services/orders")).GET().build());
+      assertEquals(200, getFromSecondReplica.statusCode());
+      Map<String, Object> spec = Json.asObject(Json.parse(getFromSecondReplica.body()));
+      assertEquals("orders", spec.get("name"));
+      assertEquals(8080L, spec.get("port"));
+
+      HttpResponse<String> listFromSecondReplica =
+          send(HttpRequest.newBuilder(URI.create(secondBaseUrl + "/services")).GET().build());
+      assertEquals(1, Json.asArray(Json.parse(listFromSecondReplica.body())).size());
+    }
   }
 
   @Test

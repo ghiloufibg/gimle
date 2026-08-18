@@ -35,6 +35,7 @@ import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -121,6 +122,30 @@ public final class DomainCodec {
         artifactSha256,
         disruption,
         vessel);
+  }
+
+  public static void writeServiceSpec(DataOutputStream out, ServiceSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    writeOptionalString(out, spec.tenantId());
+    out.writeInt(spec.deploymentNames().size());
+    for (String deploymentName : spec.deploymentNames()) {
+      out.writeUTF(deploymentName);
+    }
+    out.writeInt(spec.port());
+    out.writeInt(spec.targetPort());
+  }
+
+  public static ServiceSpec readServiceSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    Optional<String> tenantId = readOptionalString(in);
+    int deploymentNameCount = in.readInt();
+    Set<String> deploymentNames = new LinkedHashSet<>();
+    for (int i = 0; i < deploymentNameCount; i++) {
+      deploymentNames.add(in.readUTF());
+    }
+    int port = in.readInt();
+    int targetPort = in.readInt();
+    return new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
   }
 
   public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {

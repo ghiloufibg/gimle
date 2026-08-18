@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +41,10 @@ public interface StoreReader {
   Optional<DeploymentSpec> getDeployment(String name);
 
   List<DeploymentSpec> listDeployments();
+
+  Optional<ServiceSpec> getService(String name);
+
+  List<ServiceSpec> listServices();
 
   List<InstanceAssignment> listAssignmentsFor(String deploymentName);
 
