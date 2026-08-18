@@ -9,6 +9,7 @@ import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
+import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
@@ -69,6 +70,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.ManifestParser;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -220,6 +222,12 @@ public final class ApiServer implements AutoCloseable {
   // read/write
   // the identical instance this replica's routes do.
   private final ServiceRegistry serviceRegistry;
+  // Same in-memory/per-replica posture loginThrottle below has, for the identical reason:
+  // NetworkPolicySpec has no persisted home in gimle-mimir yet either (unlike ServiceSpec, which
+  // gained one above). Read by gimle-agent's own poller (GET /networkpolicies below), never by a
+  // reconciler -- nothing in this process itself needs to act on a NetworkPolicySpec, only relay
+  // it downstream unchanged.
+  private final NetworkPolicyRegistry networkPolicyRegistry = new NetworkPolicyRegistry();
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -374,6 +382,10 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/endpoints/", instrument("endpoints", this::handleEndpoints));
     target.createContext("/services/", instrument("services", this::handleService));
     target.createContext("/services", instrument("services", this::handleServicesCollection));
+    target.createContext(
+        "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
+    target.createContext(
+        "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -1115,6 +1127,158 @@ public final class ApiServer implements AutoCloseable {
     map.put("deploymentNames", List.copyOf(spec.deploymentNames()));
     map.put("port", spec.port());
     map.put("targetPort", spec.targetPort());
+    return map;
+  }
+
+  // ---- /networkpolicies, /networkpolicies/{name} ----
+
+  /**
+   * {@code POST /networkpolicies} (create/replace by the name the submitted body carries) and
+   * {@code GET /networkpolicies} (list every one) -- the identical collection/per-resource split
+   * {@link #handleServicesCollection} already established for the sibling network-model resource,
+   * which isn't a {@link WorkloadSpec} itself either and so travels as plain JSON rather than a
+   * {@code kind:}-dispatched manifest.
+   */
+  private void handleNetworkPoliciesCollection(HttpExchange exchange) {
+    try {
+      switch (exchange.getRequestMethod()) {
+        case "POST" -> handlePostNetworkPolicy(exchange);
+        case "GET" -> handleNetworkPoliciesList(exchange);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("network policies request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Same two-check re-tenanting guard {@link #handlePostService} applies to its own resource: a
+   * caller needs write access under the submitted tenant, and, only if a same-named NetworkPolicy
+   * already exists under a different tenant, write access under that existing tenant too --
+   * otherwise a grant scoped to one tenant could silently steal a NetworkPolicy out of another it
+   * has no access to. Unlike {@link ServiceSpec#tenantId()}, {@link NetworkPolicySpec#tenantId()}
+   * is never optional -- a NetworkPolicy restricts access to exactly one tenant's own Services, so
+   * a missing/blank {@code tenantId} in the request body is rejected outright as a 400, the same
+   * way a missing {@code name} already is.
+   */
+  private void handlePostNetworkPolicy(HttpExchange exchange) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String name = (String) body.get("name");
+    if (name == null || name.isBlank()) {
+      respond(exchange, 400, "missing network policy name");
+      return;
+    }
+    String tenantId = (String) body.get("tenantId");
+    if (tenantId == null || tenantId.isBlank()) {
+      respond(exchange, 400, "missing tenantId");
+      return;
+    }
+    Optional<Set<String>> deploymentNames = Optional.empty();
+    if (body.get("deploymentNames") instanceof List<?> rawNames && !rawNames.isEmpty()) {
+      Set<String> names = new LinkedHashSet<>();
+      for (Object rawName : rawNames) {
+        names.add(String.valueOf(rawName));
+      }
+      deploymentNames = Optional.of(names);
+    }
+    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
+    if (body.get("allowedCallerTenantIds") instanceof List<?> rawTenants) {
+      for (Object rawTenant : rawTenants) {
+        allowedCallerTenantIds.add(String.valueOf(rawTenant));
+      }
+    }
+
+    Optional<String> existingTenant =
+        networkPolicyRegistry.get(name).map(NetworkPolicySpec::tenantId);
+    boolean authorized =
+        requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.of(tenantId));
+    if (authorized && existingTenant.isPresent() && !existingTenant.get().equals(tenantId)) {
+      authorized =
+          requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.WRITE, existingTenant);
+    }
+    if (authorized && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
+      NetworkPolicySpec spec =
+          new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
+      networkPolicyRegistry.put(spec);
+      respond(exchange, 200, "ok");
+    }
+  }
+
+  /** Every NetworkPolicy, in the same shape {@link #handleGetNetworkPolicy} returns for one. */
+  private void handleNetworkPoliciesList(HttpExchange exchange) throws IOException {
+    if (!requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.READ, Optional.empty())) {
+      return;
+    }
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    respondJson(
+        exchange,
+        200,
+        networkPolicyRegistry.list().stream().map(ApiServer::networkPolicyToJson).toList());
+  }
+
+  /** {@code GET}/{@code DELETE /networkpolicies/{name}}. */
+  private void handleNetworkPolicy(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/networkpolicies/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing network policy name");
+        return;
+      }
+      Optional<String> tenant = networkPolicyRegistry.get(name).map(NetworkPolicySpec::tenantId);
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.READ, tenant)) {
+            handleGetNetworkPolicy(exchange, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.DELETE, tenant)) {
+            networkPolicyRegistry.remove(name);
+            respond(exchange, 200, "ok");
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("network policy request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleGetNetworkPolicy(HttpExchange exchange, String name) throws IOException {
+    Optional<NetworkPolicySpec> spec = networkPolicyRegistry.get(name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such network policy: " + name);
+      return;
+    }
+    respondJson(exchange, 200, networkPolicyToJson(spec.get()));
+  }
+
+  /**
+   * {@code deploymentNames} always serializes as a present (possibly empty) array, never an absent
+   * field -- {@code gimle-agent}'s own poller (see {@code HttpNetworkPolicySource}) treats an empty
+   * array as "tenant-wide" the same way {@link NetworkPolicySpec}'s own {@code Optional.empty()}
+   * does, without needing to distinguish "field absent" from "field present but empty" over the
+   * wire.
+   */
+  private static Map<String, Object> networkPolicyToJson(NetworkPolicySpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    map.put("tenantId", spec.tenantId());
+    map.put("deploymentNames", spec.deploymentNames().map(List::copyOf).orElse(List.of()));
+    map.put("allowedCallerTenantIds", List.copyOf(spec.allowedCallerTenantIds()));
     return map;
   }
 

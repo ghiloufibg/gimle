@@ -3,6 +3,7 @@ package com.gimle.fabric.transport;
 import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
+import com.gimle.core.tenant.NetworkPolicyRule;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -72,7 +73,9 @@ public final class FabricServer implements AutoCloseable {
   private final Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup;
   private final Optional<WorkerMetrics> metrics;
   private final Function<ModuleId, List<ServiceExport>> exportsOf;
+  private final Optional<String> selfTenantId;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
+  private volatile List<NetworkPolicyRule> networkPolicies = List.of();
   private volatile boolean closed;
 
   public FabricServer(ServiceRegistry localRegistry, ClassLoader interfaceLoader) {
@@ -123,6 +126,9 @@ public final class FabricServer implements AutoCloseable {
    * own javadoc for why that re-check exists). Absent from every other constructor -- a test or a
    * worker not wired up with a real {@code ModuleRegistry} yet gets "no declared exports," which
    * permits every call, exactly today's unchanged behavior.
+   *
+   * <p>Back-compat: defaults {@code selfTenantId} to {@code Optional.empty()} -- see the 7-arg
+   * constructor below.
    */
   public FabricServer(
       ServiceRegistry localRegistry,
@@ -131,12 +137,54 @@ public final class FabricServer implements AutoCloseable {
       Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics,
       Function<ModuleId, List<ServiceExport>> exportsOf) {
+    this(
+        localRegistry,
+        interfaceLoader,
+        contextLookup,
+        executorLookup,
+        metrics,
+        exportsOf,
+        Optional.empty());
+  }
+
+  /**
+   * {@code selfTenantId} is this worker's own tenant (already threaded through {@code WorkerMain}
+   * for its {@code FabricServiceRegistry}), used only to decide which currently-held {@link
+   * NetworkPolicyRule}s in {@link #networkPolicies} apply to <em>this listener's own targets</em>
+   * -- a worker hosts modules belonging to exactly one tenant, so "the target's tenant" for every
+   * inbound call this listener serves is simply this worker's own tenant, not something derived
+   * per-request. Absent (every other constructor) means no tenant-wide policy can ever match, which
+   * is exactly correct: an untenanted worker (system-tenant workloads) is never a policy's own
+   * {@code tenantId}, matching {@code NetworkPolicySpec}'s own constructor validation that {@code
+   * tenantId} is never blank.
+   */
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Optional<WorkerMetrics> metrics,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Optional<String> selfTenantId) {
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
     this.contextLookup = contextLookup;
     this.executorLookup = executorLookup;
     this.metrics = metrics;
     this.exportsOf = exportsOf;
+    this.selfTenantId = selfTenantId;
+  }
+
+  /**
+   * Replaces the tenant-wide {@link NetworkPolicyRule} set this listener currently enforces --
+   * called by the worker each time its agent relays a fresh poll of the control plane's own {@code
+   * NetworkPolicySpec} registry down this worker's control channel (see {@link
+   * #checkNetworkPolicyPermitted}). A full replacement, not a merge: the caller always passes the
+   * complete currently-known set, the same level-triggered posture {@code
+   * ControlMessage.NetworkPoliciesUpdated} itself documents.
+   */
+  public void updateNetworkPolicies(List<NetworkPolicyRule> policies) {
+    this.networkPolicies = List.copyOf(policies);
   }
 
   /**
@@ -377,6 +425,32 @@ public final class FabricServer implements AutoCloseable {
     }
   }
 
+  /**
+   * The tenant-wide analogue of {@link #checkTenantPermitted}: independently re-checks an inbound
+   * call against whatever currently-held {@link NetworkPolicyRule} restricts <em>this worker's own
+   * tenant</em> -- the target's tenant, since a worker hosts modules for exactly one tenant --
+   * rather than trusting that a caller only ever reached this listener because some upstream filter
+   * already enforced it, the same "forwarded claim, independently re-checked" posture {@link
+   * #checkTenantPermitted} already applies to {@code ServiceExport}. A no-op for an untenanted
+   * worker ({@link #selfTenantId} absent): no {@code NetworkPolicySpec} can ever name an untenanted
+   * worker as its own {@code tenantId}, so there is nothing to check against.
+   */
+  private void checkNetworkPolicyPermitted(FabricFrame.InvokeRequest request) {
+    if (selfTenantId.isEmpty()) {
+      return;
+    }
+    for (NetworkPolicyRule rule : networkPolicies) {
+      if (!rule.tenantId().equals(selfTenantId.get())) {
+        continue;
+      }
+      if (!rule.permitsCallerTenant(request.callerTenantId())) {
+        throw GimleFabricAuthorizationException.tenantNotPermitted(
+            request.interfaceName(),
+            request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
+      }
+    }
+  }
+
   private Object invokeLocally(FabricFrame.InvokeRequest request)
       throws ReflectiveOperationException {
     // Looked up by name, not Class.forName(name, true, interfaceLoader): the interface is
@@ -394,6 +468,7 @@ public final class FabricServer implements AutoCloseable {
                         "no local service registered for " + request.interfaceName()));
 
     checkTenantPermitted(owned.owner(), request);
+    checkNetworkPolicyPermitted(request);
 
     Class<?>[] paramTypes =
         ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), interfaceLoader);

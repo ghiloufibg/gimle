@@ -2,6 +2,8 @@ package com.gimle.core.protocol;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
+import com.gimle.core.tenant.NetworkPolicyRule;
+import java.util.List;
 
 /**
  * Agent&harr;worker control-channel frames: install/start/stop commands and periodic
@@ -199,6 +201,26 @@ public sealed interface ControlMessage {
    */
   record ConfigDelivered(String key, String value, boolean wasEncrypted)
       implements ControlMessage {}
+
+  /**
+   * The agent relaying its most recent poll of the control plane's own tenant-wide {@code
+   * NetworkPolicySpec}s down to this worker -- a worker has no outbound network identity of its own
+   * to poll the control plane directly, the same reason {@link CatalogUpdate} and {@link
+   * ConfigDelivered} already travel this same direction over this same channel. A full replacement
+   * of the previously-held set each time, not a delta, matching {@code CatalogUpdate}'s own
+   * eventually-consistent, level-triggered posture: a missed message self-heals on the agent's next
+   * poll tick rather than leaving stale policy state behind. Per-deployment-scoped policies are
+   * never included -- see {@link NetworkPolicyRule}'s own javadoc for why.
+   */
+  record NetworkPoliciesUpdated(List<NetworkPolicyRule> rules) implements ControlMessage {
+
+    public NetworkPoliciesUpdated {
+      if (rules == null) {
+        throw new IllegalArgumentException("rules must not be null");
+      }
+      rules = List.copyOf(rules);
+    }
+  }
 
   /**
    * The agent's answer to a {@link RelayControlPlaneRead}: {@code status} and {@code body} are
