@@ -163,7 +163,7 @@ public final class WorkerMain {
     WorkerMetrics workerMetrics = new WorkerMetrics();
     FabricBinding fabricBinding =
         bindFabricServer(
-            taggedLocal, interfaceLoader, controller, runtime, workerMetrics, registry);
+            taggedLocal, interfaceLoader, controller, runtime, workerMetrics, registry, tenantId);
     FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
     startBackgroundWork(
         fabricBinding.server(), channel, workerId, activeModules, workerMetrics, runtime);
@@ -188,7 +188,8 @@ public final class WorkerMain {
           tenantId,
           workerId,
           workerMetrics,
-          relay);
+          relay,
+          fabricBinding.server());
     }
     log.info("control channel closed by agent; shutting down");
   }
@@ -496,7 +497,8 @@ public final class WorkerMain {
       ModuleController controller,
       WorkerRuntime runtime,
       WorkerMetrics metrics,
-      ModuleRegistry registry)
+      ModuleRegistry registry,
+      Optional<String> tenantId)
       throws IOException {
     FabricServer server =
         new FabricServer(
@@ -505,7 +507,8 @@ public final class WorkerMain {
             controller::context,
             id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit),
             Optional.of(metrics),
-            owner -> registry.artifact(owner).descriptor().exports());
+            owner -> registry.artifact(owner).descriptor().exports(),
+            tenantId);
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));
@@ -534,7 +537,8 @@ public final class WorkerMain {
       Optional<String> tenantId,
       String workerId,
       WorkerMetrics workerMetrics,
-      ControlPlaneRelay relay)
+      ControlPlaneRelay relay,
+      FabricServer fabricServer)
       throws IOException {
     switch (message) {
       case ControlMessage.InstallModule m -> {
@@ -617,6 +621,7 @@ public final class WorkerMain {
               m.udsPath().isEmpty() ? Optional.empty() : Optional.of(m.udsPath()),
               new InetSocketAddress(m.tcpHost(), m.tcpPort()));
       case ControlMessage.ConfigDelivered m -> controller.deliverConfig(m.key(), m.value());
+      case ControlMessage.NetworkPoliciesUpdated m -> fabricServer.updateNetworkPolicies(m.rules());
       case ControlMessage.RelayControlPlaneResult m -> relay.complete(m);
       default -> log.warn("unexpected control message from agent: {}", message);
     }

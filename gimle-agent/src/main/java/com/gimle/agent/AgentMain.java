@@ -2,6 +2,7 @@ package com.gimle.agent;
 
 import com.gimle.agent.bifrost.BifrostProxy;
 import com.gimle.agent.bifrost.HttpServiceSource;
+import com.gimle.agent.networkpolicy.HttpNetworkPolicySource;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.exception.GimleClusterException;
@@ -216,6 +217,14 @@ public final class AgentMain {
     Duration bifrostPollInterval =
         Duration.ofMillis(
             Long.parseLong(System.getProperty("gimle.agent.bifrostPollIntervalMillis", "5000")));
+    // Unlike Bifrost above, always on rather than opt-in: relaying an (ordinarily empty) policy
+    // set has no side effect of its own, only enforcement does, and enforcement is already
+    // opt-in per policy -- an operator who has declared no NetworkPolicySpec sees this poller
+    // ship an empty list every tick, exactly today's unchanged "every call permitted" behavior.
+    Duration networkPolicyPollInterval =
+        Duration.ofMillis(
+            Long.parseLong(
+                System.getProperty("gimle.agent.networkPolicyPollIntervalMillis", "5000")));
 
     System.setProperty("gimle.process.role", "AGENT");
     System.setProperty("gimle.node.id", nodeId);
@@ -324,6 +333,17 @@ public final class AgentMain {
       bifrostProxy.start();
       log.info("agent {} started bifrost service proxy", nodeId);
     }
+
+    // Same self-scheduled-poller shape as BifrostProxy just above, relaying down to every
+    // supervised worker's own FabricServer instead of binding local listeners -- see
+    // NetworkPolicyRelay's own javadoc for why it isn't itself in the bifrost package.
+    NetworkPolicyRelay networkPolicyRelay =
+        new NetworkPolicyRelay(
+            new HttpNetworkPolicySource(httpClient, baseUrl),
+            networkPolicyPollInterval,
+            supervised);
+    networkPolicyRelay.start();
+    log.info("agent {} started network policy relay", nodeId);
 
     while (!Thread.currentThread().isInterrupted()) {
       long tickStartNanos = System.nanoTime();

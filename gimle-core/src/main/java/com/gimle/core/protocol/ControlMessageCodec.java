@@ -3,9 +3,13 @@ package com.gimle.core.protocol;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.NetworkPolicyRule;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -110,6 +114,8 @@ public final class ControlMessageCodec {
               Boolean.toString(m.wasEncrypted()));
       case ControlMessage.RelayControlPlaneResult m ->
           line("RELAY_RESULT", m.correlationId(), Integer.toString(m.status()), escape(m.body()));
+      case ControlMessage.NetworkPoliciesUpdated m ->
+          line("NETWORK_POLICIES", escape(encodeNetworkPolicies(m.rules())));
     };
   }
 
@@ -210,6 +216,9 @@ public final class ControlMessageCodec {
       case "RELAY_RESULT" ->
           new ControlMessage.RelayControlPlaneResult(
               field(fields, 1), Integer.parseInt(field(fields, 2)), unescape(field(fields, 3)));
+      case "NETWORK_POLICIES" ->
+          new ControlMessage.NetworkPoliciesUpdated(
+              decodeNetworkPolicies(unescape(field(fields, 1))));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
   }
@@ -276,6 +285,43 @@ public final class ControlMessageCodec {
                 .map(ControlMessageCodec::unescape)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     return new ServiceExport(interfaceName, version, Optional.of(tenants));
+  }
+
+  /**
+   * A {@link NetworkPolicyRule} list is variable-length and each element carries its own
+   * variable-length tenant set, unlike {@link ServiceExport}'s single optional set -- rather than
+   * inventing another bespoke {@code @}/comma nesting scheme, this reuses {@link Json} (already a
+   * {@code gimle-core} dependency every control-plane/agent JSON exchange shares) to write a
+   * compact JSON array, then escapes the whole result as this line's one field the same way {@link
+   * ControlMessage.MetricsSnapshot}'s NDJSON payload already does.
+   */
+  private static String encodeNetworkPolicies(List<NetworkPolicyRule> rules) {
+    List<Object> array = new ArrayList<>(rules.size());
+    for (NetworkPolicyRule rule : rules) {
+      Map<String, Object> entry = new LinkedHashMap<>();
+      entry.put("name", rule.name());
+      entry.put("tenantId", rule.tenantId());
+      entry.put("allowedCallerTenantIds", List.copyOf(rule.allowedCallerTenantIds()));
+      array.add(entry);
+    }
+    return Json.write(array);
+  }
+
+  /** Inverse of {@link #encodeNetworkPolicies(List)}. */
+  private static List<NetworkPolicyRule> decodeNetworkPolicies(String json) {
+    List<Object> raw = Json.asArray(Json.parse(json));
+    List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
+    for (Object entryValue : raw) {
+      Map<String, Object> entry = Json.asObject(entryValue);
+      Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
+      for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
+        allowedCallerTenantIds.add((String) tenantId);
+      }
+      rules.add(
+          new NetworkPolicyRule(
+              (String) entry.get("name"), (String) entry.get("tenantId"), allowedCallerTenantIds));
+    }
+    return rules;
   }
 
   private static String escape(String text) {

@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.NetworkPolicyRule;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,6 +53,12 @@ class ControlMessageCodecTest {
             "corr-10", 200, "[{\"instanceIndex\":0,\"nodeId\":\"node-a\"}]"),
         new ControlMessage.RelayControlPlaneResult(
             "corr-11", 403, "path not whitelisted for relay: /secrets/acme"),
+        new ControlMessage.NetworkPoliciesUpdated(
+            List.of(
+                new NetworkPolicyRule("deny-by-default", "acme", Set.of()),
+                new NetworkPolicyRule(
+                    "allow list with spaces", "acme corp", Set.of("partner one", "partner-two")))),
+        new ControlMessage.NetworkPoliciesUpdated(List.of()),
         new ControlMessage.MetricsSnapshot(
             "worker-1",
             "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),

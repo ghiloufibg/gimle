@@ -9,6 +9,7 @@ import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.NetworkPolicyRule;
 import com.gimle.fabric.registry.Greeter;
 import com.gimle.fabric.trace.TraceContext;
 import com.gimle.module.lifecycle.ModuleContext;
@@ -408,6 +409,123 @@ class FabricServerTest {
 
     FabricFrame response =
         FabricClient.call(address, invokeGreet("world", Optional.of("any-tenant")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  private FabricServer serverWithSelfTenant(
+      SimpleServiceRegistry registry, Optional<String> selfTenantId) {
+    return new FabricServer(
+        registry,
+        Greeter.class.getClassLoader(),
+        id -> Optional.empty(),
+        id -> Optional.empty(),
+        Optional.empty(),
+        id -> List.of(),
+        selfTenantId);
+  }
+
+  @Test
+  @Timeout(10)
+  void
+      a_cross_tenant_call_is_denied_once_a_tenant_wide_network_policy_restricts_the_targets_tenant()
+          throws Exception {
+    // The scope decision this test proves: enforcement keys off the listener's own selfTenantId
+    // (the target's tenant), not anything the caller declares -- a NetworkPolicySpec restricts who
+    // may call *in*, so it must be checked against the receiving worker's own tenant.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    Object thrown =
+        ObjectMarshalling.deserialize(((FabricFrame.InvokeError) response).serializedThrowable());
+    assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_on_the_network_policys_own_allow_list_is_permitted_through() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("allow-partner", "tenant-a", Set.of("tenant-b"))));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+    assertEquals(
+        "hello:world",
+        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+  }
+
+  @Test
+  @Timeout(10)
+  void same_tenant_traffic_is_always_permitted_regardless_of_the_network_policys_allow_list()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-a")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_network_policy_scoped_to_a_different_tenant_never_restricts_this_listener()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-z", Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_worker_is_never_restricted_by_a_network_policy() throws Exception {
+    // NetworkPolicySpec's own constructor rejects a blank tenantId, so an untenanted worker can
+    // never be a policy's own target -- selfTenantId absent must short-circuit the check entirely.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.empty());
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
 
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
