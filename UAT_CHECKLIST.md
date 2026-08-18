@@ -6,20 +6,20 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 570
+- **Total requirements**: 573
 - **Covered by automated (Holmgang Cucumber) test**: 116
-- **Not covered by automated test**: 454
-- **Release-readiness (automated coverage)**: 20.4%
+- **Not covered by automated test**: 457
+- **Release-readiness (automated coverage)**: 20.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 42 | 15 | 27 | 35.7% |
-| gimle-module | 21 | 10 | 11 | 47.6% |
+| gimle-module | 22 | 10 | 12 | 45.5% |
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 36 | 5 | 31 | 13.9% |
-| gimle-mimir | 46 | 31 | 15 | 67.4% |
+| gimle-mimir | 47 | 31 | 16 | 66.0% |
 | gimle-fabric | 31 | 1 | 30 | 3.2% |
 | gimle-controlplane | 66 | 13 | 53 | 19.7% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
@@ -28,7 +28,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
 | gimle-cli | 19 | 0 | 19 | 0.0% |
-| gimle-hilmir | 28 | 0 | 28 | 0.0% |
+| gimle-hilmir | 29 | 0 | 29 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 26 | 0 | 26 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
@@ -240,6 +240,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-057 | Graceful drain-then-dispose stop with deadline | Given a module whose in-flight counter never reaches zero, When stop is called with a drain timeout, Then stop still completes once the deadline passes. | Yes |
+
+#### Networking/Service Discovery
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | No |
 
 ### gimle-os
 
@@ -562,6 +568,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-178 | Store Process Bootstrap with TLS Rotation Ticker | Given a store process started with a state dir, Raft port, client port; When it starts up; Then it constructs StateStore/RaftLog/RaftNode, binds both transports, and rotates its own cert if due. | No |
 | [ ] | GIMLE-179 | Store/Raft Metrics Instrumentation | Given a client RPC request handled by StoreNode; When it completes; Then StoreMetrics records the kind, duration, and error status exactly once. | No |
 | [ ] | GIMLE-180 | module-info JPMS Boundary for gimle-mimir | Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported. | No |
+
+#### Networking/Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee. | No |
 
 #### Raft Consensus
 
@@ -1212,6 +1224,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-409 | Doctor static deployability diagnostics (`hilmir doctor`) | Given a jar declaring isolation.tier:TIER_3, When "hilmir doctor my-module.jar", Then TIER3_REQUESTED ERROR and exit 1; a launcher-archive jar under module intent is ERROR, under --vessel INFO. | No |
 | [ ] | GIMLE-410 | Doctor cluster-aware checks (`--server`, `--tenant`) | Given a coordinate not present in the registry, When "hilmir doctor my-module.jar --server host:port", Then REGISTRY_COORDINATE_NOT_FOUND (ERROR); an unreachable registry gives REGISTRY_UNREACHABLE (WARNING) instead of a hard failure. | No |
 | [ ] | GIMLE-411 | Manifest scaffolding (`hilmir init`) | Given a module-shaped jar with a detected LivenessProbe, When "hilmir init my-module.jar", Then both YAMLs written with the probe class filled confidently; existing deployment.yaml is never overwritten. | No |
+| [ ] | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | Given a module jar whose bytecode constructs a connecting java.net.Socket, opens a SocketChannel, or builds a java.net.http.HttpClient, When `hilmir doctor` analyzes it, Then it reports MAKES_OUTBOUND_CALLS at INFO severity, explaining that nothing on the platform restricts a module's outbound traffic today. Given a module jar with no outbound-connection call sites, When `hilmir doctor` analyzes it, Then MAKES_OUTBOUND_CALLS is not reported. | No |
 
 #### Internal/Infra
 

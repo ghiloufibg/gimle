@@ -585,6 +585,9 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | New | Not Covered | — |
 | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | New | Not Covered | — |
 | GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | New | Not Covered | — |
+| GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | New | Not Covered | — |
+| GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | New | Not Covered | — |
+| GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1230,6 +1233,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: A module that never passes liveness is escalated to terminal FAILED -- pre-existing coverage of the readiness/liveness probe interfaces' failure path, reused here rather than duplicated.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/probe/LivenessProbe.java`, `ReadinessProbe.java`
+
+#### GIMLE-571 — Hosted-module runtime port reporting folded into instance observation
+
+- **Category**: Networking/Service Discovery
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no scenario exercising ctx.reportPort() -> ServiceEndpointResolver end to end today. To close: extend a Service-topic feature file with a step that deploys a plain (non-Vessel) module reporting a port from onStart, declares a Service fronting it, and asserts GET /services/{name}/endpoints resolves a live endpoint for it.
+- **Other test coverage (non-Holmgang, informational only)**: `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`, `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java`, `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
 
 ### gimle-os
 
@@ -2413,6 +2425,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford. Holmgang's model is the opposite: real, separately-spawned OS subprocesses talking over real sockets at real wall-clock speed (`raft-resilience.feature` already covers the real-process equivalent: killing a real store node/leader mid-workload). A Cucumber scenario cannot replay one of Norn's seeded virtual-time fault schedules against a real Holmgang cluster without rebuilding Norn's whole in-process/virtual-clock mechanism on top of real subprocesses -- at which point it would no longer be Norn. This gap is a permanent, structural one, not a backlog item.
 - **Other test coverage (non-Holmgang, informational only)**: `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends
 - **Source location(s)**: `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`, `NornScheduler.java`, `NornRaftSimulationTest.java` (added in commit `6bd450f`, "test: add Norn deterministic Raft fault-injection simulation")
+
+#### GIMLE-572 — NetworkPolicySpec durable persistence through StoreClient
+
+- **Category**: Networking/Security
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no scenario proving NetworkPolicySpec survives a control-plane restart or is visible cluster-wide. To close: add a scenario that creates a NetworkPolicySpec via one control-plane replica, restarts it (or queries a second replica), and asserts the policy is still present.
+- **Other test coverage (non-Holmgang, informational only)**: `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/NetworkPolicyRegistry.java`
 
 ### gimle-fabric
 
@@ -4658,6 +4679,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ReadinessPollerTest` (4 tests)
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/ReadinessPoller.java`
 
+#### GIMLE-573 — Doctor advisory-only outbound-connection hazard detection
+
+- **Category**: Build Tooling
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no coverage of `hilmir doctor` bytecode-hazard checks at all today -- no .feature file exercises it. To close: add a doctor.feature scenario running `hilmir doctor` against a fixture module jar that opens outbound connections and asserting MAKES_OUTBOUND_CALLS appears at INFO severity.
+- **Other test coverage (non-Holmgang, informational only)**: `BytecodeScannerTest`, `DoctorAnalyzerTest` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/BytecodeScanner.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/doctor/DoctorAnalyzer.java`
+
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -6068,7 +6098,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**454 of 570 requirements are Not Covered.**
+**457 of 573 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6121,6 +6151,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-428 | gimle-maven-plugin | `mvn gimle:verify` — full build run under Saga tracking | Build Tooling | `SagaVerifyMojoTest` (pure-function seams); `SagaEventsTest`; `SurefireReportsTest` |
 | GIMLE-429 | gimle-maven-plugin | `mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports | Build Tooling | NONE recorded in the baseline |
 | GIMLE-430 | gimle-maven-plugin | `mvn gimle:saga-stop` — best-effort local Saga server shutdown | Build Tooling | NONE recorded in the baseline |
+| GIMLE-573 | gimle-hilmir | Doctor advisory-only outbound-connection hazard detection | Build Tooling | `BytecodeScannerTest`, `DoctorAnalyzerTest` -- see requirements-matrix.json for detail |
 | GIMLE-371 | gimle-cli | Deployment resource management (get/apply/delete) | CLI | `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format` |
 | GIMLE-372 | gimle-cli | Job resource management (get/apply/delete) | CLI | `GimleCliTest.apply_then_get_jobs_round_trips`, `apply_then_delete_removes_the_job` |
 | GIMLE-373 | gimle-cli | CronJob management incl. manual trigger | CLI | `GimleCliTest.apply_then_get_cronjobs_round_trips`, `cronjob_trigger_fires_immediately_and_the_generated_job_is_real`, `cronjob_trigger_on_an_unknown_cronjob_fails` |
@@ -6333,6 +6364,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
+| GIMLE-572 | gimle-mimir | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail |
+| GIMLE-571 | gimle-module | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
 | GIMLE-084 | gimle-worker | Durable InstanceEvent emission per lifecycle transition | Observability | NONE recorded in the baseline |
 | GIMLE-087 | gimle-worker | OpenTelemetry context propagation across virtual-thread dispatch | Observability | `BoundedModuleSchedulerTest#the_callers_ambient_context_is_restored_inside_the_submitted_task`, `#a_submission_made_outside_any_context_scope_sees_no_value_for_that_key` |

@@ -9832,6 +9832,56 @@
         "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java`",
         "`gimle-gateway/src/main/java/com/gimle/gateway/ServiceEndpointCache.java`"
       ]
+    },
+    {
+      "id": "GIMLE-571",
+      "module": "gimle-module",
+      "feature": "Hosted-module runtime port reporting folded into instance observation",
+      "category": "Networking/Service Discovery",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang's Cucumber suite has no scenario exercising ctx.reportPort() -> ServiceEndpointResolver end to end today. To close: extend a Service-topic feature file with a step that deploys a plain (non-Vessel) module reporting a port from onStart, declares a Service fronting it, and asserts GET /services/{name}/endpoints resolves a live endpoint for it.",
+      "otherTestCoverage": "`SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java`",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-572",
+      "module": "gimle-mimir",
+      "feature": "NetworkPolicySpec durable persistence through StoreClient",
+      "category": "Networking/Security",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang's Cucumber suite has no scenario proving NetworkPolicySpec survives a control-plane restart or is visible cluster-wide. To close: add a scenario that creates a NetworkPolicySpec via one control-plane replica, restarts it (or queries a second replica), and asserts the policy is still present.",
+      "otherTestCoverage": "`NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/NetworkPolicyRegistry.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-573",
+      "module": "gimle-hilmir",
+      "feature": "Doctor advisory-only outbound-connection hazard detection",
+      "category": "Build Tooling",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang's Cucumber suite has no coverage of `hilmir doctor` bytecode-hazard checks at all today -- no .feature file exercises it. To close: add a doctor.feature scenario running `hilmir doctor` against a fixture module jar that opens outbound connections and asserting MAKES_OUTBOUND_CALLS appears at INFO severity.",
+      "otherTestCoverage": "`BytecodeScannerTest`, `DoctorAnalyzerTest` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/BytecodeScanner.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/doctor/DoctorAnalyzer.java`"
+      ]
     }
   ]
 }

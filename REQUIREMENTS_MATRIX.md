@@ -579,6 +579,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | Complete | Yes |
 | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | Complete | Yes |
 | GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | Gateway/Routing | Complete | Yes |
+| GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | Complete | Yes |
+| GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | Complete | Yes |
+| GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | Build Tooling | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1403,6 +1406,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a module implementing both ModuleLifecycleHooks and LivenessProbe on the same class, When the worker's probe loop invokes isAlive(), Then calls straight into that instance's method with no network hop.
+  ```
+
+#### GIMLE-571 — Hosted-module runtime port reporting folded into instance observation
+
+- **Category**: Networking/Service Discovery
+- **User story**: As a module author, I want to report the port(s) my module is actually listening on at runtime, so a Service fronting my module's deployment can resolve a live endpoint the same way it already can for a Vessel workload.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java` (`reportPort`, `reportedPorts`), `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`, `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`reportedPortsFor`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`metricsReportLoop`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`MetricsReport.ports`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessageCodec.java` (`encodePorts`/`decodePorts`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`ports`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`)
+- **Test coverage**: `SimpleModuleContextTest` (report/retrieve, replace-on-re-report, multiple named ports, blank-name and out-of-range rejection, snapshot isolation); `WorkerRuntimeReportedPortsTest` (a real dynamically-built module calling `ctx.reportPort` from `onStart`, plus no-report and unknown-id cases); `ControlMessageCodecTest` (a `MetricsReport` round trip carrying a two-entry ports map); `AgentMainTest` (`observation_json_*` cases proving `instance.ports` folds into the heartbeat JSON); `AgentMetricsReportPortFoldingTest` (end-to-end over a real Unix socket: a `MetricsReport` with ports sent through `AgentMain.readLoop` updates `SupervisedInstance.ports` and folds into `observationJson`)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses.
+  Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve.
   ```
 
 ### gimle-os
@@ -3196,6 +3213,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported.
+  ```
+
+#### GIMLE-572 — NetworkPolicySpec durable persistence through StoreClient
+
+- **Category**: Networking/Security
+- **User story**: As a platform operator, I want a NetworkPolicySpec I create to survive a control-plane restart and be visible to every control-plane replica, the same durability guarantee ServiceSpec already has, so tenant network policy is never lost or replica-inconsistent.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutNetworkPolicy`/`RemoveNetworkPolicy`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (map, directory persistence, snapshot/restore wiring, YAML (de)serialization), `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java` (`getNetworkPolicy`/`listNetworkPolicies`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateSnapshot.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeNetworkPolicySpec`/`readNetworkPolicySpec`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (mutation/log-entry/snapshot encode-decode), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreCodec.java`, `StoreNode.java`, `StoreClient.java` (`GetNetworkPolicy`/`ListNetworkPolicies`), `gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/NetworkPolicyRegistry.java` (rewritten from an in-memory map to a `StoreReader`/`MutationSink` facade), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+- **Test coverage**: `NetworkPolicyRegistryTest` (including two independent registries sharing one store); `ApiServerNetworkPoliciesTest` (multi-replica visibility: a policy POSTed to one `ApiServer` instance is visible via `GET /networkpolicies` on a second independent instance sharing the same store); `gimle-mimir` raft/codec/store round-trip test additions in `RaftCodecTest`, `RaftLogTest`, `RaftNodeSafetyMechanicsTest`, `StateStoreTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too.
+  Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee.
   ```
 
 ### gimle-fabric
@@ -6483,6 +6514,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a port that never opens, When awaitPortOpen is called with a short timeout, Then times out with a clear message; an already-listening port returns immediately.
+  ```
+
+#### GIMLE-573 — Doctor advisory-only outbound-connection hazard detection
+
+- **Category**: Build Tooling
+- **User story**: As a module author running `hilmir doctor` on my module jar, I want to be told when my bytecode constructs an outbound Socket/SocketChannel/HttpClient, so I understand my module can reach the network today even though nothing on the platform restricts or enforces that -- an informational signal, not a rejection.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/BytecodeScanner.java` (`isOutboundConnectionCallSite`), `gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/ClassHazards.java` (`makesOutboundConnection`), `gimle-hilmir/src/main/java/com/gimle/hilmir/doctor/DoctorAnalyzer.java` (`checkMakesOutboundCalls`, `MAKES_OUTBOUND_CALLS` at `INFO` severity)
+- **Test coverage**: `BytecodeScannerTest` (connecting Socket constructor, Socket() + separate connect(), bare Socket() with no connect as a negative case, SocketChannel.open(), HttpClient.newHttpClient(), HttpClient.newBuilder().build()); `DoctorAnalyzerTest` (a real compiled fixture calling HttpClient.newHttpClient() asserts MAKES_OUTBOUND_CALLS at INFO with no errors; a clean fixture asserts its absence)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module jar whose bytecode constructs a connecting java.net.Socket, opens a SocketChannel, or builds a java.net.http.HttpClient, When `hilmir doctor` analyzes it, Then it reports MAKES_OUTBOUND_CALLS at INFO severity, explaining that nothing on the platform restricts a module's outbound traffic today.
+  Given a module jar with no outbound-connection call sites, When `hilmir doctor` analyzes it, Then MAKES_OUTBOUND_CALLS is not reported.
   ```
 
 ### gimle-maven-plugin

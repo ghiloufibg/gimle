@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 570,
+    "totalRequirements": 573,
     "coveredByAutomatedTest": 116,
-    "notCoveredByAutomatedTest": 454,
-    "releaseReadinessPercent": 20.4
+    "notCoveredByAutomatedTest": 457,
+    "releaseReadinessPercent": 20.2
   },
   "items": [
     {
@@ -6272,6 +6272,39 @@
       "category": "Gateway/Routing",
       "feature": "Gateway virtual-host routing and Service-backed (SERVICE) route kind",
       "step": "Given two routes declared at the same path, one HOST orders.example.com and one host-unconstrained, When a request arrives with Host: orders.example.com, Then the host-constrained route serves it; When a request arrives with a different or missing Host header, Then the host-unconstrained sibling serves it instead. Given a route declared HOST orders.example.com only, When a request arrives with a non-matching Host header, Then the response is 404, not a fallback to any other route at that path. Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-571",
+      "module": "gimle-module",
+      "category": "Networking/Service Discovery",
+      "feature": "Hosted-module runtime port reporting folded into instance observation",
+      "step": "Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same \"ports\" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-572",
+      "module": "gimle-mimir",
+      "category": "Networking/Security",
+      "feature": "NetworkPolicySpec durable persistence through StoreClient",
+      "step": "Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-573",
+      "module": "gimle-hilmir",
+      "category": "Build Tooling",
+      "feature": "Doctor advisory-only outbound-connection hazard detection",
+      "step": "Given a module jar whose bytecode constructs a connecting java.net.Socket, opens a SocketChannel, or builds a java.net.http.HttpClient, When `hilmir doctor` analyzes it, Then it reports MAKES_OUTBOUND_CALLS at INFO severity, explaining that nothing on the platform restricts a module's outbound traffic today. Given a module jar with no outbound-connection call sites, When `hilmir doctor` analyzes it, Then MAKES_OUTBOUND_CALLS is not reported.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
