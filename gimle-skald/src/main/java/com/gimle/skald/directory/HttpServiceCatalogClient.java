@@ -47,10 +47,12 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
       throw new IOException(
           "control plane answered " + response.statusCode() + " for GET /services");
     }
-    List<Object> raw = Json.asArray(Json.parse(response.body()));
+    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
+    // name strings -- each entry's "name" field is what this poller actually needs.
+    List<Map<String, Object>> raw = Json.asObjectList(Json.parse(response.body()));
     List<String> names = new ArrayList<>(raw.size());
-    for (Object entry : raw) {
-      names.add(String.valueOf(entry));
+    for (Map<String, Object> entry : raw) {
+      names.add(String.valueOf(entry.get("name")));
     }
     return List.copyOf(names);
   }

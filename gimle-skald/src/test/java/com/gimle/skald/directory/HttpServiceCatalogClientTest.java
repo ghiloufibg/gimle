@@ -1,10 +1,9 @@
-package com.gimle.agent.bifrost;
+package com.gimle.skald.directory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.core.exception.GimleClusterException;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,10 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * {@link HttpServiceSource} against a stub HTTP server serving exactly the control plane's
- * documented {@code GET /services} / {@code GET /services/{name}/endpoints} contract.
+ * {@link HttpServiceCatalogClient} against a stub HTTP server serving exactly the control plane's
+ * documented {@code GET /services} / {@code GET /services/{name}/endpoints} contract -- the same
+ * shape {@code gimle-agent}'s {@code HttpServiceSourceTest} verifies for the identical API.
  */
-class HttpServiceSourceTest {
+class HttpServiceCatalogClientTest {
 
   private HttpServer controlPlaneStub;
 
@@ -50,15 +50,16 @@ class HttpServiceSourceTest {
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     server.start();
     controlPlaneStub = server;
-    return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+    // baseUri must end in a trailing slash -- HttpServiceCatalogClient's own constructor javadoc.
+    return URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/");
   }
 
   @Test
   @Timeout(15)
   void lists_service_names_from_the_services_endpoint() throws Exception {
     // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
-    // name strings.
-    URI baseUrl =
+    // name strings -- the exact bug this test exists to catch.
+    URI baseUri =
         startStub(
             "/services",
             200,
@@ -66,9 +67,10 @@ class HttpServiceSourceTest {
             [{"name":"orders","deploymentNames":["orders-service"],"port":8080,"targetPort":8080},
              {"name":"payments","deploymentNames":["payments-service"],"port":9090,"targetPort":9090}]
             """);
-    HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    List<String> names = source.listServiceNames();
+    List<String> names = client.listServiceNames();
 
     assertEquals(List.of("orders", "payments"), names);
   }
@@ -76,31 +78,33 @@ class HttpServiceSourceTest {
   @Test
   @Timeout(15)
   void fetches_and_parses_endpoints_for_a_service() throws Exception {
-    URI baseUrl =
+    URI baseUri =
         startStub(
             "/services/orders/endpoints",
             200,
             "{\"name\": \"orders\", \"port\": 8080, \"targetPort\": 8080,"
                 + " \"endpoints\": [{\"host\": \"10.0.0.5\", \"port\": 51234}]}");
-    HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    Optional<ServiceEndpoints> result = source.fetchEndpoints("orders");
+    Optional<ServiceEndpoints> result = client.fetchEndpoints("orders");
 
     assertTrue(result.isPresent());
     ServiceEndpoints endpoints = result.get();
     assertEquals("orders", endpoints.name());
     assertEquals(8080, endpoints.port());
     assertEquals(8080, endpoints.targetPort());
-    assertEquals(List.of(new ServiceEndpoint("10.0.0.5", 51234)), endpoints.endpoints());
+    assertEquals(List.of("10.0.0.5"), endpoints.endpointHosts());
   }
 
   @Test
   @Timeout(15)
   void a_404_for_endpoints_is_treated_as_the_service_no_longer_existing() throws Exception {
-    URI baseUrl = startStub("/services/gone/endpoints", 404, "not found");
-    HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
+    URI baseUri = startStub("/services/gone/endpoints", 404, "not found");
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    Optional<ServiceEndpoints> result = source.fetchEndpoints("gone");
+    Optional<ServiceEndpoints> result = client.fetchEndpoints("gone");
 
     assertTrue(result.isEmpty());
   }
@@ -108,9 +112,10 @@ class HttpServiceSourceTest {
   @Test
   @Timeout(15)
   void an_unexpected_status_from_the_services_list_throws() throws Exception {
-    URI baseUrl = startStub("/services", 500, "boom");
-    HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
+    URI baseUri = startStub("/services", 500, "boom");
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    assertThrows(GimleClusterException.class, source::listServiceNames);
+    assertThrows(IOException.class, client::listServiceNames);
   }
 }

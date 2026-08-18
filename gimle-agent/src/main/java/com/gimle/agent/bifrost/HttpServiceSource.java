@@ -38,10 +38,12 @@ public final class HttpServiceSource implements ServiceSource {
   @Override
   public List<String> listServiceNames() throws IOException, InterruptedException {
     HttpResponse<String> response = send(controlPlaneBaseUrl.resolve("/services"), "list services");
-    List<Object> raw = Json.asArray(Json.parse(response.body()));
+    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
+    // name strings -- each entry's "name" field is what this poller actually needs.
+    List<Map<String, Object>> raw = Json.asObjectList(Json.parse(response.body()));
     List<String> names = new ArrayList<>(raw.size());
-    for (Object entry : raw) {
-      names.add((String) entry);
+    for (Map<String, Object> entry : raw) {
+      names.add((String) entry.get("name"));
     }
     return names;
   }
