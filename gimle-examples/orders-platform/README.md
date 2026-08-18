@@ -471,6 +471,40 @@ keep working with no change, reading from Muninn's day-bucketed store instead of
 log line; nothing here is a new capability, just this app finally putting a real business event
 through it.
 
+## A non-modular dependency, shaded in the same way
+
+Every third-party jar this app has shaded in so far — Spring, the Postgres driver, HikariCP —
+happens to ship a real JPMS module descriptor of its own, even though none of that ever survives
+into any module's own compiled `module-info.class` either way (see any module's own file for why:
+maven-shade-plugin drops every `module-info.class` it touches while merging, dependencies'
+included, and the `IncludeResourceTransformer` puts back only this project's own). `web-ui` now
+also shades in [Gson](https://github.com/google/gson), deliberately pinned to `2.8.5` — a version
+with **no module metadata at all**, not even an `Automatic-Module-Name` in its manifest (confirmed:
+`unzip -l gson-2.8.5.jar | grep module-info` finds nothing, and neither does its `MANIFEST.MF`).
+Proof the same recipe works identically for a dependency with zero JPMS awareness of its own, not
+just for ones that happen to already be modular.
+
+`WebUiService`'s JSON handling is real Gson now — `GET /api/inventory`/`POST /api/orders`'
+responses and `POST /api/orders`' request body, replacing what used to be hand-written JSON string
+concatenation and two parsing regexes. `OrderRequest` (the one type Gson has to *construct*, not
+just read) is a plain mutable class rather than a record on purpose: Gson `2.8.5` predates Gson's
+own record support (added in `2.10`) and falls back to `sun.misc.Unsafe`-based field injection for
+any target type with no no-arg constructor — exactly what a record would trigger. A plain bean
+sidesteps that reliability question entirely.
+
+This one got a real runtime check, not just a clean compile, precisely because shading a genuinely
+non-modular jar is the part with no established precedent in this app to lean on: a standalone
+driver on a real `--module-path` launch of the built `web-ui.jar` (JDK 21, this sandbox's usual
+stand-in for 25) reflectively drove `WebUiService#inventoryJson`/`parseOrderRequest`/
+`orderPlacedJson`/`errorJson` end to end — real JSON in, real JSON out, the malformed-JSON path
+correctly returning `Optional.empty()`. It failed on the first attempt exactly the way this app's
+own module-info comments already describe for Spring: `IllegalAccessError`, not a compile error —
+Gson's own `TypeAdapterFactory` chain eagerly touches `java.sql.Time` while resolving an adapter
+for an entirely unrelated type, and `com.example.webui` didn't yet `requires java.sql`. Adding it
+(see `module-info.java`) fixed it; nothing in this module's own code ever references `java.sql`
+directly — the requires exists purely because of what a shaded-in dependency's internals reach for,
+same as `java.logging`/`java.desktop` already do for Spring.
+
 ## What was, and wasn't, verified building this
 
 This sandbox has no JDK 25 (the platform's own required release) and no running Gimlé cluster, and
@@ -533,6 +567,16 @@ values in place of the `{}` placeholders (the SLF4J call itself compiles regardl
 format string and argument count actually line up correctly across a refactor -- they were
 re-checked by hand here, not by a running logger), and that `gimle logs
 instance/orders-service-deployment/0` really surfaces it the way the walkthrough above describes.
+
+**Gson and the non-modular-dependency proof (added later)**: the one addition in this file that
+got a real runtime check rather than only a clean compile, and it's worth saying plainly rather
+than folding into the usual caveat -- see "A non-modular dependency, shaded in the same way" above
+for exactly what a real `--module-path` launch of the built `web-ui.jar` exercised (serialization,
+deserialization, the malformed-input path) and what it caught on the first attempt (a missing
+`requires java.sql`, fixed). What's still unverified is only what every other section here already
+flags: whether this behaves identically once it's `WebUiHooks` itself driving it inside a real
+worker JVM under a real `ModuleLayer`, rather than a standalone reflective driver -- a real cluster
+is still the only way to close that gap, same as everywhere else in this file.
 
 One thing that verification setup could *not* exercise correctly, and by construction never could:
 `SimpleServiceRegistry` matches services by `Class` object identity, and since each module

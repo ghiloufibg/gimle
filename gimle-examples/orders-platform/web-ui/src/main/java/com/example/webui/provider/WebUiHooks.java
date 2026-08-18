@@ -18,8 +18,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -186,7 +184,7 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       if (!"GET".equals(exchange.getRequestMethod())) {
-        sendJson(exchange, 405, "{\"error\":\"method not allowed\"}");
+        sendJson(exchange, 405, webUiService.errorJson("method not allowed"));
         return;
       }
       Optional<OrderCatalog> orderCatalog = lookupQuietly(() -> ctx.lookupService(OrderCatalog.class));
@@ -203,10 +201,6 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
    * #ADMIN_TOKEN_HEADER} to match this instance's own delivered {@link #ADMIN_TOKEN_CONFIG_KEY} --
    * see this class's own javadoc for why, and where that value comes from. */
   private static final class PlaceOrderHandler implements HttpHandler {
-    // A fixed, tiny, known request shape -- {"sku":"widget","quantity":5} -- so two small regexes
-    // are simpler and lighter than pulling in a JSON library for one request type.
-    private static final Pattern SKU_FIELD = Pattern.compile("\"sku\"\\s*:\\s*\"([^\"]*)\"");
-    private static final Pattern QUANTITY_FIELD = Pattern.compile("\"quantity\"\\s*:\\s*(-?\\d+)");
 
     private final ModuleContext ctx;
     private final WebUiService webUiService;
@@ -221,52 +215,42 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       if (!"POST".equals(exchange.getRequestMethod())) {
-        sendJson(exchange, 405, "{\"error\":\"method not allowed\"}");
+        sendJson(exchange, 405, webUiService.errorJson("method not allowed"));
         return;
       }
       // Fail closed on a misconfigured cluster (no tenant, or the secret was never set) rather
       // than silently letting every order through -- a demo app is still no excuse for "open by
       // default when the auth mechanism itself is broken".
       if (adminToken.isEmpty()) {
-        sendJson(exchange, 503, "{\"error\":\"admin token not configured on this instance\"}");
+        sendJson(exchange, 503, webUiService.errorJson("admin token not configured on this instance"));
         return;
       }
       String presentedToken = exchange.getRequestHeaders().getFirst(ADMIN_TOKEN_HEADER);
       if (!adminToken.get().equals(presentedToken)) {
-        sendJson(exchange, 401, "{\"error\":\"missing or incorrect " + ADMIN_TOKEN_HEADER + "\"}");
+        sendJson(
+            exchange, 401, webUiService.errorJson("missing or incorrect " + ADMIN_TOKEN_HEADER));
         return;
       }
       String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-      Optional<String> sku = firstGroup(SKU_FIELD, body);
-      Optional<String> quantityText = firstGroup(QUANTITY_FIELD, body);
-      if (sku.isEmpty() || quantityText.isEmpty()) {
-        sendJson(exchange, 400, "{\"error\":\"expected {\\\"sku\\\":..,\\\"quantity\\\":N}\"}");
+      Optional<WebUiService.OrderRequest> request = webUiService.parseOrderRequest(body);
+      if (request.isEmpty()) {
+        sendJson(exchange, 400, webUiService.errorJson("expected {\"sku\":..,\"quantity\":N}"));
         return;
       }
-      int quantity;
-      try {
-        quantity = Integer.parseInt(quantityText.get());
-      } catch (NumberFormatException e) {
-        sendJson(exchange, 400, "{\"error\":\"quantity must be an integer\"}");
-        return;
-      }
-      Optional<String> validationError = webUiService.validateOrderRequest(sku.get(), quantity);
+      String sku = request.get().sku();
+      int quantity = request.get().quantity();
+      Optional<String> validationError = webUiService.validateOrderRequest(sku, quantity);
       if (validationError.isPresent()) {
-        sendJson(exchange, 400, "{\"error\":\"" + validationError.get() + "\"}");
+        sendJson(exchange, 400, webUiService.errorJson(validationError.get()));
         return;
       }
       Optional<OrderCatalog> orderCatalog = lookupQuietly(() -> ctx.lookupService(OrderCatalog.class));
       if (orderCatalog.isEmpty()) {
-        sendJson(exchange, 503, "{\"error\":\"OrderCatalog unavailable\"}");
+        sendJson(exchange, 503, webUiService.errorJson("OrderCatalog unavailable"));
         return;
       }
-      String orderId = orderCatalog.get().placeOrder(sku.get(), quantity);
-      sendJson(exchange, 201, "{\"orderId\":\"" + orderId + "\"}");
-    }
-
-    private static Optional<String> firstGroup(Pattern pattern, String text) {
-      Matcher matcher = pattern.matcher(text);
-      return matcher.find() ? Optional.of(matcher.group(1)) : Optional.empty();
+      String orderId = orderCatalog.get().placeOrder(sku, quantity);
+      sendJson(exchange, 201, webUiService.orderPlacedJson(orderId));
     }
   }
 
