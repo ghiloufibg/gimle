@@ -20,11 +20,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -404,8 +406,21 @@ abstract class GreeterSmokeClusterSupport {
       String extraHooksMember,
       String greetBody,
       boolean alive,
-      boolean ready) {
+      boolean ready,
+      List<String> allowedTenants) {
     List<Path> compileJars = findCompileModulePathJars();
+    // Empty means the export is unrestricted (any tenant may consume it), the same default
+    // ModuleDescriptorParser#parseAllowedTenants gives a manifest that omits the field entirely.
+    // Non-empty renders a real 'allowedTenants:' block under the export -- what ServiceExport's
+    // own permitsTenant check (both FabricServiceRegistry#lookup's client-side filter and
+    // FabricServer's own listener-side re-check) actually reads.
+    StringBuilder allowedTenantsYaml = new StringBuilder();
+    if (!allowedTenants.isEmpty()) {
+      allowedTenantsYaml.append("allowedTenants:");
+      for (String tenant : allowedTenants) {
+        allowedTenantsYaml.append("\n      - ").append(tenant);
+      }
+    }
     return TestModuleBuilder.module(
             """
             module com.gimle.examples.greeter.provider {
@@ -479,13 +494,14 @@ abstract class GreeterSmokeClusterSupport {
             exports:
               - service: com.gimle.examples.greeter.Greeter
                 version: 1.0.0
+                %3$s
             lifecycle:
               hooks: com.gimle.examples.greeter.provider.GreeterProvider%2$sHooks
             health:
               liveness: com.gimle.examples.greeter.provider.GreeterProvider%2$sLiveness
               readiness: com.gimle.examples.greeter.provider.GreeterProvider%2$sReadiness
             """
-                .formatted(version, variant))
+                .formatted(version, variant, allowedTenantsYaml))
         .dependsOn(compileJars.toArray(Path[]::new))
         .build(tempDir, "greeter-provider-" + variant.toLowerCase(Locale.ROOT) + ".jar");
   }
@@ -504,7 +520,8 @@ abstract class GreeterSmokeClusterSupport {
         "",
         "return \"Hello, \" + name + \"! (from provider v2)\";",
         /* alive= */ true,
-        /* ready= */ true);
+        /* ready= */ true,
+        List.of());
   }
 
   /**
@@ -530,7 +547,8 @@ abstract class GreeterSmokeClusterSupport {
         return "Hello, " + name + "! (from faulty provider)";
         """,
         /* alive= */ true,
-        /* ready= */ true);
+        /* ready= */ true,
+        List.of());
   }
 
   /**
@@ -573,7 +591,8 @@ abstract class GreeterSmokeClusterSupport {
         throw new IllegalStateException("unreachable: caller times out first");
         """,
         /* alive= */ true,
-        /* ready= */ true);
+        /* ready= */ true,
+        List.of());
   }
 
   /**
@@ -597,7 +616,8 @@ abstract class GreeterSmokeClusterSupport {
         "",
         "return \"Hello, \" + name + \"! (from unhealthy provider)\";",
         /* alive= */ false,
-        /* ready= */ true);
+        /* ready= */ true,
+        List.of());
   }
 
   /**
@@ -886,7 +906,33 @@ abstract class GreeterSmokeClusterSupport {
         return "Hello, " + name + "! (from slow provider)";
         """,
         /* alive= */ true,
-        /* ready= */ true);
+        /* ready= */ true,
+        List.of());
+  }
+
+  /**
+   * A real {@code greeter-provider} whose {@code Greeter} export restricts {@code allowedTenants}
+   * to exactly {@code allowedTenantId} -- the committed example module's own manifest declares no
+   * such restriction at all (unrestricted, "any tenant"), so exercising the real, already-shipped
+   * {@code ServiceExport#permitsTenant} check end to end needs a variant that actually declares
+   * one, built via {@link TestModuleBuilder} the same way every other variant here is, rather than
+   * modifying the real, committed example module.
+   */
+  Path buildTenantRestrictedProviderJar(String allowedTenantId) {
+    // Version 1.0.0, matching the real committed provider exactly -- unlike buildProviderV2Jar,
+    // this variant has no need to be distinguishable by version (nothing here asserts "which
+    // build is serving"), and submitDeployment/submitDeploymentWithRetry's own manifest always
+    // declares module.version: 1.0.0 regardless of the jar handed to it, so a differing version
+    // here would leave the worker looking for a module coordinate the installed jar never
+    // registers under.
+    return buildGreeterProviderVariant(
+        "Restricted",
+        "1.0.0",
+        "",
+        "return \"Hello, \" + name + \"! (from tenant-restricted provider)\";",
+        /* alive= */ true,
+        /* ready= */ true,
+        List.of(allowedTenantId));
   }
 
   /**
@@ -1428,6 +1474,18 @@ abstract class GreeterSmokeClusterSupport {
 
   SmokeCluster startCluster(Path repoRoot, String javaExecutable, String classpath)
       throws IOException {
+    return startCluster(repoRoot, javaExecutable, classpath, /* bifrostEnabledOnAgent= */ false);
+  }
+
+  /**
+   * Like the three-argument {@link #startCluster}, plus {@code bifrostEnabledOnAgent} -- threaded
+   * through to this fixture's own default agent (the same one {@link #spawnAgent}'s {@code
+   * bifrostEnabled} parameter controls), off by default so every existing caller of the
+   * three-argument overload keeps spawning that agent exactly as before this flag existed.
+   */
+  SmokeCluster startCluster(
+      Path repoRoot, String javaExecutable, String classpath, boolean bifrostEnabledOnAgent)
+      throws IOException {
     List<Process> storeProcesses = new ArrayList<>();
     List<String> storeClientEndpoints = new ArrayList<>();
     for (int i = 0; i < STORE_COUNT; i++) {
@@ -1546,6 +1604,8 @@ abstract class GreeterSmokeClusterSupport {
             controlPlaneBaseUrls.get(0),
             fafnirEndpoints.get(0),
             muninnEndpoint,
+            "",
+            bifrostEnabledOnAgent,
             tempDir.resolve("agent.log"));
     processes.add(agentProcess);
 
@@ -1764,12 +1824,46 @@ abstract class GreeterSmokeClusterSupport {
       String nodeLabels,
       Path logFile)
       throws IOException {
+    return spawnAgent(
+        javaExecutable,
+        classpath,
+        nodeId,
+        gossipAddress,
+        seedsSpec,
+        controlPlaneBaseUrl,
+        fafnirEndpoint,
+        muninnEndpoint,
+        nodeLabels,
+        /* bifrostEnabled= */ false,
+        logFile);
+  }
+
+  /**
+   * Like the ten-argument {@link #spawnAgent}, plus {@code bifrostEnabled} -- {@code AgentMain}'s
+   * own {@code -Dgimle.agent.bifrostEnabled=true} flag, off by default (matching {@code
+   * AgentMain}'s own default) so every existing caller of a shorter overload keeps spawning an
+   * agent with no {@code BifrostProxy} at all, exactly as before this flag existed.
+   */
+  Process spawnAgent(
+      String javaExecutable,
+      String classpath,
+      String nodeId,
+      String gossipAddress,
+      String seedsSpec,
+      String controlPlaneBaseUrl,
+      String fafnirEndpoint,
+      String muninnEndpoint,
+      String nodeLabels,
+      boolean bifrostEnabled,
+      Path logFile)
+      throws IOException {
     ProcessBuilder pb =
         new ProcessBuilder(
             javaExecutable,
             "-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint,
             "-Dgimle.agent.muninnEndpoint=" + muninnEndpoint,
             "-Dgimle.agent.andvariEndpoint=127.0.0.1:" + andvariPort,
+            "-Dgimle.agent.bifrostEnabled=" + bifrostEnabled,
             "-Dgimle.node.labels=" + nodeLabels,
             // Same tempDir/nodeId-scoping reasoning as -Dgimle.log.root= just below: absent this,
             // AgentMain's LocalDiskVolumeManager defaults to "gimle-data" relative to the forked
@@ -1807,6 +1901,76 @@ abstract class GreeterSmokeClusterSupport {
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
+  }
+
+  /**
+   * Spawns a real {@code SkaldMain} UDP DNS responder, the same real-subprocess shape every other
+   * {@code spawnX} helper here uses. {@code controlPlaneEndpoint} is a bare {@code host:port}
+   * (matching {@code storeEndpointsSpec}'s own convention elsewhere in this class) -- {@code
+   * SkaldMain} itself prefixes {@code http://} onto it.
+   */
+  Process spawnSkald(
+      String javaExecutable,
+      String classpath,
+      int dnsPort,
+      String controlPlaneEndpoint,
+      Path logFile)
+      throws IOException {
+    ProcessBuilder pb =
+        new ProcessBuilder(
+            javaExecutable,
+            "-Dgimle.log.root=" + tempDir.resolve("gimle-logs-skald"),
+            "-cp",
+            classpath,
+            "com.gimle.skald.SkaldMain",
+            String.valueOf(dnsPort),
+            "--control-plane-endpoint",
+            controlPlaneEndpoint);
+    pb.redirectErrorStream(true);
+    pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
+    return pb.start();
+  }
+
+  /**
+   * {@code POST /services} -- the same request shape {@code ApiServer#handlePostService} parses
+   * (name/tenantId/deploymentNames/port/targetPort, {@code targetPort} defaulting to {@code port}).
+   */
+  void putService(
+      String baseUrl, String name, Optional<String> tenantId, Set<String> deploymentNames, int port)
+      throws Exception {
+    Map<String, Object> body = new HashMap<>();
+    body.put("name", name);
+    tenantId.ifPresent(t -> body.put("tenantId", t));
+    body.put("deploymentNames", List.copyOf(deploymentNames));
+    body.put("port", port);
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+                .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("service creation failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  /**
+   * The real {@code GET /services/{name}/endpoints} response, parsed -- {@code Map.of()} (an absent
+   * {@code "name"} key) for any transport failure or non-200, matching {@link #deploymentStatus}'s
+   * own "swallow and let the caller's own condition read false" posture for a cluster that isn't
+   * ready yet.
+   */
+  Map<String, Object> fetchServiceEndpoints(String baseUrl, String name) {
+    Optional<HttpResponse<String>> response = tryGet(baseUrl + "/services/" + name + "/endpoints");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return Map.of();
+    }
+    return Json.asObject(Json.parse(response.get().body()));
+  }
+
+  /** True once {@code GET /services/{name}/endpoints} answers for real, i.e. the Service exists. */
+  boolean serviceIsRegistered(String baseUrl, String name) {
+    return name.equals(fetchServiceEndpoints(baseUrl, name).get("name"));
   }
 
   // ---- Job / CronJob / DaemonSet / StatefulSet: submission + status polling ----
