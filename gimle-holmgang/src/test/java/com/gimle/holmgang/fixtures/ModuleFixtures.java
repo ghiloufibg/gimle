@@ -9,12 +9,17 @@ import java.util.Locale;
 
 /**
  * Real, deployable variants of {@code greeter-provider} compiled at scenario run time -- a genuine
- * v1.1.0 for rolling updates and an always-failing-liveness build for self-healing escalation --
- * via {@link TestModuleBuilder}, rather than committing near-duplicate example modules just to
- * change a version number or a probe result. Same module name as the committed example, so the
- * platform recognizes a version bump of the same deployment.
+ * v1.1.0 for rolling updates, an always-failing-liveness build for self-healing escalation, and a
+ * build that reports its own listening port via {@code ModuleContext.reportPort} for Service
+ * endpoint resolution -- via {@link TestModuleBuilder}, rather than committing near-duplicate
+ * example modules just to change a version number, a probe result, or add a runtime call. Same
+ * module name as the committed example, so the platform recognizes a version bump of the same
+ * deployment.
  */
 public final class ModuleFixtures {
+
+  /** The fixed port {@link #portReportingProviderJar} reports via {@code ctx.reportPort}. */
+  public static final int PORT_REPORTING_PROVIDER_PORT = 9500;
 
   private ModuleFixtures() {}
 
@@ -25,7 +30,8 @@ public final class ModuleFixtures {
         "V2",
         "1.1.0",
         "return \"Hello, \" + name + \"! (from provider v2)\";",
-        /* alive= */ true);
+        /* alive= */ true,
+        /* extraOnStartBody= */ "");
   }
 
   /**
@@ -38,7 +44,23 @@ public final class ModuleFixtures {
         "Unhealthy",
         "1.0.0-unhealthy",
         "return \"Hello, \" + name + \"! (from unhealthy provider)\";",
-        /* alive= */ false);
+        /* alive= */ false,
+        /* extraOnStartBody= */ "");
+  }
+
+  /**
+   * A hosted (non-Vessel) module that reports its own port at runtime, the mechanism {@code
+   * ServiceEndpointResolver.solePort()} needs to resolve a Service endpoint for an ordinary
+   * fabric-hosted module instead of only ever a Vessel workload's allocated port.
+   */
+  public static Path portReportingProviderJar(final Path outputDir) {
+    return providerVariant(
+        outputDir,
+        "PortReporting",
+        "1.0.0-portreporting",
+        "return \"Hello, \" + name + \"! (from port-reporting provider)\";",
+        /* alive= */ true,
+        /* extraOnStartBody= */ "ctx.reportPort(\"http\", " + PORT_REPORTING_PROVIDER_PORT + ");");
   }
 
   private static Path providerVariant(
@@ -46,7 +68,8 @@ public final class ModuleFixtures {
       final String variant,
       final String version,
       final String greetBody,
-      final boolean alive) {
+      final boolean alive,
+      final String extraOnStartBody) {
     final List<Path> compileJars = findCompileModulePathJars();
     return TestModuleBuilder.module(
             """
@@ -78,12 +101,13 @@ public final class ModuleFixtures {
                 ctx.registerService(Greeter.class, name -> {
                   %2$s
                 });
+                %3$s
               }
               public void onStop(ModuleContext ctx) {}
               public void onUninstall(ModuleContext ctx) {}
             }
             """
-                .formatted(variant, greetBody))
+                .formatted(variant, greetBody, extraOnStartBody))
         .withClass(
             "com.gimle.examples.greeter.provider.GreeterProvider%1$sLiveness".formatted(variant),
             """

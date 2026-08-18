@@ -9746,9 +9746,15 @@
       "category": "Reconciliation / Service Fabric",
       "status": "New",
       "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang .feature scenario declares a Service (POST /services) and asserts it converges to a live backing instance's endpoint end to end; the closest existing scenarios (deployment-lifecycle.feature, module-system.feature) exercise Deployments and the same-worker service registry's own version cutover, never the new control-plane Service abstraction at all. To close: extend an existing .feature file (or add a new services.feature) with steps that POST a Service fronting a real deployed module, wait for GET /services/{name}/endpoints to report that module's live instance, and assert a caller can reach it through that endpoint.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/service-fabric.feature",
+          "scenario": "A Service resolves a live endpoint for a hosted module reporting its own port",
+          "whyThisCounts": "Declares a Service (POST /services) fronting a real deployed module, then polls GET /services/{name}/endpoints until it reports that module's live instance -- proving the Service CRUD surface and the reconciler-backed endpoint resolution genuinely converge against a real cluster, not just in ServiceReconcilerTest's simulated store snapshots."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`",
@@ -9840,9 +9846,15 @@
       "category": "Networking/Service Discovery",
       "status": "New",
       "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "Holmgang's Cucumber suite has no scenario exercising ctx.reportPort() -> ServiceEndpointResolver end to end today. To close: extend a Service-topic feature file with a step that deploys a plain (non-Vessel) module reporting a port from onStart, declares a Service fronting it, and asserts GET /services/{name}/endpoints resolves a live endpoint for it.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/service-fabric.feature",
+          "scenario": "A Service resolves a live endpoint for a hosted module reporting its own port",
+          "whyThisCounts": "The same scenario deploys a plain TIER_2 hosted module (not a Vessel) whose onStart calls ctx.reportPort(\"http\", 9500), then asserts the fronting Service still resolves a live endpoint -- proving ServiceEndpointResolver.solePort() genuinely reads a hosted module's own reported port against a real cluster instead of only ever a Vessel workload's allocated one."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
