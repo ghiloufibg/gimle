@@ -580,6 +580,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-562 | Cluster-machine platform distribution archive | Active | Not Covered | — |
 | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Active | Not Covered | — |
 | GIMLE-564 | Distribution archive checksums and SBOM generation | Active | Not Covered | — |
+| GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | New | Not Covered | — |
+| GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | New | Not Covered | — |
+| GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | New | Not Covered | — |
+| GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | New | Not Covered | — |
+| GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1916,6 +1921,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-agent/src/main/java/module-info.java`
 
+#### GIMLE-568 — gimle-bifrost: per-node service proxy (kube-proxy analogue)
+
+- **Category**: Service Fabric
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario enables -Dgimle.agent.bifrostEnabled=true and asserts a caller can reach a declared Service through the node-local loopback proxy end to end. To close: boot a topology with Bifrost enabled on at least one node, declare a Service backed by a real deployed module, and assert a connection to the synthesized 127.x.y.1 ClusterIP address is forwarded to that module's live instance.
+- **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/LoopbackAddressAllocator.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/HttpServiceSource.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -2674,6 +2688,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `/home/user/gimle/gimle-fabric/src/main/java/module-info.java`
 
+#### GIMLE-567 — Fabric listener-side tenant re-check on inbound service calls
+
+- **Category**: Fabric / Multi-tenancy
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario drives two tenants' modules through a real cluster and asserts a cross-tenant fabric call that bypasses FabricServiceRegistry's own caller-side filter is still rejected by the receiving worker. To close: a scenario would need two tenant-scoped modules, one exporting a tenant-restricted service and one holding another tenant's identity, plus a step that dials the raw ServiceEndpoint address directly (not through the registry's own lookup) to prove FabricServer's own listener-side re-check independently rejects it -- something no current .feature file attempts.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -3290,6 +3313,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a deployment has 3 ready instances reporting different request rates; When GET /metrics; Then a per-deployment row with the averaged rates is returned.
 - **Other test coverage (non-Holmgang, informational only)**: Covered within `ApiServerConsoleContractTest`/`ApiServerTest`
 - **Source location(s)**: `ApiServer.handleMetrics`, `average`
+
+#### GIMLE-566 — Service abstraction: stable name, CRUD API, and endpoint reconciliation
+
+- **Category**: Reconciliation / Service Fabric
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario declares a Service (POST /services) and asserts it converges to a live backing instance's endpoint end to end; the closest existing scenarios (deployment-lifecycle.feature, module-system.feature) exercise Deployments and the same-worker service registry's own version cutover, never the new control-plane Service abstraction at all. To close: extend an existing .feature file (or add a new services.feature) with steps that POST a Service fronting a real deployed module, wait for GET /services/{name}/endpoints to report that module's live instance, and assert a caller can reach it through that endpoint.
+- **Other test coverage (non-Holmgang, informational only)**: `ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
 ### gimle-fafnir
 
@@ -4189,6 +4221,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a FabricRoute naming a service interface nothing currently exports
 - **Other test coverage (non-Holmgang, informational only)**: `GatewayDispatcherTest#a_fabric_route_naming_a_service_nothing_exports_is_served_as_200_with_an_empty_body`
 - **Source location(s)**: `GatewayDispatcher.java#dispatchFabric` (own javadoc explicitly documents this as a known v1 limitation)
+
+#### GIMLE-570 — Gateway virtual-host routing and Service-backed (SERVICE) route kind
+
+- **Category**: Gateway/Routing
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no coverage of gimle-gateway at all today -- no .feature file references it. To close: add a gateway.feature scenario that boots a gateway alongside a real cluster, declares two routes at the same path (one HOST-constrained, one not) plus a SERVICE route backed by a control-plane Service fronting a real deployed module, and asserts each Host header dispatches to the right target and the SERVICE route proxies to a live endpoint.
+- **Other test coverage (non-Holmgang, informational only)**: `GatewayDispatcherTest` (6 relevant tests: host-constrained match, host mismatch 404, host-unconstrained route unaffected, fallthrough to host-unconstrained sibling, service route with no ready endpoint returns a clear error, cached endpoint list reused across dispatcher instances); `ServiceEndpointCacheTest` (11 tests: resolution, relay path, TTL caching/staleness fallback, error handling)
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayDispatcher.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRoute.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java`, `gimle-gateway/src/main/java/com/gimle/gateway/ServiceEndpointCache.java`
 
 ### gimle-cli
 
@@ -6012,11 +6053,22 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)
 
+### gimle-skald
+
+#### GIMLE-569 — gimle-skald: cluster DNS server resolving Service names to live endpoints
+
+- **Category**: Service Fabric
+- **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario boots a SkaldMain replica and asserts a DNS query against <service>.svc.gimle.local resolves to a live endpoint of a real deployed module. To close: boot Skald alongside the control plane in a topology, declare a Service backed by a real deployed module, and assert a standard A-record UDP query resolves to that module's live address -- Holmgang's topology support has no Skald process kind wired in yet at all.
+- **Other test coverage (non-Holmgang, informational only)**: `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest`
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/ServiceDnsNames.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**449 of 565 requirements are Not Covered.**
+**454 of 570 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6130,6 +6182,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |
+| GIMLE-567 | gimle-fabric | Fabric listener-side tenant re-check on inbound service calls | Fabric / Multi-tenancy | `FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage |
 | GIMLE-126 | gimle-agent | Gossip membership read-only HTTP surface | Fabric / Observability | `AgentGossipServerTest#reports_the_lone_self_member_alive_at_incarnation_zero`, `#reflects_a_peer_learned_through_real_swim_convergence`, `#rejects_non_get_methods` |
 | GIMLE-356 | gimle-gateway | Fabric-route HTTP-to-service dispatch | Gateway/Routing | `GatewayDispatcherTest#a_string_argument_route_dispatches_and_returns_the_real_result`, `#a_no_argument_route_is_served_on_get`, `#an_int_argument_route_coerces_and_dispatches_correctly` |
 | GIMLE-357 | gimle-gateway | Fabric-route argument coercion (`ParamType`) | Gateway/Routing | `GatewayDispatcherTest#a_body_that_does_not_coerce_to_the_declared_param_type_returns_400`, `#the_wrong_http_method_for_a_fabric_route_returns_405` |
@@ -6143,6 +6196,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-367 | gimle-gateway | HTTP status-code error mapping across the dispatcher | Gateway/Routing | `GatewayDispatcherTest#an_unknown_path_returns_404`, `#the_wrong_http_method_for_a_fabric_route_returns_405`, `#a_downstream_fabric_call_that_throws_returns_502` |
 | GIMLE-369 | gimle-gateway | Vessel proxy: no TLS, no header forwarding (v1 scope limitation) | Gateway/Routing | `GatewayDispatcherTest#a_vessel_route_proxies_to_the_real_target_with_method_path_body_and_response_intact` confirms what *is* forwarded; no test exercises header forwarding since none exists |
 | GIMLE-370 | gimle-gateway | Fabric route "quiet success" ambiguity for a misrouted service name | Gateway/Routing | `GatewayDispatcherTest#a_fabric_route_naming_a_service_nothing_exports_is_served_as_200_with_an_empty_body` |
+| GIMLE-570 | gimle-gateway | Gateway virtual-host routing and Service-backed (SERVICE) route kind | Gateway/Routing | `GatewayDispatcherTest` (6 relevant tests: host-constrained match, host mismatch 404, host-unconstrained route unaffected, fallthrough to host-unconstrained sibling, service route with no ready endpoint returns a clear error, cached endpoint list reused across dispatcher instances); `ServiceEndpointCacheTest` (11 tests: resolution, relay path, TTL caching/staleness fallback, error handling) |
 | GIMLE-200 | gimle-fabric | SWIM Gossip Membership Protocol (Ping/PingReq/Ack) | Gossip Membership | `GossipMemberTest#two_nodes_discover_each_other_via_join`, `#a_killed_member_converges_to_dead_across_the_rest`, `#a_lone_node_with_no_seeds_starts_as_a_new_cluster`, `#a_single_unreachable_seed_is_a_legitimate_bootstrap_not_an_error`, `#multiple_unreachable_seeds_throw_gimle_cluster_exception` |
 | GIMLE-201 | gimle-fabric | SWIM Self-Refutation via Incarnation Bump | Gossip Membership | `GossipMemberTest#a_member_refutes_a_suspicion_of_itself_by_bumping_incarnation`, `#a_stale_suspicion_below_the_current_incarnation_is_ignored` |
 | GIMLE-202 | gimle-fabric | Lifeguard-Style Local Health Multiplier | Gossip Membership | `GossipMemberTest#the_local_health_multiplier_clamps_rather_than_growing_unbounded` |
@@ -6335,6 +6389,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-224 | gimle-controlplane | Node-death instance reclamation (`ReplicaCountReconciler`) | Reconciliation / Self-healing | `ReplicaCountReconcilerTest` (grace-period and persisted-state convergence tests present) |
 | GIMLE-226 | gimle-controlplane | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Reconciliation / Self-healing | `HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` |
 | GIMLE-232 | gimle-controlplane | DaemonSet dark-node placement-safety grace period | Reconciliation / Self-healing | `DaemonSetReconcilerTest#a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated`, `cordoning_a_dark_node_still_removes_its_assignment_immediately` |
+| GIMLE-566 | gimle-controlplane | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Reconciliation / Service Fabric | `ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest` |
 | GIMLE-390 | gimle-hilmir | Topology validation (`hilmir validate`) | Release Management | `TopologyValidatorTest` (extensive, ~25+ tests); `HilmirMainTest.validate_exits_zero_for_a_topology_with_no_error_severity_findings`, `validate_exits_one_and_lists_errors_before_warnings_for_a_broken_topology` |
 | GIMLE-391 | gimle-hilmir | Cluster launch planning (`hilmir plan`) | Release Management | `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple) |
 | GIMLE-392 | gimle-hilmir | Real multi-process cluster bring-up (`hilmir up`) | Release Management | `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest` |
@@ -6396,6 +6451,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-194 | gimle-fabric | Inbound Call Dispatch with Bounded Concurrency | Service Fabric | `FabricServerTest#a_real_inbound_call_is_visible_in_the_targets_in_flight_count_while_it_runs`, `#concurrent_calls_are_bounded_by_the_targets_executor_not_run_unbounded`, `#real_calls_are_recorded_in_the_targets_worker_metrics_including_errors` |
 | GIMLE-195 | gimle-fabric | Distributed Trace Propagation Across Fabric Hops | Service Fabric | `FabricServerTest#baggage_from_the_caller_survives_an_inbound_call_into_the_handler`, `#has_remote_span_distinguishes_a_real_caller_span_from_the_no_active_span_marker`, `FabricServerGlobalTracingTest#a_call_with_no_active_caller_span_starts_a_fresh_valid_trace_not_the_all_zero_marker`, `transport/FabricCodecTest#round_trips_a_non_empty_tracestate_and_baggage` |
 | GIMLE-196 | gimle-fabric | Fabric Transport over Mutual TLS with Hot Cert Reload | Service Fabric | `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls`, `#cross_machine_call_is_rejected_when_client_trusts_a_different_ca` |
+| GIMLE-568 | gimle-agent | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | `BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest` |
+| GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-498 | gimle-testkit | Heimdall event-driven cluster condition harness | Test Infrastructure | NONE recorded in the baseline |

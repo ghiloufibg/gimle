@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 565,
+  "requirementCount": 570,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -9737,6 +9737,100 @@
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)"
+      ]
+    },
+    {
+      "id": "GIMLE-566",
+      "module": "gimle-controlplane",
+      "feature": "Service abstraction: stable name, CRUD API, and endpoint reconciliation",
+      "category": "Reconciliation / Service Fabric",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang .feature scenario declares a Service (POST /services) and asserts it converges to a live backing instance's endpoint end to end; the closest existing scenarios (deployment-lifecycle.feature, module-system.feature) exercise Deployments and the same-worker service registry's own version cutover, never the new control-plane Service abstraction at all. To close: extend an existing .feature file (or add a new services.feature) with steps that POST a Service fronting a real deployed module, wait for GET /services/{name}/endpoints to report that module's live instance, and assert a caller can reach it through that endpoint.",
+      "otherTestCoverage": "`ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceRegistry.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-567",
+      "module": "gimle-fabric",
+      "feature": "Fabric listener-side tenant re-check on inbound service calls",
+      "category": "Fabric / Multi-tenancy",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario drives two tenants' modules through a real cluster and asserts a cross-tenant fabric call that bypasses FabricServiceRegistry's own caller-side filter is still rejected by the receiving worker. To close: a scenario would need two tenant-scoped modules, one exporting a tenant-restricted service and one holding another tenant's identity, plus a step that dials the raw ServiceEndpoint address directly (not through the registry's own lookup) to prove FabricServer's own listener-side re-check independently rejects it -- something no current .feature file attempts.",
+      "otherTestCoverage": "`FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-568",
+      "module": "gimle-agent",
+      "feature": "gimle-bifrost: per-node service proxy (kube-proxy analogue)",
+      "category": "Service Fabric",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario enables -Dgimle.agent.bifrostEnabled=true and asserts a caller can reach a declared Service through the node-local loopback proxy end to end. To close: boot a topology with Bifrost enabled on at least one node, declare a Service backed by a real deployed module, and assert a connection to the synthesized 127.x.y.1 ClusterIP address is forwarded to that module's live instance.",
+      "otherTestCoverage": "`BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest`",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/LoopbackAddressAllocator.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/HttpServiceSource.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-569",
+      "module": "gimle-skald",
+      "feature": "gimle-skald: cluster DNS server resolving Service names to live endpoints",
+      "category": "Service Fabric",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario boots a SkaldMain replica and asserts a DNS query against <service>.svc.gimle.local resolves to a live endpoint of a real deployed module. To close: boot Skald alongside the control plane in a topology, declare a Service backed by a real deployed module, and assert a standard A-record UDP query resolves to that module's live address -- Holmgang's topology support has no Skald process kind wired in yet at all.",
+      "otherTestCoverage": "`SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest`",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/ServiceDnsNames.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-570",
+      "module": "gimle-gateway",
+      "feature": "Gateway virtual-host routing and Service-backed (SERVICE) route kind",
+      "category": "Gateway/Routing",
+      "status": "New",
+      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang's Cucumber suite has no coverage of gimle-gateway at all today -- no .feature file references it. To close: add a gateway.feature scenario that boots a gateway alongside a real cluster, declares two routes at the same path (one HOST-constrained, one not) plus a SERVICE route backed by a control-plane Service fronting a real deployed module, and asserts each Host header dispatches to the right target and the SERVICE route proxies to a live endpoint.",
+      "otherTestCoverage": "`GatewayDispatcherTest` (6 relevant tests: host-constrained match, host mismatch 404, host-unconstrained route unaffected, fallthrough to host-unconstrained sibling, service route with no ready endpoint returns a clear error, cached endpoint list reused across dispatcher instances); `ServiceEndpointCacheTest` (11 tests: resolution, relay path, TTL caching/staleness fallback, error handling)",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayDispatcher.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayRoute.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/ServiceEndpointCache.java`"
       ]
     }
   ]

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 565
+- **Total requirements**: 570
 - **Covered by automated (Holmgang Cucumber) test**: 116
-- **Not covered by automated test**: 449
-- **Release-readiness (automated coverage)**: 20.5%
+- **Not covered by automated test**: 454
+- **Release-readiness (automated coverage)**: 20.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,15 +18,15 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 35 | 5 | 30 | 14.3% |
+| gimle-agent | 36 | 5 | 31 | 13.9% |
 | gimle-mimir | 46 | 31 | 15 | 67.4% |
-| gimle-fabric | 30 | 1 | 29 | 3.3% |
-| gimle-controlplane | 65 | 13 | 52 | 20.0% |
+| gimle-fabric | 31 | 1 | 30 | 3.2% |
+| gimle-controlplane | 66 | 13 | 53 | 19.7% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
 | gimle-andvari | 22 | 2 | 20 | 9.1% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
-| gimle-gateway | 15 | 0 | 15 | 0.0% |
+| gimle-gateway | 16 | 0 | 16 | 0.0% |
 | gimle-cli | 19 | 0 | 19 | 0.0% |
 | gimle-hilmir | 28 | 0 | 28 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -40,6 +40,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
 | gimle-dist | 5 | 0 | 5 | 0.0% |
+| gimle-skald | 1 | 0 | 1 | 0.0% |
 
 ## Checklist
 
@@ -489,6 +490,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-122 | Vessel crash respawn resets probe initial-delay clock | Given a vessel process crashes and VesselProcessSupervisor respawns it When onVesselRespawned fires Then instance.startedAt is reset to Instant.now() and lifecycleState set to STARTING Given the instance was already torn down (undeploy/reassignment) in the crash-to-respawn window Then nothing happens (instance is null, so nothing to reset) | No |
 
+#### Service Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Given BifrostProxy polling a ServiceSource that reports Service "orders" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints. Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed. Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services. | No |
+
 #### Worker Supervision
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -608,6 +615,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-187 | Circuit Breaker Exponential Cooldown Backoff | Given a breaker that re-opens repeatedly; When each re-open occurs; Then the cooldown doubles up to a ceiling; a successful half-open trial resets it. | No |
 | [ ] | GIMLE-188 | Panic-Mode Ejection Floor | Given a lookup whose candidates are more than maxEjectionPercent open-breaker; When selectAllowedCandidate runs; Then every candidate is admitted back in; no known exporter anywhere still throws GimleClusterException. | No |
 | [ ] | GIMLE-189 | Application-Exception vs Transport-Failure Breaker Scoring | Given a remote endpoint whose method throws an application exception; When the call completes with InvokeError; Then the breaker records a success; only genuine transport failures count against it. | No |
+
+#### Fabric / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"], When a caller wire-carrying callerTenantId "tenant-b" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId "tenant-a" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default. | No |
 
 #### Gossip Membership
 
@@ -836,6 +849,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-224 | Node-death instance reclamation (`ReplicaCountReconciler`) | Given an assignment's node hasn't heartbeated within nodeDarkTimeout, persisted beyond placementGracePeriod; When ReplicaCountReconciler ticks; Then the assignment is removed, freeing re-placement. | No |
 | [ ] | GIMLE-226 | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Given an instance's heartbeat reports alive=false or lifecycleState=FAILED; When HealthReconciler ticks; Then it is rescheduled after growing delay; once maxAttemptsPerWindow is exhausted it's marked permanently failed. | No |
 | [ ] | GIMLE-232 | DaemonSet dark-node placement-safety grace period | Given a node's heartbeat is stale but within nodeDarkTimeout+placementGracePeriod; When DaemonSetReconciler ticks; Then the assignment is left in place. | No |
+
+#### Reconciliation / Service Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely. | No |
 
 #### Scheduling
 
@@ -1130,6 +1149,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-367 | HTTP status-code error mapping across the dispatcher | Given a request to a path with no configured route Then the response is 404 Given a fabric route invoked with the wrong HTTP verb Then the response is 405 Given a downstream fabric call that throws Then the response is 502 | No |
 | [ ] | GIMLE-369 | Vessel proxy: no TLS, no header forwarding (v1 scope limitation) | Given a vessel target that reads a custom request header When a request carrying that header is proxied through the gateway Then the header is not forwarded to the target (only method/path/body cross) And the connection to the target is always plain HTTP, never HTTPS | No |
 | [ ] | GIMLE-370 | Fabric route "quiet success" ambiguity for a misrouted service name | Given a FabricRoute naming a service interface nothing currently exports When a request is dispatched to that route Then the response is 200 with an empty body (not an error) | No |
+| [ ] | GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | Given two routes declared at the same path, one HOST orders.example.com and one host-unconstrained, When a request arrives with Host: orders.example.com, Then the host-constrained route serves it; When a request arrives with a different or missing Host header, Then the host-unconstrained sibling serves it instead. Given a route declared HOST orders.example.com only, When a request arrives with a non-matching Host header, Then the response is 404, not a fallback to any other route at that path. Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200. | No |
 
 #### Internal/Infra
 
@@ -1536,3 +1556,11 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-562 | Cluster-machine platform distribution archive | Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and both wrapper scripts. | No |
 | [ ] | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Given `mvn -pl gimle-dist -am install -P dist-with-jre`, When the profile's exec-maven-plugin executions run, Then a trimmed JRE (--strip-debug --no-header-files --no-man-pages) is jlinked per component; the three archives additionally contain jre/<component>/ for their own components. | No |
 | [ ] | GIMLE-564 | Distribution archive checksums and SBOM generation | Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each. | No |
+
+### gimle-skald
+
+#### Service Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence. | No |
