@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Instant;
@@ -55,7 +56,8 @@ public record StateSnapshot(
     Set<String> cordonedNodes,
     List<InstanceEvent> instanceEvents,
     List<AuditEvent> auditEvents,
-    List<ServiceSpec> services) {
+    List<ServiceSpec> services,
+    List<NetworkPolicySpec> networkPolicies) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -101,5 +103,6 @@ public record StateSnapshot(
     instanceEvents = List.copyOf(instanceEvents);
     auditEvents = List.copyOf(auditEvents);
     services = List.copyOf(services);
+    networkPolicies = List.copyOf(networkPolicies);
   }
 }

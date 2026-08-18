@@ -10,6 +10,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.PeerAddress;
@@ -67,6 +68,9 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListDeployments r -> new StoreRpc.DeploymentListResult(store.listDeployments());
       case StoreRpc.GetService r -> serviceResult(store.getService(r.name()));
       case StoreRpc.ListServices r -> new StoreRpc.ServiceListResult(store.listServices());
+      case StoreRpc.GetNetworkPolicy r -> networkPolicyResult(store.getNetworkPolicy(r.name()));
+      case StoreRpc.ListNetworkPolicies r ->
+          new StoreRpc.NetworkPolicyListResult(store.listNetworkPolicies());
       case StoreRpc.ListAssignmentsFor r ->
           new StoreRpc.AssignmentListResult(store.listAssignmentsFor(r.deploymentName()));
       case StoreRpc.IsQuotaViolating r ->
@@ -263,6 +267,13 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.ServiceResult(true, v))
         .orElseGet(() -> new StoreRpc.ServiceResult(false, null));
+  }
+
+  private static StoreRpc.NetworkPolicyResult networkPolicyResult(
+      Optional<NetworkPolicySpec> value) {
+    return value
+        .map(v -> new StoreRpc.NetworkPolicyResult(true, v))
+        .orElseGet(() -> new StoreRpc.NetworkPolicyResult(false, null));
   }
 
   private static StoreRpc.JobSpecResult jobSpecResult(Optional<JobSpec> value) {

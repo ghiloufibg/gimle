@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
@@ -113,6 +114,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_SURGE_INDEX = 47;
   private static final byte MUT_PUT_SERVICE = 48;
   private static final byte MUT_REMOVE_SERVICE = 49;
+  private static final byte MUT_PUT_NETWORK_POLICY = 50;
+  private static final byte MUT_REMOVE_NETWORK_POLICY = 51;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -380,6 +383,14 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_SERVICE);
         out.writeUTF(m.name());
       }
+      case StateMutation.PutNetworkPolicy m -> {
+        out.writeByte(MUT_PUT_NETWORK_POLICY);
+        DomainCodec.writeNetworkPolicySpec(out, m.spec());
+      }
+      case StateMutation.RemoveNetworkPolicy m -> {
+        out.writeByte(MUT_REMOVE_NETWORK_POLICY);
+        out.writeUTF(m.name());
+      }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
         DomainCodec.writeInstanceAssignment(out, m.assignment());
@@ -597,6 +608,9 @@ public final class RaftCodec {
       case MUT_REMOVE_DEPLOYMENT -> new StateMutation.RemoveDeployment(in.readUTF());
       case MUT_PUT_SERVICE -> new StateMutation.PutService(DomainCodec.readServiceSpec(in));
       case MUT_REMOVE_SERVICE -> new StateMutation.RemoveService(in.readUTF());
+      case MUT_PUT_NETWORK_POLICY ->
+          new StateMutation.PutNetworkPolicy(DomainCodec.readNetworkPolicySpec(in));
+      case MUT_REMOVE_NETWORK_POLICY -> new StateMutation.RemoveNetworkPolicy(in.readUTF());
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
@@ -822,6 +836,10 @@ public final class RaftCodec {
       for (ServiceSpec spec : snapshot.services()) {
         DomainCodec.writeServiceSpec(out, spec);
       }
+      out.writeInt(snapshot.networkPolicies().size());
+      for (NetworkPolicySpec spec : snapshot.networkPolicies()) {
+        DomainCodec.writeNetworkPolicySpec(out, spec);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -998,6 +1016,11 @@ public final class RaftCodec {
       for (int i = 0; i < serviceCount; i++) {
         services.add(DomainCodec.readServiceSpec(in));
       }
+      List<NetworkPolicySpec> networkPolicies = new ArrayList<>();
+      int networkPolicyCount = in.readInt();
+      for (int i = 0; i < networkPolicyCount; i++) {
+        networkPolicies.add(DomainCodec.readNetworkPolicySpec(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -1027,7 +1050,8 @@ public final class RaftCodec {
           cordonedNodes,
           instanceEvents,
           auditEvents,
-          services);
+          services,
+          networkPolicies);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
