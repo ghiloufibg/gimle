@@ -40,5 +40,15 @@ public enum ResourceKind {
   // adjacent grant, meaningfully more consequential than an ordinary deployment submission, so it
   // gets its own independently withholdable kind rather than being folded into DEPLOYMENT -- the
   // same reasoning DAEMONSET/STATEFULSET already established.
-  ARTIFACT
+  ARTIFACT,
+  // Guards declaring/editing a Service (the ClusterIP analogue named in the platform's own
+  // network-model design): a stable address a Deployment/DaemonSet becomes reachable at is a
+  // meaningfully different grant than submitting the workload itself, worth withholding
+  // independently -- same reasoning as ARTIFACT/DAEMONSET/STATEFULSET above.
+  SERVICE,
+  // Guards declaring/editing a NetworkPolicy. Deliberately its own kind rather than folded into
+  // SERVICE: a NetworkPolicy restricts *other* tenants' access to what a Service exposes, so
+  // granting it is a materially different, more consequential authority than merely being able to
+  // declare a Service in the first place.
+  NETWORK_POLICY
 }

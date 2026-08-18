@@ -614,7 +614,8 @@ public final class FabricServiceRegistry implements ServiceRegistry {
               interfaceName,
               methodName,
               paramTypeNames,
-              serializedArgs);
+              serializedArgs,
+              selfTenantId);
       FabricFrame response;
       try {
         response = FabricClient.call(address, request);

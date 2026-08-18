@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -36,6 +37,14 @@ class FabricCodecTest {
             new byte[] {1, 2, 3}),
         new FabricFrame.InvokeRequest(
             43L, TRACE, "com.gimle.example.Greeter", "ping", new String[0], everyByteValue),
+        new FabricFrame.InvokeRequest(
+            44L,
+            TRACE,
+            "com.gimle.example.Greeter",
+            "greet",
+            new String[] {"java.lang.String"},
+            new byte[] {4, 5, 6},
+            Optional.of("tenant-a")),
         new FabricFrame.InvokeResponse(42L, everyByteValue),
         new FabricFrame.InvokeError(42L, everyByteValue));
   }
@@ -65,6 +74,22 @@ class FabricCodecTest {
             FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray()));
 
     assertEquals(trace, decoded.trace());
+  }
+
+  @Test
+  void the_back_compat_constructor_defaults_caller_tenant_id_to_empty() throws IOException {
+    FabricFrame.InvokeRequest original =
+        new FabricFrame.InvokeRequest(
+            1L, TRACE, "com.gimle.example.Greeter", "greet", new String[0], new byte[0]);
+    assertEquals(Optional.empty(), original.callerTenantId());
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    FabricCodec.write(buffer, original);
+    FabricFrame.InvokeRequest decoded =
+        (FabricFrame.InvokeRequest)
+            FabricCodec.read(new ByteArrayInputStream(buffer.toByteArray()));
+
+    assertEquals(Optional.empty(), decoded.callerTenantId());
   }
 
   @Test
@@ -142,8 +167,8 @@ class FabricCodecTest {
             GimleCodecException.class,
             () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
     assertTrue(
-        thrown.getMessage().contains("99") && thrown.getMessage().contains("2"),
-        "expected the message to name both the declared (99) and max supported (2) versions, got: "
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("3"),
+        "expected the message to name both the declared (99) and max supported (3) versions, got: "
             + thrown.getMessage());
   }
 
@@ -171,6 +196,7 @@ class FabricCodecTest {
         assertEquals(e.methodName(), a.methodName());
         assertArrayEquals(e.paramTypeNames(), a.paramTypeNames());
         assertArrayEquals(e.serializedArgs(), a.serializedArgs());
+        assertEquals(e.callerTenantId(), a.callerTenantId());
       }
       case FabricFrame.InvokeResponse e ->
           assertArrayEquals(

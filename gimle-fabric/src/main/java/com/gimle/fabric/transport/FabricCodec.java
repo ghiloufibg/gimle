@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.util.Optional;
 
 /**
  * Encodes/decodes a {@link FabricFrame} as a 4-byte big-endian length prefix followed by a one-byte
@@ -31,8 +32,9 @@ public final class FabricCodec {
   /**
    * The only wire-protocol version any writer produces today; bump this when the shape changes.
    * Bumped 1 -> 2 by the {@code tracestate}/{@code baggage} additions to {@link TraceContext}.
+   * Bumped 2 -> 3 by {@link FabricFrame.InvokeRequest#callerTenantId()}.
    */
-  private static final int CURRENT_VERSION = 2;
+  private static final int CURRENT_VERSION = 3;
 
   private static final byte TAG_INVOKE_REQUEST = 0;
   private static final byte TAG_INVOKE_RESPONSE = 1;
@@ -96,6 +98,7 @@ public final class FabricCodec {
             out.writeUTF(paramTypeName);
           }
           writeBytes(out, r.serializedArgs());
+          writeOptionalUtf(out, r.callerTenantId());
         }
         case FabricFrame.InvokeResponse r -> {
           out.writeByte(TAG_INVOKE_RESPONSE);
@@ -135,8 +138,15 @@ public final class FabricCodec {
             paramTypeNames[i] = in.readUTF();
           }
           byte[] serializedArgs = readBytes(in);
+          Optional<String> callerTenantId = readOptionalUtf(in);
           yield new FabricFrame.InvokeRequest(
-              correlationId, trace, interfaceName, methodName, paramTypeNames, serializedArgs);
+              correlationId,
+              trace,
+              interfaceName,
+              methodName,
+              paramTypeNames,
+              serializedArgs,
+              callerTenantId);
         }
         case TAG_INVOKE_RESPONSE -> new FabricFrame.InvokeResponse(in.readLong(), readBytes(in));
         case TAG_INVOKE_ERROR -> new FabricFrame.InvokeError(in.readLong(), readBytes(in));
@@ -164,6 +174,18 @@ public final class FabricCodec {
     String tracestate = in.readUTF();
     String baggage = in.readUTF();
     return new TraceContext(traceIdHigh, traceIdLow, spanId, flags, tracestate, baggage);
+  }
+
+  private static void writeOptionalUtf(DataOutputStream out, Optional<String> value)
+      throws IOException {
+    out.writeBoolean(value.isPresent());
+    if (value.isPresent()) {
+      out.writeUTF(value.get());
+    }
+  }
+
+  private static Optional<String> readOptionalUtf(DataInputStream in) throws IOException {
+    return in.readBoolean() ? Optional.of(in.readUTF()) : Optional.empty();
   }
 
   private static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {
