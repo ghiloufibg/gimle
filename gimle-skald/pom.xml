@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.1</version>
+  </parent>
+
+  <artifactId>gimle-skald</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Skald</name>
+  <description>
+    The cluster DNS server: a small first-party UDP responder answering standard A queries for
+    &lt;service&gt;.&lt;tenant&gt;.svc.gimle.local (untenanted: &lt;service&gt;.svc.gimle.local) by
+    polling the control plane's Service/endpoint API and caching the result in memory. Gives
+    workloads with no fabric-registry access of their own -- anything that can only do a plain
+    socket lookup, not just fabric-aware Java -- a way to resolve a Service name to a live address.
+  </description>
+
+  <properties>
+    <gimle.runtimeImage.launcherClass>com.gimle.skald.SkaldMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http</gimle.runtimeImage.jdkModules>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+</project>

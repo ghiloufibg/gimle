@@ -1,0 +1,179 @@
+package com.gimle.skald;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.gimle.skald.directory.CachingServiceDirectory;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Drives a real bound {@link SkaldServer} over a loopback UDP socket with hand-crafted RFC 1035
+ * query bytes, the same shape a real resolver's own query takes, and inspects the raw response
+ * bytes directly -- proving the wire format end to end rather than only exercising {@link
+ * com.gimle.skald.dns.DnsCodec} in isolation.
+ */
+final class SkaldServerTest {
+
+  private CachingServiceDirectory directory;
+  private SkaldServer server;
+  private DatagramSocket clientSocket;
+
+  @BeforeEach
+  void setUp() throws IOException {
+    directory = new CachingServiceDirectory();
+    server = new SkaldServer(directory, 0);
+    clientSocket = new DatagramSocket();
+    clientSocket.setSoTimeout(5_000);
+  }
+
+  @AfterEach
+  void tearDown() {
+    clientSocket.close();
+    server.close();
+  }
+
+  @Test
+  void answers_a_tenant_scoped_hit_with_one_a_record() throws IOException {
+    directory.replaceAll(Map.of("orders.acme", List.of("10.0.0.5")));
+
+    byte[] response = query(0x1234, "orders.acme.svc.gimle.local", 1);
+
+    assertEquals(0x1234, unsignedShort(response, 0)); // echoes the query id
+    int flags = unsignedShort(response, 2);
+    assertEquals(1, (flags >>> 15) & 0x1); // QR: response
+    assertEquals(1, (flags >>> 10) & 0x1); // AA: authoritative
+    assertEquals(0, flags & 0xF); // RCODE: NOERROR
+    assertEquals(1, unsignedShort(response, 4)); // QDCOUNT
+    assertEquals(1, unsignedShort(response, 6)); // ANCOUNT
+    assertArrayEquals(
+        new byte[] {10, 0, 0, 5}, answerRdata(response, "orders.acme.svc.gimle.local"));
+  }
+
+  @Test
+  void answers_an_untenanted_hit_and_round_robins_across_endpoints() throws IOException {
+    directory.replaceAll(Map.of("orders", List.of("10.0.0.5", "10.0.0.6")));
+
+    byte[] first = query(0x1, "orders.svc.gimle.local", 1);
+    byte[] second = query(0x2, "orders.svc.gimle.local", 1);
+
+    byte[] firstRdata = answerRdata(first, "orders.svc.gimle.local");
+    byte[] secondRdata = answerRdata(second, "orders.svc.gimle.local");
+    assertArrayEquals(new byte[] {10, 0, 0, 5}, firstRdata);
+    assertArrayEquals(new byte[] {10, 0, 0, 6}, secondRdata);
+  }
+
+  @Test
+  void answers_unknown_name_with_nxdomain() throws IOException {
+    byte[] response = query(0x2222, "missing.svc.gimle.local", 1);
+
+    assertEquals(0x2222, unsignedShort(response, 0));
+    int flags = unsignedShort(response, 2);
+    assertEquals(3, flags & 0xF); // RCODE: NXDOMAIN
+    assertEquals(0, unsignedShort(response, 6)); // ANCOUNT
+  }
+
+  @Test
+  void answers_unsupported_query_type_with_notimp() throws IOException {
+    directory.replaceAll(Map.of("orders", List.of("10.0.0.5")));
+
+    byte[] response = query(0x3333, "orders.svc.gimle.local", 28); // AAAA, not A
+
+    assertEquals(0x3333, unsignedShort(response, 0));
+    int flags = unsignedShort(response, 2);
+    assertEquals(4, flags & 0xF); // RCODE: NOTIMP
+    assertEquals(0, unsignedShort(response, 6)); // ANCOUNT
+  }
+
+  @Test
+  void answers_unsupported_opcode_with_notimp() throws IOException {
+    byte[] response = query(0x4444, "orders.svc.gimle.local", 1, /* opcode= */ 1);
+
+    int flags = unsignedShort(response, 2);
+    assertEquals(4, flags & 0xF); // RCODE: NOTIMP
+  }
+
+  @Test
+  void drops_a_malformed_datagram_instead_of_replying() throws IOException {
+    byte[] garbage = new byte[] {1, 2, 3}; // shorter than a 12-byte header
+    clientSocket.send(
+        new DatagramPacket(
+            garbage, garbage.length, InetAddress.getLoopbackAddress(), server.port()));
+
+    clientSocket.setSoTimeout(500);
+    byte[] buf = new byte[512];
+    assertThrows(
+        SocketTimeoutException.class,
+        () -> clientSocket.receive(new DatagramPacket(buf, buf.length)));
+  }
+
+  private byte[] query(int id, String name, int qtype) throws IOException {
+    return query(id, name, qtype, /* opcode= */ 0);
+  }
+
+  private byte[] query(int id, String name, int qtype, int opcode) throws IOException {
+    byte[] request = buildQuery(id, name, qtype, opcode);
+    clientSocket.send(
+        new DatagramPacket(
+            request, request.length, InetAddress.getLoopbackAddress(), server.port()));
+    byte[] buf = new byte[512];
+    DatagramPacket responsePacket = new DatagramPacket(buf, buf.length);
+    clientSocket.receive(responsePacket);
+    return Arrays.copyOf(buf, responsePacket.getLength());
+  }
+
+  private static byte[] buildQuery(int id, String name, int qtype, int opcode) throws IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DataOutputStream out = new DataOutputStream(buffer);
+    out.writeShort(id);
+    int flags = 0;
+    flags |= (opcode & 0xF) << 11;
+    flags |= 1 << 8; // RD=1, matching a real resolver's own default
+    out.writeShort(flags);
+    out.writeShort(1); // QDCOUNT
+    out.writeShort(0); // ANCOUNT
+    out.writeShort(0); // NSCOUNT
+    out.writeShort(0); // ARCOUNT
+    out.write(encodeName(name));
+    out.writeShort(qtype);
+    out.writeShort(1); // QCLASS: IN
+    return buffer.toByteArray();
+  }
+
+  private static byte[] encodeName(String dotted) throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    for (String label : dotted.split("\\.")) {
+      byte[] bytes = label.getBytes(StandardCharsets.US_ASCII);
+      out.write(bytes.length);
+      out.write(bytes);
+    }
+    out.write(0);
+    return out.toByteArray();
+  }
+
+  /** Locates and extracts the 4-byte RDATA of a response's first (and only) answer record. */
+  private static byte[] answerRdata(byte[] response, String queriedName) throws IOException {
+    int questionEnd = 12 + encodeName(queriedName).length + 4; // header + QNAME + QTYPE/QCLASS
+    int rdataOffset = questionEnd + 2 + 2 + 2 + 4 + 2; // NAME ptr + TYPE + CLASS + TTL + RDLENGTH
+    byte[] rdata = new byte[4];
+    System.arraycopy(response, rdataOffset, rdata, 0, 4);
+    return rdata;
+  }
+
+  private static int unsignedShort(byte[] data, int offset) {
+    return ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
+  }
+}
