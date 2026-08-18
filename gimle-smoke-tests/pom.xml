@@ -101,6 +101,16 @@
       <artifactId>gimle-andvari</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Same reasoning again, for SkaldMain: the cluster DNS replica ServiceNetworkIT spawns to
+         resolve a Service's own name over a real UDP query. Explicit version rather than relying
+         on the root pom's own dependencyManagement: gimle-skald is registered in the root
+         reactor's <modules> but was never added to that block, so a version here is required. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-skald</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <!--
       Real synthetic HTTP load for the multi-signal-autoscaling-under-real-load QA scenario
       (AutoscaleIT#a_deployment_scales_up_under_real_gatling_generated_request_rate_load): Gatling
