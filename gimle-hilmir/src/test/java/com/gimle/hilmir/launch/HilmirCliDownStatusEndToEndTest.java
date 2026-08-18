@@ -1,7 +1,6 @@
 package com.gimle.hilmir.launch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.hilmir.HilmirMain;
@@ -64,9 +63,30 @@ class HilmirCliDownStatusEndToEndTest {
 
       final Result downResult = run("down", "--machine", "m1", "--data-root", tempDir.toString());
       assertEquals(0, downResult.exitCode());
-      assertFalse(fixture.isAlive());
+      // down() kills the process via its own fresh ProcessHandle.of(pid), confirmed dead through
+      // that handle's own onExit() before returning -- but this test's own `fixture` Process object
+      // opened an independent OS handle to the same pid at spawn time, and on Windows that object's
+      // isAlive() can briefly still report true for a few hundred milliseconds after the process is
+      // genuinely gone (observed empirically: never more than ~200ms). Bounded poll rather than an
+      // immediate assertion, so this test doesn't flake on that harmless, real JDK/OS lag.
+      awaitDead(fixture);
     } finally {
       fixture.destroyForcibly();
+    }
+  }
+
+  private static void awaitDead(final Process process) throws IOException {
+    final long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+    while (process.isAlive()) {
+      if (System.nanoTime() >= deadline) {
+        throw new IOException("process " + process.pid() + " still alive 5s after down");
+      }
+      try {
+        Thread.sleep(20);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("interrupted while awaiting process death", e);
+      }
     }
   }
 

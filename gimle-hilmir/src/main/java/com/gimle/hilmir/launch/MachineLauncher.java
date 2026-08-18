@@ -10,9 +10,11 @@ import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -44,6 +46,7 @@ public final class MachineLauncher {
   private static final Duration READINESS_TIMEOUT = Duration.ofMinutes(2);
   private static final Duration ONE_SHOT_TIMEOUT = Duration.ofSeconds(60);
   private static final Duration KILL_GRACE_PERIOD = Duration.ofSeconds(5);
+  private static final Duration LOG_FILE_RELEASE_TIMEOUT = Duration.ofSeconds(2);
   private static final Pattern BOOTSTRAP_TOKEN_PATTERN = Pattern.compile("bootstrap token: (\\S+)");
 
   private MachineLauncher() {}
@@ -158,7 +161,7 @@ public final class MachineLauncher {
 
     out.println(
         "stopping " + role + " " + command.id() + " (pid " + existing.pid() + ") for restart...");
-    killWithDescendants(existing, out);
+    killWithDescendants(newRuntime.dataRoot(), existing, out);
 
     final RunRecord fresh = spawn(topology, newRuntime, command, out);
 
@@ -403,13 +406,14 @@ public final class MachineLauncher {
   public static void down(final Path dataRoot, final PrintStream out) {
     final List<RunRecord> records = RunLedger.read(dataRoot);
     for (int i = records.size() - 1; i >= 0; i--) {
-      killWithDescendants(records.get(i), out);
+      killWithDescendants(dataRoot, records.get(i), out);
     }
     RunLedger.delete(dataRoot);
     out.println("removed run ledger under " + dataRoot);
   }
 
-  private static void killWithDescendants(final RunRecord record, final PrintStream out) {
+  private static void killWithDescendants(
+      final Path dataRoot, final RunRecord record, final PrintStream out) {
     final Optional<ProcessHandle> maybeHandle = ProcessHandle.of(record.pid());
     if (maybeHandle.isEmpty()) {
       out.println(record.role() + " " + record.id() + " (pid " + record.pid() + ") already gone");
@@ -422,7 +426,39 @@ public final class MachineLauncher {
       handle.destroyForcibly();
       awaitExit(handle, KILL_GRACE_PERIOD);
     }
+    awaitLogFileReleased(dataRoot.resolve(record.logFile()));
     out.println("stopped " + record.role() + " " + record.id() + " (pid " + record.pid() + ")");
+  }
+
+  /**
+   * On Windows, a just-terminated process's own OS handle to its redirected log file can outlive
+   * {@link ProcessHandle#onExit()} resolving by a few milliseconds -- so a caller that touches that
+   * file immediately after {@code down}/{@code restartRole} returns (an operator archiving logs, or
+   * this launcher's own tests deleting their temp directory) can still race an "in use by another
+   * process" failure even though the process is confirmed dead. Polls briefly for the file to become
+   * exclusively openable before returning; a no-op in practice on POSIX, which never locks a file
+   * this way to begin with. Best-effort: gives up silently after {@link #LOG_FILE_RELEASE_TIMEOUT}
+   * rather than failing the whole {@code down}, since an unrelated tool (a tailing log viewer, an
+   * antivirus scan) could hold the file open indefinitely for reasons outside this launcher's own
+   * control.
+   */
+  private static void awaitLogFileReleased(final Path logFile) {
+    if (Files.notExists(logFile)) {
+      return;
+    }
+    final long deadline = System.nanoTime() + LOG_FILE_RELEASE_TIMEOUT.toNanos();
+    while (System.nanoTime() < deadline) {
+      try (FileChannel ignored = FileChannel.open(logFile, StandardOpenOption.WRITE)) {
+        return;
+      } catch (final IOException e) {
+        try {
+          Thread.sleep(25);
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return;
+        }
+      }
+    }
   }
 
   /** Returns {@code true} once {@code handle} has exited, or {@code false} on timeout. */

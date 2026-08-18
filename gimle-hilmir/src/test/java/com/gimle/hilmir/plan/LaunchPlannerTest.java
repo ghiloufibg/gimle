@@ -39,6 +39,18 @@ class LaunchPlannerTest {
         .orElseThrow(() -> new AssertionError("no command " + id + " on machine " + machine));
   }
 
+  // LaunchPlanner builds every path via java.nio.file.Path off RUNTIME's own dataRoot / the
+  // topology's own tls.materialDir, both parsed the same way -- so an expected value must resolve
+  // through Path too, not a hardcoded POSIX literal, to stay correct on every OS this module's own
+  // tests run on (data.root=/data resolves with '\' on Windows, '/' everywhere else).
+  private static String dataPath(final String leaf) {
+    return Path.of("/data", leaf).toString();
+  }
+
+  private static String tlsPath(final String leaf) {
+    return Path.of("/etc/gimle/tls", leaf).toString();
+  }
+
   @Test
   void plans_a_minimal_single_machine_plaintext_topology() {
     final Topology topology =
@@ -65,12 +77,12 @@ class LaunchPlannerTest {
     assertEquals(
         List.of(
             "java",
-            "-Dgimle.data.root=/data/store-0",
-            "-Dgimle.log.root=/data/store-0-logs",
+            "-Dgimle.data.root=" + dataPath("store-0"),
+            "-Dgimle.log.root=" + dataPath("store-0-logs"),
             "-cp",
             "test-classpath",
             "com.gimle.mimir.StoreMain",
-            "/data/store-0",
+            dataPath("store-0"),
             "9080",
             "9091",
             "--host",
@@ -80,13 +92,13 @@ class LaunchPlannerTest {
     assertEquals(
         List.of(
             "java",
-            "-Dgimle.data.root=/data/controlplane-0",
-            "-Dgimle.log.root=/data/controlplane-0-logs",
+            "-Dgimle.data.root=" + dataPath("controlplane-0"),
+            "-Dgimle.log.root=" + dataPath("controlplane-0-logs"),
             "-cp",
             "test-classpath",
             "com.gimle.controlplane.ControlPlaneMain",
             "8080",
-            "/data/controlplane-0-secret.key",
+            dataPath("controlplane-0-secret.key"),
             "--host",
             "127.0.0.1",
             "--store-endpoints",
@@ -98,13 +110,13 @@ class LaunchPlannerTest {
     assertEquals(
         List.of(
             "java",
-            "-Dgimle.data.root=/data/fafnir-0",
-            "-Dgimle.log.root=/data/fafnir-0-logs",
+            "-Dgimle.data.root=" + dataPath("fafnir-0"),
+            "-Dgimle.log.root=" + dataPath("fafnir-0-logs"),
             "-cp",
             "test-classpath",
             "com.gimle.fafnir.FafnirMain",
             "9092",
-            "/etc/gimle/fafnir-secret.key",
+            Path.of("/etc/gimle/fafnir-secret.key").toString(),
             "--host",
             "127.0.0.1",
             "--store-endpoints",
@@ -115,8 +127,8 @@ class LaunchPlannerTest {
         List.of(
             "java",
             "-Dgimle.agent.fafnirEndpoint=127.0.0.1:9092",
-            "-Dgimle.data.root=/data/agent-node-a",
-            "-Dgimle.log.root=/data/agent-node-a-logs",
+            "-Dgimle.data.root=" + dataPath("agent-node-a"),
+            "-Dgimle.log.root=" + dataPath("agent-node-a-logs"),
             "-cp",
             "test-classpath",
             "com.gimle.agent.AgentMain",
@@ -250,21 +262,21 @@ class LaunchPlannerTest {
     final List<String> controlPlaneTlsFlags =
         List.of(
             "-Dgimle.transport.protocol=tls",
-            "-Dgimle.tls.certFile=/etc/gimle/tls/controlplane.crt",
-            "-Dgimle.tls.keyFile=/etc/gimle/tls/controlplane.key",
-            "-Dgimle.tls.caFile=/etc/gimle/tls/ca.crt");
+            "-Dgimle.tls.certFile=" + tlsPath("controlplane.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("controlplane.key"),
+            "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
     assertTrue(only(plan, "m1", "store-0").command().containsAll(controlPlaneTlsFlags));
 
     final ProcessCommand controlPlane = only(plan, "m1", "controlplane-0");
     assertTrue(controlPlane.command().containsAll(controlPlaneTlsFlags));
-    assertTrue(controlPlane.command().contains("-Dgimle.pki.caKeyFile=/etc/gimle/tls/ca.key"));
+    assertTrue(controlPlane.command().contains("-Dgimle.pki.caKeyFile=" + tlsPath("ca.key")));
 
     final List<String> fafnirTlsFlags =
         List.of(
             "-Dgimle.transport.protocol=tls",
-            "-Dgimle.tls.certFile=/etc/gimle/tls/fafnir.crt",
-            "-Dgimle.tls.keyFile=/etc/gimle/tls/fafnir.key",
-            "-Dgimle.tls.caFile=/etc/gimle/tls/ca.crt");
+            "-Dgimle.tls.certFile=" + tlsPath("fafnir.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("fafnir.key"),
+            "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
     assertTrue(only(plan, "m1", "fafnir-0").command().containsAll(fafnirTlsFlags));
 
     final ProcessCommand agent = only(plan, "m1", "agent-node-a");
@@ -273,8 +285,8 @@ class LaunchPlannerTest {
             .command()
             .containsAll(
                 List.of(
-                    "-Dgimle.tls.certFile=/etc/gimle/tls/node-node-a.crt",
-                    "-Dgimle.tls.keyFile=/etc/gimle/tls/node-node-a.key")));
+                    "-Dgimle.tls.certFile=" + tlsPath("node-node-a.crt"),
+                    "-Dgimle.tls.keyFile=" + tlsPath("node-node-a.key"))));
     assertTrue(agent.needsBootstrapToken());
   }
 
