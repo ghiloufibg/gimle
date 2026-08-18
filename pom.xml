@@ -32,6 +32,7 @@
     <module>gimle-controlplane</module>
     <module>gimle-fabric</module>
     <module>gimle-gateway</module>
+    <module>gimle-skald</module>
     <module>gimle-cli</module>
     <module>gimle-hilmir</module>
     <module>gimle-console</module>
