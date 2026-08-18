@@ -68,6 +68,45 @@ the same-worker shortcut — it genuinely goes over the wire.
   elapses. Before this, only an outright refused or reset connection failed fast; a wedged peer
   left a caller hanging indefinitely with nothing to trip the breaker at all.
 
+## The Service abstraction: a stable name in front of a Deployment
+
+Everything above is about a *fabric-published service* — an interface one module exports and
+another looks up by `Class<T>` or by name. `ServiceSpec` (`gimle-mimir`) is a different, though
+related, thing: the ClusterIP analogue named in the platform's own network-model design, a
+control-plane-declared stable name (`name`, `deploymentNames`, `port`/`targetPort`) in front of the
+live instances backing one or more `DeploymentSpec`/DaemonSet workloads, selected by workload name
+rather than a label-expression system. `gimle-controlplane`'s `ServiceReconciler` is level-triggered
+like every other reconciler in this codebase — each tick recomputes a Service's full endpoint list
+from scratch off the current store snapshot rather than diffing against the last tick, so an empty
+store, a mid-rollout store, and a fully-converged store all take the same code path. `ApiServer`
+exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (returning
+`{"name","port","targetPort","endpoints":[{"host","port"}]}`), RBAC-gated via `ResourceKind.SERVICE`.
+
+A `NetworkPolicySpec` record (same package) is declared alongside `ServiceSpec` as the NetworkPolicy
+analogue — a deny-by-default restriction on which other tenants may call into a tenant's own
+Services — but it has **no enforcement wired up yet**: nothing outside its own package and its own
+test reads it. Real cross-tenant enforcement landed on the listener side instead, independent of
+`NetworkPolicySpec`: `FabricServer.dispatch` now re-checks a target's own `ServiceExport
+.allowedTenantIds` against the caller's wire-carried tenant identity before invoking it, rather than
+trusting that whatever caller-side filtering ran first was the only gate — closing the bypass where
+a caller dials the raw catalog address directly instead of going through that filter. This is the
+same "forwarded claim, independently re-checked at the far end" posture Fafnir/Muninn/Andvari each
+apply to identity, applied here to cross-tenant fabric traffic.
+
+### `gimle-bifrost`: the per-node service proxy
+
+`gimle-agent` gained a per-node Service proxy, package `com.gimle.agent.bifrost` — the kube-proxy
+analogue, off by default (`-Dgimle.agent.bifrostEnabled=true`). `BifrostProxy` is level-triggered
+the same way `ServiceReconciler` is: on a fixed poll interval it recomputes the desired listener set
+from whatever a `ServiceSource` reports right now, binding a stable loopback-alias address
+(`LoopbackAddressAllocator`) for each currently-known Service and round-robin-forwarding accepted
+connections to that Service's live endpoints, closing listeners for Services that disappeared and
+opening new ones for Services that appeared — a missed or failed poll self-heals on the next one
+rather than leaving stale listeners behind. It's embedded inside `gimle-agent`, not a new process
+kind. `gimle-skald` (see [Node topology](./node-topology.md#skald)) resolves the same Service/
+endpoint data by name over DNS instead of by loopback address, for callers outside the fabric
+entirely.
+
 ## Membership: gossip, not the control plane
 
 Failure detection between machines is a SWIM-style gossip protocol running peer-to-peer between
@@ -125,23 +164,37 @@ reserved `gimle-system` tenant — see [Multi-tenancy and quotas § the reserved
 tenant](./multi-tenancy.md) — so only a `gimle:operators`-group credential can ever submit or
 change it.
 
-The gateway supports two route kinds, declared in the same route table. A **fabric route**
-resolves and invokes a fabric-published service by name via `ServiceRegistry#invokeByName` (above)
-— an external HTTP client hits the gateway, the gateway calls the named service, the result comes
-back as the HTTP response. A **vessel route** instead proxies the inbound request, verbatim, to a
-live instance of a named deployment: it resolves a `host`/port pair via
-`ModuleContext#relayControlPlaneRead("/endpoints/" + deploymentName)` — the narrow, whitelisted
-read-back into the control plane's own HTTP API that lets a hosted module answer "where does
-`deploymentName` currently run?" despite a worker JVM having no outbound network identity of its
-own — and makes a plain outbound HTTP call to it.
+The gateway supports three route kinds, declared in the same route table, each optionally
+constrained to a specific virtual host. A **fabric route** resolves and invokes a fabric-published
+service by name via `ServiceRegistry#invokeByName` (above) — an external HTTP client hits the
+gateway, the gateway calls the named service, the result comes back as the HTTP response. A
+**vessel route** instead proxies the inbound request, verbatim, to a live instance of a named
+deployment: it resolves a `host`/port pair via `ModuleContext
+#relayControlPlaneRead("/endpoints/" + deploymentName)` — the narrow, whitelisted read-back into the
+control plane's own HTTP API that lets a hosted module answer "where does `deploymentName`
+currently run?" despite a worker JVM having no outbound network identity of its own — and makes a
+plain outbound HTTP call to it. A **service route** proxies instead to a control-plane-declared
+[`Service`](#the-service-abstraction-a-stable-name-in-front-of-a-deployment) by name — the same
+shape as a vessel route, but resolving against a Service's own fronted endpoint set (which can span
+more than one Deployment) rather than a single deployment's own endpoints directly.
+
+Every route may optionally be constrained to a hostname: a route with a `HOST <hostname>` prefix
+only matches a request whose `Host` header matches that hostname, and a route with no `HOST` prefix
+matches any host — the same additive, fully backward-compatible extension to the existing
+exact-path matching that lets an existing route table keep working unchanged after upgrading. Two
+routes sharing the same `httpPath` and the same host constraint (including two host-unconstrained
+routes) is a config error caught at parse time, the same as a malformed line; a host-constrained
+route and a host-unconstrained route may share a path, with the more specific, host-constrained one
+taking precedence for a matching `Host` header.
 
 Route configuration is a single `ctx.config("gateway.routes")` value (delivered the same tenant-
 scoped way any other plain config is — see [Multi-tenancy and quotas](./multi-tenancy.md)), one
-route per line, starting with an explicit kind token:
+route per line, starting with an optional `HOST` prefix and then an explicit kind token:
 
 ```text
-FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
-VESSEL <httpPath> <deploymentName> <portName>
+[HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
+[HOST <hostname>] VESSEL <httpPath> <deploymentName> <portName>
+[HOST <hostname>] SERVICE <httpPath> <serviceName>
 ```
 
 **`FABRIC` routes.** `paramType` is `NONE` (served on `GET`) or one of
@@ -170,10 +223,23 @@ one with zero currently-usable endpoints, reports a proxying error back to the e
 to the vessel instance and real per-instance health-awareness beyond the host/port-present heuristic
 are both out of scope for v1.
 
-`ctx.config("gateway.port")` supplies the fixed listen port for either route kind — there is no
+**`SERVICE` routes.** `serviceName` names the control-plane-declared
+[`Service`](#the-service-abstraction-a-stable-name-in-front-of-a-deployment) this route proxies to,
+resolved via `ModuleContext#relayControlPlaneRead("/services/" + serviceName + "/endpoints")` and
+round-robined by `ServiceEndpointCache` on the same TTL-cache, refresh-lazily, serve-stale-on-failure
+posture `VesselEndpointCache` already established for vessel routes — the two caches share that
+shape deliberately rather than one wrapping the other, since a Service's endpoint entries carry
+their own fixed `host`/`port` directly rather than a map of named ports the way a vessel workload's
+own declared ports do. Otherwise a service route behaves exactly like a vessel route: full request/
+response passthrough, no header forwarding, no path rewriting, `httpPath` matched verbatim.
+
+`ctx.config("gateway.port")` supplies the fixed listen port for any route kind — there is no
 platform-level port allocation for modules yet, so an operator is responsible for picking one that
 doesn't collide across co-located `DaemonSet` instances, the same posture `greeter-load-generator`'s
-own `load.port` config key takes for its own listen port.
+own `load.port` config key takes for its own listen port. The gateway's own listener is plain HTTP
+only — `GatewayHooks` binds a plain `HttpServer`, with no TLS termination at the gateway itself yet;
+an operator fronting it with TLS today has to terminate that TLS somewhere else in front of the
+gateway.
 
 See `gimle-gateway/deployment.yaml` for a complete worked example, including the two `/config/
 gimle-system/*` API calls a real deployment needs alongside the manifest itself.

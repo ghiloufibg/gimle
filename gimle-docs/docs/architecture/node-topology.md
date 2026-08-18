@@ -6,7 +6,7 @@ import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
 
 # Node topology
 
-Seven Java process roles run across a cluster — no other runtime, no containers, no sidecars. The
+Eight Java process roles run across a cluster — no other runtime, no containers, no sidecars. The
 animation below builds the cluster up one process kind at a time; it gets dense once every kind is
 present, so use the frame's own zoom controls (or scroll/drag once zoomed, or the fullscreen
 button) to read the labels once it settles (source: `diagrams/node-topology-cluster.d2`; the
@@ -33,6 +33,7 @@ graph TD
     Fafnir["Fafnir<br/>(gimle-fafnir, K replicas)"]
     Muninn["Muninn<br/>(gimle-muninn, logs/metrics/traces sink)"]
     Andvari["Andvari<br/>(gimle-andvari, module artifact registry)"]
+    Skald["Skald<br/>(gimle-skald, cluster DNS over UDP)"]
     Agent -->|reports capacity/state, executes placement| CP
     Agent -->|fetches secret values directly, mTLS| Fafnir
     CP <-->|StoreRpc, TCP| Store
@@ -47,6 +48,7 @@ graph TD
     Fafnir -.->|ships own request metrics/traces| Muninn
     Store -.->|ships own RPC metrics/traces| Muninn
     CP -->|proxies /logs/*, /metrics-history/*, /traces-history/*| Muninn
+    Skald -.->|polls Service endpoints, HTTP| CP
 ```
 
 The control plane, the store, and Fafnir are three independently-scalable process kinds, not
@@ -56,12 +58,17 @@ further for secret material specifically (see [Control plane](./control-plane.md
 unified sink every other process ships logs/metrics/traces to, rather than each owning its own
 export path. Andvari (below) is a fifth: the module artifact registry, the one place module jars
 are pushed to and pulled from rather than every node needing them pre-placed on its own
-filesystem.
+filesystem. Skald (below) is a sixth: cluster DNS, resolving `<service>.<tenant>.svc.gimle.local`
+`A` queries for anything that would rather look a Service up by name than poll the control plane's
+own `/services/*` API directly — see [Service fabric](./service-fabric.md) for the Service
+abstraction Skald resolves against.
 
-The north-south HTTP gateway (`gimle-gateway`) is deliberately *not* an eighth process kind here —
+The north-south HTTP gateway (`gimle-gateway`) is deliberately *not* a ninth process kind here —
 it's an ordinary hosted module running inside a Worker JVM like any other, just one an operator
 deploys as a `DaemonSet` onto edge-labeled nodes. See [Service fabric § the gateway
-module](./service-fabric.md#the-gateway-module).
+module](./service-fabric.md#the-gateway-module). `gimle-bifrost`, the per-node service proxy, is
+likewise not a process kind of its own — it's embedded inside `gimle-agent` (see [Service
+fabric](./service-fabric.md) for both).
 
 ## Node Agent
 
@@ -231,6 +238,20 @@ trusted from an uploaded sidecar; `.pom` and any client-computed checksum sideca
 stored opaquely, never parsed; `maven-metadata.xml` is generated on every request from the live
 version list, never stored as uploaded, so a stale or hand-edited metadata file can never hide a
 real version.
+
+## Skald
+
+One or more JVMs (`gimle-skald`) — Gimlé's cluster DNS: a hand-rolled UDP responder (`SkaldMain`)
+that answers `A` queries for `<service>.<tenant>.svc.gimle.local` by resolving them against the
+same live endpoint data `gimle-bifrost` resolves against, via `ControlPlaneServicePoller`/
+`CachingServiceDirectory` polling the control plane's `/services/*` API on a fixed interval —
+Skald never reads `gimle-mimir` directly, the same "goes through the control plane's own API, not
+the store" posture every other Service consumer takes. It's the first genuinely new process kind
+added since Andvari; unlike every other process kind here, Skald's own client-facing protocol is
+DNS-over-UDP, which has no TLS story to opt into the way an HTTP-based process does, so it carries
+no plaintext-warning banner and no mTLS mode of its own yet — its polling connection to the control
+plane stays plain HTTP for this first slice, matching how a new component in this codebase
+typically starts plaintext-only before a transport-security pass lands.
 
 ## Multi-machine deployment
 
