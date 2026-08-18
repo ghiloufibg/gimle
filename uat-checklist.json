@@ -2,9 +2,9 @@
   "generatedFrom": "rtm.json",
   "summary": {
     "totalRequirements": 575,
-    "coveredByAutomatedTest": 116,
-    "notCoveredByAutomatedTest": 459,
-    "releaseReadinessPercent": 20.2
+    "coveredByAutomatedTest": 119,
+    "notCoveredByAutomatedTest": 456,
+    "releaseReadinessPercent": 20.7
   },
   "items": [
     {
@@ -6228,7 +6228,7 @@
       "category": "Reconciliation / Service Fabric",
       "feature": "Service abstraction: stable name, CRUD API, and endpoint reconciliation",
       "step": "Given a Service \"orders\" selecting deployment \"orders-service\" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of \"orders-service\", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -6283,7 +6283,7 @@
       "category": "Networking/Service Discovery",
       "feature": "Hosted-module runtime port reporting folded into instance observation",
       "step": "Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same \"ports\" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -6294,7 +6294,7 @@
       "category": "Networking/Security",
       "feature": "NetworkPolicySpec durable persistence through StoreClient",
       "step": "Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

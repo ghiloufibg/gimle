@@ -7,21 +7,21 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 ## Summary
 
 - **Total requirements**: 575
-- **Covered by automated (Holmgang Cucumber) test**: 116
-- **Not covered by automated test**: 459
-- **Release-readiness (automated coverage)**: 20.2%
+- **Covered by automated (Holmgang Cucumber) test**: 119
+- **Not covered by automated test**: 456
+- **Release-readiness (automated coverage)**: 20.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 42 | 15 | 27 | 35.7% |
-| gimle-module | 22 | 10 | 12 | 45.5% |
+| gimle-module | 22 | 11 | 11 | 50.0% |
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 37 | 5 | 32 | 13.5% |
-| gimle-mimir | 47 | 31 | 16 | 66.0% |
+| gimle-mimir | 47 | 32 | 15 | 68.1% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 66 | 13 | 53 | 19.7% |
+| gimle-controlplane | 66 | 14 | 52 | 21.2% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
 | gimle-andvari | 22 | 2 | 20 | 9.1% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -245,7 +245,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | No |
+| [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | Yes |
 
 ### gimle-os
 
@@ -579,7 +579,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee. | No |
+| [ ] | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee. | Yes |
 
 #### Raft Consensus
 
@@ -878,7 +878,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely. | No |
+| [ ] | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely. | Yes |
 
 #### Scheduling
 

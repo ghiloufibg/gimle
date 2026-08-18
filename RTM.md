@@ -580,13 +580,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-562 | Cluster-machine platform distribution archive | Active | Not Covered | — |
 | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Active | Not Covered | — |
 | GIMLE-564 | Distribution archive checksums and SBOM generation | Active | Not Covered | — |
-| GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | New | Not Covered | — |
+| GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | New | Covered | `service-fabric.feature` — "A Service resolves a live endpoint for a hosted module reporting its own port" |
 | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | New | Not Covered | — |
 | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | New | Not Covered | — |
 | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | New | Not Covered | — |
 | GIMLE-570 | Gateway virtual-host routing and Service-backed (SERVICE) route kind | New | Not Covered | — |
-| GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | New | Not Covered | — |
-| GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | New | Not Covered | — |
+| GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | New | Covered | `service-fabric.feature` — "A Service resolves a live endpoint for a hosted module reporting its own port" |
+| GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | New | Covered | `network-policy.feature` — "A network policy created through one control-plane replica is visible through another" |
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
@@ -1240,8 +1240,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Networking/Service Discovery
 - **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
-- **Coverage**: Not Covered
-- **Gap note**: Holmgang's Cucumber suite has no scenario exercising ctx.reportPort() -> ServiceEndpointResolver end to end today. To close: extend a Service-topic feature file with a step that deploys a plain (non-Vessel) module reporting a port from onStart, declares a Service fronting it, and asserts GET /services/{name}/endpoints resolves a live endpoint for it.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/service-fabric.feature` — Scenario: *A Service resolves a live endpoint for a hosted module reporting its own port*
+  - _Why this counts_: The same scenario deploys a plain TIER_2 hosted module (not a Vessel) whose onStart calls ctx.reportPort("http", 9500), then asserts the fronting Service still resolves a live endpoint -- proving ServiceEndpointResolver.solePort() genuinely reads a hosted module's own reported port against a real cluster instead of only ever a Vessel workload's allocated one.
 - **Other test coverage (non-Holmgang, informational only)**: `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`, `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java`, `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
 
@@ -2441,8 +2443,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Networking/Security
 - **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
-- **Coverage**: Not Covered
-- **Gap note**: Holmgang's Cucumber suite has no scenario proving NetworkPolicySpec survives a control-plane restart or is visible cluster-wide. To close: add a scenario that creates a NetworkPolicySpec via one control-plane replica, restarts it (or queries a second replica), and asserts the policy is still present.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/network-policy.feature` — Scenario: *A network policy created through one control-plane replica is visible through another*
+  - _Why this counts_: POSTs a NetworkPolicySpec to control-plane replica 0's real /networkpolicies API, then reads it back through replica 1's own independent HTTP API -- both replicas share nothing but gimle-mimir, so the read only succeeds if NetworkPolicyRegistry is genuinely backed by the replicated store rather than an in-memory map private to the replica that handled the write, and the tenantId/allowedCallerTenantIds content is asserted to match, not just presence.
 - **Other test coverage (non-Holmgang, informational only)**: `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/NetworkPolicyRegistry.java`
 
@@ -3359,8 +3363,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Reconciliation / Service Fabric
 - **Status**: New  _(newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang .feature scenario declares a Service (POST /services) and asserts it converges to a live backing instance's endpoint end to end; the closest existing scenarios (deployment-lifecycle.feature, module-system.feature) exercise Deployments and the same-worker service registry's own version cutover, never the new control-plane Service abstraction at all. To close: extend an existing .feature file (or add a new services.feature) with steps that POST a Service fronting a real deployed module, wait for GET /services/{name}/endpoints to report that module's live instance, and assert a caller can reach it through that endpoint.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/service-fabric.feature` — Scenario: *A Service resolves a live endpoint for a hosted module reporting its own port*
+  - _Why this counts_: Declares a Service (POST /services) fronting a real deployed module, then polls GET /services/{name}/endpoints until it reports that module's live instance -- proving the Service CRUD surface and the reconciler-backed endpoint resolution genuinely converge against a real cluster, not just in ServiceReconcilerTest's simulated store snapshots.
 - **Other test coverage (non-Holmgang, informational only)**: `ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
@@ -6118,7 +6124,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**459 of 575 requirements are Not Covered.**
+**456 of 575 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6384,10 +6390,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
-| GIMLE-572 | gimle-mimir | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
 | GIMLE-575 | gimle-agent | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail |
-| GIMLE-571 | gimle-module | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
 | GIMLE-084 | gimle-worker | Durable InstanceEvent emission per lifecycle transition | Observability | NONE recorded in the baseline |
 | GIMLE-087 | gimle-worker | OpenTelemetry context propagation across virtual-thread dispatch | Observability | `BoundedModuleSchedulerTest#the_callers_ambient_context_is_restored_inside_the_submitted_task`, `#a_submission_made_outside_any_context_scope_sees_no_value_for_that_key` |
@@ -6444,7 +6448,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-224 | gimle-controlplane | Node-death instance reclamation (`ReplicaCountReconciler`) | Reconciliation / Self-healing | `ReplicaCountReconcilerTest` (grace-period and persisted-state convergence tests present) |
 | GIMLE-226 | gimle-controlplane | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Reconciliation / Self-healing | `HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` |
 | GIMLE-232 | gimle-controlplane | DaemonSet dark-node placement-safety grace period | Reconciliation / Self-healing | `DaemonSetReconcilerTest#a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated`, `cordoning_a_dark_node_still_removes_its_assignment_immediately` |
-| GIMLE-566 | gimle-controlplane | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Reconciliation / Service Fabric | `ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest` |
 | GIMLE-390 | gimle-hilmir | Topology validation (`hilmir validate`) | Release Management | `TopologyValidatorTest` (extensive, ~25+ tests); `HilmirMainTest.validate_exits_zero_for_a_topology_with_no_error_severity_findings`, `validate_exits_one_and_lists_errors_before_warnings_for_a_broken_topology` |
 | GIMLE-391 | gimle-hilmir | Cluster launch planning (`hilmir plan`) | Release Management | `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple) |
 | GIMLE-392 | gimle-hilmir | Real multi-process cluster bring-up (`hilmir up`) | Release Management | `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest` |
