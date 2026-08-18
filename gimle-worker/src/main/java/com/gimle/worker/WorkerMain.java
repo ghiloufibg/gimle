@@ -162,7 +162,8 @@ public final class WorkerMain {
     // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
     WorkerMetrics workerMetrics = new WorkerMetrics();
     FabricBinding fabricBinding =
-        bindFabricServer(taggedLocal, interfaceLoader, controller, runtime, workerMetrics);
+        bindFabricServer(
+            taggedLocal, interfaceLoader, controller, runtime, workerMetrics, registry);
     FabricEndpoints fabricEndpoints = fabricBinding.endpoints();
     startBackgroundWork(
         fabricBinding.server(), channel, workerId, activeModules, workerMetrics, runtime);
@@ -494,7 +495,8 @@ public final class WorkerMain {
       ClassLoader interfaceLoader,
       ModuleController controller,
       WorkerRuntime runtime,
-      WorkerMetrics metrics)
+      WorkerMetrics metrics,
+      ModuleRegistry registry)
       throws IOException {
     FabricServer server =
         new FabricServer(
@@ -502,7 +504,8 @@ public final class WorkerMain {
             interfaceLoader,
             controller::context,
             id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit),
-            Optional.of(metrics));
+            Optional.of(metrics),
+            owner -> registry.artifact(owner).descriptor().exports());
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));

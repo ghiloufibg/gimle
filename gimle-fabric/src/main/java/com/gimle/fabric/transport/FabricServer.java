@@ -1,6 +1,8 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -69,6 +71,7 @@ public final class FabricServer implements AutoCloseable {
   private final Function<ModuleId, Optional<ModuleContext>> contextLookup;
   private final Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup;
   private final Optional<WorkerMetrics> metrics;
+  private final Function<ModuleId, List<ServiceExport>> exportsOf;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   private volatile boolean closed;
 
@@ -99,17 +102,41 @@ public final class FabricServer implements AutoCloseable {
     this(localRegistry, interfaceLoader, contextLookup, executorLookup, Optional.empty());
   }
 
+  /**
+   * Back-compat: defaults {@code exportsOf} to "no declared exports," see the 6-arg constructor.
+   */
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
       Function<ModuleId, Optional<ModuleContext>> contextLookup,
       Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics) {
+    this(localRegistry, interfaceLoader, contextLookup, executorLookup, metrics, id -> List.of());
+  }
+
+  /**
+   * {@code exportsOf} is the same "read the target module's own descriptor" function {@code
+   * FabricServiceRegistry} already uses to filter candidates on the calling side -- passed here so
+   * {@link #dispatch} can independently re-check a target's {@code ServiceExport.allowedTenantIds}
+   * against the inbound request's {@code callerTenantId}, rather than trusting that only the
+   * caller-side filter ever produced this request (see {@code GimleFabricAuthorizationException}'s
+   * own javadoc for why that re-check exists). Absent from every other constructor -- a test or a
+   * worker not wired up with a real {@code ModuleRegistry} yet gets "no declared exports," which
+   * permits every call, exactly today's unchanged behavior.
+   */
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Optional<WorkerMetrics> metrics,
+      Function<ModuleId, List<ServiceExport>> exportsOf) {
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
     this.contextLookup = contextLookup;
     this.executorLookup = executorLookup;
     this.metrics = metrics;
+    this.exportsOf = exportsOf;
   }
 
   /**
@@ -326,6 +353,30 @@ public final class FabricServer implements AutoCloseable {
     }
   }
 
+  /**
+   * The listener-side half of the tenant re-check described on {@link
+   * GimleFabricAuthorizationException}: finds {@code owner}'s own declared {@link ServiceExport}
+   * for the requested interface (there can be at most one -- a module names an interface in its
+   * descriptor's {@code exports} list once) and, only when that export actually restricts {@code
+   * allowedTenantIds}, independently verifies {@code request.callerTenantId()} against it. An
+   * interface {@code owner} never declared exporting (a test double registering directly, or a
+   * worker not wired with a real {@code exportsOf}) is permitted through unchanged -- this method
+   * enforces exactly what the module itself declared, never a stricter default of its own.
+   */
+  private void checkTenantPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
+    for (ServiceExport export : exportsOf.apply(owner)) {
+      if (!export.interfaceName().equals(request.interfaceName())) {
+        continue;
+      }
+      if (!export.permitsTenant(request.callerTenantId())) {
+        throw GimleFabricAuthorizationException.tenantNotPermitted(
+            request.interfaceName(),
+            request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
+      }
+      return;
+    }
+  }
+
   private Object invokeLocally(FabricFrame.InvokeRequest request)
       throws ReflectiveOperationException {
     // Looked up by name, not Class.forName(name, true, interfaceLoader): the interface is
@@ -341,6 +392,8 @@ public final class FabricServer implements AutoCloseable {
                 () ->
                     new NoSuchElementException(
                         "no local service registered for " + request.interfaceName()));
+
+    checkTenantPermitted(owned.owner(), request);
 
     Class<?>[] paramTypes =
         ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), interfaceLoader);

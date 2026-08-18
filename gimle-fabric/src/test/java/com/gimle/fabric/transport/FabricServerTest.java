@@ -2,9 +2,12 @@ package com.gimle.fabric.transport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.registry.Greeter;
 import com.gimle.fabric.trace.TraceContext;
@@ -19,6 +22,7 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -90,6 +94,17 @@ class FabricServerTest {
         "greet",
         new String[] {"java.lang.String"},
         ObjectMarshalling.serialize(new Object[] {arg}));
+  }
+
+  private FabricFrame.InvokeRequest invokeGreet(String arg, Optional<String> callerTenantId) {
+    return new FabricFrame.InvokeRequest(
+        1L,
+        TRACE,
+        Greeter.class.getName(),
+        "greet",
+        new String[] {"java.lang.String"},
+        ObjectMarshalling.serialize(new Object[] {arg}),
+        callerTenantId);
   }
 
   @Test
@@ -300,5 +315,100 @@ class FabricServerTest {
             .tag("module", OWNER.name())
             .counter()
             .count());
+  }
+
+  private FabricServer serverWithExport(SimpleServiceRegistry registry, ServiceExport export) {
+    return new FabricServer(
+        registry,
+        Greeter.class.getClassLoader(),
+        id -> Optional.empty(),
+        id -> Optional.empty(),
+        Optional.empty(),
+        owner -> owner.equals(OWNER) ? List.of(export) : List.of());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_bypassing_the_registry_and_dialing_directly_is_rejected_by_the_listeners_own_check()
+      throws Exception {
+    // The scenario GimleFabricAuthorizationException exists for: this test never goes through
+    // FabricServiceRegistry's own caller-side filter at all -- it dials FabricServer directly,
+    // exactly what a caller that obtained a ServiceEndpoint's raw address from the gossip catalog
+    // could do. The listener's own re-check must still catch it.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+    ServiceExport export =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+
+    server = serverWithExport(registry, export);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    Object thrown =
+        ObjectMarshalling.deserialize(((FabricFrame.InvokeError) response).serializedThrowable());
+    assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
+  }
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_caller_is_rejected_against_a_restricted_export() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+    ServiceExport export =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+
+    server = serverWithExport(registry, export);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response = FabricClient.call(address, invokeGreet("world", Optional.empty()));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_from_the_allowed_tenant_is_permitted_through_the_listeners_own_check()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+    ServiceExport export =
+        new ServiceExport(
+            Greeter.class.getName(), Version.parse("1.0.0"), Optional.of(Set.of("tenant-a")));
+
+    server = serverWithExport(registry, export);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-a")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+    assertEquals(
+        "hello:world",
+        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_export_with_no_tenant_restriction_permits_any_caller() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+    ServiceExport unrestricted = new ServiceExport(Greeter.class.getName(), Version.parse("1.0.0"));
+
+    server = serverWithExport(registry, unrestricted);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("any-tenant")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
 }
