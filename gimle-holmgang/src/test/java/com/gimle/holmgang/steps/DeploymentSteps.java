@@ -99,6 +99,31 @@ public final class DeploymentSteps {
             "com.gimle.examples.greeter.provider", "1.0.0-unhealthy", 1, Optional.empty()));
   }
 
+  /**
+   * A hosted module that calls {@code ctx.reportPort} from its own {@code onStart}, so a Service
+   * fronting this deployment can resolve a live endpoint the same way it already can for a Vessel
+   * workload's allocated port -- awaited to ACTIVE, matching {@link #deploy}'s "deployed" verb.
+   */
+  @Given("a module reporting its own port is deployed as {string}")
+  public void aModuleReportingItsOwnPortIsDeployedAs(final String deployment) {
+    final Path jar = ModuleFixtures.portReportingProviderJar(world.fixturesDir());
+    world
+        .cluster()
+        .api()
+        .submitDeployment(
+            deployment,
+            "com.gimle.examples.greeter.provider",
+            "1.0.0-portreporting",
+            jar,
+            1,
+            Optional.empty());
+    world.deployments.put(
+        deployment,
+        new DeployedModule(
+            "com.gimle.examples.greeter.provider", "1.0.0-portreporting", 1, Optional.empty()));
+    world.cluster().when().deployment(deployment).hasActiveReplicas(1).await(DEPLOY_TIMEOUT);
+  }
+
   @When(
       "{string} is rolled to a rebuilt provider version {string} with maxUnavailable {int} and maxSurge {int}")
   public void isRolledToARebuiltProviderVersion(
