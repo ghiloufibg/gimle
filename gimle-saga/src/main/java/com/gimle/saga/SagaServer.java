@@ -29,11 +29,12 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Saga's HTTP surface: NDJSON ingest ({@code POST /api/ingest}), Surefire XML import ({@code POST
- * /api/import}), and JSON reads over the store -- runs, per-run event streams (with an {@code
- * AgentLogServer}-style chunked NDJSON live tail on {@code follow=true}), the flaky scoreboard, and
- * per-test history -- plus the bundled console SPA at {@code /console} when one is on the
- * classpath. Deliberately no authentication or TLS: this is a local development tool, bound to
- * loopback by default by {@link SagaMain}, never one of a deployed cluster's own processes.
+ * /api/import}), remote shutdown ({@code POST /api/shutdown}), and JSON reads over the store --
+ * runs, per-run event streams (with an {@code AgentLogServer}-style chunked NDJSON live tail on
+ * {@code follow=true}), the flaky scoreboard, and per-test history -- plus the bundled console SPA
+ * at {@code /console} when one is on the classpath. Deliberately no authentication or TLS: this is
+ * a local development tool, bound to loopback by default by {@link SagaMain}, never one of a
+ * deployed cluster's own processes.
  */
 public final class SagaServer implements AutoCloseable {
 
@@ -62,6 +63,7 @@ public final class SagaServer implements AutoCloseable {
     server.createContext("/api/runs", this::handleRuns);
     server.createContext("/api/flaky", this::handleFlaky);
     server.createContext("/api/tests/", this::handleTestHistory);
+    server.createContext("/api/shutdown", this::handleShutdown);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
@@ -165,6 +167,29 @@ public final class SagaServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  // ---- POST /api/shutdown ----
+
+  /**
+   * Acknowledges the request, then stops the server from a separate thread once the response has
+   * gone out -- {@code SagaClient#shutdown} (and {@code gimle:saga-stop}, its caller) expects a 2xx
+   * before the process actually exits; stopping inline here would race the exchange trying to flush
+   * that very response.
+   */
+  private void handleShutdown(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, Map.of("status", "stopping"));
+    } catch (IOException e) {
+      log.debug("shutdown response failed: {}", e.getMessage());
+    } finally {
+      exchange.close();
+    }
+    Thread.ofVirtual().start(this::close);
   }
 
   // ---- GET /api/health ----

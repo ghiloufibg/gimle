@@ -291,4 +291,29 @@ class SagaServerTest {
     assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/html"));
     assertTrue(response.body().toLowerCase(java.util.Locale.ROOT).contains("<!doctype html"));
   }
+
+  @Test
+  @Timeout(10)
+  void shutdown_acknowledges_the_request_and_then_stops_the_server() throws Exception {
+    HttpResponse<String> response = post("/api/shutdown", "");
+    assertEquals(200, response.statusCode());
+
+    boolean stopped = false;
+    while (!stopped) {
+      try {
+        get("/api/health");
+        Thread.sleep(20);
+      } catch (java.io.IOException expected) {
+        stopped = true;
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void shutdown_rejects_a_get_request() throws Exception {
+    HttpResponse<String> response = get("/api/shutdown");
+
+    assertEquals(405, response.statusCode());
+  }
 }

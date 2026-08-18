@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -65,8 +66,18 @@ public final class SagaStore {
   private final Path testTagsFile;
   private final ConcurrentHashMap<String, ReentrantLock> runLocks = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, List<String>> testTags = new ConcurrentHashMap<>();
+  // One entry per run holding every testId a TestFinished has ever been recorded for -- lets
+  // fold() answer "already finished?" from memory instead of re-reading and re-decoding the run's
+  // whole (ever-growing) events.ndjson on every single /api/import call. Populated incrementally as
+  // events are ingested; lazily backfilled from disk the first time a run is touched after a fresh
+  // SagaStore (e.g. process restart).
+  private final ConcurrentHashMap<String, Set<String>> finishedTestIds = new ConcurrentHashMap<>();
   private final Object ledgerLock = new Object();
   private final Object testTagsLock = new Object();
+  // Bounds how many redundant lines updateTestTags() lets accumulate in the on-disk index between
+  // full rewrites -- see updateTestTags() for why a straight append replaced a rewrite-every-batch.
+  private static final int TEST_TAG_COMPACTION_THRESHOLD = 2_000;
+  private final AtomicInteger testTagAppendsSinceCompaction = new AtomicInteger();
 
   public SagaStore(Path dataRoot) {
     this.runsDir = dataRoot.resolve("runs");
@@ -148,12 +159,8 @@ public final class SagaStore {
         ingest(events);
         return events.size();
       }
-      Set<String> alreadyFinished = new LinkedHashSet<>();
-      for (SagaEvent stored : decodeStoredEvents(runId)) {
-        if (stored instanceof SagaEvent.TestFinished finished) {
-          alreadyFinished.add(finished.testId());
-        }
-      }
+      Set<String> alreadyFinished =
+          finishedTestIds.computeIfAbsent(runId, this::loadFinishedTestIds);
       List<SagaEvent> additions = new ArrayList<>();
       for (SagaEvent event : events) {
         boolean isNewTest =
@@ -184,6 +191,7 @@ public final class SagaStore {
       boolean reopens = events.stream().anyMatch(e -> e instanceof SagaEvent.RunStarted);
       if (reopens && Files.exists(runDir)) {
         deleteRecursively(runDir);
+        finishedTestIds.remove(runId);
         synchronized (ledgerLock) {
           rewriteLedger(runId, List.of());
         }
@@ -197,6 +205,7 @@ public final class SagaStore {
       atomicWrite(
           runDir.resolve(META_FILE), Json.write(meta.toJsonMap()).getBytes(StandardCharsets.UTF_8));
       updateTestTags(events);
+      recordFinishedTestIds(runId, events);
       if (events.stream().anyMatch(e -> e instanceof SagaEvent.RunFinished)) {
         List<FlakeObservation> observations =
             deriveFlakeObservations(runId, decodeStoredEvents(runId), meta.finishedAtEpochMilli());
@@ -209,6 +218,38 @@ public final class SagaStore {
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * Folds a just-appended batch's {@link SagaEvent.TestFinished} testIds into {@link
+   * #finishedTestIds}'s cache for {@code runId} -- only when that run already has a warm cache
+   * entry (from an earlier {@link #fold}); a run nothing has folded against yet has no entry to
+   * keep up to date, and the entry {@link #fold} eventually creates for it is built straight from
+   * the now-complete file, so back-filling one here first would be wasted work.
+   */
+  private void recordFinishedTestIds(String runId, List<SagaEvent> events) {
+    Set<String> cached = finishedTestIds.get(runId);
+    if (cached == null) {
+      return;
+    }
+    for (SagaEvent event : events) {
+      if (event instanceof SagaEvent.TestFinished finished) {
+        cached.add(finished.testId());
+      }
+    }
+  }
+
+  /**
+   * Cold-start fill for {@link #finishedTestIds}: the one full re-decode a run's cache ever pays.
+   */
+  private Set<String> loadFinishedTestIds(String runId) {
+    Set<String> ids = ConcurrentHashMap.newKeySet();
+    for (SagaEvent event : decodeStoredEvents(runId)) {
+      if (event instanceof SagaEvent.TestFinished finished) {
+        ids.add(finished.testId());
+      }
+    }
+    return ids;
   }
 
   public List<RunMeta> listRuns(int limit) {
@@ -394,23 +435,64 @@ public final class SagaStore {
 
   /**
    * Folds every {@link SagaEvent.TestStarted} in the batch into the in-memory tag index, then
-   * rewrites the whole index file once -- the same one-atomic-write-per-batch shape {@code
-   * meta.json} already uses, not one write per event.
+   * appends just those changed entries to the index file -- rewriting the whole file (which holds
+   * one line per testId ever observed, across every run this store has seen) on every batch would
+   * make each ingest cost grow with the store's entire history rather than with the batch, and a
+   * live-streaming run posts many small batches over its lifetime. {@link #loadTestTags} already
+   * folds duplicate testIds by keeping the last line it reads, so a run of appended entries for the
+   * same testId is exactly as correct as one rewritten line -- just not as compact, which {@link
+   * #compactTestTagsIfDue} bounds.
    */
   private void updateTestTags(List<SagaEvent> events) {
-    boolean changed = false;
+    List<Map.Entry<String, List<String>>> changed = new ArrayList<>();
     for (SagaEvent event : events) {
       if (event instanceof SagaEvent.TestStarted started) {
-        testTags.put(started.testId(), List.copyOf(started.tags()));
-        changed = true;
+        List<String> tags = List.copyOf(started.tags());
+        testTags.put(started.testId(), tags);
+        changed.add(Map.entry(started.testId(), tags));
       }
     }
-    if (!changed) {
+    if (changed.isEmpty()) {
       return;
     }
     synchronized (testTagsLock) {
-      atomicWrite(testTagsFile, serializeTestTags());
+      appendTestTags(changed);
+      compactTestTagsIfDue(changed.size());
     }
+  }
+
+  /** Appends one line per changed entry; must be called with {@link #testTagsLock} held. */
+  private void appendTestTags(List<Map.Entry<String, List<String>>> changed) {
+    StringBuilder content = new StringBuilder();
+    for (Map.Entry<String, List<String>> entry : changed) {
+      Map<String, Object> line = new LinkedHashMap<>();
+      line.put("testId", entry.getKey());
+      line.put("tags", entry.getValue());
+      content.append(Json.write(line)).append('\n');
+    }
+    try {
+      Files.write(
+          testTagsFile,
+          content.toString().getBytes(StandardCharsets.UTF_8),
+          StandardOpenOption.CREATE,
+          StandardOpenOption.APPEND);
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed to append to " + testTagsFile, e);
+    }
+  }
+
+  /**
+   * Once enough redundant lines (repeat observations of a testId already in the index) have piled
+   * up since the last compaction, rewrites the file down to one line per testId -- an amortized,
+   * infrequent full rewrite rather than one on every batch, so the file doesn't grow forever on a
+   * long-lived server. Must be called with {@link #testTagsLock} held.
+   */
+  private void compactTestTagsIfDue(int appended) {
+    if (testTagAppendsSinceCompaction.addAndGet(appended) < TEST_TAG_COMPACTION_THRESHOLD) {
+      return;
+    }
+    atomicWrite(testTagsFile, serializeTestTags());
+    testTagAppendsSinceCompaction.set(0);
   }
 
   private byte[] serializeTestTags() {

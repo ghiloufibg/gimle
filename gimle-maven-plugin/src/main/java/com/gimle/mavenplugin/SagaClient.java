@@ -109,7 +109,18 @@ final class SagaClient {
     try {
       response = http.send(request, HttpResponse.BodyHandlers.ofString());
     } catch (IOException e) {
-      throw new MojoExecutionException(what + " failed against " + endpoint, e);
+      // The cause's own message (connection refused, reset, timed out, ...) is folded into this
+      // exception's own message, not just carried as its cause: SagaVerifyMojo's safety-net import
+      // loop logs only getMessage() per failed report so the build isn't drowned in stack traces,
+      // and that message must still say *why* a request failed, not just that it did.
+      throw new MojoExecutionException(
+          what
+              + " failed against "
+              + endpoint
+              + ": "
+              + e.getClass().getSimpleName()
+              + (e.getMessage() == null ? "" : ": " + e.getMessage()),
+          e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new MojoExecutionException(what + " interrupted", e);

@@ -26,6 +26,7 @@ configured — a Saga server being down or absent never fails a test run.
 | `GET /api/health` | Liveness check; `{"status":"ok"}`. |
 | `POST /api/ingest` | Ingests one or more NDJSON `SagaEvent` lines (a run-started event opens a run; a run-started for a run ID that's already known replaces that run's files and ledger lines rather than appending, making re-shipping a whole run after a partial upload safe). |
 | `POST /api/import` | Folds in results after the fact from a Surefire XML report body, or `{"paths":[...]}` pointing at Surefire XML files on disk. With `?runId=`, appends/folds into that already-open run (`store.fold`) instead of opening a new one — how `SagaShipper`'s attachment-only ingest joins the same run a live `SagaTestListener` stream is writing into. |
+| `POST /api/shutdown` | Acknowledges with `{"status":"stopping"}`, then stops the server — what `gimle:saga-stop` calls before falling back to signalling the recorded pid. |
 | `GET /api/runs?limit=N` | Lists runs, newest first. |
 | `GET /api/runs/{runId}` | One run's metadata (`RunMeta`). |
 | `GET /api/runs/{runId}/events?cursor=N` | A page of that run's raw NDJSON event lines plus the cursor to resume from. |
