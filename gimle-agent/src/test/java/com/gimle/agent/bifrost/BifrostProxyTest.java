@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySource;
+import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -15,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -126,5 +130,100 @@ class BifrostProxyTest {
 
     InetSocketAddress clusterAddress = proxy.boundAddressFor("payments").orElseThrow();
     assertEquals("P", readTagFrom(clusterAddress));
+  }
+
+  /** A mutable {@code NetworkPolicySource} fake, the {@link InMemoryServiceSource} analogue. */
+  private static final class MutableNetworkPolicySource implements NetworkPolicySource {
+    private volatile List<NetworkPolicyRule> rules = List.of();
+
+    void set(List<NetworkPolicyRule> newRules) {
+      this.rules = newRules;
+    }
+
+    @Override
+    public List<NetworkPolicyRule> fetchPolicies() {
+      return rules;
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void a_tenant_wide_network_policy_makes_bifrost_refuse_to_proxy_the_restricted_tenants_service()
+      throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    source.put("orders", Optional.of("acme"), Set.of("orders-service"), 9103, List.of(backend));
+    MutableNetworkPolicySource policies = new MutableNetworkPolicySource();
+    policies.set(List.of(new NetworkPolicyRule("deny-by-default", "acme", Set.of())));
+    proxy = new BifrostProxy(source, policies, Duration.ofMinutes(5));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    // The listener is still bound (a caller can still connect), but every connection is refused
+    // outright -- proxying would either read garbage from an unstarted response or, worse, block
+    // waiting for one, neither of which is "the connection was rejected." The pumped-EOF shape
+    // this produces is the same one a_service_disappearing_from_the_source_closes_its_listener
+    // already asserts for "no backend to proxy to."
+    try (Socket socket = new Socket()) {
+      socket.connect(clusterAddress, 2000);
+      try (BufferedReader reader =
+          new BufferedReader(
+              new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+        assertEquals(null, reader.readLine());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void a_deployment_scoped_network_policy_only_restricts_a_service_it_actually_names()
+      throws Exception {
+    ServiceEndpoint restrictedBackend = startTaggedBackend("R");
+    ServiceEndpoint unrestrictedBackend = startTaggedBackend("U");
+    source.put(
+        "orders", Optional.of("acme"), Set.of("orders-service"), 9104, List.of(restrictedBackend));
+    source.put(
+        "payments",
+        Optional.of("acme"),
+        Set.of("payments-service"),
+        9105,
+        List.of(unrestrictedBackend));
+    MutableNetworkPolicySource policies = new MutableNetworkPolicySource();
+    policies.set(
+        List.of(
+            new NetworkPolicyRule(
+                "deny-by-default", "acme", Optional.of(Set.of("orders-service")), Set.of())));
+    proxy = new BifrostProxy(source, policies, Duration.ofMinutes(5));
+    proxy.pollOnce();
+
+    InetSocketAddress restrictedAddress = proxy.boundAddressFor("orders").orElseThrow();
+    InetSocketAddress unrestrictedAddress = proxy.boundAddressFor("payments").orElseThrow();
+    try (Socket socket = new Socket()) {
+      socket.connect(restrictedAddress, 2000);
+      try (BufferedReader reader =
+          new BufferedReader(
+              new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+        assertEquals(null, reader.readLine());
+      }
+    }
+    assertEquals("U", readTagFrom(unrestrictedAddress));
+  }
+
+  @Test
+  @Timeout(15)
+  void
+      a_network_policy_lifted_on_a_later_poll_lets_bifrost_resume_proxying_the_now_unrestricted_service()
+          throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    source.put("orders", Optional.of("acme"), Set.of("orders-service"), 9106, List.of(backend));
+    MutableNetworkPolicySource policies = new MutableNetworkPolicySource();
+    policies.set(List.of(new NetworkPolicyRule("deny-by-default", "acme", Set.of())));
+    proxy = new BifrostProxy(source, policies, Duration.ofMinutes(5));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    policies.set(List.of());
+    proxy.pollOnce();
+
+    assertEquals("A", readTagFrom(clusterAddress));
   }
 }

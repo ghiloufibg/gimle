@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 574
+- **Total requirements**: 575
 - **Covered by automated (Holmgang Cucumber) test**: 116
-- **Not covered by automated test**: 458
+- **Not covered by automated test**: 459
 - **Release-readiness (automated coverage)**: 20.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 36 | 5 | 31 | 13.9% |
+| gimle-agent | 37 | 5 | 32 | 13.5% |
 | gimle-mimir | 47 | 31 | 16 | 66.0% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 66 | 13 | 53 | 19.7% |
@@ -456,6 +456,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Given TLS is enabled and no cert/key files exist yet on disk When bootstrapCertificateIfNeeded runs Then it generates an RSA keypair and CSR, connects with server-trust-only TLS, and POSTs it plus the bootstrap token to /bootstrap/csr And on a 200 response, writes the returned certificate and encoded private key to the configured cert/key files Given cert/key files already exist (a redeploy of an already-bootstrapped node) Then this is a no-op Given the bootstrap token is missing/blank Then GimleTlsException.missingProperty is thrown | Yes |
+
+#### Networking/Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Given a NetworkPolicySpec restricting tenant acme (tenant-wide), When a caller dials acme's Service through its Bifrost-synthesized ClusterIP, Then Bifrost refuses the connection outright rather than proxying it to a live endpoint. Given a NetworkPolicySpec scoped to one of acme's own deployments, When a caller dials a different Service in the same tenant fronting an unrelated deployment, Then Bifrost proxies it normally -- the scoped policy never restricts a deployment it doesn't name. Given a Service Bifrost is currently refusing to proxy, When the restricting NetworkPolicySpec is removed and Bifrost polls again, Then it resumes proxying that Service on the very next tick. | No |
 
 #### Observability
 

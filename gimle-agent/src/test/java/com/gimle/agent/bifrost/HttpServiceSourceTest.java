@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -55,22 +56,33 @@ class HttpServiceSourceTest {
 
   @Test
   @Timeout(15)
-  void lists_service_names_from_the_services_endpoint() throws Exception {
-    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
-    // name strings.
+  void lists_services_with_their_tenant_and_deployment_names_from_the_services_endpoint()
+      throws Exception {
+    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson): "name"
+    // always present, "tenantId" present only for a tenant-scoped Service, "deploymentNames"
+    // always a present (possibly empty) array.
     URI baseUrl =
         startStub(
             "/services",
             200,
             """
-            [{"name":"orders","deploymentNames":["orders-service"],"port":8080,"targetPort":8080},
-             {"name":"payments","deploymentNames":["payments-service"],"port":9090,"targetPort":9090}]
+            [{"name":"orders","tenantId":"acme","deploymentNames":["orders-service"],
+              "port":8080,"targetPort":8080},
+             {"name":"payments","deploymentNames":[],"port":9090,"targetPort":9090}]
             """);
     HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
 
-    List<String> names = source.listServiceNames();
+    List<ServiceSummary> services = source.listServices();
 
-    assertEquals(List.of("orders", "payments"), names);
+    assertEquals(2, services.size());
+    ServiceSummary orders = services.get(0);
+    assertEquals("orders", orders.name());
+    assertEquals(Optional.of("acme"), orders.tenantId());
+    assertEquals(Set.of("orders-service"), orders.deploymentNames());
+    ServiceSummary payments = services.get(1);
+    assertEquals("payments", payments.name());
+    assertEquals(Optional.empty(), payments.tenantId());
+    assertEquals(Set.of(), payments.deploymentNames());
   }
 
   @Test
@@ -111,6 +123,6 @@ class HttpServiceSourceTest {
     URI baseUrl = startStub("/services", 500, "boom");
     HttpServiceSource source = new HttpServiceSource(HttpClient.newHttpClient(), baseUrl);
 
-    assertThrows(GimleClusterException.class, source::listServiceNames);
+    assertThrows(GimleClusterException.class, source::listServices);
   }
 }

@@ -324,12 +324,22 @@ public final class AgentMain {
     register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
+    // Shared by BifrostProxy and NetworkPolicyRelay below -- HttpNetworkPolicySource is stateless
+    // (each call is its own independent HTTP round trip), so one instance safely serves both
+    // consumers rather than each opening a second, identical one.
+    HttpNetworkPolicySource networkPolicySource = new HttpNetworkPolicySource(httpClient, baseUrl);
+
     // Independent of the tick loop below (its own self-scheduled poller, same shape as the
     // MuninnShipper construction above): a caller on this node dials a service's synthesized
-    // loopback ClusterIP, and Bifrost forwards to one of that service's live endpoints.
+    // loopback ClusterIP, and Bifrost forwards to one of that service's live endpoints -- unless a
+    // NetworkPolicySpec restricts that service, in which case Bifrost fails closed (see
+    // BifrostProxy#isRestricted): it relays opaque bytes for whatever protocol the caller speaks,
+    // so unlike FabricServer it has no caller tenant identity to check a policy's allow list
+    // against.
     if (bifrostEnabled) {
       BifrostProxy bifrostProxy =
-          new BifrostProxy(new HttpServiceSource(httpClient, baseUrl), bifrostPollInterval);
+          new BifrostProxy(
+              new HttpServiceSource(httpClient, baseUrl), networkPolicySource, bifrostPollInterval);
       bifrostProxy.start();
       log.info("agent {} started bifrost service proxy", nodeId);
     }
@@ -338,10 +348,7 @@ public final class AgentMain {
     // supervised worker's own FabricServer instead of binding local listeners -- see
     // NetworkPolicyRelay's own javadoc for why it isn't itself in the bifrost package.
     NetworkPolicyRelay networkPolicyRelay =
-        new NetworkPolicyRelay(
-            new HttpNetworkPolicySource(httpClient, baseUrl),
-            networkPolicyPollInterval,
-            supervised);
+        new NetworkPolicyRelay(networkPolicySource, networkPolicyPollInterval, supervised);
     networkPolicyRelay.start();
     log.info("agent {} started network policy relay", nodeId);
 

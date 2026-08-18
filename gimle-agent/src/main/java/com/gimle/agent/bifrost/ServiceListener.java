@@ -21,6 +21,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Round-robin, not a locality- or load-aware selector: an honest, deliberate scope cut for this
  * component's first cut, not an oversight.
+ *
+ * <p>See {@link #setRestricted} for the other honest scope cut: when a {@code NetworkPolicySpec}
+ * applies to this service, every new connection is refused outright rather than proxied, since this
+ * listener relays opaque bytes for whatever protocol the caller speaks and has no way to verify who
+ * that caller is.
  */
 final class ServiceListener implements AutoCloseable {
 
@@ -31,6 +36,7 @@ final class ServiceListener implements AutoCloseable {
   private final InetSocketAddress boundAddress;
   private final AtomicInteger cursor = new AtomicInteger();
   private volatile List<ServiceEndpoint> endpoints = List.of();
+  private volatile boolean restricted;
   private volatile boolean closed;
 
   ServiceListener(String serviceName, InetAddress clusterIp, int port) throws IOException {
@@ -48,6 +54,20 @@ final class ServiceListener implements AutoCloseable {
   /** Replaces the live endpoint set a new connection will round-robin over. */
   void updateEndpoints(List<ServiceEndpoint> newEndpoints) {
     this.endpoints = List.copyOf(newEndpoints);
+  }
+
+  /**
+   * Whether {@link BifrostProxy} has determined a {@code NetworkPolicySpec} currently restricts
+   * this service's own tenant/deployment -- when {@code true}, {@link #forward} refuses every new
+   * connection outright rather than choosing an endpoint, since this loopback proxy has no way to
+   * verify a connecting caller's own tenant identity to check against the policy's allow list
+   * (unlike {@code FabricServer}, which decodes the fabric wire protocol and can read the caller's
+   * wire-carried tenant claim, Bifrost blindly relays opaque bytes for any protocol). Failing
+   * closed is the only sound choice given that blind spot: proxying anyway would make Bifrost a
+   * silent bypass of a policy the tenant explicitly opted into.
+   */
+  void setRestricted(boolean restricted) {
+    this.restricted = restricted;
   }
 
   private void acceptLoop() {
@@ -69,6 +89,15 @@ final class ServiceListener implements AutoCloseable {
   }
 
   private void forward(Socket inbound) {
+    if (restricted) {
+      log.warn(
+          "bifrost declines to proxy service {}: a NetworkPolicySpec restricts its tenant/"
+              + "deployment and this loopback proxy cannot verify the caller's own tenant identity"
+              + " -- failing closed rather than risk silently bypassing the policy",
+          serviceName);
+      closeQuietly(inbound);
+      return;
+    }
     List<ServiceEndpoint> current = endpoints;
     if (current.isEmpty()) {
       log.warn("bifrost has no live endpoints for service {}; dropping connection", serviceName);

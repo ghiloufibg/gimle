@@ -583,6 +583,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | Complete | Yes |
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | Build Tooling | Complete | Yes |
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | Complete | Yes |
+| GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2627,6 +2628,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given BifrostProxy polling a ServiceSource that reports Service "orders" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints.
   Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed.
   Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services.
+  ```
+
+#### GIMLE-575 — Bifrost fails closed for a NetworkPolicySpec-restricted Service
+
+- **Category**: Networking/Security
+- **User story**: As a platform operator, I want Bifrost's per-node service proxy to refuse to relay traffic for a Service whose tenant currently has an applicable NetworkPolicySpec, so dialing a Service's synthesized loopback ClusterIP through Bifrost cannot be used to bypass the same policy FabricServer already enforces on the real fabric path.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceSummary.java` (new: a Service's own tenantId/deploymentNames), `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceSource.java` (`listServices` replaces `listServiceNames`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/HttpServiceSource.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java` (`isRestricted`, polls `NetworkPolicySource` each tick), `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java` (`setRestricted`, `forward` fails closed), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (shares one `HttpNetworkPolicySource` between `BifrostProxy` and `NetworkPolicyRelay`)
+- **Test coverage**: `BifrostProxyTest` (a_tenant_wide_network_policy_makes_bifrost_refuse_to_proxy_the_restricted_tenants_service, a_deployment_scoped_network_policy_only_restricts_a_service_it_actually_names, a_network_policy_lifted_on_a_later_poll_lets_bifrost_resume_proxying_the_now_unrestricted_service); `HttpServiceSourceTest` (parses tenantId/deploymentNames from GET /services)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a NetworkPolicySpec restricting tenant acme (tenant-wide), When a caller dials acme's Service through its Bifrost-synthesized ClusterIP, Then Bifrost refuses the connection outright rather than proxying it to a live endpoint.
+  Given a NetworkPolicySpec scoped to one of acme's own deployments, When a caller dials a different Service in the same tenant fronting an unrelated deployment, Then Bifrost proxies it normally -- the scoped policy never restricts a deployment it doesn't name.
+  Given a Service Bifrost is currently refusing to proxy, When the restricting NetworkPolicySpec is removed and Bifrost polls again, Then it resumes proxying that Service on the very next tick.
   ```
 
 ### gimle-mimir

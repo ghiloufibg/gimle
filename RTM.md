@@ -589,6 +589,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | New | Not Covered | — |
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
+| GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1942,6 +1943,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario enables -Dgimle.agent.bifrostEnabled=true and asserts a caller can reach a declared Service through the node-local loopback proxy end to end. To close: boot a topology with Bifrost enabled on at least one node, declare a Service backed by a real deployed module, and assert a connection to the synthesized 127.x.y.1 ClusterIP address is forwarded to that module's live instance.
 - **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest`
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/LoopbackAddressAllocator.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/HttpServiceSource.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+
+#### GIMLE-575 — Bifrost fails closed for a NetworkPolicySpec-restricted Service
+
+- **Category**: Networking/Security
+- **Status**: New  _(closes the Bifrost-as-a-NetworkPolicySpec-bypass gap left open since the bifrost lane first landed -- resolved by fail-closed rather than by giving Bifrost a caller-identity mechanism, which its blind byte-relay design cannot support)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's Cucumber suite has no scenario proving Bifrost actually refuses a restricted Service end to end. To close: extend a network-policy feature file with a scenario that declares a NetworkPolicySpec against a real deployed module's tenant, dials its Service through a real Bifrost-enabled agent's synthesized ClusterIP, and asserts the connection is refused.
+- **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`
 
 ### gimle-mimir
 
@@ -6108,7 +6118,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**458 of 574 requirements are Not Covered.**
+**459 of 575 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6376,6 +6386,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-572 | gimle-mimir | NetworkPolicySpec durable persistence through StoreClient | Networking/Security | `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
+| GIMLE-575 | gimle-agent | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail |
 | GIMLE-571 | gimle-module | Hosted-module runtime port reporting folded into instance observation | Networking/Service Discovery | `SimpleModuleContextTest`, `WorkerRuntimeReportedPortsTest`, `ControlMessageCodecTest`, `AgentMainTest`, `AgentMetricsReportPortFoldingTest` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
 | GIMLE-084 | gimle-worker | Durable InstanceEvent emission per lifecycle transition | Observability | NONE recorded in the baseline |

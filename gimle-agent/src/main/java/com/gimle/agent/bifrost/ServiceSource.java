@@ -15,12 +15,17 @@ import java.util.Optional;
  */
 public interface ServiceSource {
 
-  /** Every service name currently known to exist, in no particular order. */
-  List<String> listServiceNames() throws IOException, InterruptedException;
+  /**
+   * Every service currently known to exist, in no particular order -- including each one's own
+   * {@code tenantId}/{@code deploymentNames}, which {@link BifrostProxy} needs to decide whether a
+   * currently-held {@code NetworkPolicySpec} restricts it (see {@link ServiceSummary}'s own
+   * javadoc).
+   */
+  List<ServiceSummary> listServices() throws IOException, InterruptedException;
 
   /**
    * The current endpoint set for {@code serviceName}, or empty if it no longer exists (e.g. it
-   * vanished between a {@link #listServiceNames()} call and this one -- a benign race {@link
+   * vanished between a {@link #listServices()} call and this one -- a benign race {@link
    * BifrostProxy} simply retries on its next poll).
    */
   Optional<ServiceEndpoints> fetchEndpoints(String serviceName)

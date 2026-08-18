@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 574,
+    "totalRequirements": 575,
     "coveredByAutomatedTest": 116,
-    "notCoveredByAutomatedTest": 458,
+    "notCoveredByAutomatedTest": 459,
     "releaseReadinessPercent": 20.2
   },
   "items": [
@@ -6316,6 +6316,17 @@
       "category": "Networking/Security",
       "feature": "Per-deployment-scoped NetworkPolicySpec enforcement",
       "step": "Given a NetworkPolicySpec scoped to deployment \"orders-service\" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call. Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name. Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-575",
+      "module": "gimle-agent",
+      "category": "Networking/Security",
+      "feature": "Bifrost fails closed for a NetworkPolicySpec-restricted Service",
+      "step": "Given a NetworkPolicySpec restricting tenant acme (tenant-wide), When a caller dials acme's Service through its Bifrost-synthesized ClusterIP, Then Bifrost refuses the connection outright rather than proxying it to a live endpoint. Given a NetworkPolicySpec scoped to one of acme's own deployments, When a caller dials a different Service in the same tenant fronting an unrelated deployment, Then Bifrost proxies it normally -- the scoped policy never restricts a deployment it doesn't name. Given a Service Bifrost is currently refusing to proxy, When the restricting NetworkPolicySpec is removed and Bifrost polls again, Then it resumes proxying that Service on the very next tick.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

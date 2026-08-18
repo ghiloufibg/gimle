@@ -1,5 +1,7 @@
 package com.gimle.agent.bifrost;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySource;
+import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
@@ -23,18 +25,31 @@ import org.slf4j.LoggerFactory;
  * listener set from scratch off whatever {@link ServiceSource} reports right now, rather than
  * diffing against a remembered previous poll, so a missed or failed tick self-heals on the next one
  * instead of leaving stale state behind.
+ *
+ * <p>Also polls a {@link NetworkPolicySource} on the same tick to decide which of those listeners
+ * must fail closed -- see {@link #isRestricted} and {@link ServiceListener#setRestricted} for why
+ * this proxy can only ever refuse a restricted service outright, never re-check a caller's tenant
+ * the way {@code FabricServer} does.
  */
 public final class BifrostProxy implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(BifrostProxy.class);
 
   private final ServiceSource source;
+  private final NetworkPolicySource networkPolicySource;
   private final Duration pollInterval;
   private final Map<String, ServiceListener> listeners = new ConcurrentHashMap<>();
   private volatile ScheduledExecutorService scheduler;
 
+  /** Back-compat: no {@link NetworkPolicySource} means every service is always unrestricted. */
   public BifrostProxy(ServiceSource source, Duration pollInterval) {
+    this(source, () -> List.of(), pollInterval);
+  }
+
+  public BifrostProxy(
+      ServiceSource source, NetworkPolicySource networkPolicySource, Duration pollInterval) {
     this.source = source;
+    this.networkPolicySource = networkPolicySource;
     this.pollInterval = pollInterval;
   }
 
@@ -59,15 +74,15 @@ public final class BifrostProxy implements AutoCloseable {
 
   /**
    * One reconciliation pass: fetches the current service list and endpoint set for each, binds a
-   * listener for every service not yet bound, refreshes the endpoint set of every listener that
-   * already exists, and closes listeners for services no longer present. Public and callable
-   * directly (not only from {@link #start()}'s own scheduler) so tests can drive reconciliation
-   * deterministically instead of racing a wall-clock timer.
+   * listener for every service not yet bound, refreshes the endpoint set and restriction state of
+   * every listener that already exists, and closes listeners for services no longer present. Public
+   * and callable directly (not only from {@link #start()}'s own scheduler) so tests can drive
+   * reconciliation deterministically instead of racing a wall-clock timer.
    */
   public synchronized void pollOnce() {
-    List<String> currentNames;
+    List<ServiceSummary> currentServices;
     try {
-      currentNames = source.listServiceNames();
+      currentServices = source.listServices();
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
@@ -75,10 +90,29 @@ public final class BifrostProxy implements AutoCloseable {
       log.warn("bifrost failed to list services: {}", e.getMessage());
       return;
     }
-    Set<String> currentSet = new LinkedHashSet<>(currentNames);
+    // Fetched every tick alongside the service list, not once at construction: a policy created
+    // or removed after this proxy started must take effect on the very next poll, the same
+    // level-triggered posture the service list itself already has. A failed fetch skips this
+    // whole tick (services included) rather than proceeding with a stale-but-unknown policy set --
+    // proceeding could silently unrestrict a listener that should stay restricted.
+    List<NetworkPolicyRule> policies;
+    try {
+      policies = networkPolicySource.fetchPolicies();
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      log.warn("bifrost failed to poll network policies: {}", e.getMessage());
+      return;
+    }
+
+    Set<String> currentNames = new LinkedHashSet<>();
+    for (ServiceSummary service : currentServices) {
+      currentNames.add(service.name());
+    }
 
     for (String existingName : List.copyOf(listeners.keySet())) {
-      if (!currentSet.contains(existingName)) {
+      if (!currentNames.contains(existingName)) {
         ServiceListener removed = listeners.remove(existingName);
         if (removed != null) {
           removed.close();
@@ -87,7 +121,8 @@ public final class BifrostProxy implements AutoCloseable {
       }
     }
 
-    for (String name : currentNames) {
+    for (ServiceSummary service : currentServices) {
+      String name = service.name();
       Optional<ServiceEndpoints> spec;
       try {
         spec = source.fetchEndpoints(name);
@@ -115,7 +150,37 @@ public final class BifrostProxy implements AutoCloseable {
         log.info("bifrost bound service {} at {}", name, listener.boundAddress());
       }
       listener.updateEndpoints(endpoints.endpoints());
+      listener.setRestricted(isRestricted(service, policies));
     }
+  }
+
+  /**
+   * Whether any currently-held {@link NetworkPolicyRule} applies to {@code service} -- its tenant
+   * matches and either the rule is tenant-wide or its {@code deploymentNames} overlaps the
+   * service's own. Mere applicability is enough to restrict, regardless of the rule's own {@code
+   * allowedCallerTenantIds}: {@code NetworkPolicySpec}'s own existence already means "a restriction
+   * now applies" (see its javadoc), and this proxy has no caller identity to check that allow list
+   * against in the first place -- see {@link ServiceListener#setRestricted}.
+   */
+  private static boolean isRestricted(ServiceSummary service, List<NetworkPolicyRule> policies) {
+    if (service.tenantId().isEmpty()) {
+      return false;
+    }
+    String tenantId = service.tenantId().get();
+    for (NetworkPolicyRule rule : policies) {
+      if (!rule.tenantId().equals(tenantId)) {
+        continue;
+      }
+      if (rule.deploymentNames().isEmpty()) {
+        return true;
+      }
+      for (String deploymentName : service.deploymentNames()) {
+        if (rule.appliesToDeployment(Optional.of(deploymentName))) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /** The synthesized ClusterIP:port a caller dials for {@code serviceName}, if currently bound. */

@@ -10,9 +10,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The real {@link ServiceSource}: polls the control plane's {@code GET /services} and {@code GET
@@ -36,16 +38,22 @@ public final class HttpServiceSource implements ServiceSource {
   }
 
   @Override
-  public List<String> listServiceNames() throws IOException, InterruptedException {
+  public List<ServiceSummary> listServices() throws IOException, InterruptedException {
     HttpResponse<String> response = send(controlPlaneBaseUrl.resolve("/services"), "list services");
-    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
-    // name strings -- each entry's "name" field is what this poller actually needs.
+    // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson): "name"
+    // always present, "tenantId" present only for a tenant-scoped Service, "deploymentNames"
+    // always a present (possibly empty) array.
     List<Map<String, Object>> raw = Json.asObjectList(Json.parse(response.body()));
-    List<String> names = new ArrayList<>(raw.size());
+    List<ServiceSummary> services = new ArrayList<>(raw.size());
     for (Map<String, Object> entry : raw) {
-      names.add((String) entry.get("name"));
+      Optional<String> tenantId = Optional.ofNullable((String) entry.get("tenantId"));
+      Set<String> deploymentNames = new LinkedHashSet<>();
+      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
+        deploymentNames.add((String) deploymentName);
+      }
+      services.add(new ServiceSummary((String) entry.get("name"), tenantId, deploymentNames));
     }
-    return names;
+    return services;
   }
 
   @Override
