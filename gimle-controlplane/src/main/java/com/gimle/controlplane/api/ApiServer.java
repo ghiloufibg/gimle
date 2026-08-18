@@ -212,11 +212,14 @@ public final class ApiServer implements AutoCloseable {
           .connectTimeout(Duration.ofSeconds(5))
           .build();
   private final BootstrapTokenRegistry bootstrapTokenRegistry = new BootstrapTokenRegistry();
-  // See ServiceRegistry's own javadoc: in-memory/per-replica, the same non-durable posture
-  // loginThrottle below already has, until ServiceSpec gets a persisted home in gimle-mimir.
-  // Shared with ControlPlaneMain's own ServiceReconciler via #serviceRegistry() the same way
-  // metrics() is shared, so both read/write the identical instance this replica's routes do.
-  private final ServiceRegistry serviceRegistry = new ServiceRegistry();
+  // See ServiceRegistry's own javadoc: specs persist through storeClient into the Raft-replicated
+  // store, the same as every other resource kind here -- only its endpoint cache stays in-memory/
+  // per-replica, the same non-durable posture loginThrottle below has. Shared with
+  // ControlPlaneMain's
+  // own ServiceReconciler via #serviceRegistry() the same way metrics() is shared, so both
+  // read/write
+  // the identical instance this replica's routes do.
+  private final ServiceRegistry serviceRegistry;
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -323,6 +326,7 @@ public final class ApiServer implements AutoCloseable {
       throws IOException {
     this.storeClient = storeClient;
     this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
+    this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.artifactResolver =

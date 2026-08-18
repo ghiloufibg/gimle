@@ -28,6 +28,7 @@ import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobManifestParser;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetManifestParser;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.io.ByteArrayInputStream;
@@ -70,6 +71,7 @@ public final class StateStore implements StoreReader {
   private final Path root;
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
+  private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
   private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
@@ -182,6 +184,7 @@ public final class StateStore implements StoreReader {
     this.clock = clock;
     try {
       Files.createDirectories(deploymentsDir());
+      Files.createDirectories(servicesDir());
       Files.createDirectories(assignmentsDir());
       Files.createDirectories(jobsDir());
       Files.createDirectories(jobRunsDir());
@@ -237,6 +240,26 @@ public final class StateStore implements StoreReader {
     clearAllSurgeIndices(name);
     deleteQuietly(effectiveReplicasFile(name));
     effectiveReplicas.remove(name);
+  }
+
+  // ---- services ----
+
+  public void putService(ServiceSpec spec) {
+    writeAtomically(serviceFile(spec.name()), serviceSpecToYaml(spec));
+    services.put(spec.name(), spec);
+  }
+
+  public Optional<ServiceSpec> getService(String name) {
+    return Optional.ofNullable(services.get(name));
+  }
+
+  public List<ServiceSpec> listServices() {
+    return List.copyOf(services.values());
+  }
+
+  public void removeService(String name) {
+    deleteQuietly(serviceFile(name));
+    services.remove(name);
   }
 
   // ---- assignments ----
@@ -1059,7 +1082,8 @@ public final class StateStore implements StoreReader {
             .map(Map.Entry::getKey)
             .collect(Collectors.toUnmodifiableSet()),
         instanceEvents.values().stream().flatMap(List::stream).toList(),
-        auditEventsSnapshotOrder());
+        auditEventsSnapshotOrder(),
+        List.copyOf(services.values()));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1088,6 +1112,7 @@ public final class StateStore implements StoreReader {
    */
   public void restoreFromSnapshot(StateSnapshot snapshot) {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
+    List.copyOf(services.keySet()).forEach(this::removeService);
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
@@ -1173,6 +1198,7 @@ public final class StateStore implements StoreReader {
     // Same reasoning, cluster-wide: StateSnapshot#auditEvents is oldest-first (see
     // auditEventsSnapshotOrder() above), reproducing identical MAX_AUDIT_EVENTS pruning on replay.
     snapshot.auditEvents().forEach(this::putAuditEvent);
+    snapshot.services().forEach(this::putService);
   }
 
   /**
@@ -1235,6 +1261,14 @@ public final class StateStore implements StoreReader {
 
   private Path deploymentFile(String name) {
     return deploymentsDir().resolve(name + ".yaml");
+  }
+
+  private Path servicesDir() {
+    return root.resolve("services");
+  }
+
+  private Path serviceFile(String name) {
+    return servicesDir().resolve(name + ".yaml");
   }
 
   private Path assignmentFile(String deploymentName, int instanceIndex) {
@@ -1481,6 +1515,13 @@ public final class StateStore implements StoreReader {
           DeploymentSpec spec =
               DeploymentManifestParser.parse(new ByteArrayInputStream(read(file)));
           deployments.put(spec.name(), spec);
+        });
+    loadEach(
+        servicesDir(),
+        "*.yaml",
+        file -> {
+          ServiceSpec spec = serviceSpecFromMap(loadMap(file));
+          services.put(spec.name(), spec);
         });
     loadEach(
         assignmentsDir(),
@@ -2240,6 +2281,29 @@ public final class StateStore implements StoreReader {
             ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
             ((Number) quotaMap.get("maxInstances")).intValue());
     return new Tenant((String) root.get("id"), quota);
+  }
+
+  private static String serviceSpecToYaml(ServiceSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("name", spec.name());
+    spec.tenantId().ifPresent(tenantId -> root.put("tenantId", tenantId));
+    root.put("deploymentNames", new ArrayList<>(spec.deploymentNames()));
+    root.put("port", spec.port());
+    root.put("targetPort", spec.targetPort());
+    return new Yaml().dump(root);
+  }
+
+  private static ServiceSpec serviceSpecFromMap(Map<?, ?> root) {
+    Set<String> deploymentNames = new LinkedHashSet<>();
+    for (Object rawName : (List<?>) root.get("deploymentNames")) {
+      deploymentNames.add((String) rawName);
+    }
+    return new ServiceSpec(
+        (String) root.get("name"),
+        Optional.ofNullable((String) root.get("tenantId")),
+        deploymentNames,
+        ((Number) root.get("port")).intValue(),
+        ((Number) root.get("targetPort")).intValue());
   }
 
   private static String configEntryToYaml(ConfigEntry entry) {

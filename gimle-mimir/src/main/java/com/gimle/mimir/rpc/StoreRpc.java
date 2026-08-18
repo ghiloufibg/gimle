@@ -13,6 +13,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.DaemonSetAssignment;
@@ -63,6 +64,8 @@ public sealed interface StoreRpc {
           GetTenant,
           GetDeployment,
           ListDeployments,
+          GetService,
+          ListServices,
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
@@ -138,6 +141,8 @@ public sealed interface StoreRpc {
           HeartbeatResult,
           AccountListResult,
           DeploymentListResult,
+          ServiceResult,
+          ServiceListResult,
           AssignmentListResult,
           NodeRegistrationListResult,
           TenantListResult,
@@ -203,6 +208,10 @@ public sealed interface StoreRpc {
   record GetDeployment(String name) implements Request {}
 
   record ListDeployments() implements Request {}
+
+  record GetService(String name) implements Request {}
+
+  record ListServices() implements Request {}
 
   record ListAssignmentsFor(String deploymentName) implements Request {}
 
@@ -408,6 +417,10 @@ public sealed interface StoreRpc {
   record AccountListResult(List<Account> values) implements Response {}
 
   record DeploymentListResult(List<DeploymentSpec> values) implements Response {}
+
+  record ServiceResult(boolean present, ServiceSpec value) implements Response {}
+
+  record ServiceListResult(List<ServiceSpec> values) implements Response {}
 
   record AssignmentListResult(List<InstanceAssignment> values) implements Response {}
 

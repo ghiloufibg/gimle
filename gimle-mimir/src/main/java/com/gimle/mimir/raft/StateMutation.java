@@ -11,6 +11,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -44,6 +45,20 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.removeDeployment(name);
+    }
+  }
+
+  record PutService(ServiceSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putService(spec);
+    }
+  }
+
+  record RemoveService(String name) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeService(name);
     }
   }
 

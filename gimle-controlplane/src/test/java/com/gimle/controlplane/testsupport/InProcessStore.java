@@ -30,13 +30,19 @@ public final class InProcessStore implements AutoCloseable {
   private final RaftNode raftNode;
   private final StoreTransport transport;
   private final StoreClient client;
+  private final SocketAddress address;
 
   private InProcessStore(
-      StateStore store, RaftNode raftNode, StoreTransport transport, StoreClient client) {
+      StateStore store,
+      RaftNode raftNode,
+      StoreTransport transport,
+      StoreClient client,
+      SocketAddress address) {
     this.store = store;
     this.raftNode = raftNode;
     this.transport = transport;
     this.client = client;
+    this.address = address;
   }
 
   public static InProcessStore start(Path stateDir) throws IOException {
@@ -48,11 +54,22 @@ public final class InProcessStore implements AutoCloseable {
     StoreTransport transport = new StoreTransport(storeNode);
     SocketAddress address = transport.listen(new InetSocketAddress("127.0.0.1", 0));
     StoreClient client = new StoreClient(List.of(address));
-    return new InProcessStore(store, raftNode, transport, client);
+    return new InProcessStore(store, raftNode, transport, client, address);
   }
 
   public StoreClient client() {
     return client;
+  }
+
+  /**
+   * A second, independent {@link StoreClient} against this same store -- what a test simulating a
+   * second control-plane replica wants: two distinct {@code ApiServer}s, each with their own client
+   * connection, both talking to the one store cluster underneath, exactly like two real {@code
+   * ControlPlaneMain} processes would. {@link #client()} alone can't stand in for that: it's a
+   * single shared client instance, not two replicas' worth of independent wiring.
+   */
+  public StoreClient newClient() {
+    return new StoreClient(List.of(address));
   }
 
   /**

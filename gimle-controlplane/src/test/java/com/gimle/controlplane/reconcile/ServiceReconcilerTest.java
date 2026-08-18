@@ -72,7 +72,7 @@ class ServiceReconcilerTest {
   @Test
   void an_empty_store_converges_to_an_empty_endpoint_list() {
     StateStore store = new StateStore(tempDir.resolve("store-empty"));
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
     new ServiceReconciler(registry, store).reconcileOnce();
@@ -90,7 +90,7 @@ class ServiceReconcilerTest {
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080, 8080));
 
     new ServiceReconciler(registry, store).reconcileOnce();
@@ -105,7 +105,7 @@ class ServiceReconcilerTest {
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, false, Map.of("HTTP_PORT", 51234));
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
     new ServiceReconciler(registry, store).reconcileOnce();
@@ -120,7 +120,7 @@ class ServiceReconcilerTest {
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     // no heartbeat ever recorded for node-a
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
     new ServiceReconciler(registry, store).reconcileOnce();
@@ -139,7 +139,7 @@ class ServiceReconcilerTest {
     putHeartbeat(store, "node-a", "orders-v1", 0, true, Map.of("HTTP_PORT", 51234));
     putHeartbeat(store, "node-b", "orders-v2", 0, true, Map.of("HTTP_PORT", 51235));
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(
         new ServiceSpec("orders", Optional.empty(), Set.of("orders-v1", "orders-v2"), 8080));
 
@@ -157,7 +157,7 @@ class ServiceReconcilerTest {
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     // "unreachable" resolves to no assignments at all -- not a failure, just an empty result --
     // reconciled alongside a Service that does have a healthy backing instance, in the same tick.
     registry.put(new ServiceSpec("unreachable", Optional.empty(), Set.of("nothing-here"), 9090));
@@ -176,7 +176,7 @@ class ServiceReconcilerTest {
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));
 
-    ServiceRegistry registry = new ServiceRegistry();
+    ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
     ServiceReconciler reconciler = new ServiceReconciler(registry, store);
     reconciler.reconcileOnce();

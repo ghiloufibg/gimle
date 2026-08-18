@@ -25,6 +25,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
@@ -315,7 +316,10 @@ class RaftCodecTest {
                     Optional.of("tenant-1"),
                     Optional.of("greeter"),
                     true,
-                    1_500L)));
+                    1_500L)),
+            List.of(
+                new ServiceSpec(
+                    "greeter", Optional.of("tenant-1"), Set.of("greeter"), 8080, 9090)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -344,6 +348,7 @@ class RaftCodecTest {
     assertEquals(snapshot.cordonedNodes(), decoded.cordonedNodes());
     assertEquals(snapshot.instanceEvents(), decoded.instanceEvents());
     assertEquals(snapshot.auditEvents(), decoded.auditEvents());
+    assertEquals(snapshot.services(), decoded.services());
   }
 
   @Test

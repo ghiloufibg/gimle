@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.RaftCodec;
 import com.gimle.mimir.store.DaemonSetAssignment;
@@ -144,6 +145,10 @@ public final class StoreCodec {
   private static final byte TAG_STATUS = 91;
   private static final byte TAG_STATUS_RESULT = 92;
   private static final byte TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE = 93;
+  private static final byte TAG_GET_SERVICE = 94;
+  private static final byte TAG_LIST_SERVICES = 95;
+  private static final byte TAG_SERVICE_RESULT = 96;
+  private static final byte TAG_SERVICE_LIST_RESULT = 97;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -209,6 +214,11 @@ public final class StoreCodec {
           out.writeUTF(v.name());
         }
         case StoreRpc.ListDeployments v -> out.writeByte(TAG_LIST_DEPLOYMENTS);
+        case StoreRpc.GetService v -> {
+          out.writeByte(TAG_GET_SERVICE);
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListServices v -> out.writeByte(TAG_LIST_SERVICES);
         case StoreRpc.ListAssignmentsFor v -> {
           out.writeByte(TAG_LIST_ASSIGNMENTS_FOR);
           out.writeUTF(v.deploymentName());
@@ -379,6 +389,20 @@ public final class StoreCodec {
           out.writeBoolean(v.present());
           if (v.present()) {
             DomainCodec.writeDeploymentSpec(out, v.value());
+          }
+        }
+        case StoreRpc.ServiceResult v -> {
+          out.writeByte(TAG_SERVICE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeServiceSpec(out, v.value());
+          }
+        }
+        case StoreRpc.ServiceListResult v -> {
+          out.writeByte(TAG_SERVICE_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (ServiceSpec s : v.values()) {
+            DomainCodec.writeServiceSpec(out, s);
           }
         }
         case StoreRpc.JobSpecResult v -> {
@@ -655,6 +679,8 @@ public final class StoreCodec {
         case TAG_GET_TENANT -> new StoreRpc.GetTenant(in.readUTF());
         case TAG_GET_DEPLOYMENT -> new StoreRpc.GetDeployment(in.readUTF());
         case TAG_LIST_DEPLOYMENTS -> new StoreRpc.ListDeployments();
+        case TAG_GET_SERVICE -> new StoreRpc.GetService(in.readUTF());
+        case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
         case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
@@ -723,6 +749,19 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.DeploymentResult(
               present, present ? DomainCodec.readDeploymentSpec(in) : null);
+        }
+        case TAG_SERVICE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.ServiceResult(
+              present, present ? DomainCodec.readServiceSpec(in) : null);
+        }
+        case TAG_SERVICE_LIST_RESULT -> {
+          int count = in.readInt();
+          List<ServiceSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readServiceSpec(in));
+          }
+          yield new StoreRpc.ServiceListResult(values);
         }
         case TAG_JOB_SPEC_RESULT -> {
           boolean present = in.readBoolean();

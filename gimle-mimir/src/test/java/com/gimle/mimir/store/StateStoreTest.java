@@ -25,6 +25,7 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.ServiceSpec;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -58,6 +59,7 @@ class StateStoreTest {
     new StateStore(root);
 
     assertTrue(Files.isDirectory(root.resolve("deployments")));
+    assertTrue(Files.isDirectory(root.resolve("services")));
     assertTrue(Files.isDirectory(root.resolve("assignments")));
     assertTrue(Files.isDirectory(root.resolve("nodes")));
   }
@@ -110,6 +112,34 @@ class StateStoreTest {
     assertTrue(store.getDeployment("orders-service").isEmpty());
     StateStore reloaded = new StateStore(root);
     assertTrue(reloaded.getDeployment("orders-service").isEmpty());
+  }
+
+  @Test
+  void service_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("service-roundtrip");
+    StateStore store = new StateStore(root);
+    ServiceSpec spec =
+        new ServiceSpec("orders", Optional.of("tenant-1"), Set.of("orders-service"), 8080, 9090);
+
+    store.putService(spec);
+    assertEquals(Optional.of(spec), store.getService("orders"));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(Optional.of(spec), reloaded.getService("orders"));
+    assertEquals(List.of(spec), reloaded.listServices());
+  }
+
+  @Test
+  void removed_service_is_gone_after_reload() {
+    Path root = tempDir.resolve("service-remove");
+    StateStore store = new StateStore(root);
+    store.putService(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
+    store.removeService("orders");
+
+    assertTrue(store.getService("orders").isEmpty());
+    StateStore reloaded = new StateStore(root);
+    assertTrue(reloaded.getService("orders").isEmpty());
+    assertTrue(reloaded.listServices().isEmpty());
   }
 
   @Test
