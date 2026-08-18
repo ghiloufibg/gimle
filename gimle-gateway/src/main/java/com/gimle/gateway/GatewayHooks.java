@@ -59,8 +59,13 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
 
     try {
       server = HttpServer.create(new InetSocketAddress(port), 0);
-      for (GatewayRoute route : routes) {
-        server.createContext(route.path(), exchange -> handle(dispatcher, exchange));
+      // One context per distinct path, not one per route: a host-constrained route and a
+      // host-unconstrained (or differently-host-constrained) sibling can now share the same path,
+      // and HttpServer#createContext rejects a second context registered at a path already bound.
+      // GatewayDispatcher itself resolves which of a path's routes actually serves a given request.
+      List<String> distinctPaths = routes.stream().map(GatewayRoute::path).distinct().toList();
+      for (String path : distinctPaths) {
+        server.createContext(path, exchange -> handle(dispatcher, exchange));
       }
       // One virtual thread per request: an inbound gateway request blocks synchronously on a real
       // fabric round trip (possibly cross-machine), so a fixed-size platform-thread pool would
@@ -95,9 +100,10 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
               exceeded -> new RequestTooLargeException(MAX_REQUEST_BODY_BYTES))) {
         body = new String(requestBody.readAllBytes(), StandardCharsets.UTF_8);
       }
+      String hostHeader = exchange.getRequestHeaders().getFirst("Host");
       GatewayDispatcher.GatewayResponse response =
           dispatcher.dispatch(
-              exchange.getRequestMethod(), exchange.getRequestURI().getPath(), body);
+              exchange.getRequestMethod(), exchange.getRequestURI().getPath(), body, hostHeader);
       respond(exchange, response.status(), response.body());
     } catch (RequestTooLargeException e) {
       respond(exchange, 413, e.getMessage());

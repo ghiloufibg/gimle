@@ -1,21 +1,35 @@
 package com.gimle.gateway;
 
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * One declared gateway route: an HTTP {@code path} that, when hit, is served one of two ways.
+ * One declared gateway route: an HTTP {@code path} that, when hit, is served one of three ways.
  * {@link FabricRoute} invokes a named fabric service via {@code ModuleContext#invokeServiceByName}
- * -- the only kind this module originally supported. {@link VesselRoute} instead proxies the
- * inbound request to a live instance of a named deployment, resolved through {@code
- * ModuleContext#relayControlPlaneRead} (see {@link VesselEndpointCache}). The two kinds share
- * nothing beyond an HTTP path to dispatch on, which is why this is a sealed interface of two record
- * shapes rather than one flat record trying to cover both -- see {@link GatewayDispatcher#dispatch}
- * for how each kind is actually served.
+ * -- the only kind this module originally supported. {@link VesselRoute} proxies the inbound
+ * request to a live instance of a named deployment, resolved through {@code
+ * ModuleContext#relayControlPlaneRead} (see {@link VesselEndpointCache}). {@link ServiceRoute}
+ * proxies the inbound request the same way, but resolves its target through a control-plane-
+ * declared {@code Service}'s own endpoint set instead of a named deployment port (see {@link
+ * ServiceEndpointCache}). The three kinds share nothing beyond an HTTP path (and now an optional
+ * host constraint) to dispatch on, which is why this is a sealed interface of record shapes rather
+ * than one flat record trying to cover all three -- see {@link GatewayDispatcher#dispatch} for how
+ * each kind is actually served.
  */
-public sealed interface GatewayRoute permits GatewayRoute.FabricRoute, GatewayRoute.VesselRoute {
+public sealed interface GatewayRoute
+    permits GatewayRoute.FabricRoute, GatewayRoute.VesselRoute, GatewayRoute.ServiceRoute {
 
   /** The HTTP path this route answers -- exact-match only, see {@link GatewayDispatcher}. */
   String path();
+
+  /**
+   * The {@code Host} header value this route requires, or {@link Optional#empty()} if it matches
+   * any host -- the original, and still default, behavior of every route kind (a route declared
+   * without an explicit host constraint keeps working exactly as it did before host-based routing
+   * existed). See {@link GatewayDispatcher} for the matching precedence between a host-constrained
+   * route and a host-unconstrained one sharing the same path.
+   */
+  Optional<String> host();
 
   /**
    * An HTTP-to-fabric route: an HTTP {@code path} that, when hit, invokes {@code methodName} on
@@ -30,10 +44,33 @@ public sealed interface GatewayRoute permits GatewayRoute.FabricRoute, GatewayRo
    * invocation time rather than needing it declared up front.
    */
   record FabricRoute(
-      String path, String interfaceName, int majorVersion, String methodName, ParamType paramType)
+      Optional<String> host,
+      String path,
+      String interfaceName,
+      int majorVersion,
+      String methodName,
+      ParamType paramType)
       implements GatewayRoute {
 
+    /**
+     * Convenience constructor for a route with no host constraint -- the only shape this route kind
+     * supported before host-based routing existed, kept so every pre-existing call site continues
+     * to compile and behave identically.
+     */
+    public FabricRoute(
+        String path,
+        String interfaceName,
+        int majorVersion,
+        String methodName,
+        ParamType paramType) {
+      this(Optional.empty(), path, interfaceName, majorVersion, methodName, paramType);
+    }
+
     public FabricRoute {
+      if (host == null) {
+        throw new GatewayConfigException(
+            "route host must not be null (use Optional.empty() for no constraint)");
+      }
       if (path == null || !path.startsWith("/")) {
         throw new GatewayConfigException("route path must start with '/': " + path);
       }
@@ -145,9 +182,23 @@ public sealed interface GatewayRoute permits GatewayRoute.FabricRoute, GatewayRo
    * request body pass through unchanged, unlike a {@link FabricRoute}'s method/argument-shape
    * restrictions.
    */
-  record VesselRoute(String path, String deploymentName, String portName) implements GatewayRoute {
+  record VesselRoute(Optional<String> host, String path, String deploymentName, String portName)
+      implements GatewayRoute {
+
+    /**
+     * Convenience constructor for a route with no host constraint -- the only shape this route kind
+     * supported before host-based routing existed, kept so every pre-existing call site continues
+     * to compile and behave identically.
+     */
+    public VesselRoute(String path, String deploymentName, String portName) {
+      this(Optional.empty(), path, deploymentName, portName);
+    }
 
     public VesselRoute {
+      if (host == null) {
+        throw new GatewayConfigException(
+            "route host must not be null (use Optional.empty() for no constraint)");
+      }
       if (path == null || !path.startsWith("/")) {
         throw new GatewayConfigException("route path must start with '/': " + path);
       }
@@ -156,6 +207,42 @@ public sealed interface GatewayRoute permits GatewayRoute.FabricRoute, GatewayRo
       }
       if (portName == null || portName.isBlank()) {
         throw new GatewayConfigException("route portName must not be blank");
+      }
+    }
+  }
+
+  /**
+   * An HTTP-to-service route: an HTTP {@code path} that, when hit, proxies the inbound request
+   * verbatim to a live endpoint of the control-plane-declared {@code Service} named {@code
+   * serviceName} (see {@link ServiceEndpointCache} for how a live {@code host}/port pair is
+   * resolved and cached). Unlike {@link VesselRoute}, there is no separate {@code portName} to name
+   * -- a {@code Service}'s endpoints already carry the one port they're reachable on, the same way
+   * a Kubernetes Service's own endpoint set does.
+   *
+   * <p>Proxying behavior (verbatim path, unrestricted method/body) is otherwise identical to {@link
+   * VesselRoute} -- see that record's own javadoc for what "verbatim" excludes.
+   */
+  record ServiceRoute(Optional<String> host, String path, String serviceName)
+      implements GatewayRoute {
+
+    /**
+     * Convenience constructor for a route with no host constraint, matching the same shape {@link
+     * FabricRoute} and {@link VesselRoute} offer.
+     */
+    public ServiceRoute(String path, String serviceName) {
+      this(Optional.empty(), path, serviceName);
+    }
+
+    public ServiceRoute {
+      if (host == null) {
+        throw new GatewayConfigException(
+            "route host must not be null (use Optional.empty() for no constraint)");
+      }
+      if (path == null || !path.startsWith("/")) {
+        throw new GatewayConfigException("route path must start with '/': " + path);
+      }
+      if (serviceName == null || serviceName.isBlank()) {
+        throw new GatewayConfigException("route serviceName must not be blank");
       }
     }
   }
