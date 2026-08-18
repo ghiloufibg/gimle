@@ -9870,9 +9870,15 @@
       "category": "Networking/Security",
       "status": "New",
       "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "Holmgang's Cucumber suite has no scenario proving NetworkPolicySpec survives a control-plane restart or is visible cluster-wide. To close: add a scenario that creates a NetworkPolicySpec via one control-plane replica, restarts it (or queries a second replica), and asserts the policy is still present.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/network-policy.feature",
+          "scenario": "A network policy created through one control-plane replica is visible through another",
+          "whyThisCounts": "POSTs a NetworkPolicySpec to control-plane replica 0's real /networkpolicies API, then reads it back through replica 1's own independent HTTP API -- both replicas share nothing but gimle-mimir, so the read only succeeds if NetworkPolicyRegistry is genuinely backed by the replicated store rather than an in-memory map private to the replica that handled the write, and the tenantId/allowedCallerTenantIds content is asserted to match, not just presence."
+        }
+      ],
+      "gapNote": "",
       "otherTestCoverage": "`NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
