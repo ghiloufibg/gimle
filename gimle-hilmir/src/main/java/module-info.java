@@ -19,4 +19,5 @@ module com.gimle.hilmir {
   exports com.gimle.hilmir.init;
   exports com.gimle.hilmir.store;
   exports com.gimle.hilmir.extension;
+  exports com.gimle.hilmir.remote;
 }

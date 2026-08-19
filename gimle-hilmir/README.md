@@ -37,12 +37,15 @@ tls:
 
 machines:
   - {name: m1, host: gimle-1.example.com}
-  - {name: m2, host: gimle-2.example.com}
+  - {name: m2, host: gimle-2.example.com, ssh: {user: deploy, port: 2222}}
 
 runtime:                         # entire section optional
   javaExecutable: java
   classpath: /opt/gimle/lib/*
   dataRoot: /var/lib/gimle
+  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle}
+                                  # topology-wide default for `--remote`; a machine's own `ssh:`
+                                  # (like m2's above) overrides it field by field
 
 store:
   replicas:
@@ -121,13 +124,28 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
   find these processes again. For an mtls topology, an agent's own bootstrap token is minted
   automatically via a one-shot `gimle cert token create` call against the already-running control
   plane.
+- `hilmir up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>] [--ssh-key <path>]
+  [--ssh-port <port>] [--install-dir <path>]` -- the same `up` above, dispatched over SSH instead
+  of running locally: with `--machine`, just that one machine; omitted, every machine the topology
+  declares, concurrently. Shells out to the operator's own `ssh`/`scp` (no SSH library dependency),
+  no host-key verification, no provisioning (`<installDir>/bin/hilmir` must already exist on the
+  target -- default `/opt/gimle`), no credential handling of its own. See `gimle-docs`' own Remote
+  (SSH) fleet bootstrap reference section for the full v1 scope and the
+  `machines[].ssh:`/`runtime.ssh:` precedence.
 - `hilmir down --machine <name> [--data-root <path>]` -- reads the run ledger at `--data-root`
   (`gimle-data` by default) and stops every process it recorded, in reverse of the order `up`
   started them, then removes the ledger. A pid no longer running is reported and skipped, not
   treated as an error.
+- `hilmir down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>] [--ssh-user
+  <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]` -- the same `down`,
+  dispatched over SSH; unlike local `down`, `--remote` needs `-f` to resolve each target's host and
+  SSH settings.
 - `hilmir status --machine <name> [--data-root <path>]` -- reads the run ledger at `--data-root` and
   reports each recorded process's pid liveness and (best-effort) whether its own readiness address
   is currently reachable.
+- `hilmir status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>] [--ssh-user
+  <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]` -- the same `status`,
+  dispatched over SSH; same `-f`-required-under-`--remote` asymmetry as `down` above.
 - `hilmir pki init -f <topology.yaml>` -- generates a brand-new mtls topology's cluster CA and
   per-role leaf certificates under `tls.materialDir` by spawning the platform's own
   `PkiBootstrapMain` once. Only applies to a topology with `transport: mtls` and a configured
@@ -136,5 +154,6 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
   hostname only -- printed as a note -- and every other machine's server processes need
   manually-issued material.
 
-`down`/`status` deliberately take `--data-root` rather than `-f`: the run ledger lives under a
-resolved runtime's own data root, and neither verb needs the topology document again to find it.
+`down`/`status` deliberately take `--data-root` rather than `-f` for local dispatch: the run ledger
+lives under a resolved runtime's own data root, and neither verb needs the topology document again
+to find it. `--remote` is the one exception -- see above.

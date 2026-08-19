@@ -19,6 +19,8 @@ import com.gimle.hilmir.release.ReleasesCommand;
 import com.gimle.hilmir.release.RollbackCommand;
 import com.gimle.hilmir.release.UndeployCommand;
 import com.gimle.hilmir.release.UpgradeCommand;
+import com.gimle.hilmir.remote.RemoteDispatch;
+import com.gimle.hilmir.remote.SshCliFlags;
 import com.gimle.hilmir.store.StoreAddCommand;
 import com.gimle.hilmir.store.StoreRemoveCommand;
 import com.gimle.hilmir.sync.SyncCommand;
@@ -46,8 +48,14 @@ import java.util.Optional;
  *   hilmir validate -f &lt;topology.yaml&gt;
  *   hilmir plan -f &lt;topology.yaml&gt; [--machine &lt;name&gt;]
  *   hilmir up -f &lt;topology.yaml&gt; --machine &lt;name&gt;
+ *   hilmir up -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--ssh-user &lt;user&gt;]
+ *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir down -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
+ *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir status -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
+ *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir pki init -f &lt;topology.yaml&gt;
  *   hilmir store add &lt;peerId&gt; &lt;host&gt; &lt;raftPort&gt; &lt;clientPort&gt;
  *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
@@ -68,10 +76,19 @@ import java.util.Optional;
  *   hilmir disable gateway --server &lt;host:port&gt; [-o json]
  * </pre>
  *
- * {@code down}/{@code status} take {@code --data-root} rather than {@code -f}: the run ledger
- * {@code up} writes lives under a resolved runtime's own data root, and neither verb needs the
- * topology document again to find it (it defaults the same way {@link ResolvedRuntime#resolve}'s
- * own default does when omitted).
+ * {@code down}/{@code status} take {@code --data-root} rather than {@code -f} for local dispatch:
+ * the run ledger {@code up} writes lives under a resolved runtime's own data root, and neither verb
+ * needs the topology document again to find it (it defaults the same way {@link
+ * ResolvedRuntime#resolve}'s own default does when omitted). {@code --remote} dispatch is the one
+ * exception: {@code down}/{@code status --remote} do require {@code -f}, since resolving each
+ * target machine's host and SSH settings needs the topology document.
+ *
+ * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code status} verb
+ * over SSH on every machine the topology declares (or just the one {@code --machine} names, when
+ * given) instead of running locally -- see {@code com.gimle.hilmir.remote.RemoteDispatch} for the
+ * full v1 scope: shells out to the operator's own already-configured {@code ssh}/{@code scp} (no
+ * SSH library dependency), no host-key verification, no provisioning (the target's platform archive
+ * is assumed already unpacked), and no credential handling of its own.
  *
  * <p>The six release verbs are a separate, Helm-equivalent concern layered on top of the same
  * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
@@ -190,11 +207,21 @@ public final class HilmirMain {
   }
 
   private static int runUp(final List<String> args, final PrintStream out) {
-    final Topology topology = parseFile(requireFileFlag(args));
+    final Path topologyFile = requireFileFlag(args);
+    final Topology topology = parseFile(topologyFile);
     final List<Finding> findings = TopologyValidator.validate(topology);
     if (hasError(findings)) {
       printFindings(findings, out);
       return 1;
+    }
+    if (remoteFlag(args)) {
+      return RemoteDispatch.up(
+          topology,
+          topologyFile,
+          machineFlag(args),
+          dataRootFlagOptional(args),
+          sshCliFlags(args),
+          out);
     }
     final String machine = requireMachineFlag(args);
     final ResolvedRuntime runtime = resolveRuntime(topology);
@@ -204,12 +231,22 @@ public final class HilmirMain {
   }
 
   private static int runDown(final List<String> args, final PrintStream out) {
+    if (remoteFlag(args)) {
+      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      return RemoteDispatch.down(
+          topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
+    }
     requireMachineFlag(args);
     MachineLauncher.down(dataRootFlag(args), out);
     return 0;
   }
 
   private static int runStatus(final List<String> args, final PrintStream out) {
+    if (remoteFlag(args)) {
+      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      return RemoteDispatch.status(
+          topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
+    }
     requireMachineFlag(args);
     MachineLauncher.status(dataRootFlag(args), out);
     return 0;
@@ -380,6 +417,60 @@ public final class HilmirMain {
     return Path.of("gimle-data");
   }
 
+  private static boolean remoteFlag(final List<String> args) {
+    return args.contains("--remote");
+  }
+
+  /**
+   * {@code --remote}'s own {@code -f}: {@code down}/{@code status} normally never need the topology
+   * document (see the class javadoc), but resolving a target machine's host/SSH settings under
+   * {@code --remote} does -- a dedicated message explains why, rather than reusing {@link
+   * #requireFileFlag}'s generic one, which would otherwise read as if {@code -f} were always
+   * required for these two verbs.
+   */
+  private static Path requireFileFlagForRemote(final List<String> args) {
+    return optionalFlag(args, "-f")
+        .map(Path::of)
+        .orElseThrow(
+            () ->
+                new HilmirException(
+                    "--remote requires -f <topology.yaml> to resolve each machine's host/ssh"
+                        + " settings"));
+  }
+
+  private static SshCliFlags sshCliFlags(final List<String> args) {
+    return new SshCliFlags(
+        optionalFlag(args, "--ssh-user"),
+        optionalIntFlag(args, "--ssh-port"),
+        optionalFlag(args, "--ssh-key"),
+        optionalFlag(args, "--install-dir"));
+  }
+
+  private static Optional<Path> dataRootFlagOptional(final List<String> args) {
+    return optionalFlag(args, "--data-root").map(Path::of);
+  }
+
+  private static Optional<String> optionalFlag(final List<String> args, final String flag) {
+    for (int i = 0; i < args.size(); i++) {
+      if (args.get(i).equals(flag) && i + 1 < args.size()) {
+        return Optional.of(args.get(i + 1));
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<Integer> optionalIntFlag(final List<String> args, final String flag) {
+    return optionalFlag(args, flag)
+        .map(
+            value -> {
+              try {
+                return Integer.parseInt(value);
+              } catch (final NumberFormatException e) {
+                throw new HilmirException(flag + " must be an integer, got: " + value);
+              }
+            });
+  }
+
   private static String usage() {
     return """
         usage: hilmir <verb> [args]
@@ -388,8 +479,14 @@ public final class HilmirMain {
           validate -f <topology.yaml>
           plan -f <topology.yaml> [--machine <name>]
           up -f <topology.yaml> --machine <name>
+          up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>]
+              [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           down --machine <name> [--data-root <path>]
+          down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
+              [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           status --machine <name> [--data-root <path>]
+          status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
+              [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           pki init -f <topology.yaml>
           store add <peerId> <host> <raftPort> <clientPort>
               (--topology <file> | --server <host:clientPort>[,<host:clientPort>...])

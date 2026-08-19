@@ -1,0 +1,64 @@
+# The ssh-remote scenario: one bare eclipse-temurin:25-jdk-plus-sshd machine (./ssh-remote/Dockerfile)
+# with the unpacked gimle-platform archive at /opt/gimle and nothing auto-started, proving hilmir's
+# own `--remote` SSH dispatch (see
+# ../../gimle-docs/docs/reference/hilmir-reference.md#remote-ssh-fleet-bootstrap) against a real
+# sshd -- unlike every other compose scenario here (which either auto-boot via entrypoint.sh or are
+# driven by hand through `docker compose exec`, i.e. always *inside* the container), this one is
+# driven from the host, the way an operator would drive a real fleet.
+#
+# Prerequisites -- build the archive, and have an SSH keypair whose public half you're willing to
+# authorize into a throwaway container (defaults to ~/.ssh/id_ed25519.pub; point GIMLE_SSH_PUBKEY
+# at a different one if you'd rather use a dedicated throwaway key):
+#   mvn -pl gimle-dist -am install
+#   GIMLE_SSH_PUBKEY=~/.ssh/id_ed25519.pub docker compose -f docker-compose.ssh-remote.yml up -d
+#
+# Then, from the host -- no docker exec anywhere in this workflow:
+#   hilmir up     -f topology-ssh-remote.yaml --remote
+#   hilmir status -f topology-ssh-remote.yaml --remote
+#   hilmir down   -f topology-ssh-remote.yaml --remote
+# (add --ssh-key <path> if the key you authorized isn't already loaded in your ssh-agent or usable
+# as ssh's own default identity)
+#
+# Tear down with `docker compose -f docker-compose.ssh-remote.yml down -v` (the -v matters: the
+# container's own /opt/gimle and /data volumes otherwise survive and confuse a later re-run the
+# same way every other compose scenario here already documents).
+
+secrets:
+  operator-pubkey:
+    file: ${GIMLE_SSH_PUBKEY:?set GIMLE_SSH_PUBKEY to the public key you want authorized, e.g. ~/.ssh/id_ed25519.pub}
+
+services:
+  unpack:
+    image: debian:bookworm-slim
+    networks: [gimle]
+    entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/unpack.sh > /tmp/unpack.sh && exec /bin/sh /tmp/unpack.sh']
+    volumes:
+      - ${GIMLE_DIST_TARGET:-../../gimle-dist/target}:/dist:ro
+      - ./unpack.sh:/holmgang/unpack.sh:ro
+      - gimle-install:/opt/gimle
+
+  m1:
+    build: ./ssh-remote
+    networks: [gimle]
+    # Sanitized into /tmp before running for the same CRLF-checkout-robustness reason
+    # ../docker-compose.full-jre.yml's own entrypoint does -- see that file's comment.
+    entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/sshd-entrypoint.sh > /tmp/sshd-entrypoint.sh && exec /bin/sh /tmp/sshd-entrypoint.sh']
+    secrets: [operator-pubkey]
+    depends_on:
+      unpack:
+        condition: service_completed_successfully
+    volumes:
+      - gimle-install:/opt/gimle:ro
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - m1-data:/data
+    ports:
+      - "2201:22"       # matches topology-ssh-remote.yaml's own runtime.ssh.port
+      - "8080:8080"     # controlPlane -- so a browser on the host can open its console too
+      - "9092:9092"     # fafnir -- same reason
+
+networks:
+  gimle: {}
+
+volumes:
+  gimle-install: {}
+  m1-data: {}

@@ -6,8 +6,10 @@ sidebar_position: 5
 
 `gimle-hilmir` is five tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
 verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
-it into real, running Gimlé processes on the local machine, or the exact per-machine process
-commands the topology implies. `upgrade-cluster` restarts a subset of those already-running processes
+it into real, running Gimlé processes on the local machine (or, for `up`/`down`/`status`, on a
+remote machine over SSH via the opt-in `--remote` flag — see [Remote (SSH) fleet
+bootstrap](#remote-ssh-fleet-bootstrap) below), or the exact per-machine process commands the
+topology implies. `upgrade-cluster` restarts a subset of those already-running processes
 against a newly-unpacked platform binary, one machine and one role at a time — see
 [Cluster upgrade (platform binary rollout)](#cluster-upgrade-platform-binary-rollout) below; note this
 is a **different** verb from the release `upgrade` further down, despite the shared word. `store
@@ -33,8 +35,14 @@ operator ever hand-writing its bundle file — see
 hilmir validate -f <topology.yaml>
 hilmir plan -f <topology.yaml> [--machine <name>]
 hilmir up -f <topology.yaml> --machine <name>
+hilmir up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>]
+    [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
 hilmir down --machine <name> [--data-root <path>]
+hilmir down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
+    [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
 hilmir status --machine <name> [--data-root <path>]
+hilmir status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
+    [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
 hilmir pki init -f <topology.yaml>
 ```
 
@@ -45,8 +53,15 @@ each of Gimlé's process kinds expects — useful for inspecting what `up` would
 `up` actually spawns every process a topology assigns to `--machine`, waiting on any cross-machine
 prerequisite (a store replica another machine hosts, say) via a plain TCP-connect readiness check
 before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
-neither needs the topology document again. `pki init` mints the cluster's certificate authority and
-every process's leaf certificate up front, for a topology that declares `tls:`.
+neither needs the topology document again for local dispatch. `pki init` mints the cluster's
+certificate authority and every process's leaf certificate up front, for a topology that declares
+`tls:`.
+
+`--remote` re-invokes this exact same local `up`/`down`/`status` over SSH instead of running on the
+machine `hilmir` itself is invoked on — see [Remote (SSH) fleet
+bootstrap](#remote-ssh-fleet-bootstrap) below. `--remote` is the one case where `down`/`status` *do*
+need `-f`: resolving a target machine's host and SSH settings needs the topology document, even
+though local `down`/`status` never do.
 
 ### Topology `runtime:` block
 
@@ -103,6 +118,60 @@ its own bundled JRE from the *current* `GIMLE_HOME`, which takes precedence over
 either point `GIMLE_HOME` at the newly-unpacked archive before running `upgrade-cluster`, or set
 `runtime.useBundledJre: false` in the topology and rely on `--new-java-executable` instead.
 
+## Remote (SSH) fleet bootstrap
+
+`--remote` on `up`/`down`/`status` dispatches that exact same local verb over SSH to every machine
+a topology declares (or just the one `--machine` names, when given), rather than requiring an
+operator to already have a shell open on each target machine — or `docker exec` into it, the way
+`gimle-holmgang`'s own Utgard test harness does. Nothing about `up`/`down`/`status` themselves
+changes: `--remote` re-invokes the identical `<installDir>/bin/hilmir up|down|status --machine
+<name>` command on the target, over SSH, instead of running it locally — the run ledger, its
+readiness polling, and every other local behavior are untouched.
+
+```sh
+hilmir up -f topology.yaml --remote
+```
+
+brings up every machine the topology declares, concurrently — one SSH session per machine. One
+machine's failure never aborts the others; the exit code is non-zero if any machine failed.
+
+**v1 scope, explicit non-goals:**
+
+- **No host-key verification.** `--remote` shells out to the operator's own already-installed
+  `ssh`/`scp` (no SSH library dependency — the same `ProcessBuilder` pattern `hilmir up`'s own
+  local process spawning already uses) with `StrictHostKeyChecking=no`/`UserKnownHostsFile=/dev/null`
+  — a warning is printed once before dispatch. Do not use `--remote` over an untrusted network.
+- **No provisioning.** `--remote` assumes `<installDir>/bin/hilmir` already exists on every target
+  — it never ships or unpacks a platform archive for you. Get the archive onto each machine first
+  (however you'd normally do that), then `--remote` takes over from there.
+- **No credential handling of its own.** Authentication is entirely the operator's own `ssh`
+  identity — an agent, a default key, or `~/.ssh/config` — the same way it would be for a plain
+  manual `ssh` session. `--remote` never reads, stores, or transmits a password or private key.
+- **`upgrade-cluster` is unaffected** — see its own scope note below; it stays local-only.
+
+**SSH connection settings**, highest precedence first: the CLI flags (`--ssh-user`/`--ssh-key`/
+`--ssh-port`/`--install-dir`) shown above; a per-machine override (`machines[].ssh:`); a
+topology-wide default (`runtime.ssh:`); and, for anything left unset at every tier, the operator's
+own `ssh` configuration decides (so a topology that declares no `ssh:` at all still works, exactly
+as if the operator had typed `ssh <host>` themselves). `installDir` defaults to `/opt/gimle` when
+nothing overrides it, matching every `docker-compose.*.yml` example under `gimle-holmgang/compose/`.
+
+```yaml
+runtime:
+  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle}
+machines:
+  - {name: m1, host: gimle-1.example.com}
+  - {name: m2, host: gimle-2.example.com, ssh: {user: deploy, port: 2222}}
+```
+
+Here `m1` inherits the topology-wide default entirely; `m2` overrides just `user`/`port`, still
+inheriting `identityFile`/`installDir` from the topology-wide default — precedence resolves field
+by field, not tier by tier.
+
+`down`/`status --remote` need `-f <topology.yaml>` too, unlike their local form: resolving each
+target's host and SSH settings needs the topology document. Omitting `--machine` under `--remote`
+fans out to every machine the topology declares, for `down`/`status` exactly as it does for `up`.
+
 ## Cluster upgrade (platform binary rollout)
 
 ```text
@@ -117,11 +186,14 @@ respawn against the new classpath, wait for readiness, repeat for the next role 
 upgrade`, which is a completely different, bundle-workload-rollout concern (see
 [Release verbs](#release-verbs) below).
 
-**Scope: `hilmir` has no remote-execution layer.** Exactly like `up`/`down`/`status`, this verb only
-ever touches OS processes on the one machine it runs on. Rolling out a new platform binary across a
-whole cluster means an operator (or an external runbook/script) invoking `hilmir upgrade-cluster`
-once per machine, in the right order — this verb deliberately does not attempt SSH, an agent-driven
-fanout, or any other cross-machine orchestration of its own.
+**Scope: `upgrade-cluster` has no remote-execution layer of its own.** Unlike `up`/`down`/`status`
+(which gained an opt-in `--remote` SSH mode — see [Remote (SSH) fleet
+bootstrap](#remote-ssh-fleet-bootstrap) above), this verb only ever touches OS processes on the one
+machine it runs on. Rolling out a new platform binary across a whole cluster means an operator (or
+an external runbook/script) invoking `hilmir upgrade-cluster` once per machine, in the right order —
+this verb deliberately does not attempt SSH, an agent-driven fanout, or any other cross-machine
+orchestration of its own. (A future `--remote` for this verb, mirroring `up`/`down`/`status`'s own,
+is a natural extension but is not built yet.)
 
 `--new-classpath` is required and deliberately independent of both the topology's own
 `runtime.classpath` and whichever `hilmir` binary happens to be invoking the command: point it at a

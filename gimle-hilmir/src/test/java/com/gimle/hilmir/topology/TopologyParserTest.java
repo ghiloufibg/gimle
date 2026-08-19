@@ -140,6 +140,74 @@ class TopologyParserTest {
   }
 
   @Test
+  void parses_a_topology_wide_ssh_default() {
+    final Topology topology =
+        parse(
+            """
+            name: remote
+            runtime:
+              ssh: {user: ubuntu, port: 2222, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle}
+            """);
+    final SshSettings ssh = topology.runtime().ssh().orElseThrow();
+    assertEquals(Optional.of("ubuntu"), ssh.user());
+    assertEquals(Optional.of(2222), ssh.port());
+    assertEquals(Optional.of("/home/op/.ssh/id_ed25519"), ssh.identityFile());
+    assertEquals(Optional.of("/opt/gimle"), ssh.installDir());
+  }
+
+  @Test
+  void runtime_ssh_defaults_to_empty_when_absent() {
+    final Topology topology = parse("name: bare\n");
+    assertTrue(topology.runtime().ssh().isEmpty());
+  }
+
+  @Test
+  void parses_a_per_machine_ssh_override() {
+    final Topology topology =
+        parse(
+            """
+            name: remote
+            machines:
+              - {name: m1, host: gimle-1.example.com, ssh: {user: deploy, port: 2200}}
+              - {name: m2, host: gimle-2.example.com}
+            """);
+    final SshSettings m1Ssh = topology.machines().get(0).ssh().orElseThrow();
+    assertEquals(Optional.of("deploy"), m1Ssh.user());
+    assertEquals(Optional.of(2200), m1Ssh.port());
+    assertEquals(Optional.empty(), m1Ssh.identityFile());
+    assertTrue(topology.machines().get(1).ssh().isEmpty());
+  }
+
+  @Test
+  void rejects_an_unknown_machine_ssh_key() {
+    assertThrows(
+        GimleManifestException.class,
+        () -> parse("name: bad\nmachines:\n  - {name: m1, host: h1, ssh: {password: hunter2}}\n"));
+  }
+
+  @Test
+  void rejects_an_unknown_runtime_ssh_key() {
+    assertThrows(
+        GimleManifestException.class,
+        () -> parse("name: bad\nruntime:\n  ssh: {password: hunter2}\n"));
+  }
+
+  @Test
+  void rejects_an_out_of_range_ssh_port() {
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () -> parse("name: bad\nruntime:\n  ssh: {port: 70000}\n"));
+    assertTrue(e.getMessage().contains("ssh.port"));
+  }
+
+  @Test
+  void rejects_an_ssh_section_that_is_not_a_mapping() {
+    assertThrows(
+        GimleManifestException.class, () -> parse("name: bad\nruntime:\n  ssh: everywhere\n"));
+  }
+
+  @Test
   void applies_the_documented_default_ports_when_a_replica_omits_them() {
     final Topology topology =
         parse(

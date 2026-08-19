@@ -228,13 +228,16 @@ have their own fast unit tests that need no Docker at all, so they run under the
 
 ## Docker Compose manual validation
 
-`compose/` holds three hand-run Docker Compose files for manually eyeballing a real `gimle-platform`
+`compose/` holds four hand-run Docker Compose files for manually eyeballing a real `gimle-platform`
 archive, distinct from Utgard above: Utgard is an automated JUnit suite asserting specific platform
 behaviors from Java, while these compose files are for a person to `docker compose up` and poke at
-with their own eyes and their own `curl`/`hilmir` commands. All three drive the exact same real
+with their own eyes and their own `curl`/`hilmir` commands. All four drive the exact same real
 `hilmir` verbs an operator would run by hand against a real topology document
 (`compose/topology-*.yaml`, in the actual `gimle-hilmir` `TopologyParser` schema) -- none of them
-hand-crafts `StoreMain`/`FafnirMain`/etc. command lines itself.
+hand-crafts `StoreMain`/`FafnirMain`/etc. command lines itself. The first three run `hilmir`
+*inside* the container being acted on (via an auto-boot entrypoint, or `docker compose exec`); the
+fourth is the odd one out, running it from the host instead, over a real `sshd` -- see its own
+bullet below.
 
 - `docker-compose.full-jre.yml` -- the baseline: every service runs `eclipse-temurin:25-jre`, and
   `topology-full-jre.yaml` sets `runtime.useBundledJre: false`. Matches a `gimle-platform` archive
@@ -258,6 +261,18 @@ hand-crafts `StoreMain`/`FafnirMain`/etc. command lines itself.
   modes, what a fresh `status`/`down`/re-`up` cycle actually leaves behind in a machine's own
   `/data` -- not for eyeballing an already-running cluster, which is what the other two files are
   for. See the compose file's own header comment for the full manual command sequence.
+- `docker-compose.ssh-remote.yml` -- a single `ssh-remote/Dockerfile`-built machine (plain
+  `eclipse-temurin:25-jdk` plus a real `sshd`, an "operator" user, and `/opt/gimle` populated the
+  same way as the other three) with nothing auto-started, proving `hilmir up/status/down --remote`
+  (see [Remote (SSH) fleet
+  bootstrap](../gimle-docs/docs/reference/hilmir-reference.md#remote-ssh-fleet-bootstrap)) against
+  a real SSH server -- the operator runs `hilmir ... --remote` from *outside* every container, the
+  same way they would against a real fleet, rather than `docker compose exec`-ing in. Requires an
+  SSH keypair whose public half you're willing to authorize into the container (`GIMLE_SSH_PUBKEY`,
+  default `~/.ssh/id_ed25519.pub`) -- see the compose file's own header comment for the exact
+  bring-up and verification command sequence. Deliberately single-machine: see
+  `topology-ssh-remote.yaml`'s own header comment for why a multi-machine version of this scenario
+  would fight Docker's own NAT'd networking rather than prove anything about `--remote` itself.
 
 Prerequisites -- build the archive, nothing else:
 
@@ -273,6 +288,10 @@ docker compose -f compose/docker-compose.bundled-jre.yml up
 # naked-infra scenario -- same plain archive as full-jre, containers just don't boot it themselves
 mvn -pl gimle-dist -am install
 docker compose -f compose/docker-compose.naked-infra.yml up -d
+
+# ssh-remote scenario -- same plain archive as full-jre, plus your own ssh public key
+mvn -pl gimle-dist -am install
+GIMLE_SSH_PUBKEY=~/.ssh/id_ed25519.pub docker compose -f compose/docker-compose.ssh-remote.yml up -d
 ```
 
 Each file's own `unpack` service extracts whichever `gimle-platform-<version>.tar.gz` it finds under
@@ -283,16 +302,16 @@ about to run actually needs first. Building out of a different checkout (or a pr
 elsewhere) is still possible: `GIMLE_DIST_TARGET` overrides the mounted directory, e.g.
 `GIMLE_DIST_TARGET=/path/to/gimle-dist/target docker compose -f compose/docker-compose.full-jre.yml up`.
 
-The control plane's HTTP API is published at `localhost:8080` in all three files. In `full-jre`/
+The control plane's HTTP API is published at `localhost:8080` in all four files. In `full-jre`/
 `bundled-jre`, each service polls its own `hilmir status` every 10s and exits non-zero the moment any
 process it hosts reports `alive=false`, so `docker compose ps`/a non-zero exit is itself a signal
-something died -- watch `docker compose logs -f` for which one and why. `naked-infra` has no such
-loop (nothing is running to poll until you start it) -- run `hilmir status` yourself, the same
-`docker compose exec` way you ran `hilmir up`. All three files share the same directory-derived
-Compose project name, so their named volumes collide by design if you switch between them without
-tearing down first -- tear down with `docker compose down -v` (the `-v` matters: each service keeps
-its own `dataRoot` in a named volume, so a stale Fafnir key or Raft log survives a plain `down`, and
-would otherwise leak into whichever scenario you run next).
+something died -- watch `docker compose logs -f` for which one and why. `naked-infra`/`ssh-remote`
+have no such loop (nothing is running to poll until you start it): run `hilmir status` yourself, the
+same `docker compose exec`/`--remote` way you ran `hilmir up`. All four files share the same
+directory-derived Compose project name, so their named volumes collide by design if you switch
+between them without tearing down first -- tear down with `docker compose down -v` (the `-v`
+matters: each service keeps its own `dataRoot` in a named volume, so a stale Fafnir key or Raft log
+survives a plain `down`, and would otherwise leak into whichever scenario you run next).
 
 ### Port publishing vs. a real server
 

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 575
+- **Total requirements**: 576
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 456
+- **Not covered by automated test**: 457
 - **Release-readiness (automated coverage)**: 20.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -28,7 +28,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
 | gimle-cli | 19 | 0 | 19 | 0.0% |
-| gimle-hilmir | 29 | 0 | 29 | 0.0% |
+| gimle-hilmir | 30 | 0 | 30 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 26 | 0 | 26 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
@@ -1271,6 +1271,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-408 | Workload readiness polling for `--wait` | Given a Deployment applied with --wait, When instances haven't all reported ACTIVE, Then polls every 2s up to a 5-minute timeout. | No |
 | [ ] | GIMLE-412 | Gateway extension enable (`hilmir enable gateway`) | Given gimle-gateway not registered/deployed, When "hilmir enable gateway --server host:port", Then jar pushed and a synthesized bundle deployed fresh; identical-sha jar already registered skips the push; already-deployed at an older version upgrades instead. | No |
 | [ ] | GIMLE-413 | Gateway extension disable (`hilmir disable gateway`) | Given gateway currently enabled, When "hilmir disable gateway --server host:port", Then the release is fully undeployed; never-enabled reports a clear "nothing to disable" message. | No |
+| [ ] | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Given a topology declaring two or more machines, When "hilmir up -f topology.yaml --remote" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others. | No |
 
 #### Release Management / Security
 

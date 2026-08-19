@@ -590,6 +590,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
+| GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4714,6 +4715,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `BytecodeScannerTest`, `DoctorAnalyzerTest` -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/analyze/BytecodeScanner.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/doctor/DoctorAnalyzer.java`
 
+#### GIMLE-576 — Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)
+
+- **Category**: Release Management
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises --remote against a real cluster -- the automated Docker+SSH round trip (a custom openssh-server image wired into the Testcontainers-based Utgard suite) was deliberately deferred; v1 ships with fast unit tests (RemoteDispatchTest, ResolvedSshTargetTest, SshProcessExecTest) plus a manual docker-compose verification scenario (compose/docker-compose.ssh-remote.yml) instead. Same gap shape as the sibling GIMLE-392 (local `hilmir up`), which is also Not Covered for the same underlying reason -- no Holmgang step definition shells out to the real `hilmir` binary at all today.
+- **Other test coverage (non-Holmgang, informational only)**: `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`
+
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -6124,7 +6134,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**456 of 575 requirements are Not Covered.**
+**457 of 576 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6468,6 +6478,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-408 | gimle-hilmir | Workload readiness polling for `--wait` | Release Management | `DeployCommandTest.wait_polls_until_the_workloads_instances_report_active` (indirect); NONE dedicated |
 | GIMLE-412 | gimle-hilmir | Gateway extension enable (`hilmir enable gateway`) | Release Management | `EnableGatewayCommandTest` (5 tests); `GatewayJarLocatorTest` (7 tests) |
 | GIMLE-413 | gimle-hilmir | Gateway extension disable (`hilmir disable gateway`) | Release Management | `DisableGatewayCommandTest` (2 tests) |
+| GIMLE-576 | gimle-hilmir | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing) |
 | GIMLE-394 | gimle-hilmir | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Release Management / Security | `PkiInitTest` (multiple); `HilmirMainTest.pki_requires_the_init_subcommand`, `pki_init_requires_the_file_flag`, `pki_init_refuses_a_topology_with_no_tls_material_dir_dir` |
 | GIMLE-482 | gimle-saga | NDJSON event ingest API | Reporting backend / Internal-Infra | `SagaServerTest.java` — "ingested_events_round_trip_through_the_runs_and_events_apis", "a_malformed_ingest_line_is_rejected_with_its_line_number"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta` |
 | GIMLE-483 | gimle-saga | Idempotent per-run ingest / re-ingest replacement | Reporting backend / Internal-Infra | `SagaStoreTest.java#re_ingesting_a_whole_run_replaces_it_without_double_counting_the_ledger` |

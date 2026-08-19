@@ -1,0 +1,41 @@
+name: compose-ssh-remote
+transport: plaintext
+
+# Deliberately single-machine: hilmir --remote resolves a machine's `host` for exactly one
+# audience -- the operator's own ssh client, connecting from outside every container -- but a
+# machine hosted in this compose file has a *second*, different address for the audience a
+# multi-machine topology would also need: a peer process running inside another container, which
+# needs the container's docker-network alias instead of a published host port. A real fleet (real
+# cloud VMs, real on-prem boxes) has no such split -- one address serves both audiences, which is
+# exactly the kind of fleet --remote targets, not a NAT'd Docker Compose network. Staying
+# single-machine here proves --remote's own mechanics (SSH connect, scp the topology over, spawn,
+# poll status, tear down) without needing to solve a problem specific to this compose harness, not
+# to --remote itself.
+#
+# runtime.ssh below bakes in everything docker-compose.ssh-remote.yml's own port mapping and
+# "operator" user need, so the verification command in this directory's README section is a single
+# `hilmir up -f topology-ssh-remote.yaml --remote` with no CLI ssh flags at all (beyond, if the
+# operator's default identity isn't already usable, --ssh-key).
+
+machines:
+  - name: m1
+    host: 127.0.0.1
+
+runtime:
+  classpath: /opt/gimle/lib/*
+  dataRoot: /data
+  useBundledJre: false
+  ssh: {user: operator, port: 2201, installDir: /opt/gimle}
+
+store:
+  replicas:
+    - machine: m1
+
+fafnir:
+  keyFile: /data/fafnir.key
+  replicas:
+    - machine: m1
+
+controlPlane:
+  replicas:
+    - machine: m1

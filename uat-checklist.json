@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 575,
+    "totalRequirements": 576,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 456,
+    "notCoveredByAutomatedTest": 457,
     "releaseReadinessPercent": 20.7
   },
   "items": [
@@ -6327,6 +6327,17 @@
       "category": "Networking/Security",
       "feature": "Bifrost fails closed for a NetworkPolicySpec-restricted Service",
       "step": "Given a NetworkPolicySpec restricting tenant acme (tenant-wide), When a caller dials acme's Service through its Bifrost-synthesized ClusterIP, Then Bifrost refuses the connection outright rather than proxying it to a live endpoint. Given a NetworkPolicySpec scoped to one of acme's own deployments, When a caller dials a different Service in the same tenant fronting an unrelated deployment, Then Bifrost proxies it normally -- the scoped policy never restricts a deployment it doesn't name. Given a Service Bifrost is currently refusing to proxy, When the restricting NetworkPolicySpec is removed and Bifrost polls again, Then it resumes proxying that Service on the very next tick.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-576",
+      "module": "gimle-hilmir",
+      "category": "Release Management",
+      "feature": "Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)",
+      "step": "Given a topology declaring two or more machines, When \"hilmir up -f topology.yaml --remote\" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

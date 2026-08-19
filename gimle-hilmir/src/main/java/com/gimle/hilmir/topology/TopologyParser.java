@@ -128,8 +128,12 @@ public final class TopologyParser {
       if (!(entry instanceof Map<?, ?> machine)) {
         throw new GimleManifestException("each 'machines' entry must be a mapping");
       }
-      requireNoUnknownKeys(machine, Set.of("name", "host"), "machines[]");
-      machines.add(new Machine(requireString(machine, "name"), requireString(machine, "host")));
+      requireNoUnknownKeys(machine, Set.of("name", "host", "ssh"), "machines[]");
+      machines.add(
+          new Machine(
+              requireString(machine, "name"),
+              requireString(machine, "host"),
+              parseSsh(machine, "machines[].ssh")));
     }
     return machines;
   }
@@ -143,12 +147,35 @@ public final class TopologyParser {
       throw new GimleManifestException("'runtime' must be a mapping");
     }
     requireNoUnknownKeys(
-        map, Set.of("javaExecutable", "classpath", "dataRoot", "useBundledJre"), "runtime");
+        map, Set.of("javaExecutable", "classpath", "dataRoot", "useBundledJre", "ssh"), "runtime");
     return new RuntimeSettings(
         optionalString(map, "javaExecutable"),
         optionalString(map, "classpath"),
         optionalString(map, "dataRoot").map(Path::of),
-        optionalBoolean(map, "useBundledJre", false));
+        optionalBoolean(map, "useBundledJre", false),
+        parseSsh(map, "runtime.ssh"));
+  }
+
+  /**
+   * The {@code ssh: { user, port, identityFile, installDir }} block shared by both {@code
+   * machines[]} (a per-machine override) and {@code runtime} (a topology-wide default) -- see
+   * {@link SshSettings}.
+   */
+  private static Optional<SshSettings> parseSsh(final Map<?, ?> parent, final String context) {
+    final Object value = parent.get("ssh");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Map<?, ?> map)) {
+      throw new GimleManifestException("'" + context + "' must be a mapping");
+    }
+    requireNoUnknownKeys(map, Set.of("user", "port", "identityFile", "installDir"), context);
+    return Optional.of(
+        new SshSettings(
+            optionalString(map, "user"),
+            optionalInt(map, "port"),
+            optionalString(map, "identityFile"),
+            optionalString(map, "installDir")));
   }
 
   private static List<StoreReplica> parseStoreReplicas(final Map<?, ?> root) {

@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 570,
+  "requirementCount": 576,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -9931,6 +9931,27 @@
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-576",
+      "module": "gimle-hilmir",
+      "feature": "Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)",
+      "category": "Release Management",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises --remote against a real cluster -- the automated Docker+SSH round trip (a custom openssh-server image wired into the Testcontainers-based Utgard suite) was deliberately deferred; v1 ships with fast unit tests (RemoteDispatchTest, ResolvedSshTargetTest, SshProcessExecTest) plus a manual docker-compose verification scenario (compose/docker-compose.ssh-remote.yml) instead. Same gap shape as the sibling GIMLE-392 (local `hilmir up`), which is also Not Covered for the same underlying reason -- no Holmgang step definition shells out to the real `hilmir` binary at all today.",
+      "otherTestCoverage": "`RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing)",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`",
+        "`SshProcessExec.java`",
+        "`ResolvedSshTarget.java`",
+        "`RemoteExec.java`",
+        "`RemoteOutput.java`",
+        "`SshCliFlags.java`",
+        "`SshSettings.java`"
       ]
     }
   ]

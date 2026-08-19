@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 class HilmirMainTest {
@@ -191,6 +192,33 @@ class HilmirMainTest {
         run("status", "--machine", "m1", "--data-root", tempDir.resolve("empty").toString());
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("no run recorded"));
+  }
+
+  @Test
+  @Timeout(15)
+  void up_with_remote_does_not_require_the_machine_flag() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    // Port 1 refuses instantly on loopback (nothing ever listens there) -- fast enough to assert
+    // against without a real SSH server, and without waiting out SshProcessExec's own connect
+    // timeout. RemoteDispatch never lets a per-machine SSH failure escape as a HilmirException
+    // (see RemoteDispatchTest), so an empty stderr here specifically proves --machine was never
+    // demanded -- if it had been, "missing required flag: --machine" would show up as an error.
+    final Result result = run("up", "-f", file.toString(), "--remote", "--ssh-port", "1");
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void down_with_remote_requires_the_file_flag() {
+    final Result result = run("down", "--remote");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--remote requires -f"));
+  }
+
+  @Test
+  void status_with_remote_requires_the_file_flag() {
+    final Result result = run("status", "--remote");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--remote requires -f"));
   }
 
   @Test
