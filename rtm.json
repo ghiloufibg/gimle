@@ -9942,8 +9942,8 @@
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang Cucumber scenario exercises --remote against a real cluster -- the automated Docker+SSH round trip (a custom openssh-server image wired into the Testcontainers-based Utgard suite) was deliberately deferred; v1 ships with fast unit tests (RemoteDispatchTest, ResolvedSshTargetTest, SshProcessExecTest) plus a manual docker-compose verification scenario (compose/docker-compose.ssh-remote.yml) instead. Same gap shape as the sibling GIMLE-392 (local `hilmir up`), which is also Not Covered for the same underlying reason -- no Holmgang step definition shells out to the real `hilmir` binary at all today.",
-      "otherTestCoverage": "`RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing)",
+      "gapNote": "No Holmgang Cucumber scenario exercises --remote against a real cluster -- coverage here requires a .feature scenario driving the real `hilmir` binary, not a plain JUnit *IT class (see this file's own metadata.coverageRule). A real automated Docker+SSH round trip now exists as gimle-holmgang's UtgardSshDeployIT (real sshd, an ephemeral authorized keypair, hilmir up/down/status --remote, a genuine deployment reaching ACTIVE) -- informational only, it does not change Coverage, the same way the sibling GIMLE-392's own Utgard*IT coverage doesn't. Closing this gap for real needs a new Holmgang step definition that shells out to the real hilmir binary over --remote from a Cucumber scenario, which none do today.",
+      "otherTestCoverage": "`RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing); `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd)",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`",
         "`SshProcessExec.java`",
@@ -9951,7 +9951,8 @@
         "`RemoteExec.java`",
         "`RemoteOutput.java`",
         "`SshCliFlags.java`",
-        "`SshSettings.java`"
+        "`SshSettings.java`",
+        "`gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`"
       ]
     }
   ]

@@ -197,7 +197,7 @@ container exactly as an operator would on a real fleet. It closes the specific g
 partition, and mTLS addressed by real DNS hostnames instead of `localhost`.
 
 Plain JUnit `*IT` classes, not Gherkin -- container orchestration in step definitions would be
-noise, the same reasoning `SurtrIT` already follows. Four scenarios:
+noise, the same reasoning `SurtrIT` already follows. Five scenarios:
 
 - `UtgardDistributedBootIT` -- three machines; `hilmir up` is issued in a deliberately
   out-of-dependency-order sequence to prove the remote-prerequisite wait genuinely blocks and later
@@ -211,6 +211,20 @@ noise, the same reasoning `SurtrIT` already follows. Four scenarios:
 - `UtgardMtlsIT` -- an mTLS topology addressed by the containers' own real network aliases, proving
   the certificate-bootstrap flow works over a genuine DNS-named network rather than the
   `localhost`-only mTLS every other topology in this module is limited to.
+- `UtgardSshDeployIT` -- the odd one out: unlike the four scenarios above, which drive `hilmir`
+  inside each container via `docker exec` (`UtgardMachines#hilmir`), this one proves `hilmir
+  up/down/status --remote` (see [Remote (SSH) fleet
+  bootstrap](../gimle-docs/docs/reference/hilmir-reference.md#remote-ssh-fleet-bootstrap)) over a
+  genuine `ssh`/`scp` round trip: one `ssh-remote/Dockerfile`-built machine (the same image the
+  manual `docker-compose.ssh-remote.yml` scenario below uses), an ephemeral keypair generated and
+  authorized per run, and a real `bin/hilmir` launcher staged the way `gimle-dist` ships it (see
+  `UtgardSshMachine`'s own javadoc for why a bare classpath copy, the trick every other Utgard
+  scenario uses, doesn't work here). `HilmirMain.run` is called in-process -- only the SSH hop
+  itself needs to be a real subprocess, which `SshProcessExec` already guarantees underneath.
+  Deliberately single-machine, for the same NAT'd-Docker-networking reason
+  `topology-ssh-remote.yaml`'s own header comment gives. Needs `ssh`/`scp`/`ssh-keygen` on the test
+  runner's own `PATH` in addition to Docker -- the one Utgard scenario a Docker daemon alone isn't
+  enough for.
 
 Requires Docker with normal container-registry egress. Every `*IT` class's own `@BeforeAll` starts
 its container fleet inside a try/catch and converts any failure -- no reachable daemon, or a blocked

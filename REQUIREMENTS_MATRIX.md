@@ -6569,8 +6569,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an operator, I want `hilmir up/down/status` to dispatch over SSH to every machine a topology declares, so I don't need a shell already open on each target machine to bootstrap a real fleet.
 - **Status**: Complete for v1 scope (no host-key verification, no provisioning, no credential handling of its own)
 - **Confidence**: High
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`
-- **Test coverage**: `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`, `gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`
+- **Test coverage**: `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing); `gimle-holmgang`'s `UtgardSshDeployIT` (a real Docker+SSH round trip: `hilmir up/down/status --remote` against a genuine sshd over an ephemeral authorized keypair, deploying a real greeter-provider instance to `ACTIVE` through the control plane's own HTTP API)
 - **Gherkin scenario**:
   ```gherkin
   Given a topology declaring two or more machines, When "hilmir up -f topology.yaml --remote" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others.
