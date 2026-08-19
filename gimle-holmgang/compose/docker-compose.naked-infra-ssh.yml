@@ -1,0 +1,132 @@
+# The naked-infra-ssh scenario: the naked-infra scenario's own six-machine shape (store, muninn,
+# andvari, fafnir, controlplane, agent -- see docker-compose.naked-infra.yml), each rebuilt on the
+# ssh-remote scenario's own sshd image (./ssh-remote/Dockerfile) instead of a bare eclipse-temurin
+# image, so `hilmir up --remote` can bring up the *whole* cluster with one command issued from the
+# host, the way ssh-remote's own single-machine m1 already proves the SSH mechanics work.
+#
+# Six real containers instead of one machine means solving the split ssh-remote's own topology file
+# calls out: a machine's `host` in the topology is read by two different audiences -- the operator's
+# own ssh client connecting in from outside every container, and every *other* spawned Gimlé
+# process's own peer/endpoint address, which runs *inside* another container. A container's own
+# docker-network alias (`store`, `fafnir`, ...) satisfies the second audience but not the first
+# (unreachable from the host on Docker Desktop); a per-container published host port satisfies the
+# first but not the second (127.0.0.1 inside one container is that container itself, not the host).
+#
+# Every machine below uses host.docker.internal instead -- Docker Desktop's own DNS name for "the
+# host machine", resolvable both from the operator's own shell and from *inside* every container
+# (Docker Desktop's VPNKit/WSL2 forwarder hairpins that traffic back out to the host and into
+# whichever container published the target port) -- so both audiences resolve the exact same
+# host.docker.internal:<port> pair to the same container. Every machine therefore needs its own
+# distinct port for every service it runs, on top of its own distinct SSH port -- see
+# topology-naked-infra-ssh.yaml's own header for the full table.
+#
+# Prerequisites -- same as ssh-remote's own (see that compose file's header): build the archive, and
+# have an SSH keypair whose public half you're willing to authorize into six throwaway containers:
+#   mvn -pl gimle-dist -am install
+#   GIMLE_SSH_PUBKEY=~/.ssh/id_ed25519.pub docker compose -f docker-compose.naked-infra-ssh.yml up -d --build
+#
+# Then, from the host -- no docker exec anywhere in this workflow, one command for the whole fleet:
+#   hilmir up     -f topology-naked-infra-ssh.yaml --remote
+#   hilmir status -f topology-naked-infra-ssh.yaml --remote
+#   hilmir down   -f topology-naked-infra-ssh.yaml --remote
+#
+# Tear down with `docker compose -f docker-compose.naked-infra-ssh.yml down -v` (the -v matters --
+# see docker-compose.naked-infra.yml's own note on stale /data surviving a plain `down`).
+
+secrets:
+  operator-pubkey:
+    file: ${GIMLE_SSH_PUBKEY:?set GIMLE_SSH_PUBKEY to the public key you want authorized, e.g. ~/.ssh/id_ed25519.pub}
+
+x-gimle-ssh-service: &gimle-ssh-service
+  build: ./ssh-remote
+  networks: [gimle]
+  # Sanitized into /tmp before running for the same CRLF-checkout-robustness reason
+  # docker-compose.full-jre.yml's own entrypoint does -- see that file's comment.
+  entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/sshd-entrypoint.sh > /tmp/sshd-entrypoint.sh && exec /bin/sh /tmp/sshd-entrypoint.sh']
+  secrets: [operator-pubkey]
+  depends_on:
+    unpack:
+      condition: service_completed_successfully
+
+services:
+  unpack:
+    image: debian:bookworm-slim
+    networks: [gimle]
+    entrypoint: ["/bin/sh", "-c", 'tr -d "\r" < /holmgang/unpack.sh > /tmp/unpack.sh && exec /bin/sh /tmp/unpack.sh']
+    volumes:
+      - ${GIMLE_DIST_TARGET:-../../gimle-dist/target}:/dist:ro
+      - ./unpack.sh:/holmgang/unpack.sh:ro
+      - gimle-install:/opt/gimle
+
+  store:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - store-data:/data
+    ports:
+      - "2211:22"
+      - "19080:19080"   # store raft -- matches topology-naked-infra-ssh.yaml's store raftPort
+      - "19091:19091"   # store client -- matches ...clientPort
+
+  muninn:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - muninn-data:/data
+    ports:
+      - "2212:22"
+      - "19093:19093"
+
+  andvari:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - andvari-data:/data
+    ports:
+      - "2213:22"
+      - "19094:19094"
+
+  fafnir:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - fafnir-data:/data
+    ports:
+      - "2214:22"
+      - "19092:19092"
+
+  controlplane:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - controlplane-data:/data
+    ports:
+      - "2215:22"
+      - "18080:18080"
+
+  agent:
+    <<: *gimle-ssh-service
+    volumes:
+      - gimle-install:/opt/gimle
+      - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
+      - agent-data:/data
+    ports:
+      - "2216:22"
+      - "19090:19090/udp"   # gossip -- unused with a single agent, published for completeness only
+
+networks:
+  gimle: {}
+
+volumes:
+  gimle-install: {}
+  store-data: {}
+  muninn-data: {}
+  andvari-data: {}
+  fafnir-data: {}
+  controlplane-data: {}
+  agent-data: {}
