@@ -142,6 +142,30 @@ class BundleParserTest {
   }
 
   @Test
+  void
+      rejects_a_raw_deployment_manifest_with_the_wrong_kind_message_rather_than_an_unknown_field_one() {
+    // The exact shape hilmir init writes -- kind: Deployment with a module: block, not wrapped in
+    // a Bundle's own workloads: list. This must fail on 'kind', not on the unrelated 'module'
+    // field, so the message actually explains what's wrong (see BundleParser#parseRoot).
+    GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () ->
+                parse(
+                    """
+                    kind: Deployment
+                    name: x-deployment
+                    module:
+                      name: com.example.x
+                      version: 1.0.0
+                    artifactPath: x.jar
+                    replicas: 1
+                    """));
+    assertTrue(e.getMessage().contains("expected 'Bundle'"));
+    assertTrue(e.getMessage().contains("workloads"));
+  }
+
+  @Test
   void rejects_a_document_that_is_not_a_yaml_mapping() {
     assertThrows(GimleManifestException.class, () -> parse("- just\n- a\n- list\n"));
   }

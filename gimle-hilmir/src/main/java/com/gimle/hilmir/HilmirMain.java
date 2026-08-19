@@ -1,6 +1,7 @@
 package com.gimle.hilmir;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.exception.GimleTlsException;
 import com.gimle.hilmir.doctor.DoctorCommand;
 import com.gimle.hilmir.extension.DisableGatewayCommand;
 import com.gimle.hilmir.extension.EnableGatewayCommand;
@@ -150,7 +151,10 @@ public final class HilmirMain {
   public static int run(final String[] args, final PrintStream out, final PrintStream err) {
     try {
       return dispatch(args, out);
-    } catch (final HilmirException | GimleManifestException | UncheckedIOException e) {
+    } catch (final HilmirException
+        | GimleManifestException
+        | GimleTlsException
+        | UncheckedIOException e) {
       err.println("error: " + e.getMessage());
       return 1;
     }

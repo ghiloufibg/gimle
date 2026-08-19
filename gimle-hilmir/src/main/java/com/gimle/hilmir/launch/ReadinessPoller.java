@@ -4,6 +4,7 @@ import com.gimle.hilmir.HilmirException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.file.Path;
 import java.time.Duration;
 
 /**
@@ -19,11 +20,54 @@ final class ReadinessPoller {
 
   private ReadinessPoller() {}
 
-  /** Retries a connect to {@code hostPort} until it succeeds or {@code timeout} elapses. */
+  /**
+   * Retries a connect to {@code hostPort} until it succeeds or {@code timeout} elapses -- for a
+   * prerequisite this launcher did not itself spawn (possibly on another machine entirely), so
+   * there is no local {@link Process} handle to check liveness against.
+   */
   static void awaitPortOpen(
       final String hostPort, final Duration timeout, final String description) {
     final long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (!isPortOpen(hostPort)) {
+      if (System.nanoTime() > deadlineNanos) {
+        throw new HilmirException(
+            "timed out after " + timeout + " waiting for " + description + " at " + hostPort);
+      }
+      try {
+        Thread.sleep(POLL_INTERVAL);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new HilmirException("interrupted while waiting for " + description, e);
+      }
+    }
+  }
+
+  /**
+   * Same as {@link #awaitPortOpen(String, Duration, String)}, but for a process this launcher just
+   * spawned itself: on every poll iteration, checks {@code process} is still alive first and fails
+   * immediately -- rather than waiting out the rest of {@code timeout} polling a port that a dead
+   * process will never open -- if it already exited, pointing at {@code logFile} for the real
+   * cause.
+   */
+  static void awaitPortOpen(
+      final String hostPort,
+      final Duration timeout,
+      final String description,
+      final Process process,
+      final Path logFile) {
+    final long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (!isPortOpen(hostPort)) {
+      if (!process.isAlive()) {
+        throw new HilmirException(
+            description
+                + " exited (code "
+                + process.exitValue()
+                + ") before its port "
+                + hostPort
+                + " ever opened -- see "
+                + logFile
+                + " for details");
+      }
       if (System.nanoTime() > deadlineNanos) {
         throw new HilmirException(
             "timed out after " + timeout + " waiting for " + description + " at " + hostPort);

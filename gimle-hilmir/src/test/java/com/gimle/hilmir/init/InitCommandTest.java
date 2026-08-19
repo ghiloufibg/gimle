@@ -58,6 +58,11 @@ class InitCommandTest {
     String deploymentContent = Files.readString(deploymentYaml);
     assertTrue(deploymentContent.contains("kind: Deployment"));
     assertTrue(deploymentContent.contains("name: com.example.initted"));
+    // The generated file isn't directly consumable by `hilmir deploy` (that command wants a
+    // Bundle wrapper), so its own header must say so -- see BundleParser's matching error message
+    // for the other half of this fix.
+    assertTrue(deploymentContent.contains("not a bundle"));
+    assertTrue(deploymentContent.contains("hilmir deploy"));
   }
 
   @Test

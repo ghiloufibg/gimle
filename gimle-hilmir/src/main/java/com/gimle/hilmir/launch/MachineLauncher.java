@@ -319,7 +319,11 @@ public final class MachineLauncher {
     out.println("spawned " + command.role() + " " + command.id() + " (pid " + process.pid() + ")");
     if (!command.readinessAddress().isBlank()) {
       ReadinessPoller.awaitPortOpen(
-          command.readinessAddress(), READINESS_TIMEOUT, command.role() + " " + command.id());
+          command.readinessAddress(),
+          READINESS_TIMEOUT,
+          command.role() + " " + command.id(),
+          process,
+          logFile);
     }
     return new RunRecord(
         command.id(),

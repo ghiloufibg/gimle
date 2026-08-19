@@ -63,6 +63,7 @@ public final class InitCommand {
     if (vesselShaped) {
       writeFile(deploymentPath, DeploymentYamlWriter.renderVesselForm(name.value(), parsed.jarArg));
       out.println("wrote " + deploymentPath + " (vessel-hosting -- jar is not module-shaped)");
+      printDeployHint(out);
       return 0;
     }
 
@@ -82,7 +83,17 @@ public final class InitCommand {
         DeploymentYamlWriter.renderModuleForm(name.value(), name.confident(), parsed.jarArg));
     out.println("wrote " + moduleYamlPath);
     out.println("wrote " + deploymentPath);
+    printDeployHint(out);
     return 0;
+  }
+
+  // deployment.yaml is a raw Deployment manifest, not a hilmir deploy bundle -- see the file's own
+  // header comment (DeploymentYamlWriter) for the full explanation; this is just the "did I already
+  // trip over that" reminder printed right where the operator's eyes already are.
+  private static void printDeployHint(PrintStream out) {
+    out.println(
+        "note: this is a raw Deployment manifest -- submit it via gimle-cli/the control-plane"
+            + " API directly, or wrap it in a bundle's workloads: list for `hilmir deploy`");
   }
 
   // toAbsolutePath().getParent() is null only for a filesystem root itself, never for a real

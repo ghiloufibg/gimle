@@ -67,15 +67,22 @@ needed; confirmed by running `hilmir plan` and `hilmir up` from an unpacked plat
 inspecting the generated commands' own `-cp` arguments.
 
 This only holds inside the platform archive. The standalone `gimle-hilmir` archive's own `lib/`
-holds just `gimle-hilmir`'s narrow six-jar closure — enough for `validate`/`plan`/`pki init` and
-every release verb (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`, which only
-ever talk HTTP to an already-running control plane), but running `hilmir up` from that archive
-against a real multi-role topology fails immediately: the spawned `StoreMain` process inherits that
-same narrow classpath and can't find its own main class. Confirmed directly: `hilmir up` from an
-unpacked standalone `gimle-hilmir` archive produces `Error: Could not find or load main class
-com.gimle.mimir.StoreMain`. Either run `up` from inside a platform archive, or set
-`runtime.classpath` explicitly in the topology document to point at a platform archive's `lib/`
-elsewhere on that machine.
+holds just `gimle-hilmir`'s narrow seven-jar closure — enough for `validate`/`plan`/`pki init`,
+every release verb (`deploy`/`upgrade`/`rollback`/`undeploy`/`releases`/`release-status`), and the
+store membership verbs (`store add`/`store remove`, which need `gimle-mimir`'s own `StoreClient` to
+talk RPC to an already-running store cluster, even though this archive never spawns
+`com.gimle.mimir.StoreMain` itself) — all of which only ever talk over the network to an
+already-running cluster. Running `hilmir up` from that archive against a real multi-role topology
+still doesn't work: the spawned `StoreMain` process inherits that same narrow classpath and can't
+find its own main class. That failure is *not* immediate at the `hilmir up` level, though — the
+spawned process's own log shows `Error: Could not find or load main class com.gimle.mimir.StoreMain`
+right away, but `hilmir up` itself has no way to notice a spawned process died until its readiness
+poll either observes the process exit or times out, so the operator sees `hilmir up` sit for as long
+as that role's own readiness timeout before reporting the failure (`ReadinessPoller` fails fast the
+moment it notices the process has exited — it does not need to wait out the whole timeout, but it
+still cannot notice sooner than its own next poll tick after the process actually crashes). Either
+run `up` from inside a platform archive, or set `runtime.classpath` explicitly in the topology
+document to point at a platform archive's `lib/` elsewhere on that machine.
 
 ## What v1 deliberately leaves out
 

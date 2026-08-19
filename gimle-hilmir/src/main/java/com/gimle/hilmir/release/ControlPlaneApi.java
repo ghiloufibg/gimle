@@ -169,8 +169,11 @@ public final class ControlPlaneApi {
           httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       return new ApiResponse(response.statusCode(), response.body());
     } catch (IOException e) {
-      throw new HilmirException(
-          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+      // e.getMessage() is null for some IOException subtypes (a bare ConnectException on some
+      // platforms carries no detail message at all) -- falling back to the exception's own class
+      // name keeps this readable instead of ending in a bare, confusing ": null".
+      String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+      throw new HilmirException("could not reach control plane at " + baseUri + ": " + detail, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new HilmirException("interrupted while contacting control plane at " + baseUri, e);

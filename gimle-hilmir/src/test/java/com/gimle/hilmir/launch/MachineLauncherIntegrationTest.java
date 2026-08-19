@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -141,6 +142,52 @@ class MachineLauncherIntegrationTest {
       // waits out, and @TempDir never retries.
       LaunchTestSupport.drainTempDir(tempDir);
     }
+  }
+
+  @Test
+  @Timeout(15)
+  void up_fails_fast_when_a_spawned_process_exits_before_its_port_ever_opens() throws IOException {
+    // A JVM launched against a class that doesn't exist exits almost immediately with a non-zero
+    // code -- the same shape a real bad-classpath/missing-dependency failure takes. Wrapped in an
+    // assertion timeout well under MachineLauncher's own 2-minute READINESS_TIMEOUT: if the
+    // launcher
+    // ever regresses to blindly polling the port until that timeout elapses instead of noticing the
+    // process already died, this test itself times out rather than merely taking two minutes.
+    final int storePort = LaunchTestSupport.freePort();
+    final ProcessCommand crashingCommand =
+        new ProcessCommand(
+            ProcessRole.STORE,
+            "store-0",
+            "m1",
+            List.of(
+                LaunchTestSupport.javaExecutable(),
+                "-cp",
+                LaunchTestSupport.testClasspath(),
+                "com.gimle.hilmir.launch.fixture.NoSuchMainClassAtAll"),
+            "store-0.log",
+            Path.of("/unused"),
+            "127.0.0.1:" + storePort,
+            false);
+
+    final Map<String, MachinePlan> byMachine = new LinkedHashMap<>();
+    byMachine.put("m1", new MachinePlan("m1", List.of(crashingCommand)));
+    final ClusterPlan clusterPlan = new ClusterPlan(byMachine);
+
+    final ResolvedRuntime m1Runtime =
+        new ResolvedRuntime(
+            LaunchTestSupport.javaExecutable(),
+            LaunchTestSupport.testClasspath(),
+            tempDir.resolve("m1"));
+
+    final ByteArrayOutputStream m1UpOutput = new ByteArrayOutputStream();
+    final HilmirException e =
+        assertThrows(
+            HilmirException.class,
+            () -> MachineLauncher.up(clusterPlan, TOPOLOGY, "m1", m1Runtime, capture(m1UpOutput)));
+    assertTrue(e.getMessage().contains("exited"));
+    assertTrue(e.getMessage().contains("store-0.log"));
+
+    LaunchTestSupport.drainTempDir(tempDir);
   }
 
   @Test

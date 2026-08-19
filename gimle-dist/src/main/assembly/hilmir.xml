@@ -4,6 +4,11 @@
   <!--
     The standalone Hilmir archive: bin/hilmir plus exactly gimle-hilmir's own runtime dependency
     closure, nothing else; confirmed via `mvn -pl gimle-hilmir dependency:tree -Dscope=runtime`.
+    gimle-mimir is part of that closure (a real, unscoped compile dependency in gimle-hilmir's own
+    pom.xml) even though gimle-hilmir never spawns com.gimle.mimir.StoreMain itself: `hilmir store
+    add`/`store remove` talk to an already-running store cluster directly over StoreClient, the
+    same binary Raft-membership-change RPC gimle-mimir uses internally; omitting it here left
+    those two commands throwing an uncaught NoClassDefFoundError from this archive.
   -->
   <id>hilmir</id>
   <formats>
@@ -21,6 +26,7 @@
       <includes>
         <include>com.gimle:gimle-hilmir</include>
         <include>com.gimle:gimle-core</include>
+        <include>com.gimle:gimle-mimir</include>
         <include>org.slf4j:slf4j-api</include>
         <include>ch.qos.logback:logback-classic</include>
         <include>ch.qos.logback:logback-core</include>

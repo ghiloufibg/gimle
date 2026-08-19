@@ -50,11 +50,22 @@ public final class BundleParser {
   }
 
   private static Bundle parseRoot(Map<?, ?> root) {
-    requireNoUnknownKeys(root, ROOT_KEYS, "bundle");
+    // 'kind' is checked before the unknown-key sweep below, deliberately: a document that is some
+    // other manifest kind entirely (most commonly a raw `kind: Deployment` manifest -- the exact
+    // shape `hilmir init` itself writes, meant for gimle-cli/the control-plane API directly, not
+    // for `hilmir deploy`) should get the specific "wrong kind" message, not a confusing "unknown
+    // field" complaint about whichever of that other kind's own fields happens to come first.
     String kind = requireString(root, "kind");
     if (!"Bundle".equals(kind)) {
-      throw new GimleManifestException("unknown bundle kind: " + kind + " (expected 'Bundle')");
+      throw new GimleManifestException(
+          "unknown bundle kind: "
+              + kind
+              + " (expected 'Bundle') -- hilmir deploy takes a kind: Bundle document with a"
+              + " workloads: list, not a raw Deployment/DaemonSet/StatefulSet/etc. manifest"
+              + " directly; wrap it as workloads: [{file: <this file>}] in a bundle, or submit it"
+              + " to the control plane directly instead (gimle-cli, or the /deployments/* API)");
     }
+    requireNoUnknownKeys(root, ROOT_KEYS, "bundle");
     String name = requireString(root, "name");
     String version = requireString(root, "version");
     Map<String, String> values = parseValues(root);
