@@ -3,5 +3,5 @@ name: hello-deployment
 module:
   name: com.gimle.examples.hello
   version: 1.0.0
-artifactPath: gimle-examples/hello-module/target/hello-module-0.1.0-alpha.1.jar
+artifactPath: gimle-examples/hello-module/target/hello-module-0.1.0-alpha.2.jar
 replicas: 1

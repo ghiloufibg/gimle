@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Timeout;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UtgardSshDeployIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
   private static final String DEPLOYMENT_NAME = "utgard-ssh-greeter";
 
   private UtgardSshMachine machine;

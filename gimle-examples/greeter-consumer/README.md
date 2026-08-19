@@ -56,7 +56,7 @@ resolution), and exports both `com.gimle.examples.greeter.consumer` and `com.gim
 ## Deploying it
 
 `deployment.yaml` points at
-`gimle-examples/greeter-consumer/target/greeter-consumer-0.1.0-alpha.1.jar`. Deploy alongside
+`gimle-examples/greeter-consumer/target/greeter-consumer-0.1.0-alpha.2.jar`. Deploy alongside
 `greeter-provider` and watch this instance's application log for `Hello, Gimlé! (from provider)` lines
 — the real cross-worker call succeeding on a live heartbeat, asserted end to end by
 `gimle-smoke-tests`' `GreeterClusterTopologyIT`.

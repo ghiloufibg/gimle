@@ -63,7 +63,7 @@ outside this module.
 ## Deploying it
 
 `deployment.yaml` is a ready-made `Deployment` manifest pointing at
-`gimle-examples/greeter-provider/target/greeter-provider-0.1.0-alpha.1.jar`. Deploy alongside
+`gimle-examples/greeter-provider/target/greeter-provider-0.1.0-alpha.2.jar`. Deploy alongside
 `greeter-consumer` (and the provider's own secret written through `/secrets/*` first, if you want the
 config round trip to have a value to fetch) to see the real cross-worker fabric call happen —
 exercised end to end by `gimle-smoke-tests`' `GreeterClusterTopologyIT`.

@@ -43,7 +43,7 @@ class from this module at all. `module-info.java` declares no `requires` beyond 
 ## Deploying it
 
 `deployment.yaml` at the module root is a ready-made `Deployment` manifest (`kind: Deployment`,
-`artifactPath: gimle-examples/hello-module/target/hello-module-0.1.0-alpha.1.jar`, one replica) —
+`artifactPath: gimle-examples/hello-module/target/hello-module-0.1.0-alpha.2.jar`, one replica) —
 build the jar (`mvn -pl hello-module package`) and submit the manifest through the control plane's
 API or `gimle-cli` to see a real install/resolve/start cycle end to end.
 

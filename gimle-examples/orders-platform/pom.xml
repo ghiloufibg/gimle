@@ -46,7 +46,7 @@
          real Gimlé build already installed into the local repository (mvn install from the repo
          root). Bump this by hand if the platform's own version moves; there's no shared property
          to inherit it from since this pom deliberately has no parent. -->
-    <gimle.platform.version>0.1.0-alpha.1</gimle.platform.version>
+    <gimle.platform.version>0.1.0-alpha.2</gimle.platform.version>
     <slf4j.version>2.0.17</slf4j.version>
 
     <!-- spring-context alone (no spring-web/spring-webmvc, no embedded servlet container): each

@@ -12,7 +12,7 @@ import java.util.Map;
  */
 final class ReferenceModule {
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
 
   private static final Map<String, String> MODULE_NAMES =
       Map.of("greeter-provider", "com.gimle.examples.greeter.provider");

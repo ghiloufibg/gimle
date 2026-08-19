@@ -3,5 +3,5 @@ name: greeter-provider-deployment
 module:
   name: com.gimle.examples.greeter.provider
   version: 1.0.0
-artifactPath: gimle-examples/greeter-provider/target/greeter-provider-0.1.0-alpha.1.jar
+artifactPath: gimle-examples/greeter-provider/target/greeter-provider-0.1.0-alpha.2.jar
 replicas: 1

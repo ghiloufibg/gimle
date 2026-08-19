@@ -79,7 +79,7 @@ elsewhere on that machine.
 
 ## What v1 deliberately leaves out
 
-- **No git-tag-driven versioning.** Every module in this repo builds as `0.1.0-alpha.1` today, a
+- **No git-tag-driven versioning.** Every module in this repo builds as `0.1.0-alpha.2` today, a
   hand-bumped pre-release string — there's no tag or release process to key a version off of yet.
   `gimle-dist` names every archive after whatever `${project.version}` the reactor currently
   resolves to, pre-release qualifier included. Real release-tag-driven versioning is a genuine

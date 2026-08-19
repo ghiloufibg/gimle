@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Timeout;
 @Holmgang(topology = "topologies/ha-plaintext.yaml")
 class HaTopologyIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
 
   @HolmgangCluster GimleCluster cluster;
 

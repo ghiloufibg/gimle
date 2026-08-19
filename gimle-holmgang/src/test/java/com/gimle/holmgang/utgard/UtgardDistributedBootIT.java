@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Timeout;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UtgardDistributedBootIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
   private static final String STORE_MACHINE = "helm-1";
   private static final String FAFNIR_MACHINE = "helm-2";
   private static final String SERVER_MACHINE = "helm-3";

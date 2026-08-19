@@ -49,7 +49,7 @@ final class UtgardSshMachine implements AutoCloseable {
   static final String SSH_USER = "operator";
   static final String INSTALL_DIR = "/opt/gimle";
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.1";
+  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
   private static final List<String> EXTERNAL_RUNTIME_JAR_PREFIXES =
       List.of("slf4j-api-", "logback-classic-", "logback-core-", "snakeyaml-");
   private static final Path DOCKERFILE = Path.of("compose", "ssh-remote", "Dockerfile");
