@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-mapreduce-wordcount</groupId>
+    <artifactId>mapreduce-wordcount</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>mapreduce-coordinator</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Distributed Word Count: mapreduce-coordinator</name>
+  <description>
+    The reduce phase, and the fan-out that drives the map phase: a Job-kind module whose single run
+    generates a sizable synthetic text corpus, splits it into chunks, dispatches each chunk to
+    mapreduce-worker over the fabric on its own virtual thread (re-resolving the service for every
+    chunk so the fabric's own load balancer actually spreads them across every live replica), then
+    merges the partial word-count results it gets back into one final report.
+  </description>
+
+  <properties>
+    <finalName>mapreduce-coordinator</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

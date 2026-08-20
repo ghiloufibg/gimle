@@ -1,0 +1,19 @@
+name: com.example.mapreduce.worker
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 128Mi
+    cpu: 100m
+  limit:
+    memory: 512Mi
+    cpu: 1000m
+exports:
+  - service: com.example.mapreduce.MapReduceWorker
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.mapreduce.worker.WordCountMapWorkerHooks
+health:
+  liveness: com.example.mapreduce.worker.WordCountLivenessProbe
+  readiness: com.example.mapreduce.worker.WordCountReadinessProbe
