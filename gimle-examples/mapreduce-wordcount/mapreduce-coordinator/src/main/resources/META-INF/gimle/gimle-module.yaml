@@ -1,0 +1,18 @@
+# No health: section -- a Job-kind module runs to completion, never "ready to serve", so there's
+# nothing for a liveness/readiness probe to answer. TIER_1 (shared worker) rather than TIER_2: the
+# heavy work (tokenizing/counting each chunk) happens on mapreduce-worker's own dedicated workers,
+# not here -- this module's own local work (generating the corpus, dispatching, reducing) is light
+# enough that a dedicated worker JVM for it isn't worth the density cost in a real deployment.
+name: com.example.mapreduce.coordinator
+version: 1.0.0
+isolation:
+  tier: TIER_1
+resources:
+  request:
+    memory: 96Mi
+    cpu: 50m
+  limit:
+    memory: 256Mi
+    cpu: 200m
+lifecycle:
+  jobHooks: com.example.mapreduce.coordinator.WordCountJobHooks

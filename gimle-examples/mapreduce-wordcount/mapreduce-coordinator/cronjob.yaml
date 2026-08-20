@@ -1,0 +1,14 @@
+# kind: CronJob -- the primary way to run this module: a fresh Job fires every 5 minutes (fast
+# enough to watch fire more than once during a short manual-validation session, unlike a more
+# realistic once-a-day schedule), each one generating a fresh synthetic corpus, fanning its chunks
+# out across every live mapreduce-worker replica, and logging the reduced word-count report.
+kind: CronJob
+name: mapreduce-wordcount-cronjob
+schedule: "*/5 * * * *"
+concurrencyPolicy: Forbid
+jobTemplate:
+  module:
+    name: com.example.mapreduce.coordinator
+    version: 1.0.0
+  artifactPath: gimle-examples/mapreduce-wordcount/mapreduce-coordinator/target/mapreduce-coordinator.jar
+  activeDeadlineSeconds: 120

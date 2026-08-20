@@ -1,0 +1,14 @@
+# kind: Job -- an ALTERNATE manifest for the exact same mapreduce-coordinator jar and
+# gimle-module.yaml as cronjob.yaml, run once on demand (e.g. `mvn gimle:deploy
+# -Dgimle.deploy.file=job.yaml`) instead of waiting for the next scheduled firing. Same JobHooks
+# class either way -- CronJob is just "fire this same kind of Job on a schedule," not a different
+# execution model, the same reuse gimle-examples/orders-platform's own orders-report-job
+# demonstrates for a single-service job. See ../README.md for the config keys this manifest can
+# override (mapreduce.chunks, mapreduce.linesPerChunk).
+kind: Job
+name: mapreduce-wordcount-once
+module:
+  name: com.example.mapreduce.coordinator
+  version: 1.0.0
+artifactPath: gimle-examples/mapreduce-wordcount/mapreduce-coordinator/target/mapreduce-coordinator.jar
+activeDeadlineSeconds: 120

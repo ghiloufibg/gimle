@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-mapreduce-wordcount</groupId>
+    <artifactId>mapreduce-wordcount</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>mapreduce-worker</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Distributed Word Count: mapreduce-worker</name>
+  <description>
+    The map phase, hosted as its own dedicated worker JVM (TIER_2): tokenizes and counts one chunk
+    of input lines at a time, dispatched to it over Gimlé's own fabric ServiceRegistry. Deployed
+    with multiple replicas, each real chunk lands on whichever replica the fabric's own load
+    balancer currently picks -- genuine parallel distributed computation, not a simulation of it.
+  </description>
+
+  <properties>
+    <finalName>mapreduce-worker</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>
