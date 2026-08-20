@@ -3,12 +3,24 @@
 # -Dgimle.deploy.file=job.yaml`) instead of waiting for the next scheduled firing. Same JobHooks
 # class either way -- CronJob is just "fire this same kind of Job on a schedule," not a different
 # execution model, the same reuse gimle-examples/orders-platform's own orders-report-job
-# demonstrates for a single-service job. See ../README.md for the config keys this manifest can
-# override (mapreduce.chunks, mapreduce.linesPerChunk).
+# demonstrates for a single-service job.
+#
+# tenantId is required here, not optional: config delivery (ctx.config) is gated on the instance
+# being tenanted at all (AgentMain#deliverConfig returns immediately for an untenanted instance),
+# and the config keys below are exactly what let this run be pushed to genuinely large scale --
+# see ../README.md's "Config" table. Create the tenant, and its config, before applying this
+# manifest (the same "push before apply" ordering orders-platform's own web-ui needs):
+#
+#   gimle set tenant mapreduce-wordcount --max-memory-bytes 1073741824 --max-cpu-millicores 4000 --max-instances 10
+#   gimle set config mapreduce-wordcount mapreduce.chunks 200
+#   gimle set config mapreduce-wordcount mapreduce.linesPerChunk 2000
+#   gimle set config mapreduce-wordcount mapreduce.maxInFlight 32
+#   gimle set config mapreduce-wordcount mapreduce.maxFailureRatio 0.05
 kind: Job
 name: mapreduce-wordcount-once
 module:
   name: com.example.mapreduce.coordinator
   version: 1.0.0
+tenantId: mapreduce-wordcount
 artifactPath: gimle-examples/mapreduce-wordcount/mapreduce-coordinator/target/mapreduce-coordinator.jar
-activeDeadlineSeconds: 120
+activeDeadlineSeconds: 300

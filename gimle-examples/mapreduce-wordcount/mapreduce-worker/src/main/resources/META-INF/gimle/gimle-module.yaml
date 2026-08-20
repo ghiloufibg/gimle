@@ -4,11 +4,11 @@ isolation:
   tier: TIER_2
 resources:
   request:
-    memory: 64Mi
-    cpu: 50m
+    memory: 128Mi
+    cpu: 100m
   limit:
-    memory: 256Mi
-    cpu: 500m
+    memory: 512Mi
+    cpu: 1000m
 exports:
   - service: com.example.mapreduce.MapReduceWorker
     version: 1.0.0
