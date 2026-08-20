@@ -1,0 +1,19 @@
+name: com.example.frauddetection.scorer
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 30m
+  limit:
+    memory: 128Mi
+    cpu: 300m
+exports:
+  - service: com.example.frauddetection.FraudScorer
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.frauddetection.scorer.FraudScorerHooks
+health:
+  liveness: com.example.frauddetection.scorer.FraudScorerLivenessProbe
+  readiness: com.example.frauddetection.scorer.FraudScorerReadinessProbe

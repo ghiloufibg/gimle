@@ -1,0 +1,11 @@
+# kind: DaemonSet -- exactly one instance per node, no replicas: field (the platform decides the
+# count from cluster size, the same way gimle-examples/orders-platform's own inventory-service
+# daemonset.yaml does). This is what actually makes the locality proof possible: flag-consumer is
+# only ever guaranteed a same-machine FeatureFlagCache candidate because a DaemonSet guarantees
+# every node has one.
+kind: DaemonSet
+name: local-flag-cache-daemonset
+module:
+  name: com.example.nodelocalcache.cache
+  version: 1.0.0
+artifactPath: gimle-examples/node-local-cache/local-flag-cache/target/local-flag-cache.jar

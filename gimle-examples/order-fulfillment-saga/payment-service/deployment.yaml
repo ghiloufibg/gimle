@@ -1,0 +1,11 @@
+# tenantId is required: payment.failureRate is delivered via tenant config, never to an untenanted
+# instance (AgentMain#deliverConfig). See ../README.md for the gimle set tenant/config commands to
+# run first.
+kind: Deployment
+name: payment-service-deployment
+module:
+  name: com.example.orderfulfillment.payment
+  version: 1.0.0
+tenantId: order-fulfillment-saga
+artifactPath: gimle-examples/order-fulfillment-saga/payment-service/target/payment-service.jar
+replicas: 2

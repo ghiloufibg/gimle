@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-order-fulfillment-saga</groupId>
+    <artifactId>order-fulfillment-saga</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>payment-service</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Order Fulfillment Saga: payment-service</name>
+  <description>
+    The saga's second step: charges a simulated payment, with a configurable failure rate so real
+    runs exercise the reservation-release compensation path, and refunds a previous charge on
+    compensation from a later step's failure.
+  </description>
+
+  <properties>
+    <finalName>payment-service</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

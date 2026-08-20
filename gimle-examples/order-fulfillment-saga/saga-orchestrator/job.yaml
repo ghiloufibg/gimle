@@ -1,0 +1,25 @@
+# kind: Job -- an ALTERNATE manifest for the exact same saga-orchestrator jar and
+# gimle-module.yaml as cronjob.yaml, run once on demand instead of waiting for the next scheduled
+# firing. Same JobHooks class either way -- CronJob is just "fire this same kind of Job on a
+# schedule," the same reuse gimle-examples/orders-platform's own orders-report-job and
+# gimle-examples/mapreduce-wordcount's own coordinator already establish.
+#
+# tenantId is required: saga.orderCount/saga.maxInFlight/saga.maxFailureRatio are delivered via
+# tenant config, never to an untenanted instance (AgentMain#deliverConfig). Create the tenant, and
+# its config (and payment-service's/shipping-service's own, on the SAME tenant -- see
+# ../README.md), before applying this manifest:
+#
+#   gimle set tenant order-fulfillment-saga --max-memory-bytes 1073741824 --max-cpu-millicores 4000 --max-instances 10
+#   gimle set config order-fulfillment-saga saga.orderCount 200
+#   gimle set config order-fulfillment-saga saga.maxInFlight 16
+#   gimle set config order-fulfillment-saga saga.maxFailureRatio 0.05
+#   gimle set config order-fulfillment-saga payment.failureRate 0.15
+#   gimle set config order-fulfillment-saga shipping.failureRate 0.1
+kind: Job
+name: order-fulfillment-saga-once
+module:
+  name: com.example.orderfulfillment.orchestrator
+  version: 1.0.0
+tenantId: order-fulfillment-saga
+artifactPath: gimle-examples/order-fulfillment-saga/saga-orchestrator/target/saga-orchestrator.jar
+activeDeadlineSeconds: 300

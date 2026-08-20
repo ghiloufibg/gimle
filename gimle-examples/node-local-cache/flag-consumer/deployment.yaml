@@ -1,0 +1,10 @@
+# Three replicas so, on a real multi-node cluster, more than one node's own consumer instance is
+# observable at once -- each should settle on its own node's local-flag-cache replicaId, not all
+# three converging on the same one.
+kind: Deployment
+name: flag-consumer-deployment
+module:
+  name: com.example.nodelocalcache.consumer
+  version: 1.0.0
+artifactPath: gimle-examples/node-local-cache/flag-consumer/target/flag-consumer.jar
+replicas: 3

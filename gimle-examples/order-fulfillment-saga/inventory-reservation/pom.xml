@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-order-fulfillment-saga</groupId>
+    <artifactId>order-fulfillment-saga</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>inventory-reservation</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Order Fulfillment Saga: inventory-reservation</name>
+  <description>
+    The saga's first step: reserves stock for an order, and releases a previous reservation on
+    compensation. Seeds one plentiful SKU and one deliberately scarce one, so real runs exercise
+    both an outright reservation failure (insufficient stock) and a successful reservation later
+    compensated by a downstream failure.
+  </description>
+
+  <properties>
+    <finalName>inventory-reservation</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

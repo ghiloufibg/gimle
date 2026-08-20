@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-node-local-cache</groupId>
+    <artifactId>node-local-cache</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>local-flag-cache</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Node-Local Cache: local-flag-cache</name>
+  <description>
+    A node-local feature-flag cache: one replica per node (DaemonSet), each generating its own
+    random instance id at startup and returning it alongside every flag answer -- the mechanism
+    that lets a caller observe whether the fabric kept routing to the same, co-located replica.
+  </description>
+
+  <properties>
+    <finalName>local-flag-cache</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

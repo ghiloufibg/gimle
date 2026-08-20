@@ -1,0 +1,7 @@
+kind: Deployment
+name: session-store-client-deployment
+module:
+  name: com.example.sessionstore.client
+  version: 1.0.0
+artifactPath: gimle-examples/session-store/session-store-client/target/session-store-client.jar
+replicas: 1

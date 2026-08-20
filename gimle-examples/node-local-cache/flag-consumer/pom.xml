@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-node-local-cache</groupId>
+    <artifactId>node-local-cache</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>flag-consumer</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Node-Local Cache: flag-consumer</name>
+  <description>
+    Calls local-flag-cache over the real fabric on a loop, re-resolving the service fresh every
+    call, and logs the replicaId every answer carries -- the observable proof that this consumer
+    keeps landing on the same, co-located replica rather than round-robining across every node's.
+  </description>
+
+  <properties>
+    <finalName>flag-consumer</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>
