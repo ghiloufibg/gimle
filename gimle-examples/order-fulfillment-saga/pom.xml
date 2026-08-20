@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Deliberately NOT parented on the real ../../pom.xml (com.gimle:gimle), the same posture every
+    other standalone gimle-examples app (orders-platform, mapreduce-wordcount, session-store,
+    node-local-cache, fraud-detection) already establishes. NOT listed in the root pom.xml's
+    modules list, so a plain reactor build (mvn verify from the repo root) never discovers or
+    touches anything under this directory. Build it explicitly instead:
+
+      mvn -f gimle-examples/order-fulfillment-saga/pom.xml package
+
+    Do NOT add a module entry for this directory to the root pom.xml. See README.md in this
+    directory for what the app is and how to deploy it.
+  -->
+  <groupId>com.example.gimle-order-fulfillment-saga</groupId>
+  <artifactId>order-fulfillment-saga</artifactId>
+  <version>0.1.0</version>
+  <packaging>pom</packaging>
+
+  <name>Order Fulfillment Saga (Gimlé manual-validation app)</name>
+  <description>
+    A real, deployable e-commerce checkout saga hosted as genuine Gimlé modules -- not platform
+    code, a hand-built sample proving out a genuinely new distributed pattern for this repo:
+    compensating transactions (reserve -&gt; charge -&gt; ship, with release/refund rollback on a
+    downstream step's failure) driven from a batch Job coordinator on a running Gimlé cluster.
+  </description>
+
+  <modules>
+    <module>inventory-reservation</module>
+    <module>payment-service</module>
+    <module>shipping-service</module>
+    <module>saga-orchestrator</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+
+    <!-- The platform version this app was last built against. gimle-module/gimle-core aren't
+         published anywhere this standalone tree resolves from, so it depends on the exact jars a
+         real Gimlé build already installed into the local repository (mvn install from the repo
+         root). Bump this by hand if the platform's own version moves; there's no shared property
+         to inherit it from since this pom deliberately has no parent. -->
+    <gimle.platform.version>0.1.0-alpha.2</gimle.platform.version>
+    <slf4j.version>2.0.17</slf4j.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-module</artifactId>
+        <version>${gimle.platform.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <!-- Not required by gimle-module transitively (its own module-info declares a plain, non-
+           transitive "requires com.gimle.core"), so saga-orchestrator (the one module here that
+           needs GimleClusterException) declares this directly, the same reasoning
+           gimle-examples/mapreduce-wordcount's own pom.xml documents. -->
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-core</artifactId>
+        <version>${gimle.platform.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>provided</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

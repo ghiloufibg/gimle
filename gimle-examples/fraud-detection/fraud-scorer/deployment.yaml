@@ -1,0 +1,7 @@
+kind: Deployment
+name: fraud-scorer-deployment
+module:
+  name: com.example.frauddetection.scorer
+  version: 1.0.0
+artifactPath: gimle-examples/fraud-detection/fraud-scorer/target/fraud-scorer.jar
+replicas: 3

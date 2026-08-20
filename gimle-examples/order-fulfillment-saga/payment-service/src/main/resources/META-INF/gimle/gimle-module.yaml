@@ -1,0 +1,19 @@
+name: com.example.orderfulfillment.payment
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 128Mi
+    cpu: 300m
+exports:
+  - service: com.example.orderfulfillment.PaymentService
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.orderfulfillment.payment.PaymentServiceHooks
+health:
+  liveness: com.example.orderfulfillment.payment.PaymentServiceLivenessProbe
+  readiness: com.example.orderfulfillment.payment.PaymentServiceReadinessProbe

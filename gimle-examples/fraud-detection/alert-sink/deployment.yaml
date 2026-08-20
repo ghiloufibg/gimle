@@ -1,0 +1,11 @@
+# The healthy majority: alertsink.failureRate defaults to 0.0 if never delivered, but this
+# manifest declares tenantId anyway so it CAN be overridden (e.g. to 0.0 explicitly) via
+# `gimle set config fraud-detection alertsink.failureRate 0`. See ../README.md.
+kind: Deployment
+name: alert-sink-deployment
+module:
+  name: com.example.frauddetection.alertsink
+  version: 1.0.0
+tenantId: fraud-detection
+artifactPath: gimle-examples/fraud-detection/alert-sink/target/alert-sink.jar
+replicas: 2

@@ -1,0 +1,10 @@
+# replicas: 1, deliberately: this module's own in-memory stock ledger is per-instance, not shared
+# -- more than one replica would each hold an independent copy of the same stock counts and could
+# double-sell the same units. See InventoryReservationHooks's own javadoc.
+kind: Deployment
+name: inventory-reservation-deployment
+module:
+  name: com.example.orderfulfillment.inventory
+  version: 1.0.0
+artifactPath: gimle-examples/order-fulfillment-saga/inventory-reservation/target/inventory-reservation.jar
+replicas: 1

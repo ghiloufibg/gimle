@@ -1,0 +1,16 @@
+name: com.example.frauddetection.ingest
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 64Mi
+    cpu: 200m
+lifecycle:
+  hooks: com.example.frauddetection.ingest.TransactionIngestHooks
+health:
+  liveness: com.example.frauddetection.ingest.TransactionIngestLivenessProbe
+  readiness: com.example.frauddetection.ingest.TransactionIngestReadinessProbe

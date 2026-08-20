@@ -1,0 +1,16 @@
+name: com.example.sessionstore.client
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 64Mi
+    cpu: 100m
+lifecycle:
+  hooks: com.example.sessionstore.client.SessionStoreClientHooks
+health:
+  liveness: com.example.sessionstore.client.SessionStoreClientLivenessProbe
+  readiness: com.example.sessionstore.client.SessionStoreClientReadinessProbe

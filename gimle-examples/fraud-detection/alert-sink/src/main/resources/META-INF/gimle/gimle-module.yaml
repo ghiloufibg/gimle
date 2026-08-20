@@ -1,0 +1,19 @@
+name: com.example.frauddetection.alertsink
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 64Mi
+    cpu: 200m
+exports:
+  - service: com.example.frauddetection.AlertSink
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.frauddetection.alertsink.AlertSinkHooks
+health:
+  liveness: com.example.frauddetection.alertsink.AlertSinkLivenessProbe
+  readiness: com.example.frauddetection.alertsink.AlertSinkReadinessProbe
