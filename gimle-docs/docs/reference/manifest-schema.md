@@ -231,6 +231,35 @@ rollout could transiently reach), not `replicas` alone — a deployment that fit
 steady state but would exceed it while surging is rejected at submission time, before any surge
 instance is ever placed.
 
+## Deployment manifest: `configMapRefs`
+
+`configMapRefs` names the ConfigMaps (see `gimle configmap` in the
+[CLI reference](./cli-reference.md)) this deployment's instances should receive in place of their
+tenant's entire flat config set — a deployment states exactly which config it depends on, instead of
+every instance getting pushed every config/secret value the tenant owns. Omit the field entirely
+(the default, and every deployment submitted before it existed) and nothing changes: instances still
+receive the whole tenant's flat config.
+
+```yaml
+configMapRefs:
+  - app-config
+  - feature-flags
+```
+
+Each key is delivered flattened into the same `ctx.config(key)` lookup a flat config entry already
+uses — a module never has to know whether a given key came from a ConfigMap or the tenant's flat
+config. Because of that, admission rejects the submission outright, rather than picking a silent
+winner, if:
+
+- a named ConfigMap doesn't exist for this deployment's tenant,
+- two referenced ConfigMaps declare the same key, or
+- a referenced key collides with one of the tenant's own flat config keys.
+
+Write ConfigMap content with `gimle configmap set <tenantId> <name> --from-literal key=value` before
+referencing it — referencing one that doesn't exist yet fails the deployment at submission, not
+silently at instance start. `configMapRefs` is scoped to Deployment only today; Job/DaemonSet/
+StatefulSet manifests don't accept it yet.
+
 ## Job manifest
 
 `kind: Job` is a genuinely different workload shape from a Deployment: one logical unit of work,

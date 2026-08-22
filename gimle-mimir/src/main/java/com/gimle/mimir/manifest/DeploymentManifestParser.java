@@ -4,6 +4,7 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -53,6 +54,7 @@ public final class DeploymentManifestParser {
     Optional<String> artifactSha256 = parseArtifactSha256(root);
     Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
     Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
+    List<String> configMapRefs = ManifestFields.stringList(root, "configMapRefs", "configMapRefs");
 
     try {
       return new DeploymentSpec(
@@ -65,7 +67,8 @@ public final class DeploymentManifestParser {
           tenantId,
           artifactSha256,
           disruption,
-          vessel);
+          vessel,
+          configMapRefs);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);

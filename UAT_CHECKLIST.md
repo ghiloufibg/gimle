@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 580
+- **Total requirements**: 585
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 461
-- **Release-readiness (automated coverage)**: 20.5%
+- **Not covered by automated test**: 466
+- **Release-readiness (automated coverage)**: 20.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,19 +18,19 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 37 | 5 | 32 | 13.5% |
-| gimle-mimir | 47 | 32 | 15 | 68.1% |
+| gimle-agent | 38 | 5 | 33 | 13.2% |
+| gimle-mimir | 48 | 32 | 16 | 66.7% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 66 | 14 | 52 | 21.2% |
+| gimle-controlplane | 67 | 14 | 53 | 20.9% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 21 | 0 | 21 | 0.0% |
+| gimle-cli | 22 | 0 | 22 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 26 | 0 | 26 | 0.0% |
+| gimle-console | 27 | 0 | 27 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -420,6 +420,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-115 | Artifact-registry coordinate resolution via ArtifactPullCache | Given an assignment's artifactPath is blank and andvariBaseUrls is configured When resolveArtifactReference runs Then it resolves via artifactCache.resolve(httpClient, andvariBaseUrls, moduleId) to a concrete local jar path Given resolution fails (e.g. -Dgimle.agent.andvariEndpoint not configured, or Andvari unreachable) Then a TRANSITION_FAILED InstanceEvent with "artifact resolution failed" is posted and this assignment is skipped this tick, not fatal to the whole reconcile | Yes |
 
+#### Configuration Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-583 | Narrowed config delivery to instances declaring `configMapRefs` | Given a Deployment declares `configMapRefs: [app-config]`, When an instance is assigned and started, Then the agent fetches only `app-config`'s keys via the batch endpoint and delivers them as ConfigDelivered messages, never the tenant's other flat config entries. | No |
+
 #### Fabric
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -551,6 +557,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-174 | Job / CronJob Manifest Parsing | Given a minimal CronJob manifest with no explicit backoffLimit; When parsed; Then defaults are applied and an invalid cron schedule/unknown concurrencyPolicy is rejected. | Yes |
 | [ ] | GIMLE-175 | StatefulSet Manifest Parsing | Given a manifest declaring replicas/placement/a vessel block; When parsed; Then a StatefulSetSpec is produced; zero replicas is legal, negative rejected. | Yes |
 | [ ] | GIMLE-176 | Kind-Dispatching Manifest Parser | Given a manifest with kind: Deployment; When ManifestParser.parse is called; Then it dispatches to DeploymentManifestParser; an unrecognized kind is rejected via GimleManifestException.unknownKind. | Yes |
+
+#### Configuration Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-582 | Deployment `configMapRefs` field with admission-time collision rejection | Given a tenant's flat config already declares key `shared`, When a Deployment manifest declares `configMapRefs` naming a ConfigMap that also declares `shared`, Then the submission is rejected with a 409 naming both the ConfigMap and the flat-config collision, not silently admitted. | No |
 
 #### Internal-Infra
 
@@ -777,6 +789,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-264 | CONFIG/SECRET resource-kind separation on one underlying store | Given a caller has CONFIG:WRITE but not SECRET:WRITE; When PUT /config/{tenant}/{key} with encrypted=true; Then the write is rejected because it routes authorization through ResourceKind.SECRET. | No |
+
+#### Configuration Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
 
 #### Internal-Infra
 
@@ -1200,6 +1218,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-382 | Log viewing and live tailing | Given "gimle logs instance/orders-service/0", Then GET /logs/instances/orders-service/0?category=APPLICATION&limit=200; "--follow" opens a chunked GET with follow=true and prints new lines until interrupted. | No |
 | [ ] | GIMLE-578 | Service CRUD and live endpoint lookup | Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080. Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set. | No |
 | [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. | No |
+| [ ] | GIMLE-584 | `gimle configmap` command | Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller. | No |
 
 #### CLI / Build Tooling
 
@@ -1348,6 +1367,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-457 | Audit trail viewer with filtering | Given I set a date-range/verb filter, When search runs, Then results sort newest-first regardless of response order. | No |
 | [ ] | GIMLE-458 | Control-plane status panel | Given the control plane is running, When I open `/controlplane`, Then scheduler/quota-enforcer badges show "running". | No |
 | [ ] | GIMLE-459 | Theme toggle (light/dark) | Given I click the theme toggle, When dark mode is selected, Then the preference persists across reloads. | No |
+| [ ] | GIMLE-585 | ConfigMaps screen | Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it. | No |
 
 #### Web Console / Testing
 

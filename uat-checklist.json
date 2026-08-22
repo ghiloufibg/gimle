@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 580,
+    "totalRequirements": 585,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 461,
-    "releaseReadinessPercent": 20.5
+    "notCoveredByAutomatedTest": 466,
+    "releaseReadinessPercent": 20.3
   },
   "items": [
     {
@@ -6382,6 +6382,61 @@
       "category": "Release Management",
       "feature": "`hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout)",
       "step": "Given a topology declaring an already-running machine, When \"hilmir upgrade-cluster -f topology.yaml --remote --new-classpath <cp>\" dispatches to it, Then the identical local upgrade-cluster command runs there over SSH with the new classpath and requested roles.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-581",
+      "module": "gimle-controlplane",
+      "category": "Configuration Management",
+      "feature": "ConfigMap store and API with optimistic-concurrency writes",
+      "step": "Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-582",
+      "module": "gimle-mimir",
+      "category": "Configuration Management",
+      "feature": "Deployment `configMapRefs` field with admission-time collision rejection",
+      "step": "Given a tenant's flat config already declares key `shared`, When a Deployment manifest declares `configMapRefs` naming a ConfigMap that also declares `shared`, Then the submission is rejected with a 409 naming both the ConfigMap and the flat-config collision, not silently admitted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-583",
+      "module": "gimle-agent",
+      "category": "Configuration Management",
+      "feature": "Narrowed config delivery to instances declaring `configMapRefs`",
+      "step": "Given a Deployment declares `configMapRefs: [app-config]`, When an instance is assigned and started, Then the agent fetches only `app-config`'s keys via the batch endpoint and delivers them as ConfigDelivered messages, never the tenant's other flat config entries.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-584",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`gimle configmap` command",
+      "step": "Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-585",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "ConfigMaps screen",
+      "step": "Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

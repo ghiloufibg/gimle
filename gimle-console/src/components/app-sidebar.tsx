@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   Database,
   Package,
+  FileJson,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -51,6 +52,7 @@ const items = [
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Tenants", url: "/tenants", icon: Users },
   { title: "Config", url: "/config", icon: Settings },
+  { title: "ConfigMaps", url: "/configmaps", icon: FileJson },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
   { title: "Artifacts", url: "/artifacts", icon: Package },
   { title: "Access Control", url: "/access-control", icon: ShieldCheck },

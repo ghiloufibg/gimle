@@ -56,6 +56,10 @@ gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
+gimle configmap list <tenantId>
+gimle configmap get <tenantId> <name>
+gimle configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+gimle configmap delete <tenantId> <name>
 gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
@@ -96,6 +100,19 @@ claims a new, immutable version rather than overwriting the last one; `get` defa
 version, `--version N` reads a specific one; `delete` soft-deletes by default (every version stays
 recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
 key and re-encrypts every existing secret under it, cluster-wide.
+
+Like `secret`, `configmap` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
+`list` here returns names scoped to one tenant-owned ConfigMap object, not the flat per-key rows
+`config` returns, and `set` needs a read-then-write sequence rather than a single call. A ConfigMap
+is a named, multi-key bundle a Deployment attaches by reference (`configMapRefs` in its manifest)
+instead of receiving its tenant's entire flat config set — see
+[Manifest schema](./manifest-schema.md#deployment-manifest-configmaprefs). `set` always writes a
+partial merge (`PATCH`): it reads the ConfigMap's current version first (treating "doesn't exist
+yet" as version 0) and supplies that version back to the server itself, so a caller never types a
+version number by hand; a concurrent writer racing that same read is reported back as a plain
+conflict, never silently retried. `--from-literal key=value` may repeat to set several keys in one
+call; `--from-file path` reads a whole file's content as one key named by the file's own base name,
+or `--from-file key=path` names the key explicitly.
 
 `artifact` is a distinct top-level verb for the same reason `secret` is: `push` has no shape in
 three-verb dispatch. Every call is proxied by the control plane to Andvari, the artifact registry

@@ -9,6 +9,13 @@ package com.gimle.core.config;
  * control-plane leader, which alone holds the key file; it is stored and replicated as ciphertext
  * everywhere else, including this record when it travels between control-plane components that
  * never need the plaintext.
+ *
+ * <p>The same layering trick Fafnir's own {@code key@meta}/{@code key@N} secret-versioning
+ * convention uses is reused a second time here: a named ConfigMap (a bundle of keys with its own
+ * version, RBAC'd under {@code ResourceKind.CONFIGMAP}) is stored as one row keyed {@code
+ * "configmap:" + name}, {@code encrypted=false}, its value a small JSON envelope of {@code
+ * {version, data}} -- not a second store schema, just another synthetic-key convention only {@code
+ * com.gimle.controlplane.configmap.ConfigMapCodec} ever interprets.
  */
 public record ConfigEntry(String tenantId, String key, byte[] value, boolean encrypted) {
 

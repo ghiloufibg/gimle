@@ -3,6 +3,7 @@ package com.gimle.core.protocol;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -27,6 +28,12 @@ import java.util.OptionalInt;
  * VesselSpec} itself rather than any descriptor read from the jar. Copied straight from the owning
  * workload spec's own {@code vessel()} field by whichever handler builds this record; the agent
  * never inspects the artifact to decide which hosting mode applies.
+ *
+ * <p>{@code configMapRefs}, when non-empty, names the ConfigMaps whose keys this instance should
+ * receive in place of its tenant's entire flat config set -- copied straight from the owning
+ * Deployment's own {@code configMapRefs()} field. Empty (the default, and the only value every
+ * other workload kind ever passes) means "unscoped": the agent fetches and delivers every plain
+ * config entry the tenant owns, exactly as it did before this field existed.
  */
 public record AssignedInstance(
     String deploymentName,
@@ -35,7 +42,8 @@ public record AssignedInstance(
     String artifactPath,
     Optional<String> tenantId,
     OptionalInt renamedFromInstanceIndex,
-    Optional<VesselSpec> vessel) {
+    Optional<VesselSpec> vessel,
+    List<String> configMapRefs) {
 
   public AssignedInstance {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -58,9 +66,36 @@ public record AssignedInstance(
     if (vessel == null) {
       throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
     }
+    if (configMapRefs == null) {
+      throw new IllegalArgumentException("configMapRefs must be List.of(), not null");
+    }
+    configMapRefs = List.copyOf(configMapRefs);
   }
 
-  /** Back-compat: defaults {@code renamedFromInstanceIndex} and {@code vessel} to empty. */
+  /** Back-compat: defaults {@code configMapRefs} to {@code List.of()}. */
+  public AssignedInstance(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String artifactPath,
+      Optional<String> tenantId,
+      OptionalInt renamedFromInstanceIndex,
+      Optional<VesselSpec> vessel) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        artifactPath,
+        tenantId,
+        renamedFromInstanceIndex,
+        vessel,
+        List.of());
+  }
+
+  /**
+   * Back-compat: defaults {@code renamedFromInstanceIndex}, {@code vessel} and {@code
+   * configMapRefs} to empty.
+   */
   public AssignedInstance(
       String deploymentName,
       int instanceIndex,

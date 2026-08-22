@@ -103,6 +103,18 @@ public final class ControlPlaneClient {
             .build());
   }
 
+  /**
+   * As {@link #put}, but {@code PATCH} -- {@code HttpRequest.Builder} has no dedicated {@code
+   * PATCH} convenience the way it does {@code GET}/{@code POST}/{@code PUT}/{@code DELETE}.
+   */
+  public ApiResponse patch(String path, String body) {
+    return send(
+        HttpRequest.newBuilder(resolve(path))
+            .timeout(REQUEST_TIMEOUT)
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+            .build());
+  }
+
   public ApiResponse post(String path, String body) {
     return send(
         HttpRequest.newBuilder(resolve(path))

@@ -3,6 +3,7 @@ package com.gimle.mimir.manifest;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -44,6 +45,14 @@ import java.util.Optional;
  * from an ordinary module-hosted one -- there is no separate flag. Presence means {@code
  * moduleId}/{@code artifactPath} name a plain runnable jar the agent spawns directly as its own OS
  * process, never loaded into a worker JVM as a Java module.
+ *
+ * <p>{@code configMapRefs} names the ConfigMaps (see {@code
+ * com.gimle.controlplane.configmap.ConfigMap}) this deployment's instances should receive in place
+ * of their tenant's entire flat config set -- narrowing what {@code gimle-agent} pushes to a worker
+ * down to just the keys this deployment actually declared. Empty (the default) keeps today's
+ * behavior: every instance still receives the whole tenant's flat config. Admission rejects a
+ * submission whose referenced ConfigMaps don't exist, or whose keys collide with each other or with
+ * the tenant's own flat config keys -- see {@code ConfigMapRefsPlugin}.
  */
 public record DeploymentSpec(
     String name,
@@ -55,7 +64,8 @@ public record DeploymentSpec(
     Optional<String> tenantId,
     Optional<String> artifactSha256,
     Optional<DisruptionBudget> disruption,
-    Optional<VesselSpec> vessel)
+    Optional<VesselSpec> vessel,
+    List<String> configMapRefs)
     implements WorkloadSpec {
 
   public DeploymentSpec {
@@ -87,6 +97,36 @@ public record DeploymentSpec(
     if (vessel == null) {
       throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
     }
+    if (configMapRefs == null) {
+      throw new IllegalArgumentException("configMapRefs must be List.of(), not null");
+    }
+    configMapRefs = List.copyOf(configMapRefs);
+  }
+
+  /** Back-compat: defaults {@code configMapRefs} to {@code List.of()}. */
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256,
+      Optional<DisruptionBudget> disruption,
+      Optional<VesselSpec> vessel) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel,
+        List.of());
   }
 
   /** Back-compat: defaults {@code vessel} to {@code Optional.empty()}. */

@@ -590,6 +590,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-578 | Service CRUD and live endpoint lookup | CLI | Complete | Yes |
 | GIMLE-579 | NetworkPolicy CRUD | CLI | Complete | Yes |
 | GIMLE-580 | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | Release Management | Complete | Partial |
+| GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Configuration Management | Complete | Yes |
+| GIMLE-582 | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | Complete (v1 scope: Deployment only) | Yes |
+| GIMLE-583 | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Complete | Partial |
+| GIMLE-584 | `gimle configmap` command | CLI | Complete | Partial |
+| GIMLE-585 | ConfigMaps screen | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2651,6 +2656,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Service Bifrost is currently refusing to proxy, When the restricting NetworkPolicySpec is removed and Bifrost polls again, Then it resumes proxying that Service on the very next tick.
   ```
 
+#### GIMLE-583 — Narrowed config delivery to instances declaring `configMapRefs`
+
+- **Category**: Configuration Management
+- **User story**: As a platform operator, I want an instance whose deployment declares `configMapRefs` to receive only those ConfigMaps' keys at start, instead of its tenant's entire flat config set, so a deployment's manifest states exactly what it depends on.
+- **Status**: Complete. `AssignedInstance` carries `configMapRefs` from the control plane's `/nodes/{id}/assignments` response through to the agent. `AgentMain#deliverConfig` fetches the batched `GET /configmaps/{tenant}?names=...` shape and flattens each ConfigMap's `data` into the same `ControlMessage.ConfigDelivered` wire message flat config already uses -- `ctx.config(key)` on the module side is unaffected either way, and no protocol change was needed. Empty `configMapRefs` (every deployment before this field existed) keeps today's whole-tenant push unchanged. Secret delivery is untouched either way -- narrowing secrets is out of scope for this feature.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/AssignedInstance.java` (`configMapRefs`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAssignments`, `assignedInstanceToJson`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchConfigMaps`, `deliverConfig`, `resolveArtifactReference`)
+- **Test coverage**: Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment declares `configMapRefs: [app-config]`, When an instance is assigned and started, Then the agent fetches only `app-config`'s keys via the batch endpoint and delivers them as ConfigDelivered messages, never the tenant's other flat config entries.
+  ```
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -3265,6 +3283,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too.
   Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee.
+  ```
+
+#### GIMLE-582 — Deployment `configMapRefs` field with admission-time collision rejection
+
+- **Category**: Configuration Management
+- **User story**: As an operator, I want a Deployment manifest to declare which ConfigMaps it depends on, and have the submission rejected loudly if two sources declare the same key, rather than have a runtime silently pick a winner.
+- **Status**: Complete. `configMapRefs: List<String>` added to `DeploymentSpec` (parsed, wire-encoded through `DomainCodec`, defaulting to an empty list via a back-compat constructor). `ConfigMapRefsPlugin`, a new `AdmissionPlugin<DeploymentSpec>`, resolves every referenced ConfigMap at submission time and rejects on: an unknown reference, two referenced ConfigMaps declaring the same key, or a referenced key colliding with the tenant's own flat config keys. Empty `configMapRefs` is allowed immediately with no extra store reads, keeping every pre-existing unscoped deployment unaffected. Scoped to Deployment only for v1, matching the issue's own example.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java`, `DeploymentManifestParser.java`, `ManifestFields.java` (`configMapRefs`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`configMapRefs` wire encoding), `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/ConfigMapRefsPlugin.java`
+- **Test coverage**: `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenant's flat config already declares key `shared`, When a Deployment manifest declares `configMapRefs` naming a ConfigMap that also declares `shared`, Then the submission is rejected with a 409 naming both the ConfigMap and the flat-config collision, not silently admitted.
   ```
 
 ### gimle-fabric
@@ -4549,6 +4580,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port.
   Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing.
   Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely.
+  ```
+
+#### GIMLE-581 — ConfigMap store and API with optimistic-concurrency writes
+
+- **Category**: Configuration Management
+- **User story**: As an operator, I want to declare a named, multi-key ConfigMap and write to it concurrently from multiple callers without silently losing an update, so a deployment can attach it by reference instead of receiving every flat config key its tenant owns.
+- **Status**: Complete. Stored as one ConfigEntry row per (tenantId, name) under a `configmap:` synthetic-key convention layered over the same store `gimle-fafnir`'s own `key@meta`/`key@N` convention uses -- no new Raft state, no new wire codec. `PUT`/`PATCH` share a lease-guarded read-check-propose write path (one lease around the whole critical section, deliberately simpler than Secret's own narrower two-phase lease since a ConfigMap is one mutable row with no immutable history to protect); a stale `expectedVersion` returns 409 with the current snapshot immediately, never retried internally -- only lease contention retries. `GET /configmaps/{tenant}?names=a,b,c` batches every referenced ConfigMap's body into one round trip. The `configmap:` prefix is reserved on plain `/config/*` writes and filtered out of `/config/*` listings.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMap.java`, `ConfigMapCodec.java`, `ConfigMapWriteResult.java`, `ConfigMapStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/configmaps/*` routes, the `configmap:` reserved-prefix guard on `/config/*`, the `?names=` batch-get shape), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`CONFIGMAP`), `gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java` (javadoc noting the `configmap:` synthetic-key convention)
+- **Test coverage**: `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote.
   ```
 
 ### gimle-fafnir
@@ -6244,6 +6288,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"].
   ```
 
+#### GIMLE-584 — `gimle configmap` command
+
+- **Category**: CLI
+- **User story**: As an operator, I want to list, read, write, and delete ConfigMaps from the CLI without ever typing a version number by hand.
+- **Status**: Complete. `gimle configmap list|get|set|delete`, a distinct top-level verb (like `secret`, not folded into the 3-verb `get`/`set`/`delete` dispatch `config` uses) since `set` needs a read-then-PATCH sequence. `set` reads the current version first (absent treated as 0), accepts repeatable `--from-literal key=value` and `--from-file path|key=path`, and PATCHes with the version supplied automatically -- a 409 conflict is surfaced to the caller via the CLI's existing `describeError` mapping, never silently retried.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ConfigMapCommand.java`, `ControlPlaneClient.java` (`patch`), `GimleCli.java` (`configmap` verb dispatch)
+- **Test coverage**: Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller.
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -7214,6 +7271,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a real control plane with greeter-provider/consumer deployed, When the Playwright suite runs, Then Deployments/Logs screens reflect genuine real state.
+  ```
+
+#### GIMLE-585 — ConfigMaps screen
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator, I want to browse, create, edit, and delete ConfigMaps in the console, and be warned rather than silently overwritten if one changed since I opened it.
+- **Status**: Complete. Mirrors the Config/Secrets screen layering (types, repository interface + Mock, Http implementation, composition root, Zustand store, route, sidebar entry). The edit panel shows the loaded version and, on a 409 from save, surfaces a dedicated conflict banner ("this changed since you opened it -- reload?") rather than a generic error toast, backed by a typed `ConfigMapConflict` error the Http repository raises from the 409 body.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`ConfigMap`), `gimle-console/src/repositories/configmaps.ts`, `http/configmaps.ts`, `index.ts`, `gimle-console/src/stores/useConfigMapsStore.ts`, `gimle-console/src/routes/configmaps.tsx`, `components/app-sidebar.tsx`
+- **Test coverage**: `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)
+- **Gherkin scenario**:
+  ```gherkin
+  Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it.
   ```
 
 ### gimle-fafnir-console

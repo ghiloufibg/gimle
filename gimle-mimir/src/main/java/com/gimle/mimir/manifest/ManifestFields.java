@@ -219,17 +219,27 @@ final class ManifestFields {
   }
 
   private static List<String> stringList(Map<?, ?> vessel, String key) {
-    Object value = vessel.get(key);
+    return stringList(vessel, key, "vessel." + key);
+  }
+
+  /**
+   * Package-visible variant of the {@code vessel.*} helper above, for a top-level field like {@code
+   * configMapRefs:} that isn't nested under {@code vessel} -- {@code fieldPath} is the
+   * fully-qualified name used in error messages, since the caller may not be reading from within
+   * {@code vessel} at all.
+   */
+  static List<String> stringList(Map<?, ?> map, String key, String fieldPath) {
+    Object value = map.get(key);
     if (value == null) {
       return List.of();
     }
     if (!(value instanceof List<?> list)) {
-      throw new GimleManifestException("'vessel." + key + "' must be a list if present");
+      throw new GimleManifestException("'" + fieldPath + "' must be a list if present");
     }
     List<String> result = new ArrayList<>();
     for (Object entry : list) {
       if (!(entry instanceof String s)) {
-        throw new GimleManifestException("every 'vessel." + key + "' entry must be a string");
+        throw new GimleManifestException("every '" + fieldPath + "' entry must be a string");
       }
       result.add(s);
     }

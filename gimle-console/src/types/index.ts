@@ -263,6 +263,16 @@ export interface SecretValue {
   value: string;
 }
 
+// A named, multi-key bundle a deployment attaches by `configMapRefs` instead of receiving its
+// tenant's entire flat Config set. Unlike Config's per-key rows, `data` here is the whole object's
+// current content -- `version` exists purely for the optimistic-concurrency conflict check on save.
+export interface ConfigMap {
+  tenantId: string;
+  name: string;
+  version: number;
+  data: Record<string, string>;
+}
+
 export interface ModuleInstance {
   deploymentName: string;
   instanceIndex: number;

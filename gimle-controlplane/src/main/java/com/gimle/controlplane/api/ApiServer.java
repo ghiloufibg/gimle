@@ -2,11 +2,16 @@ package com.gimle.controlplane.api;
 
 import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
+import com.gimle.controlplane.admission.ConfigMapRefsPlugin;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
+import com.gimle.controlplane.configmap.ConfigMap;
+import com.gimle.controlplane.configmap.ConfigMapCodec;
+import com.gimle.controlplane.configmap.ConfigMapStore;
+import com.gimle.controlplane.configmap.ConfigMapWriteResult;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
@@ -227,6 +232,11 @@ public final class ApiServer implements AutoCloseable {
   // gimle-agent's own poller (GET /networkpolicies below), never by a reconciler -- nothing in this
   // process itself needs to act on a NetworkPolicySpec, only relay it downstream unchanged.
   private final NetworkPolicyRegistry networkPolicyRegistry;
+  // Backed by the same ConfigEntry store, under its own "configmap:" synthetic-key convention --
+  // see ConfigMapCodec's own javadoc. Unlike networkPolicyRegistry above, constructed with the
+  // full StoreClient rather than a StoreReader/MutationSink pair: its write path needs the lease
+  // and linearizable-read primitives only StoreClient exposes.
+  private final ConfigMapStore configMapStore;
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -335,13 +345,17 @@ public final class ApiServer implements AutoCloseable {
     this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
+    this.configMapStore = new ConfigMapStore(storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.artifactResolver =
         artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
     this.deploymentAdmissionChain =
         new AdmissionChain<>(
-            List.of(new TenantQuotaPlugin(this.artifactResolver), new PolicyConfigPlugin()));
+            List.of(
+                new TenantQuotaPlugin(this.artifactResolver),
+                new PolicyConfigPlugin(),
+                new ConfigMapRefsPlugin()));
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();
@@ -386,6 +400,7 @@ public final class ApiServer implements AutoCloseable {
         "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
     target.createContext(
         "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
+    target.createContext("/configmaps/", instrument("configmaps", this::handleConfigMap));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
     target.createContext("/audit", instrument("audit", this::handleAudit));
@@ -928,7 +943,8 @@ public final class ApiServer implements AutoCloseable {
         spec.tenantId(),
         sha256,
         spec.disruption(),
-        spec.vessel());
+        spec.vessel(),
+        spec.configMapRefs());
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
@@ -2332,7 +2348,8 @@ public final class ApiServer implements AutoCloseable {
               artifactPath,
               spec.get().tenantId(),
               assignment.renamedFromInstanceIndex(),
-              spec.get().vessel());
+              spec.get().vessel(),
+              spec.get().configMapRefs());
       assigned.add(assignedInstanceToJson(instance));
     }
     // Job runs reuse this exact same AssignedInstance wire shape --
@@ -2713,6 +2730,9 @@ public final class ApiServer implements AutoCloseable {
     if (instance.renamedFromInstanceIndex().isPresent()) {
       map.put("renamedFromInstanceIndex", instance.renamedFromInstanceIndex().getAsInt());
     }
+    if (!instance.configMapRefs().isEmpty()) {
+      map.put("configMapRefs", instance.configMapRefs());
+    }
     return map;
   }
 
@@ -2841,6 +2861,20 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing config key");
         return;
       }
+      if (ConfigMapCodec.isConfigMapKey(key)
+          && ("PUT".equals(exchange.getRequestMethod())
+              || "DELETE".equals(exchange.getRequestMethod()))) {
+        // Reserved: a plain /config/* write must never collide with the "configmap:" + name rows
+        // ConfigMapStore owns, the same reasoning Fafnir's own key@meta/key@N convention already
+        // needed a filter for (see isFafnirManagedSecretKey below).
+        respond(
+            exchange,
+            400,
+            "'"
+                + ConfigMapCodec.KEY_PREFIX
+                + "' is a reserved config key prefix; use /configmaps/* instead");
+        return;
+      }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           // The resource kind an entry is written under depends on the request body's own
@@ -2966,7 +3000,7 @@ public final class ApiServer implements AutoCloseable {
     }
     List<ConfigEntry> visible = new ArrayList<>();
     for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
-      if (isFafnirManagedSecretKey(entry.key())) {
+      if (isFafnirManagedSecretKey(entry.key()) || ConfigMapCodec.isConfigMapKey(entry.key())) {
         continue;
       }
       if (entry.encrypted() ? canReadSecrets : canReadConfig) {
@@ -2990,6 +3024,189 @@ public final class ApiServer implements AutoCloseable {
       list.add(m);
     }
     respondJson(exchange, 200, list);
+  }
+
+  // ---- /configmaps/{tenant}[?names=a,b,c] and /configmaps/{tenant}/{name} ----
+
+  private void handleConfigMap(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/configmaps/");
+      if (tail.isBlank()) {
+        respond(exchange, 400, "expected /configmaps/{tenantId} or /configmaps/{tenantId}/{name}");
+        return;
+      }
+      int slash = tail.indexOf('/');
+      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenantId");
+        return;
+      }
+      if (slash < 0) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (!requireAuthorized(
+            exchange, ResourceKind.CONFIGMAP, Verb.READ, Optional.of(tenantId))) {
+          return;
+        }
+        handleListOrBatchGetConfigMaps(exchange, tenantId);
+        return;
+      }
+      String name = tail.substring(slash + 1);
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing configmap name");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.READ, Optional.of(tenantId))) {
+            handleGetConfigMap(exchange, tenantId, name);
+          }
+        }
+        case "PUT" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+            handlePutConfigMap(exchange, tenantId, name);
+          }
+        }
+        case "PATCH" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+            handlePatchConfigMap(exchange, tenantId, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))) {
+            configMapStore.delete(tenantId, name);
+            respond(exchange, 200, "ok");
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("configmap request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code GET /configmaps/{tenantId}}: every ConfigMap name in the tenant. {@code ?names=a,b,c}
+   * additionally batches full bodies for the named ConfigMaps into one response -- the shape {@code
+   * gimle-agent} uses to fetch every {@code configMapRefs} entry for an instance assignment in a
+   * single round trip, rather than one HTTP call per referenced ConfigMap.
+   */
+  private void handleListOrBatchGetConfigMaps(HttpExchange exchange, String tenantId)
+      throws IOException {
+    String namesParam = parseQuery(exchange).get("names");
+    if (namesParam == null) {
+      respondJson(exchange, 200, configMapStore.list(tenantId));
+      return;
+    }
+    List<String> names = Arrays.stream(namesParam.split(",")).filter(s -> !s.isBlank()).toList();
+    respondJson(
+        exchange,
+        200,
+        configMapStore.getMany(tenantId, names).stream().map(ApiServer::configMapToJson).toList());
+  }
+
+  private void handleGetConfigMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Optional<ConfigMap> configMap = configMapStore.get(tenantId, name);
+    if (configMap.isEmpty()) {
+      respond(exchange, 404, "no such configmap: " + name);
+      return;
+    }
+    respondJson(exchange, 200, configMapToJson(configMap.get()));
+  }
+
+  /**
+   * {@code PUT}: full replace. Body {@code {data, expectedVersion?}} -- omitting {@code
+   * expectedVersion} means an unconditional overwrite.
+   */
+  private void handlePutConfigMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Map<String, String> data = stringMap(body.get("data"));
+    OptionalInt expectedVersion = optionalIntField(body, "expectedVersion");
+    respondConfigMapWrite(exchange, configMapStore.put(tenantId, name, data, expectedVersion));
+  }
+
+  /**
+   * {@code PATCH}: merges only the sent key(s). Unlike {@code PUT}, {@code expectedVersion} is
+   * required in the body -- {@code 0} is the create-a-new-ConfigMap case, not "unconditional."
+   */
+  private void handlePatchConfigMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Map<String, String> data = stringMap(body.get("data"));
+    OptionalInt expectedVersion = optionalIntField(body, "expectedVersion");
+    if (expectedVersion.isEmpty()) {
+      respond(exchange, 400, "PATCH requires an 'expectedVersion' field (0 for a new configmap)");
+      return;
+    }
+    respondConfigMapWrite(
+        exchange, configMapStore.patch(tenantId, name, data, expectedVersion.getAsInt()));
+  }
+
+  private void respondConfigMapWrite(HttpExchange exchange, ConfigMapWriteResult result)
+      throws IOException {
+    switch (result) {
+      case ConfigMapWriteResult.Written written ->
+          respondJson(exchange, 200, Map.of("version", written.version()));
+      case ConfigMapWriteResult.VersionConflict conflict ->
+          respondJson(
+              exchange,
+              409,
+              Map.of(
+                  "currentVersion", conflict.currentVersion(),
+                  "currentData", conflict.currentData()));
+      case ConfigMapWriteResult.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to this configmap ("
+                  + contention.attempts()
+                  + " attempts)");
+    }
+  }
+
+  private static Map<String, String> stringMap(Object rawData) {
+    if (!(rawData instanceof Map<?, ?> map)) {
+      throw new IllegalArgumentException("'data' must be a mapping of string to string");
+    }
+    Map<String, String> result = new LinkedHashMap<>();
+    for (Map.Entry<?, ?> entry : map.entrySet()) {
+      result.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+    }
+    return result;
+  }
+
+  private static OptionalInt optionalIntField(Map<?, ?> body, String key) {
+    Object value = body.get(key);
+    if (value == null) {
+      return OptionalInt.empty();
+    }
+    if (!(value instanceof Number number)) {
+      throw new IllegalArgumentException("'" + key + "' must be a number if present");
+    }
+    return OptionalInt.of(number.intValue());
+  }
+
+  private static Map<String, Object> configMapToJson(ConfigMap configMap) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", configMap.name());
+    map.put("version", configMap.version());
+    map.put("data", configMap.data());
+    return map;
   }
 
   // ---- /roles and /roles/{name} ----

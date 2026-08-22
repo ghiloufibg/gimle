@@ -60,6 +60,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -856,6 +857,11 @@ public final class AgentMain {
               (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
       Object tenantId = map.get("tenantId");
       Object renamedFrom = map.get("renamedFromInstanceIndex");
+      Object rawConfigMapRefs = map.get("configMapRefs");
+      List<String> configMapRefs =
+          rawConfigMapRefs == null
+              ? List.of()
+              : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
       result.add(
           new AssignedInstance(
               (String) map.get("deploymentName"),
@@ -865,7 +871,9 @@ public final class AgentMain {
               tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
               renamedFrom == null
                   ? OptionalInt.empty()
-                  : OptionalInt.of(((Number) renamedFrom).intValue())));
+                  : OptionalInt.of(((Number) renamedFrom).intValue()),
+              Optional.empty(),
+              configMapRefs));
     }
     return result;
   }
@@ -903,6 +911,41 @@ public final class AgentMain {
               (String) map.get("key"),
               (String) map.get("value"),
               Boolean.TRUE.equals(map.get("encrypted"))));
+    }
+    return result;
+  }
+
+  /**
+   * Fetches only the ConfigMaps a Deployment actually {@code configMapRefs}'d, in one batched round
+   * trip ({@code GET /configmaps/{tenantId}?names=a,b,c}), and flattens each returned ConfigMap's
+   * own {@code data} map into the same {@link ConfigValue} shape {@link #fetchConfigForTenant}
+   * returns -- {@code ctx.config(key)} on the module side stays a plain map lookup regardless of
+   * which of the two fetch paths populated it. Never encrypted: a ConfigMap's plaintext data never
+   * touches Fafnir (see the design's own non-goals).
+   */
+  private static List<ConfigValue> fetchConfigMaps(
+      HttpClient httpClient, URI baseUrl, String tenantId, List<String> names)
+      throws IOException, InterruptedException {
+    String namesParam = URLEncoder.encode(String.join(",", names), StandardCharsets.UTF_8);
+    HttpRequest request =
+        HttpRequest.newBuilder(baseUrl.resolve("/configmaps/" + tenantId + "?names=" + namesParam))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      throw GimleClusterException.unexpectedHttpStatus(
+          "configmap fetch for tenant " + tenantId, response.statusCode(), response.body());
+    }
+    List<Object> raw = Json.asArray(Json.parse(response.body()));
+    List<ConfigValue> result = new ArrayList<>();
+    for (Object entry : raw) {
+      Map<String, Object> configMap = Json.asObject(entry);
+      Map<String, Object> data = Json.asObject(configMap.get("data"));
+      for (Map.Entry<String, Object> keyValue : data.entrySet()) {
+        result.add(new ConfigValue(keyValue.getKey(), String.valueOf(keyValue.getValue()), false));
+      }
     }
     return result;
   }
@@ -2037,12 +2080,17 @@ public final class AgentMain {
   /**
    * Plain config still comes from {@code ApiServer}'s own {@code /config/{tenantId}}, decrypted
    * server-side exactly as before -- unaffected by this split, since only where decryption happens
-   * changed, not this call. Secret values, by contrast, are fetched directly from Fafnir,
-   * authorized by this agent's own node identity certificate rather than relayed through the
-   * control plane, so a compromised or buggy control-plane replica is never in a position to see a
-   * decrypted secret value pass through it. {@code fafnirBaseUrl} is {@code null} when {@code
-   * -Dgimle.agent.fafnirEndpoint} was never configured -- instances still start, simply without any
-   * secret values delivered, exactly like a tenant that never uses secrets.
+   * changed, not this call. When the assignment declares {@code configMapRefs}, though, this
+   * fetches only those named ConfigMaps ({@code GET /configmaps/{tenantId}?names=...}) instead of
+   * the tenant's entire flat config set, flattening each one's own key/value data into the same
+   * {@link ConfigValue} shape -- {@code ctx.config(key)} on the module side is unaffected either
+   * way. Secret values, by contrast, are fetched directly from Fafnir, authorized by this agent's
+   * own node identity certificate rather than relayed through the control plane, so a compromised
+   * or buggy control-plane replica is never in a position to see a decrypted secret value pass
+   * through it -- {@code configMapRefs} never narrows secret delivery, only the plain-config half.
+   * {@code fafnirBaseUrl} is {@code null} when {@code -Dgimle.agent.fafnirEndpoint} was never
+   * configured -- instances still start, simply without any secret values delivered, exactly like a
+   * tenant that never uses secrets.
    */
   static void deliverConfig(
       SupervisedInstance instance,
@@ -2055,9 +2103,13 @@ public final class AgentMain {
     if (tenantId.isEmpty()) {
       return;
     }
+    List<String> configMapRefs = instance.assigned.configMapRefs();
     List<ConfigValue> entries = new ArrayList<>();
     try {
-      entries.addAll(fetchConfigForTenant(httpClient, baseUrl, tenantId.get()));
+      entries.addAll(
+          configMapRefs.isEmpty()
+              ? fetchConfigForTenant(httpClient, baseUrl, tenantId.get())
+              : fetchConfigMaps(httpClient, baseUrl, tenantId.get(), configMapRefs));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return;
@@ -2068,7 +2120,7 @@ public final class AgentMain {
       // principal is not authorized for /config at all, making this the normal path, not an
       // edge case.
       log.warn(
-          "failed to fetch plain config for tenant {}: {}; continuing to secret delivery",
+          "failed to fetch config for tenant {}: {}; continuing to secret delivery",
           tenantId.get(),
           e.getMessage());
     }
@@ -2583,7 +2635,8 @@ public final class AgentMain {
         jar.toString(),
         fetched.tenantId(),
         fetched.renamedFromInstanceIndex(),
-        fetched.vessel());
+        fetched.vessel(),
+        fetched.configMapRefs());
   }
 
   /**

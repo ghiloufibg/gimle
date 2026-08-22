@@ -16,6 +16,7 @@ import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
+import { Route as ConfigmapsRouteImport } from './routes/configmaps'
 import { Route as ConfigRouteImport } from './routes/config'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as ArtifactsRouteImport } from './routes/artifacts'
@@ -72,6 +73,11 @@ const LoginRoute = LoginRouteImport.update({
 const ControlplaneRoute = ControlplaneRouteImport.update({
   id: '/controlplane',
   path: '/controlplane',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConfigmapsRoute = ConfigmapsRouteImport.update({
+  id: '/configmaps',
+  path: '/configmaps',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConfigRoute = ConfigRouteImport.update({
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
+  '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
+  '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/artifacts': typeof ArtifactsRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
+  '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/audit'
     | '/config'
+    | '/configmaps'
     | '/controlplane'
     | '/login'
     | '/logs'
@@ -318,6 +328,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/audit'
     | '/config'
+    | '/configmaps'
     | '/controlplane'
     | '/login'
     | '/logs'
@@ -349,6 +360,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/audit'
     | '/config'
+    | '/configmaps'
     | '/controlplane'
     | '/login'
     | '/logs'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   ArtifactsRoute: typeof ArtifactsRoute
   AuditRoute: typeof AuditRoute
   ConfigRoute: typeof ConfigRoute
+  ConfigmapsRoute: typeof ConfigmapsRoute
   ControlplaneRoute: typeof ControlplaneRoute
   LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
@@ -456,6 +469,13 @@ declare module '@tanstack/react-router' {
       path: '/controlplane'
       fullPath: '/controlplane'
       preLoaderRoute: typeof ControlplaneRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configmaps': {
+      id: '/configmaps'
+      path: '/configmaps'
+      fullPath: '/configmaps'
+      preLoaderRoute: typeof ConfigmapsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/config': {
@@ -621,6 +641,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArtifactsRoute: ArtifactsRoute,
   AuditRoute: AuditRoute,
   ConfigRoute: ConfigRoute,
+  ConfigmapsRoute: ConfigmapsRoute,
   ControlplaneRoute: ControlplaneRoute,
   LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,

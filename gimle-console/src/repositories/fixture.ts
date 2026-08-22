@@ -1,6 +1,7 @@
 import type {
   ConcurrencyPolicy,
   ConfigEntry,
+  ConfigMap,
   CronJob,
   DaemonSet,
   DaemonSetInstance,
@@ -438,6 +439,7 @@ export function removeTenant(id: string) {
   if (i >= 0) tenants.splice(i, 1);
   delete configByTenant[id];
   delete secretsByTenant[id];
+  delete configMapsByTenant[id];
 }
 
 export function upsertConfig(entry: ConfigEntry) {
@@ -512,4 +514,63 @@ export function removeSecret(tenantId: string, key: string, destroy: boolean) {
   if (i < 0) return;
   if (destroy) list.splice(i, 1);
   else list[i].deleted = true;
+}
+
+// ---- ConfigMaps ----
+
+export const configMapsByTenant: Record<string, ConfigMap[]> = Object.fromEntries(
+  tenants.map((t) => [
+    t.id,
+    [
+      {
+        tenantId: t.id,
+        name: "app-config",
+        version: 1,
+        data: { "log.level": "INFO", "feature.newCheckout": "true" },
+      },
+    ],
+  ]),
+);
+
+export function findConfigMap(tenantId: string, name: string): ConfigMap | undefined {
+  return (configMapsByTenant[tenantId] ?? []).find((c) => c.name === name);
+}
+
+/** Full replace, optimistic-concurrency guarded the same way the real API is: a present {@code
+ * expectedVersion} that doesn't match the current one is rejected rather than silently applied. */
+export function upsertConfigMap(
+  tenantId: string,
+  name: string,
+  data: Record<string, string>,
+  expectedVersion?: number,
+): ConfigMap {
+  const list = (configMapsByTenant[tenantId] ??= []);
+  const existing = list.find((c) => c.name === name);
+  const currentVersion = existing?.version ?? 0;
+  if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
+    throw new ConfigMapConflict(currentVersion, existing?.data ?? {});
+  }
+  const saved: ConfigMap = { tenantId, name, version: currentVersion + 1, data };
+  if (existing) Object.assign(existing, saved);
+  else list.push(saved);
+  return saved;
+}
+
+export function removeConfigMap(tenantId: string, name: string) {
+  const list = configMapsByTenant[tenantId];
+  if (!list) return;
+  const i = list.findIndex((c) => c.name === name);
+  if (i >= 0) list.splice(i, 1);
+}
+
+/** Mirrors the real API's 409 body shape ({@code {currentVersion, currentData}}) so
+ * {@link MockConfigMapsRepository} and {@link HttpConfigMapsRepository} surface the identical
+ * error shape to the store regardless of which backs the console. */
+export class ConfigMapConflict extends Error {
+  constructor(
+    readonly currentVersion: number,
+    readonly currentData: Record<string, string>,
+  ) {
+    super(`configmap changed since it was loaded (now version ${currentVersion})`);
+  }
 }

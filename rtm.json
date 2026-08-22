@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 580,
+  "requirementCount": 585,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10032,6 +10032,91 @@
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runUpgradeCluster`'s `--remote` branch)",
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`"
       ]
+    },
+    {
+      "id": "GIMLE-581",
+      "module": "gimle-controlplane",
+      "feature": "ConfigMap store and API with optimistic-concurrency writes",
+      "category": "Configuration Management",
+      "status": "New",
+      "statusNote": "newly added as part of the ConfigMap kind (optimistic concurrent writes) work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario exercises ConfigMap CRUD or its optimistic-concurrency write path against a real cluster -- coverage here requires a .feature scenario driving the real gimle binary, not the real JUnit/InProcessStore coverage that already exists (ConfigMapStoreTest's/ApiServerConfigMapTest's own real-store round trips do not count, per this file's own metadata.coverageRule).",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMap.java`, `ConfigMapCodec.java`, `ConfigMapWriteResult.java`, `ConfigMapStore.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/configmaps/*` routes, the `configmap:` reserved-prefix guard on `/config/*`, the `?names=` batch-get shape)",
+        "`gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`CONFIGMAP`)",
+        "`gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java` (javadoc noting the `configmap:` synthetic-key convention)"
+      ],
+      "otherTestCoverage": "`ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS)"
+    },
+    {
+      "id": "GIMLE-582",
+      "module": "gimle-mimir",
+      "feature": "Deployment `configMapRefs` field with admission-time collision rejection",
+      "category": "Configuration Management",
+      "status": "New",
+      "statusNote": "newly added as part of the ConfigMap kind (optimistic concurrent writes) work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario exercises configMapRefs admission against a real cluster -- see GIMLE-578's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java`, `DeploymentManifestParser.java`, `ManifestFields.java` (`configMapRefs`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`configMapRefs` wire encoding)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/ConfigMapRefsPlugin.java`"
+      ],
+      "otherTestCoverage": "`DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed)"
+    },
+    {
+      "id": "GIMLE-583",
+      "module": "gimle-agent",
+      "feature": "Narrowed config delivery to instances declaring `configMapRefs`",
+      "category": "Configuration Management",
+      "status": "New",
+      "statusNote": "newly added as part of the ConfigMap kind (optimistic concurrent writes) work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario exercises narrowed config delivery to a real agent-supervised instance -- see GIMLE-578's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/AssignedInstance.java` (`configMapRefs`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAssignments`, `assignedInstanceToJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchConfigMaps`, `deliverConfig`, `resolveArtifactReference`)"
+      ],
+      "otherTestCoverage": "Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json)."
+    },
+    {
+      "id": "GIMLE-584",
+      "module": "gimle-cli",
+      "feature": "`gimle configmap` command",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "newly added as part of the ConfigMap kind (optimistic concurrent writes) work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario exercises `gimle configmap` against a real cluster -- see GIMLE-578's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ConfigMapCommand.java`, `ControlPlaneClient.java` (`patch`), `GimleCli.java` (`configmap` verb dispatch)"
+      ],
+      "otherTestCoverage": "Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json)."
+    },
+    {
+      "id": "GIMLE-585",
+      "module": "gimle-console",
+      "feature": "ConfigMaps screen",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "newly added as part of the ConfigMap kind (optimistic concurrent writes) work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises the ConfigMaps console screen against a real running cluster -- see GIMLE-578's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-console/src/types/index.ts` (`ConfigMap`)",
+        "`gimle-console/src/repositories/configmaps.ts`, `http/configmaps.ts`, `index.ts`",
+        "`gimle-console/src/stores/useConfigMapsStore.ts`",
+        "`gimle-console/src/routes/configmaps.tsx`, `components/app-sidebar.tsx`"
+      ],
+      "otherTestCoverage": "`repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)"
     }
   ]
 }

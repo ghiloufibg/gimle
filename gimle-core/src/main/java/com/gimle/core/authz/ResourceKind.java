@@ -50,5 +50,10 @@ public enum ResourceKind {
   // SERVICE: a NetworkPolicy restricts *other* tenants' access to what a Service exposes, so
   // granting it is a materially different, more consequential authority than merely being able to
   // declare a Service in the first place.
-  NETWORK_POLICY
+  NETWORK_POLICY,
+  // Guards a tenant's named, multi-key ConfigMap objects -- distinct from CONFIG (which guards the
+  // same tenant's loose flat keys) so a role can be granted "read flat config keys" without also
+  // getting "read named ConfigMaps," the same split CONFIG/SECRET already establishes for
+  // encrypted-vs-plaintext.
+  CONFIGMAP
 }

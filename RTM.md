@@ -595,6 +595,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-578 | Service CRUD and live endpoint lookup | New | Not Covered | — |
 | GIMLE-579 | NetworkPolicy CRUD | New | Not Covered | — |
 | GIMLE-580 | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | New | Not Covered | — |
+| GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | New | Not Covered | — |
+| GIMLE-582 | Deployment `configMapRefs` field with admission-time collision rejection | New | Not Covered | — |
+| GIMLE-583 | Narrowed config delivery to instances declaring `configMapRefs` | New | Not Covered | — |
+| GIMLE-584 | `gimle configmap` command | New | Not Covered | — |
+| GIMLE-585 | ConfigMaps screen | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1960,6 +1965,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`
 
+#### GIMLE-583 — Narrowed config delivery to instances declaring `configMapRefs`
+
+- **Category**: Configuration Management
+- **Status**: New  _(newly added as part of the ConfigMap kind (optimistic concurrent writes) work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario exercises narrowed config delivery to a real agent-supervised instance -- see GIMLE-578's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json).
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/AssignedInstance.java` (`configMapRefs`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAssignments`, `assignedInstanceToJson`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchConfigMaps`, `deliverConfig`, `resolveArtifactReference`)
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -2454,6 +2468,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: POSTs a NetworkPolicySpec to control-plane replica 0's real /networkpolicies API, then reads it back through replica 1's own independent HTTP API -- both replicas share nothing but gimle-mimir, so the read only succeeds if NetworkPolicyRegistry is genuinely backed by the replicated store rather than an in-memory map private to the replica that handled the write, and the tenantId/allowedCallerTenantIds content is asserted to match, not just presence.
 - **Other test coverage (non-Holmgang, informational only)**: `NetworkPolicyRegistryTest`, `ApiServerNetworkPoliciesTest` (multi-replica visibility test) -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/NetworkPolicyRegistry.java`
+
+#### GIMLE-582 — Deployment `configMapRefs` field with admission-time collision rejection
+
+- **Category**: Configuration Management
+- **Status**: New  _(newly added as part of the ConfigMap kind (optimistic concurrent writes) work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario exercises configMapRefs admission against a real cluster -- see GIMLE-578's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java`, `DeploymentManifestParser.java`, `ManifestFields.java` (`configMapRefs`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`configMapRefs` wire encoding), `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/ConfigMapRefsPlugin.java`
 
 ### gimle-fabric
 
@@ -3374,6 +3397,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: Declares a Service (POST /services) fronting a real deployed module, then polls GET /services/{name}/endpoints until it reports that module's live instance -- proving the Service CRUD surface and the reconciler-backed endpoint resolution genuinely converge against a real cluster, not just in ServiceReconcilerTest's simulated store snapshots.
 - **Other test coverage (non-Holmgang, informational only)**: `ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-581 — ConfigMap store and API with optimistic-concurrency writes
+
+- **Category**: Configuration Management
+- **Status**: New  _(newly added as part of the ConfigMap kind (optimistic concurrent writes) work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario exercises ConfigMap CRUD or its optimistic-concurrency write path against a real cluster -- coverage here requires a .feature scenario driving the real gimle binary, not the real JUnit/InProcessStore coverage that already exists (ConfigMapStoreTest's/ApiServerConfigMapTest's own real-store round trips do not count, per this file's own metadata.coverageRule).
+- **Other test coverage (non-Holmgang, informational only)**: `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMap.java`, `ConfigMapCodec.java`, `ConfigMapWriteResult.java`, `ConfigMapStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/configmaps/*` routes, the `configmap:` reserved-prefix guard on `/config/*`, the `?names=` batch-get shape), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`CONFIGMAP`), `gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java` (javadoc noting the `configmap:` synthetic-key convention)
 
 ### gimle-fafnir
 
@@ -4483,6 +4515,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
 
+#### GIMLE-584 — `gimle configmap` command
+
+- **Category**: CLI
+- **Status**: New  _(newly added as part of the ConfigMap kind (optimistic concurrent writes) work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario exercises `gimle configmap` against a real cluster -- see GIMLE-578's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json).
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ConfigMapCommand.java`, `ControlPlaneClient.java` (`patch`), `GimleCli.java` (`configmap` verb dispatch)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -5154,6 +5195,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Playwright end-to-end smoke suite against a real cluster" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
 - **Other test coverage (non-Holmgang, informational only)**: `e2e/greeter-smoke.spec.ts` (opt-in, `bun run test:e2e`, excluded from default Vitest run)
 - **Source location(s)**: `gimle-console/e2e/greeter-smoke.spec.ts`, `playwright.config.ts`
+
+#### GIMLE-585 — ConfigMaps screen
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(newly added as part of the ConfigMap kind (optimistic concurrent writes) work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the ConfigMaps console screen against a real running cluster -- see GIMLE-578's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`ConfigMap`), `gimle-console/src/repositories/configmaps.ts`, `http/configmaps.ts`, `index.ts`, `gimle-console/src/stores/useConfigMapsStore.ts`, `gimle-console/src/routes/configmaps.tsx`, `components/app-sidebar.tsx`
 
 ### gimle-fafnir-console
 
@@ -6174,7 +6224,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**461 of 580 requirements are Not Covered.**
+**466 of 585 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6241,6 +6291,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-382 | gimle-cli | Log viewing and live tailing | CLI | NONE recorded in the baseline |
 | GIMLE-578 | gimle-cli | Service CRUD and live endpoint lookup | CLI | `GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error` |
 | GIMLE-579 | gimle-cli | NetworkPolicy CRUD | CLI | `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error` |
+| GIMLE-584 | gimle-cli | `gimle configmap` command | CLI | Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json). |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -6289,6 +6340,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-363 | gimle-gateway | Route-table config DSL parsing | Config | `GatewayRouteConfigTest#parses_a_mix_of_fabric_and_vessel_routes_ignoring_blank_lines_and_comments`, `#an_unknown_kind_token_is_rejected`, `#a_fabric_line_with_the_wrong_number_of_fields_is_rejected`, `#a_non_integer_fabric_version_is_rejected`, `#a_fabric_param_type_outside_the_v1_restriction_is_rejected_at_parse_time` |
 | GIMLE-364 | gimle-gateway | Duplicate route-path rejection at config-parse time | Config | `GatewayRouteConfigTest#a_duplicate_route_path_across_fabric_and_vessel_is_rejected`, `#a_duplicate_fabric_route_path_is_rejected`, `#a_duplicate_vessel_route_path_is_rejected` |
 | GIMLE-264 | gimle-controlplane | CONFIG/SECRET resource-kind separation on one underlying store | Config / Authorization | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered` |
+| GIMLE-581 | gimle-controlplane | ConfigMap store and API with optimistic-concurrency writes | Configuration Management | `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS) |
+| GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
+| GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |
@@ -6620,6 +6674,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-473 | gimle-andvari-console | Maven-2 repository interop view | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-474 | gimle-andvari-console | Andvari copy-to-clipboard utility | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-481 | gimle-saga-console | Saga console theming (no auth surface) | Web Console / Frontend | `SagaServerTest.java` — "the_bundled_console_is_served_at_console" |
+| GIMLE-585 | gimle-console | ConfigMaps screen | Web Console / Frontend | `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection) |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

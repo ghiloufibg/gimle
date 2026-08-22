@@ -822,4 +822,60 @@ class DeploymentManifestParserTest {
                     vessel: {}
                     """)));
   }
+
+  @Test
+  void a_manifest_with_no_config_map_refs_field_parses_to_an_empty_list() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                """));
+
+    assertEquals(List.of(), spec.configMapRefs());
+  }
+
+  @Test
+  void parses_a_config_map_refs_list() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                configMapRefs:
+                  - app-config
+                  - feature-flags
+                """));
+
+    assertEquals(List.of("app-config", "feature-flags"), spec.configMapRefs());
+  }
+
+  @Test
+  void a_non_string_config_map_refs_entry_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 3
+                    configMapRefs:
+                      - 42
+                    """)));
+  }
 }

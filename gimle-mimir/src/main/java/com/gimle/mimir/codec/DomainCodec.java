@@ -99,6 +99,10 @@ public final class DomainCodec {
     writeOptionalString(out, spec.artifactSha256());
     writeOptionalDisruptionBudget(out, spec.disruption());
     writeOptionalVesselSpec(out, spec.vessel());
+    out.writeInt(spec.configMapRefs().size());
+    for (String name : spec.configMapRefs()) {
+      out.writeUTF(name);
+    }
   }
 
   public static DeploymentSpec readDeploymentSpec(DataInputStream in) throws IOException {
@@ -112,6 +116,11 @@ public final class DomainCodec {
     Optional<String> artifactSha256 = readOptionalString(in);
     Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
     Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
+    int configMapRefCount = in.readInt();
+    List<String> configMapRefs = new ArrayList<>();
+    for (int i = 0; i < configMapRefCount; i++) {
+      configMapRefs.add(in.readUTF());
+    }
     return new DeploymentSpec(
         name,
         moduleId,
@@ -122,7 +131,8 @@ public final class DomainCodec {
         tenantId,
         artifactSha256,
         disruption,
-        vessel);
+        vessel,
+        configMapRefs);
   }
 
   public static void writeServiceSpec(DataOutputStream out, ServiceSpec spec) throws IOException {

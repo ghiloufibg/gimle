@@ -102,6 +102,32 @@ class DomainCodecTest {
   }
 
   @Test
+  void a_deployment_spec_with_config_map_refs_round_trips() throws Exception {
+    DeploymentSpec spec =
+        new DeploymentSpec(
+            "orders-service",
+            new ModuleId("com.gimle.example.orders", Version.parse("1.2.0")),
+            "/artifacts/orders-1.2.0.jar",
+            3,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of("acme"),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            List.of("app-config", "feature-flags"));
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeDeploymentSpec(new DataOutputStream(buffer), spec);
+    DeploymentSpec roundTripped =
+        DomainCodec.readDeploymentSpec(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(List.of("app-config", "feature-flags"), roundTripped.configMapRefs());
+    assertEquals(spec, roundTripped);
+  }
+
+  @Test
   void an_instance_observation_with_ports_round_trips() throws Exception {
     InstanceObservation observation =
         new InstanceObservation(
