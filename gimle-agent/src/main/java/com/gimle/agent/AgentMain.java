@@ -2113,12 +2113,15 @@ public final class AgentMain {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return;
-    } catch (RuntimeException e) {
+    } catch (IOException | RuntimeException e) {
       // No early return: secret delivery below is deliberately independent of the control
       // plane's own /config surface (see this method's javadoc), so a denied or failed plain
       // config fetch must never take the tenant's secrets down with it. Under mTLS a node
       // principal is not authorized for /config at all, making this the normal path, not an
-      // edge case.
+      // edge case. IOException caught alongside RuntimeException, not left to propagate: a
+      // network-level failure here (the control plane briefly unreachable) must not abort the
+      // whole install sequence and leave the instance stuck mid-Resolve forever -- the same
+      // "log and keep starting" posture this method already takes for a denied/malformed fetch.
       log.warn(
           "failed to fetch config for tenant {}: {}; continuing to secret delivery",
           tenantId.get(),
@@ -2130,14 +2133,11 @@ public final class AgentMain {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
-      } catch (IOException e) {
-        // Fafnir unreachable (e.g. connection refused): degrade exactly like the
-        // no-fafnirBaseUrl-configured case documented above, not by leaving the instance stuck.
-        log.warn(
-            "failed to fetch secrets for tenant {}: {}; instance will start without them",
-            tenantId.get(),
-            e.getMessage());
-      } catch (RuntimeException e) {
+      } catch (IOException | RuntimeException e) {
+        // Same reasoning as the config fetch above: Fafnir being briefly unreachable (or not
+        // configured to match a stale -Dgimle.agent.fafnirEndpoint) must not abort instance
+        // startup either -- the instance starts without secret values, exactly as documented
+        // for fafnirBaseUrl == null above.
         log.warn(
             "failed to fetch secrets for tenant {}: {}; instance will start without them",
             tenantId.get(),

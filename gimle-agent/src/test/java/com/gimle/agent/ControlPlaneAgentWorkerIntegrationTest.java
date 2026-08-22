@@ -247,6 +247,108 @@ class ControlPlaneAgentWorkerIntegrationTest {
         "both replicas should recover to ACTIVE on the surviving node after the agent hosting one of them is killed");
   }
 
+  /**
+   * The regression this test guards: a tenanted instance's own config/secret delivery step ({@code
+   * AgentMain#deliverConfig}) used to let an {@code IOException} from either fetch call (config or
+   * secrets) escape uncaught -- past {@code sendInstallStartSequence}, out through {@code
+   * driveInstanceUp}'s own {@code catch (IOException e)}, which logged the failure and aborted the
+   * whole install sequence before {@code StartModule} was ever sent, leaving the instance stuck at
+   * {@code RESOLVED} forever. A briefly (or, as here, permanently) unreachable Fafnir replica is
+   * exactly the kind of transient failure {@code deliverConfig}'s own javadoc already promises to
+   * tolerate for the {@code fafnirBaseUrl == null} case -- this proves the same tolerance holds
+   * when {@code fafnirBaseUrl} is configured but simply can't be reached.
+   */
+  @Test
+  @Timeout(value = 60, unit = TimeUnit.SECONDS)
+  void a_tenanted_instance_still_reaches_active_when_fafnir_is_configured_but_unreachable()
+      throws Exception {
+    Path jar =
+        TestModuleBuilder.module(
+                """
+                module com.gimle.fixture.controlplaneit {
+                }
+                """)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.controlplaneit", "1.0.0"))
+            .build(tempDir, "fixture.jar");
+
+    StateStore store = new StateStore(tempDir.resolve("cp-state"));
+    store.putTenant(
+        new com.gimle.core.tenant.Tenant(
+            "qa-tenant", new com.gimle.core.tenant.ResourceQuota(1_073_741_824L, 4000, 10)));
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler deploymentReconciler = new DeploymentReconciler(store, scheduler);
+    ReplicaCountReconciler replicaCountReconciler =
+        new ReplicaCountReconciler(store, Duration.ofSeconds(17), Duration.ofSeconds(20));
+    HealthReconciler healthReconciler = new HealthReconciler(store);
+
+    RaftLog storeRaftLog = new RaftLog(tempDir.resolve("cp-raft"));
+    storeRaftNode = new RaftNode("self", Map.of(), storeRaftLog, store);
+    storeRaftNode.start();
+    StoreNode storeNode = new StoreNode(storeRaftNode, store, Map.of());
+    storeTransport = new StoreTransport(storeNode);
+    SocketAddress storeAddress = storeTransport.listen(new InetSocketAddress("127.0.0.1", 0));
+    storeClient = new StoreClient(List.of(storeAddress));
+
+    // A real Fafnir replica the control plane itself talks to -- unrelated to this test's own
+    // point, which is the *agent's* own direct-to-Fafnir path (fetchSecretsForTenant) being
+    // pointed at a port nothing listens on, below.
+    FafnirCrypto fafnirCrypto = new FafnirCrypto(storeClient, tempDir.resolve("keys/secret.key"));
+    fafnirServer = new FafnirServer(fafnirCrypto, 0);
+    fafnirServer.start();
+    fafnirClient = new FafnirClient("localhost:" + fafnirServer.port());
+
+    apiServer = new ApiServer(storeClient, 0, fafnirClient);
+    apiServer.start();
+    String baseUrl = "http://localhost:" + apiServer.port();
+
+    reconcileLoop =
+        Thread.ofVirtual()
+            .name("test-reconcile-loop-fafnir-unreachable")
+            .start(
+                () -> {
+                  while (!stopReconcileLoop) {
+                    replicaCountReconciler.reconcileOnce();
+                    healthReconciler.reconcileOnce();
+                    deploymentReconciler.reconcileOnce();
+                    try {
+                      Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      return;
+                    }
+                  }
+                });
+
+    String javaExecutable = javaExecutable();
+    String classpath = System.getProperty("java.class.path");
+
+    int gossipPort = portLease.ports().get(0);
+    String gossipAddress = "127.0.0.1:" + gossipPort;
+    portLease.release(gossipPort);
+
+    agentProcesses.add(
+        spawnAgent(
+            javaExecutable,
+            classpath,
+            "node-a",
+            baseUrl,
+            gossipAddress,
+            "-",
+            List.of("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + unreachablePort()),
+            tempDir.resolve("node-a-fafnir-unreachable.log")));
+
+    HttpClient httpClient = HttpClient.newHttpClient();
+    submitTenantedDeployment(
+        httpClient, baseUrl, "fixture-tenanted-deployment", jar, 1, "qa-tenant");
+
+    Await.until(
+        () -> activeInstanceCountQuietly(httpClient, baseUrl, "fixture-tenanted-deployment") >= 1,
+        Duration.ofSeconds(30),
+        "the tenanted instance should still reach ACTIVE even though its own configured Fafnir"
+            + " endpoint is unreachable");
+  }
+
   private static Process spawnAgent(
       String javaExecutable,
       String classpath,
@@ -256,23 +358,54 @@ class ControlPlaneAgentWorkerIntegrationTest {
       String seeds,
       Path logFile)
       throws IOException {
-    ProcessBuilder pb =
-        new ProcessBuilder(
-            javaExecutable,
-            "-cp",
-            classpath,
-            "com.gimle.agent.AgentMain",
-            nodeId,
-            baseUrl,
-            gossipBindHostPort,
-            seeds,
-            javaExecutable,
-            "-cp",
-            classpath,
-            "com.gimle.worker.WorkerMain");
+    return spawnAgent(
+        javaExecutable, classpath, nodeId, baseUrl, gossipBindHostPort, seeds, List.of(), logFile);
+  }
+
+  /**
+   * As {@link #spawnAgent(String, String, String, String, String, String, Path)}, with extra {@code
+   * -D} flags inserted before the main class -- the only way to reach {@code AgentMain}'s own
+   * {@code -Dgimle.agent.fafnirEndpoint} from a spawned subprocess like this.
+   */
+  private static Process spawnAgent(
+      String javaExecutable,
+      String classpath,
+      String nodeId,
+      String baseUrl,
+      String gossipBindHostPort,
+      String seeds,
+      List<String> extraJvmArgs,
+      Path logFile)
+      throws IOException {
+    List<String> command = new ArrayList<>();
+    command.add(javaExecutable);
+    command.addAll(extraJvmArgs);
+    command.add("-cp");
+    command.add(classpath);
+    command.add("com.gimle.agent.AgentMain");
+    command.add(nodeId);
+    command.add(baseUrl);
+    command.add(gossipBindHostPort);
+    command.add(seeds);
+    command.add(javaExecutable);
+    command.add("-cp");
+    command.add(classpath);
+    command.add("com.gimle.worker.WorkerMain");
+    ProcessBuilder pb = new ProcessBuilder(command);
     pb.redirectErrorStream(true);
     pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
     return pb.start();
+  }
+
+  /**
+   * A loopback port nothing is listening on: bound then immediately released, so a connection
+   * attempt against it fails fast with a real "connection refused" IOException rather than timing
+   * out -- exactly the shape a briefly-unreachable Fafnir replica would produce.
+   */
+  private static int unreachablePort() throws IOException {
+    try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+      return socket.getLocalPort();
+    }
   }
 
   private static void submitDeployment(
@@ -288,6 +421,32 @@ class ControlPlaneAgentWorkerIntegrationTest {
         replicas: %d
         """
             .formatted(name, jar.toAbsolutePath().toString(), replicas);
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
+                .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      fail("deployment submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
+  private static void submitTenantedDeployment(
+      HttpClient httpClient, String baseUrl, String name, Path jar, int replicas, String tenantId)
+      throws Exception {
+    String manifest =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: com.gimle.fixture.controlplaneit
+          version: 1.0.0
+        artifactPath: %s
+        replicas: %d
+        tenantId: %s
+        """
+            .formatted(name, jar.toAbsolutePath().toString(), replicas, tenantId);
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
