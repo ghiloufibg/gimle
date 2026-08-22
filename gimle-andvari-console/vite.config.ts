@@ -31,7 +31,11 @@ export default defineConfig(({ command }) => ({
     alias: { "@": `${process.cwd()}/src` },
   },
   server: {
-    host: "::",
+    // `true`, not the literal "::" -- that hardcodes the IPv6 wildcard address and fails outright
+    // (EAFNOSUPPORT) on an IPv6-less host/container. `true` leaves the bind host unset, which
+    // Node's own http.Server.listen() resolves to "::" when IPv6 is available and falls back to
+    // 0.0.0.0 otherwise -- the same "reachable from the LAN" intent, portably.
+    host: true,
     port: 8100,
     strictPort: true,
     // Dev-only proxy so src/repositories/http/apiClient.ts can use same-origin relative paths
