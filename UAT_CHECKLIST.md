@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 576
+- **Total requirements**: 577
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 457
-- **Release-readiness (automated coverage)**: 20.7%
+- **Not covered by automated test**: 458
+- **Release-readiness (automated coverage)**: 20.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 66 | 14 | 52 | 21.2% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
-| gimle-andvari | 22 | 2 | 20 | 9.1% |
+| gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
@@ -1000,6 +1000,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-299 | Size-limited streaming upload rejection | Given -Dgimle.andvari.maxArtifactBytes (default 500 MiB); When a push streams past that many bytes; Then aborted with 413 before writing excess bytes. | No |
 | [ ] | GIMLE-302 | Version retention sweeping (count and age based) | Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal. | No |
 | [ ] | GIMLE-308 | Generated `maven-metadata.xml` (never stored, always fresh) | Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release. | No |
+| [ ] | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed. | No |
 
 #### Artifact Registry / API Server
 

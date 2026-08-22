@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 576,
+  "requirementCount": 577,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -9954,6 +9954,27 @@
         "`SshSettings.java`",
         "`gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`"
       ]
+    },
+    {
+      "id": "GIMLE-577",
+      "module": "gimle-andvari",
+      "feature": "Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)",
+      "category": "Artifact Registry",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario exercises an ArtifactSet publish against a real cluster -- coverage here requires a .feature scenario driving the real gimle binary, not the real JUnit/in-process coverage that already exists (ArtifactSetCommandTest's own real-AndvariServer-behind-ApiServer round trip does not count, per this file's own metadata.coverageRule).",
+      "sourceLocations": [
+        "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java` (tenant field, untenanted-to-tenanted backfill, tenant-swap conflict)",
+        "`AndvariServer.java` (`X-Gimle-Artifact-Tenant` header, dual-scope authorization)",
+        "`AndvariPeerSync.java` (tenant propagated across replica sync)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`, `api/ApiServer.java` (`/artifacts/*` proxy header passthrough)",
+        "`gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifest.java`, `ArtifactSetModuleEntry.java`, `ArtifactSetManifestParser.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`, `ArtifactCommand.java` (`--tenant`), `ControlPlaneClient.java` (`head`/`putFile` with headers), `GimleCli.java` (`kind: ArtifactSet` dispatch)",
+        "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java`"
+      ],
+      "otherTestCoverage": "`ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content)"
     }
   ]
 }

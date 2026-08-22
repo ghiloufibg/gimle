@@ -585,6 +585,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | Complete | Yes |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | Complete | Yes |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | Complete (v1 scope) | Yes |
+| GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | Complete (v1 scope) | Yes |
 
 ## Detailed Requirements
 
@@ -5092,6 +5093,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given Andvari is running; When GET /status; Then process-level status is returned with no RBAC check.
+  ```
+
+#### GIMLE-577 — Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)
+
+- **Category**: Artifact Registry
+- **User story**: As a platform team publishing a multi-service application, I want to push every module jar in one command and tag each with the tenant it belongs to, so I don't have to run `gimle artifact push` once per jar, and Andvari finally records real ownership instead of the moduleId-scoping stand-in it used before.
+- **Status**: Complete for v1 scope -- no server-side staging/two-phase commit for stricter all-or-nothing semantics, no admission-time cross-check of a deploying workload's tenantId against an artifact's recorded tenant (both deliberately deferred; publish semantics are pre-flight HEAD then sequential idempotent PUT, not a transaction)
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java` (tenant field, untenanted-to-tenanted backfill, tenant-swap conflict), `AndvariServer.java` (`X-Gimle-Artifact-Tenant` header, dual-scope authorization), `AndvariPeerSync.java` (tenant propagated across replica sync), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`, `api/ApiServer.java` (`/artifacts/*` proxy header passthrough), `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifest.java`, `ArtifactSetModuleEntry.java`, `ArtifactSetManifestParser.java`, `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`, `ArtifactCommand.java` (`--tenant`), `ControlPlaneClient.java` (`head`/`putFile` with headers), `GimleCli.java` (`kind: ArtifactSet` dispatch), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java`
+- **Test coverage**: `ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed.
   ```
 
 ### gimle-muninn

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 576,
+    "totalRequirements": 577,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 457,
-    "releaseReadinessPercent": 20.7
+    "notCoveredByAutomatedTest": 458,
+    "releaseReadinessPercent": 20.6
   },
   "items": [
     {
@@ -6338,6 +6338,17 @@
       "category": "Release Management",
       "feature": "Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)",
       "step": "Given a topology declaring two or more machines, When \"hilmir up -f topology.yaml --remote\" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-577",
+      "module": "gimle-andvari",
+      "category": "Artifact Registry",
+      "feature": "Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)",
+      "step": "Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When \"gimle apply -f\" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
