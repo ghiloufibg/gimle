@@ -270,6 +270,12 @@ public final class RemoteDispatch {
     final String remoteArchive = "/tmp/hilmir-provision-" + target.machineName() + ".tar.gz";
     final String unpackTemp = "/tmp/hilmir-unpack-" + target.machineName();
     transport.putFile(target, archive, remoteArchive);
+    // Moves the unpacked archive's own top-level entries (bin/, lib/, modules/, ...) into
+    // installDir rather than deleting-and-recreating installDir itself: an operator commonly
+    // pre-creates and chowns installDir to the deploy user without granting it write access to
+    // installDir's own parent, so "rm -rf installDir" (which needs write on the *parent*) would
+    // fail even though the deploy user fully owns installDir's own contents. "mkdir -p" is a
+    // harmless no-op when installDir already exists this way.
     final String script =
         "set -e; rm -rf "
             + unpackTemp
@@ -279,14 +285,14 @@ public final class RemoteDispatch {
             + remoteArchive
             + " -C "
             + unpackTemp
-            + " --strip-components=1; rm -rf "
+            + " --strip-components=1; mkdir -p "
             + target.installDir()
-            + "; mkdir -p "
-            + parentDir(target.installDir())
-            + "; mv "
+            + "; find "
             + unpackTemp
-            + " "
+            + " -mindepth 1 -maxdepth 1 -exec mv -t "
             + target.installDir()
+            + " {} +; rm -rf "
+            + unpackTemp
             + "; rm -f "
             + remoteArchive;
     final int exitCode = transport.execRaw(target, List.of("sh", "-c", script), out);
@@ -294,11 +300,6 @@ public final class RemoteDispatch {
       throw new HilmirException(
           "provisioning failed on machine '" + target.machineName() + "' (exit " + exitCode + ")");
     }
-  }
-
-  private static String parentDir(final String path) {
-    final int lastSlash = path.lastIndexOf('/');
-    return lastSlash > 0 ? path.substring(0, lastSlash) : "/";
   }
 
   /**
@@ -355,6 +356,11 @@ public final class RemoteDispatch {
       topology
           .fafnir()
           .keyFile()
+          // Only when hilmir pki init actually generated one locally -- a single-machine Fafnir
+          // (the common case) has no local key file to distribute at all, and its own FafnirMain
+          // just self-generates one on first start remotely, exactly as it already does for local
+          // (non-remote) dispatch; there's nothing here to ship in that case.
+          .filter(Files::exists)
           .ifPresent(
               keyFile -> {
                 final Path parent = keyFile.getParent();

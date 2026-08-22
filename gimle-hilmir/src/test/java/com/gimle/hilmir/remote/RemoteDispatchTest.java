@@ -21,7 +21,9 @@ import com.gimle.hilmir.topology.TlsMaterial;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.Transport;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -29,8 +31,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class RemoteDispatchTest {
+
+  @TempDir Path tempDir;
 
   private static final ResolvedRuntime RUNTIME =
       new ResolvedRuntime("java", "cp", Path.of("/data"));
@@ -362,9 +367,12 @@ class RemoteDispatchTest {
   }
 
   @Test
-  void up_distributes_only_the_tls_and_fafnir_material_a_machine_actually_needs() {
+  void up_distributes_only_the_tls_and_fafnir_material_a_machine_actually_needs()
+      throws IOException {
     final Path materialDir = Path.of("/etc/gimle/tls");
-    final Path keyFile = Path.of("/etc/gimle/fafnir-secret.key");
+    // Must actually exist on local disk -- distributeMaterial only ships a fafnir key that hilmir
+    // pki init actually generated, never a bare configured path (see the skip-case test below).
+    final Path keyFile = Files.createFile(tempDir.resolve("fafnir-secret.key"));
     final Topology topology =
         topologyOf(
             List.of(bareMachine("m1", "h1"), bareMachine("m2", "h2")),
@@ -414,6 +422,39 @@ class RemoteDispatchTest {
     assertFalse(
         m2Files.contains(materialDir.resolve("controlplane-h2.crt")),
         "m2 hosts neither a store nor a control plane");
+  }
+
+  @Test
+  void up_never_copies_a_fafnir_key_that_no_local_file_backs() {
+    // The common case: a single-machine (or otherwise not-yet-pki-init'd) fafnir has no local key
+    // file at all -- hilmir pki init was never run, and FafnirMain just self-generates its own key
+    // remotely on first start, exactly as it already does under plain (non-remote) up.
+    final Path keyFile = tempDir.resolve("never-generated.key");
+    final Topology topology =
+        topologyOf(
+            List.of(bareMachine("m1", "h1")),
+            Transport.PLAINTEXT,
+            Optional.empty(),
+            new StoreRole(List.of()),
+            new ControlPlaneRole(List.of()),
+            new FafnirRole(Optional.of(keyFile), List.of(new ServiceReplica("m1", 9092))),
+            new MuninnRole(List.of()),
+            new AndvariRole(List.of()));
+    final FakeRemoteExec exec = new FakeRemoteExec();
+
+    RemoteDispatch.up(
+        topology,
+        Path.of("topology.yaml"),
+        Optional.empty(),
+        Optional.empty(),
+        SshCliFlags.NONE,
+        RUNTIME,
+        exec,
+        discardingOut());
+
+    assertTrue(
+        exec.putFileCalls().stream().noneMatch(c -> c.localFile().equals(keyFile)),
+        "no key file exists locally, so nothing should be copied for it");
   }
 
   @Test

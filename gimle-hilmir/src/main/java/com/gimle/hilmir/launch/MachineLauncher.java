@@ -300,9 +300,11 @@ public final class MachineLauncher {
       final ResolvedRuntime runtime,
       final ProcessCommand command,
       final PrintStream out) {
-    final List<String> commandLine = new ArrayList<>(command.command());
+    List<String> commandLine = command.command();
     if (command.needsBootstrapToken()) {
-      commandLine.add("-Dgimle.tls.bootstrapToken=" + mintBootstrapToken(topology, runtime));
+      commandLine =
+          insertBootstrapTokenFlag(
+              commandLine, mintBootstrapToken(topology, runtime), command.role(), command.id());
     }
     final Path argFile = runtime.dataRoot().resolve(command.id() + ".args");
     final List<String> spawnCommand = JavaArgFile.rewrite(commandLine, argFile);
@@ -334,6 +336,36 @@ public final class MachineLauncher {
         command.readinessAddress());
   }
 
+  /**
+   * Inserts {@code -Dgimle.tls.bootstrapToken=<token>} immediately before {@code commandLine}'s own
+   * first {@code "-cp"} -- java only recognizes a {@code -D} flag as a JVM system property when it
+   * appears before the main class on the command line; appended at the end (after the main class,
+   * its own positional args, and -- for an agent -- the entire trailing worker-launch tail) it
+   * would already be parsed as a plain program argument instead, silently invisible to {@code
+   * AgentMain}'s own {@code System.getProperty} lookup. Every {@link ProcessCommand} this launcher
+   * spawns puts its own {@code -cp classpath mainClass} run immediately after every VM option, so
+   * inserting right before the first {@code "-cp"} is correct regardless of which role needed the
+   * token.
+   */
+  static List<String> insertBootstrapTokenFlag(
+      final List<String> commandLine,
+      final String token,
+      final ProcessRole role,
+      final String commandId) {
+    final int cpIndex = commandLine.indexOf("-cp");
+    if (cpIndex < 0) {
+      throw new HilmirException(
+          "cannot mint a bootstrap token for "
+              + role
+              + " "
+              + commandId
+              + ": its own command line has no -cp to insert -Dgimle.tls.bootstrapToken before");
+    }
+    final List<String> withToken = new ArrayList<>(commandLine);
+    withToken.add(cpIndex, "-Dgimle.tls.bootstrapToken=" + token);
+    return withToken;
+  }
+
   private static String mintBootstrapToken(final Topology topology, final ResolvedRuntime runtime) {
     final Path materialDir =
         topology
@@ -352,7 +384,7 @@ public final class MachineLauncher {
     command.add("-Dgimle.tls.caFile=" + materialDir.resolve("ca.crt"));
     command.addAll(List.of("-cp", runtime.classpath(), "com.gimle.cli.GimleCli"));
     command.addAll(List.of("cert", "token", "create"));
-    command.addAll(List.of("--server", TopologyAddresses.controlPlaneBaseUrl(topology, 0)));
+    command.addAll(List.of("--server", TopologyAddresses.hostPortOf(topology, 0)));
     runOneShot(command, logFile, "bootstrap token minting");
     final String output = readQuietly(logFile);
     final Matcher matcher = BOOTSTRAP_TOKEN_PATTERN.matcher(output);
