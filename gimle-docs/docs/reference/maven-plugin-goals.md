@@ -194,6 +194,37 @@ on `gimle-maven-plugin`. The coordinate itself is read from the jar's own bundle
 mvn gimle:publish -pl gimle-examples/greeter-provider
 ```
 
+## `mvn gimle:artifactset-push`
+
+The multi-module answer to `gimle:publish`: bound once at a reactor **aggregator** root (not
+self-filtered to one module — extends the same `AbstractGimleRootMojo` base `gimle:flaky-tests` and
+`gimle:saga` do, so it runs exactly once per reactor invocation regardless of how many modules it's
+bound in), it walks every module already in the current reactor, generates a `kind: ArtifactSet`
+manifest (see the [manifest schema](./manifest-schema.md#artifactset-manifest)) grouping their built
+jars by tenant, and shells out to a real `GimleCli apply` the same way `gimle:publish` shells out to
+`artifact push`.
+
+Tenant assignment defaults to one reactor-wide `gimle.artifactset.tenantId` value; a submodule that
+belongs to a different tenant overrides it with its own `gimle.artifactset.tenantId` property in its
+own `pom.xml`:
+
+```xml
+<!-- billing-service/pom.xml -->
+<properties>
+  <gimle.artifactset.tenantId>billing</gimle.artifactset.tenantId>
+</properties>
+```
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.artifactset.tenantId` | *(unset)* | Reactor-wide default tenant; a submodule's own property (above) wins when present. Unset and no override means untenanted. |
+| `gimle.artifactset.server` | `127.0.0.1:8080` | Control plane address, same as `gimle:publish`. |
+| `gimle.artifactset.cliVersion` | `${plugin.version}` | Version of `gimle-cli` to resolve and spawn, same convention as `gimle:publish`. |
+
+```bash
+mvn gimle:artifactset-push -Dgimle.artifactset.tenantId=orders-platform -pl gimle-examples/orders-platform -am
+```
+
 ## `mvn gimle:doctor`
 
 A thin wrapper around a real `hilmir doctor` invocation (see the [`gimle-hilmir`
