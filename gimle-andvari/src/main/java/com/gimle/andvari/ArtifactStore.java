@@ -68,7 +68,8 @@ public final class ArtifactStore {
       String sha256,
       long sizeBytes,
       long pushedAtEpochMilli,
-      String pushedBy) {}
+      String pushedBy,
+      Optional<String> tenantId) {}
 
   /** The outcome of a push plus the store's now-authoritative metadata for the coordinate. */
   public record PutResult(PutOutcome outcome, StoredArtifact stored) {}
@@ -156,8 +157,26 @@ public final class ArtifactStore {
    * exactly one CREATED and one IDENTICAL/CONFLICT, never a torn overwrite. Throws {@link
    * ArtifactTooLargeException} if {@code body} streams past {@code maxArtifactBytes} -- the partial
    * temp file is still cleaned up by the {@code finally} below, same as any other failure mid-push.
+   *
+   * <p>{@code tenantId} is part of a coordinate's identity the same way its digest is, with one
+   * allowed exception: a coordinate first pushed with no tenant can be claimed by a later push that
+   * supplies one (a metadata-only backfill into {@code meta.json}, still reported as {@code
+   * IDENTICAL} since the jar's own bytes never change), but a tenant already on record can never be
+   * swapped for a different one -- that re-push is a {@code CONFLICT}, exactly like a differing
+   * digest, since an immutable coordinate's ownership shouldn't change out from under whoever
+   * already trusts it. Authorizing the claim itself (does this caller actually hold write
+   * permission for the tenant being claimed) is {@code AndvariServer}'s job, not this store's.
+   */
+  /**
+   * Convenience overload for an untenanted push -- equivalent to passing {@link Optional#empty}.
    */
   public PutResult put(String moduleId, String version, InputStream body, String pushedBy)
+      throws IOException {
+    return put(moduleId, version, body, pushedBy, Optional.empty());
+  }
+
+  public PutResult put(
+      String moduleId, String version, InputStream body, String pushedBy, Optional<String> tenantId)
       throws IOException {
     requireValidSegment(moduleId, "moduleId");
     requireValidSegment(version, "version");
@@ -179,9 +198,7 @@ public final class ArtifactStore {
       synchronized (this) {
         Optional<StoredArtifact> existing = meta(moduleId, version);
         if (existing.isPresent()) {
-          PutOutcome outcome =
-              existing.get().sha256().equals(sha256) ? PutOutcome.IDENTICAL : PutOutcome.CONFLICT;
-          return new PutResult(outcome, existing.get());
+          return putOverExisting(moduleId, version, sha256, tenantId, existing.get());
         }
         Path versionDir = versionDir(moduleId, version);
         Files.createDirectories(versionDir);
@@ -192,13 +209,61 @@ public final class ArtifactStore {
             StandardCopyOption.REPLACE_EXISTING);
         StoredArtifact stored =
             new StoredArtifact(
-                moduleId, version, sha256, sizeBytes, System.currentTimeMillis(), pushedBy);
+                moduleId,
+                version,
+                sha256,
+                sizeBytes,
+                System.currentTimeMillis(),
+                pushedBy,
+                tenantId);
         Files.writeString(versionDir.resolve(META_FILE), Json.write(metaJson(stored)));
         return new PutResult(PutOutcome.CREATED, stored);
       }
     } finally {
       Files.deleteIfExists(tempFile);
     }
+  }
+
+  /**
+   * The re-push branch of {@link #put}, once a coordinate is already known to exist: a differing
+   * digest is always a {@code CONFLICT}. A matching digest is ordinarily {@code IDENTICAL} and
+   * writes nothing -- except when the existing artifact has no recorded tenant and this push
+   * supplies one, the one allowed backfill {@link #put}'s own javadoc describes, which still
+   * reports {@code IDENTICAL} (no new bytes) but rewrites {@code meta.json} to claim the tenant. A
+   * matching digest whose requested tenant conflicts with an already-recorded, different tenant is
+   * a {@code CONFLICT} too, even though the bytes match -- ownership, once set, is as immutable as
+   * content.
+   */
+  private PutResult putOverExisting(
+      String moduleId,
+      String version,
+      String sha256,
+      Optional<String> requestedTenant,
+      StoredArtifact existing)
+      throws IOException {
+    if (!existing.sha256().equals(sha256)) {
+      return new PutResult(PutOutcome.CONFLICT, existing);
+    }
+    if (existing.tenantId().isPresent()
+        && requestedTenant.isPresent()
+        && !existing.tenantId().get().equals(requestedTenant.get())) {
+      return new PutResult(PutOutcome.CONFLICT, existing);
+    }
+    if (existing.tenantId().isEmpty() && requestedTenant.isPresent()) {
+      StoredArtifact claimed =
+          new StoredArtifact(
+              moduleId,
+              version,
+              existing.sha256(),
+              existing.sizeBytes(),
+              existing.pushedAtEpochMilli(),
+              existing.pushedBy(),
+              requestedTenant);
+      Files.writeString(
+          versionDir(moduleId, version).resolve(META_FILE), Json.write(metaJson(claimed)));
+      return new PutResult(PutOutcome.IDENTICAL, claimed);
+    }
+    return new PutResult(PutOutcome.IDENTICAL, existing);
   }
 
   /** The stored metadata for a coordinate, empty when nothing is stored there. */
@@ -218,7 +283,11 @@ public final class ArtifactStore {
               String.valueOf(parsed.get("sha256")),
               ((Number) parsed.get("sizeBytes")).longValue(),
               ((Number) parsed.get("pushedAtEpochMilli")).longValue(),
-              String.valueOf(parsed.get("pushedBy"))));
+              String.valueOf(parsed.get("pushedBy")),
+              // Absent on every meta.json written before tenant tagging existed -- parses as
+              // untenanted rather than failing, the same backward-compatibility posture every
+              // other optional field added to a persisted format in this codebase already takes.
+              Optional.ofNullable((String) parsed.get("tenantId"))));
     } catch (IOException | RuntimeException e) {
       return Optional.empty();
     }
@@ -415,6 +484,7 @@ public final class ArtifactStore {
     json.put("sizeBytes", stored.sizeBytes());
     json.put("pushedAtEpochMilli", stored.pushedAtEpochMilli());
     json.put("pushedBy", stored.pushedBy());
+    stored.tenantId().ifPresent(tenantId -> json.put("tenantId", tenantId));
     return json;
   }
 

@@ -13,6 +13,7 @@ module com.gimle.module {
 
   exports com.gimle.module.descriptor;
   exports com.gimle.module.artifact;
+  exports com.gimle.module.artifactset;
   exports com.gimle.module.resolve;
   exports com.gimle.module.layer;
   exports com.gimle.module.lifecycle;

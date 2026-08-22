@@ -23,7 +23,7 @@ gimle get jobs [name]
 gimle get cronjobs [name]
 gimle get daemonsets [name]
 gimle get statefulsets [name]
-gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet, read from the file itself)
+gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the file itself)
 gimle delete deployment <name>
 gimle delete job <name>
 gimle delete cronjob <name>
@@ -47,7 +47,7 @@ gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
-gimle artifact push <jar>
+gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
 gimle artifact delete <moduleId> <version>
@@ -150,6 +150,12 @@ gimle get daemonsets node-exporter --server 127.0.0.1:8080
 # Ordered rollout, sticky per-index placement -- get shows each index's own nodeId
 gimle apply -f statefulset.yaml --server 127.0.0.1:8080
 gimle get statefulsets orders-statefulset --server 127.0.0.1:8080
+
+# Push one jar, tagged with its owning tenant
+gimle artifact push target/orders-service-1.0.0.jar --tenant orders-platform --server 127.0.0.1:8080
+
+# Push a whole multi-jar app in one command instead of one `artifact push` per jar
+gimle apply -f artifactset.yaml --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10

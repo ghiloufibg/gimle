@@ -66,5 +66,22 @@
       <artifactId>gimle-fafnir</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- ArtifactSetCommandTest needs a real, in-process AndvariServer behind ApiServer's own
+         /artifacts/* proxy to exercise a genuine multi-jar apply against the real registry, not a
+         mock. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-andvari</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- TestModuleBuilder compiles real, tiny module jars in-process, since ArtifactSetCommand
+         (like the single-jar `artifact push` it's built on) rejects anything that isn't a real
+         JPMS module with a gimle-module.yaml. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

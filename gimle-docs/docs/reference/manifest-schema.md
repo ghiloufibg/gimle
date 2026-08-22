@@ -74,6 +74,11 @@ silently assumed to be a `Deployment`. `gimle apply -f` reads this field client-
 right resource automatically — there's no separate `gimle job apply`/`gimle deployment apply`/`gimle
 cronjob apply`/`gimle daemonset apply`/`gimle statefulset apply` verb to remember.
 
+One more `kind:` value, `ArtifactSet`, is also routed through `gimle apply -f`'s same client-side
+`kind:` dispatch, but it is not a sixth workload kind — it never reaches `ManifestParser` or
+scheduling at all, only Andvari's artifact registry. See [ArtifactSet manifest](#artifactset-manifest)
+below.
+
 ## Vessel workloads: `vessel`
 
 `vessel:` is an additive, optional block on every one of the five workload kinds above (`Deployment`,
@@ -445,3 +450,56 @@ a later addition to `kind: StatefulSet` itself.
 **What this does not provide, plainly stated**: no multi-volume support (one `volume:` per module
 descriptor only); no CSI-style pluggable storage backends; no volume snapshotting or backup/restore;
 no automatic relocation of a sticky index's data to a different node under any circumstance.
+
+## ArtifactSet manifest
+
+`kind: ArtifactSet` is not one of the five workload kinds above — it never reaches control-plane
+admission or scheduling, and it carries no replicas, placement, or resource requests. It only talks
+to Andvari, the artifact registry: it publishes several module jars in one `gimle apply -f` instead
+of one `gimle artifact push <jar>` invocation per jar, and lets each jar be tagged with the tenant it
+belongs to.
+
+```yaml
+kind: ArtifactSet
+tenant:
+  orders-platform:
+    - orders-service/target/orders-service-1.0.0.jar
+    - inventory-service/target/inventory-service-1.0.0.jar
+    - orders-report-job/target/orders-report-job-1.0.0.jar
+    - web-ui/target/web-ui-1.0.0.jar
+  billing:
+    - billing-service/target/billing-service-1.0.0.jar
+modules:
+  - shared-lib/target/shared-lib-1.0.0.jar
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | Must be `ArtifactSet`. |
+| `tenant` | no | A map of tenant ID → list of artifact jar paths. Every jar under one key is pushed tagged with that tenant. A set may name more than one tenant at once — a release train spanning several tenants, something no workload manifest's single `tenantId` field can express. |
+| `modules` | no | A plain list of artifact jar paths with no tenant — the exception, not the norm. At least one of `tenant`/`modules` must be non-empty. |
+
+Every path resolves relative to the manifest file's own directory, the same convention a
+`docker-compose.yml`'s relative build contexts use. `moduleId`/`version` are never written in the
+manifest — both are always read from each jar's own bundled `gimle-module.yaml`, exactly as a single
+`gimle artifact push` already does, so the manifest can never assert a coordinate that disagrees with
+what's actually inside the jar. The same jar path listed under two different tenants, or under both a
+tenant and `modules`, is rejected at parse time — ownership of one jar is never ambiguous within one
+manifest.
+
+Publishing a set is not a database transaction: every coordinate is checked with a plain `HEAD`
+first (a digest mismatch against what's already stored aborts the whole set before anything is
+pushed), then each member is pushed in the manifest's own order through the same single-artifact
+`PUT` path, which is already atomic and idempotent per coordinate. A failure partway through leaves
+every already-pushed member valid — nothing to roll back — and re-applying the identical manifest
+picks up from the failure point, since an already-pushed member simply comes back unchanged.
+
+A jar pushed with no tenant can be claimed by a later push that supplies one (the coordinate is
+otherwise still empty), but a tenant already recorded can never be swapped for a different one — that
+re-push is refused the same way a differing digest is.
+
+`gimle artifact push <jar> --tenant <id>` is the single-jar equivalent of naming one jar under one
+`tenant:` key — an `ArtifactSet` manifest is a convenient way to say `--tenant` many times in one
+file, not a divergent feature. A Maven reactor with several modules to publish together can bind
+`gimle:artifactset-push` once at its aggregator root instead of hand-maintaining this file — see the
+[Maven plugin goals reference](./maven-plugin-goals.md).

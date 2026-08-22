@@ -211,6 +211,68 @@ class AndvariServerTest {
 
   @Test
   @Timeout(10)
+  void a_pushed_tenant_round_trips_through_head_download_and_the_versions_listing()
+      throws Exception {
+    byte[] jar = "pretend-jar-bytes".getBytes(StandardCharsets.UTF_8);
+    send(pushWithTenant("com.example.app", "1.0.0", jar, "orders-platform"));
+
+    HttpResponse<Void> head =
+        client.send(
+            HttpRequest.newBuilder(uri("/artifacts/com.example.app/1.0.0"))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.discarding());
+    assertEquals(
+        "orders-platform", head.headers().firstValue("X-Gimle-Artifact-Tenant").orElseThrow());
+
+    HttpResponse<byte[]> downloaded =
+        client.send(
+            HttpRequest.newBuilder(uri("/artifacts/com.example.app/1.0.0")).GET().build(),
+            HttpResponse.BodyHandlers.ofByteArray());
+    assertEquals(
+        "orders-platform",
+        downloaded.headers().firstValue("X-Gimle-Artifact-Tenant").orElseThrow());
+
+    HttpResponse<String> versions = send(get("/artifacts/com.example.app"));
+    assertTrue(versions.body().contains("orders-platform"));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_artifact_can_be_claimed_by_a_later_tenant_tagged_push() throws Exception {
+    byte[] jar = "same-bytes".getBytes(StandardCharsets.UTF_8);
+    send(put("/artifacts/com.example.app/1.0.0", jar));
+
+    HttpResponse<String> claim = send(pushWithTenant("com.example.app", "1.0.0", jar, "billing"));
+
+    assertEquals(200, claim.statusCode());
+    assertEquals(false, Json.asObject(Json.parse(claim.body())).get("created"));
+    assertEquals("billing", Json.asObject(Json.parse(claim.body())).get("tenantId"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_claimed_tenant_cannot_be_swapped_for_a_different_one_on_re_push() throws Exception {
+    byte[] jar = "same-bytes".getBytes(StandardCharsets.UTF_8);
+    send(pushWithTenant("com.example.app", "1.0.0", jar, "orders-platform"));
+
+    HttpResponse<String> conflict =
+        send(pushWithTenant("com.example.app", "1.0.0", jar, "billing"));
+
+    assertEquals(409, conflict.statusCode());
+    assertTrue(conflict.body().contains("orders-platform"));
+  }
+
+  private HttpRequest pushWithTenant(
+      String moduleId, String version, byte[] body, String tenantId) {
+    return HttpRequest.newBuilder(uri("/artifacts/" + moduleId + "/" + version))
+        .header("X-Gimle-Artifact-Tenant", tenantId)
+        .PUT(HttpRequest.BodyPublishers.ofByteArray(body))
+        .build();
+  }
+
+  @Test
+  @Timeout(10)
   void a_differing_re_push_is_refused_as_immutable() throws Exception {
     send(put("/artifacts/com.example.app/1.0.0", "original".getBytes(StandardCharsets.UTF_8)));
 
