@@ -121,16 +121,52 @@ public final class ControlPlaneClient {
    * would corrupt and time out on.
    */
   public ApiResponse putFile(String path, Path file) {
+    return putFile(path, file, Map.of());
+  }
+
+  /** As {@link #putFile(String, Path)}, with extra request headers -- e.g. a tenant claim. */
+  public ApiResponse putFile(String path, Path file, Map<String, String> headers) {
     try {
-      return send(
+      HttpRequest.Builder builder =
           HttpRequest.newBuilder(resolve(path))
               .timeout(TRANSFER_TIMEOUT)
-              .PUT(HttpRequest.BodyPublishers.ofFile(file))
-              .build());
+              .PUT(HttpRequest.BodyPublishers.ofFile(file));
+      headers.forEach(builder::header);
+      return send(builder.build());
     } catch (FileNotFoundException e) {
       throw new CliException("no such file: " + file, e);
     }
   }
+
+  /**
+   * A bare {@code HEAD} request -- no body either way -- for a pre-flight existence/digest check
+   * against a coordinate without paying for a full download. Not routed through {@link #send},
+   * which always reads a response body; {@code HEAD} never carries one.
+   */
+  public HeadResult head(String path) {
+    try {
+      HttpRequest request =
+          HttpRequest.newBuilder(resolve(path))
+              .timeout(REQUEST_TIMEOUT)
+              .method("HEAD", HttpRequest.BodyPublishers.noBody())
+              .build();
+      HttpResponse<Void> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+      return new HeadResult(
+          response.statusCode(),
+          response.headers().firstValue("X-Gimle-Artifact-Sha256"),
+          response.headers().firstValue("X-Gimle-Artifact-Tenant"));
+    } catch (IOException e) {
+      throw new CliException(
+          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new CliException("interrupted while contacting control plane at " + baseUri, e);
+    }
+  }
+
+  /** The outcome of a {@link #head} request. */
+  public record HeadResult(int statusCode, Optional<String> sha256, Optional<String> tenantId) {}
 
   /**
    * GETs {@code path} streaming straight into {@code target} (never the whole body in memory),

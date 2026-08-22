@@ -17,8 +17,8 @@ import java.util.List;
  *   gimle get cronjobs [name]
  *   gimle get daemonsets [name]
  *   gimle get statefulsets [name]
- *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet,
- *                                     read from the file itself)
+ *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or
+ *                                     ArtifactSet, read from the file itself)
  *   gimle delete deployment &lt;name&gt;
  *   gimle delete job &lt;name&gt;
  *   gimle delete cronjob &lt;name&gt;
@@ -42,7 +42,7 @@ import java.util.List;
  *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
  *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
  *   gimle secret rotate-key
- *   gimle artifact push &lt;jar&gt;
+ *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;]
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
  *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
@@ -161,6 +161,7 @@ public final class GimleCli {
       case "CronJob" -> new CronJobsCommand(client, output, out).apply(args);
       case "DaemonSet" -> new DaemonSetsCommand(client, output, out).apply(args);
       case "StatefulSet" -> new StatefulSetsCommand(client, output, out).apply(args);
+      case "ArtifactSet" -> new ArtifactSetCommand(client, output, out).apply(args);
       case String other -> throw new CliException("unknown manifest kind: " + other);
     }
   }
@@ -297,7 +298,7 @@ public final class GimleCli {
           get cronjobs [name]
           get daemonsets [name]
           get statefulsets [name]
-          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, or StatefulSet, read from the file itself)
+          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the file itself)
           delete deployment <name>
           delete job <name>
           delete cronjob <name>
@@ -321,7 +322,7 @@ public final class GimleCli {
           secret delete <tenantId> <key> [--destroy]
           secret versions <tenantId> <key>
           secret rotate-key
-          artifact push <jar>
+          artifact push <jar> [--tenant <id>]
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]
           artifact delete <moduleId> <version>
