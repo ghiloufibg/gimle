@@ -219,4 +219,93 @@ class ArtifactSetCommandTest {
     assertEquals(0, secondExitCode);
     assertTrue(outBuffer.toString(StandardCharsets.UTF_8).contains("already-present"));
   }
+
+  // ---- admission-time tenant cross-check ----
+
+  private static String registryDeploymentYaml(
+      String name, String moduleName, String version, String tenantId) {
+    return """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: %s
+        replicas: 1
+        tenantId: %s
+        """
+        .formatted(name, moduleName, version, tenantId);
+  }
+
+  @Test
+  void deploying_from_a_registry_coordinate_under_a_disagreeing_tenant_is_rejected()
+      throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path jar = buildModule("com.example.billing", "1.0.0", jarsDir);
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest, "kind: ArtifactSet\ntenant:\n  orders-platform:\n    - " + jar + "\n");
+    assertEquals(0, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    ApiResponse response =
+        client.put(
+            "/deployments/billing-deployment",
+            registryDeploymentYaml(
+                "billing-deployment", "com.example.billing", "1.0.0", "some-other-tenant"));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("orders-platform"));
+    assertTrue(response.body().contains("some-other-tenant"));
+  }
+
+  @Test
+  void deploying_from_a_registry_coordinate_under_the_matching_tenant_is_admitted()
+      throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path jar = buildModule("com.example.billing", "1.0.0", jarsDir);
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest, "kind: ArtifactSet\ntenant:\n  orders-platform:\n    - " + jar + "\n");
+    assertEquals(0, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    client.expectSuccess(
+        client.put(
+            "/tenants/orders-platform",
+            "{\"quota\":{\"maxMemoryBytes\":1000000000,\"maxCpuMillicores\":4000,"
+                + "\"maxInstances\":10}}"));
+    ApiResponse response =
+        client.put(
+            "/deployments/billing-deployment",
+            registryDeploymentYaml(
+                "billing-deployment", "com.example.billing", "1.0.0", "orders-platform"));
+
+    assertEquals(200, response.statusCode());
+  }
+
+  @Test
+  void deploying_an_untenanted_workload_from_a_tenanted_coordinate_skips_the_check()
+      throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path jar = buildModule("com.example.billing", "1.0.0", jarsDir);
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest, "kind: ArtifactSet\ntenant:\n  orders-platform:\n    - " + jar + "\n");
+    assertEquals(0, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    ApiResponse response =
+        client.put(
+            "/deployments/billing-deployment",
+            """
+            kind: Deployment
+            name: billing-deployment
+            module:
+              name: com.example.billing
+              version: 1.0.0
+            replicas: 1
+            """);
+
+    assertEquals(200, response.statusCode());
+  }
 }

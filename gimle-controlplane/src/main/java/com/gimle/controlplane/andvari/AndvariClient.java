@@ -103,10 +103,12 @@ public final class AndvariClient implements AutoCloseable {
    * outcomes are deliberately distinct because admission treats them differently: a definitive "not
    * there" rejects the manifest outright, while an unreachable registry admits it with no recorded
    * digest -- the level-triggered reconcilers converge once the registry is back, the same tolerant
-   * posture an unreadable local {@code artifactPath} already gets.
+   * posture an unreadable local {@code artifactPath} already gets. {@link Found#tenantId} carries
+   * the coordinate's own recorded tenant, if any, so {@code ApiServer.admissionArtifact} can reject
+   * a workload whose own {@code tenantId} disagrees with it.
    */
   public sealed interface HeadOutcome {
-    record Found(String sha256) implements HeadOutcome {}
+    record Found(String sha256, Optional<String> tenantId) implements HeadOutcome {}
 
     record NotFound() implements HeadOutcome {}
 
@@ -140,7 +142,8 @@ public final class AndvariClient implements AutoCloseable {
     return response
         .headers()
         .firstValue(SHA256_HEADER)
-        .<HeadOutcome>map(HeadOutcome.Found::new)
+        .<HeadOutcome>map(
+            sha256 -> new HeadOutcome.Found(sha256, response.headers().firstValue(TENANT_HEADER)))
         .orElseGet(() -> new HeadOutcome.Unreachable("registry sent no " + SHA256_HEADER));
   }
 
