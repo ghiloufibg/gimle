@@ -44,7 +44,9 @@
       <fileMode>0755</fileMode>
       <includes>
         <include>hilmir</include>
+        <include>hilmir.cmd</include>
         <include>gimle</include>
+        <include>gimle.cmd</include>
       </includes>
     </fileSet>
   </fileSets>

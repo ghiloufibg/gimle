@@ -5,10 +5,10 @@ sidebar_position: 6
 # Distribution archives
 
 `gimle-dist` packages the platform's own already-built jars into three audience-specific tarballs —
-no Java sources of its own, only `maven-assembly-plugin` descriptors and two POSIX shell wrapper
-scripts. It's an opt-in reactor member the same way `gimle-docs` is: `mvn install` builds every
-module including `gimle-dist`, since `gimle-dist` is a plain (always-in) module, not a
-profile-gated one.
+no Java sources of its own, only `maven-assembly-plugin` descriptors and two wrapper scripts, each
+shipped as both a POSIX `sh` version and a Windows `.cmd` version. It's an opt-in reactor member
+the same way `gimle-docs` is: `mvn install` builds every module including `gimle-dist`, since
+`gimle-dist` is a plain (always-in) module, not a profile-gated one.
 
 ## Building
 
@@ -29,9 +29,9 @@ completely unaffected by this profile's existence.
 
 | Archive | Audience | Contents |
 |---|---|---|
-| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`, `bin/gimle`, a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
-| `gimle-cli-<version>.tar.gz` | A workstation that only needs the `gimle` client | `bin/gimle` plus exactly `gimle-cli`'s own runtime dependency closure. Nothing else. |
-| `gimle-hilmir-<version>.tar.gz` | A workstation that only needs to run `hilmir`'s release verbs against an already-running cluster | `bin/hilmir` plus exactly `gimle-hilmir`'s own runtime dependency closure. Nothing else. |
+| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
+| `gimle-cli-<version>.tar.gz` | A workstation that only needs the `gimle` client | `bin/gimle`(`.cmd`) plus exactly `gimle-cli`'s own runtime dependency closure. Nothing else. |
+| `gimle-hilmir-<version>.tar.gz` | A workstation that only needs to run `hilmir`'s release verbs against an already-running cluster | `bin/hilmir`(`.cmd`) plus exactly `gimle-hilmir`'s own runtime dependency closure. Nothing else. |
 
 Unpacking any archive creates its own top-level directory (`gimle-platform-<version>/`,
 `gimle-cli-<version>/`, `gimle-hilmir-<version>/`); the intended install location on a cluster
@@ -41,17 +41,20 @@ reference](./hilmir-reference.md)).
 
 ## The wrapper scripts
 
-`bin/hilmir` and `bin/gimle` are the same two files reused verbatim across all three archives: each
-resolves its own directory (so `../lib` is found regardless of the caller's working directory),
-builds a classpath from every jar under that `lib/`, and `exec`s `java -cp "$CLASSPATH"
-com.gimle.hilmir.HilmirMain "$@"` (or `com.gimle.cli.GimleCli` for `bin/gimle`). The `java` each
-script launches itself with follows this precedence: an explicit `JAVA_HOME` environment variable
-always wins (a deliberate operator override); otherwise, if the archive was built with
-`-P dist-with-jre`, each script prefers its own bundled JRE (`jre/hilmir/bin/java` for `bin/hilmir`,
-`jre/cli/bin/java` for `bin/gimle`) when that file actually exists next to it; otherwise both fall
-back to plain `java` on `PATH`, exactly as they did before this archive ever bundled a JRE of its
-own. A plain default-build archive (no `-P dist-with-jre`) simply has no `jre/` directory at all, so
-every unpacked archive built that way always falls through to the `JAVA_HOME`/`PATH` behavior.
+`bin/hilmir`/`bin/hilmir.cmd` and `bin/gimle`/`bin/gimle.cmd` are the same four files reused
+verbatim across all three archives — a POSIX `sh` script for Linux/macOS and a Windows `.cmd`
+counterpart, kept behaviorally identical. Each resolves its own directory (so `../lib` /
+`..\lib` is found regardless of the caller's working directory), builds a classpath from every jar
+under that `lib/`, and launches `java -cp "$CLASSPATH" com.gimle.hilmir.HilmirMain "$@"` (or
+`com.gimle.cli.GimleCli` for the `gimle`/`gimle.cmd` pair). The `java` each script launches itself
+with follows this precedence: an explicit `JAVA_HOME` environment variable always wins (a
+deliberate operator override); otherwise, if the archive was built with `-P dist-with-jre`, each
+script prefers its own bundled JRE (`jre/hilmir/bin/java`(`.exe`) for the `hilmir` pair,
+`jre/cli/bin/java`(`.exe`) for the `gimle` pair) when that file actually exists next to it;
+otherwise both fall back to plain `java` on `PATH`, exactly as they did before this archive ever
+bundled a JRE of its own. A plain default-build archive (no `-P dist-with-jre`) simply has no
+`jre/` directory at all, so every unpacked archive built that way always falls through to the
+`JAVA_HOME`/`PATH` behavior.
 
 ### Why `bin/hilmir up` needs no extra flag inside the platform archive
 

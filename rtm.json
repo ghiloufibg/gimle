@@ -9670,7 +9670,8 @@
       "sourceLocations": [
         "`gimle-dist/src/main/assembly/cli.xml`",
         "`gimle-dist/pom.xml`",
-        "`gimle-dist/src/main/dist/bin/gimle`"
+        "`gimle-dist/src/main/dist/bin/gimle`",
+        "`gimle-dist/src/main/dist/bin/gimle.cmd`"
       ]
     },
     {
@@ -9687,7 +9688,8 @@
       "sourceLocations": [
         "`gimle-dist/src/main/assembly/hilmir.xml`",
         "`gimle-dist/pom.xml`",
-        "`gimle-dist/src/main/dist/bin/hilmir`"
+        "`gimle-dist/src/main/dist/bin/hilmir`",
+        "`gimle-dist/src/main/dist/bin/hilmir.cmd`"
       ]
     },
     {
@@ -9703,7 +9705,9 @@
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-dist/src/main/assembly/platform.xml`",
-        "`gimle-dist/pom.xml`"
+        "`gimle-dist/pom.xml`",
+        "`gimle-dist/src/main/dist/bin/gimle.cmd`",
+        "`gimle-dist/src/main/dist/bin/hilmir.cmd`"
       ]
     },
     {

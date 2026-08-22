@@ -6081,7 +6081,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Standalone CLI distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`
+- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`, `gimle-dist/src/main/dist/bin/gimle.cmd`
 
 #### GIMLE-561 — Standalone Hilmir bootstrap-tool distribution archive
 
@@ -6090,7 +6090,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Standalone Hilmir bootstrap-tool distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`
+- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 
 #### GIMLE-562 — Cluster-machine platform distribution archive
 
@@ -6099,7 +6099,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Cluster-machine platform distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`
+- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle.cmd`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 
 #### GIMLE-563 — Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)
 
