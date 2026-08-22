@@ -4,6 +4,31 @@ title: What is Gimlé?
 sidebar_position: 1
 ---
 
+```text
+                        A_______
+                        |______<
+                        ||
+                  ______||_______
+                  \##############\
+                   \##############\
+                   |               |
+                   |               |
+                   |###############|
+                   |###############|
+                   |               |
+ VK                |               |
+                   |###############|
+                  /###############/          @@
+          /\     /_______________/          (  C
+ (@\     ( ")   /\\  /\\||/\\  /\\  /\\    / /'
+   \\_   (\_)  ( "))( ")|( "))( "))( "))  / /
+    \```--/----/(o)-/(o)-/(o)-/(o)-/(o)--' /
+~~~~~~~~~/ ~~~/~~~~/~~~~/~~~~/~~~~/~~~~~~~~~~~~~~~~~
+    - - '  ( ' )( ' )( ' )( ' )( ' )
+```
+
+<p align="center"><em>Viking ship — asciiart.eu, people/occupations/vikings</em></p>
+
 Gimlé is a fully-Java application platform that combines Karaf/OSGi-style dynamic module
 lifecycle with Kubernetes-style declarative orchestration — self-healing, scaling, load
 balancing, service discovery, observability — implemented entirely on the JVM. No containers, no
