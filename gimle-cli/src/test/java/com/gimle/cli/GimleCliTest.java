@@ -818,4 +818,126 @@ class GimleCliTest {
     assertEquals(1, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
+
+  // ---- Service / NetworkPolicy -- previously entirely uncovered by this class ----
+
+  @Test
+  void set_service_then_get_services_round_trips_then_delete() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "service",
+            "web",
+            "--deployment",
+            "orders-service",
+            "--port",
+            "8080",
+            "--target-port",
+            "9090");
+    assertEquals(0, setExit, stderr());
+    assertTrue(stdout().contains("service/web configured"));
+
+    outBuffer.reset();
+    int getExit = run("get", "services");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("web"));
+
+    outBuffer.reset();
+    int getSingleExit = run("-o", "json", "get", "service", "web");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"name\":\"web\""));
+    assertTrue(stdout().contains("\"deploymentNames\":[\"orders-service\"]"));
+    assertTrue(stdout().contains("\"port\":8080"));
+    assertTrue(stdout().contains("\"targetPort\":9090"));
+
+    int deleteExit = run("delete", "service", "web");
+    assertEquals(0, deleteExit);
+    outBuffer.reset();
+    int getAfterDeleteExit = run("get", "service", "web");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void set_service_defaults_target_port_to_port_when_omitted() throws Exception {
+    run("set", "service", "solo-port", "--deployment", "orders-service", "--port", "7000");
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "service", "solo-port");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"port\":7000"));
+    assertTrue(stdout().contains("\"targetPort\":7000"));
+  }
+
+  @Test
+  void service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance()
+      throws Exception {
+    run("set", "service", "no-backing", "--deployment", "orders-service", "--port", "8080");
+
+    outBuffer.reset();
+    int exit = run("service", "endpoints", "no-backing");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("no-backing"));
+  }
+
+  @Test
+  void set_service_without_a_deployment_flag_fails() {
+    int exit = run("set", "service", "broken", "--port", "8080");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("--deployment"));
+  }
+
+  @Test
+  void get_service_not_found_produces_a_clear_error() {
+    int exit = run("get", "service", "does-not-exist");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void set_networkpolicy_then_get_networkpolicies_round_trips_then_delete() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "networkpolicy",
+            "acme-policy",
+            "--tenant",
+            "acme",
+            "--allowed-caller-tenant",
+            "partner");
+    assertEquals(0, setExit, stderr());
+    assertTrue(stdout().contains("networkpolicy/acme-policy configured"));
+
+    outBuffer.reset();
+    int getExit = run("get", "networkpolicies");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("acme-policy"));
+
+    outBuffer.reset();
+    int getSingleExit = run("-o", "json", "get", "networkpolicy", "acme-policy");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"tenantId\":\"acme\""));
+    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"partner\"]"));
+
+    int deleteExit = run("delete", "networkpolicy", "acme-policy");
+    assertEquals(0, deleteExit);
+    outBuffer.reset();
+    int getAfterDeleteExit = run("get", "networkpolicy", "acme-policy");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void set_networkpolicy_without_a_tenant_flag_fails() {
+    int exit = run("set", "networkpolicy", "broken", "--allowed-caller-tenant", "partner");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("--tenant"));
+  }
+
+  @Test
+  void get_networkpolicy_not_found_produces_a_clear_error() {
+    int exit = run("get", "networkpolicy", "does-not-exist");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("not found"));
+  }
 }

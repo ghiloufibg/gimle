@@ -33,6 +33,15 @@ import java.util.List;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt;
+ *   gimle get services [name]
+ *   gimle set service &lt;name&gt; --deployment &lt;name&gt; [--deployment ...] --port N [--target-port N]
+ *                             [--tenant &lt;id&gt;]
+ *   gimle delete service &lt;name&gt;
+ *   gimle service endpoints &lt;name&gt;
+ *   gimle get networkpolicies [name]
+ *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--deployment ...]
+ *                                   --allowed-caller-tenant &lt;id&gt; [--allowed-caller-tenant ...]
+ *   gimle delete networkpolicy &lt;name&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
  *   gimle delete tenant &lt;id&gt;
@@ -149,6 +158,7 @@ public final class GimleCli {
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
+      case "service", "services" -> handleServiceVerb(rest, client, output, out);
       default -> throw new CliException(usage());
     }
   }
@@ -203,6 +213,25 @@ public final class GimleCli {
     new EventsCommand(client, output, out).run(args.get(0), args.get(1));
   }
 
+  /**
+   * {@code service}/{@code services} as a distinct top-level verb -- not just noun dispatch under
+   * {@code get}/{@code set}/{@code delete} below -- for the same reason {@code cronjob} is: {@code
+   * endpoints} is an action three-verb dispatch has no shape for.
+   */
+  private static void handleServiceVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException("usage: gimle service endpoints <name>");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    switch (action) {
+      case "endpoints" ->
+          new ServicesCommand(client, output, out).endpoints(requireOne(rest, "service endpoints"));
+      default -> throw new CliException("unknown service action: " + action);
+    }
+  }
+
   private static void handleGet(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     if (args.isEmpty()) {
@@ -219,6 +248,9 @@ public final class GimleCli {
       case "node", "nodes" -> new NodesCommand(client, output, out).list();
       case "node-assignments" ->
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
+      case "service", "services" -> new ServicesCommand(client, output, out).get(rest);
+      case "networkpolicy", "networkpolicies" ->
+          new NetworkPolicyCommand(client, output, out).get(rest);
       case "tenant", "tenants" -> new TenantsCommand(client, output, out).get(rest);
       case "config" -> new ConfigCommand(client, output, out).list(requireOne(rest, "config"));
       case "role", "roles" -> new RolesCommand(client, output, out).get(rest);
@@ -236,6 +268,8 @@ public final class GimleCli {
     String noun = args.get(0);
     List<String> rest = args.subList(1, args.size());
     switch (noun) {
+      case "service" -> new ServicesCommand(client, output, out).set(rest);
+      case "networkpolicy" -> new NetworkPolicyCommand(client, output, out).set(rest);
       case "tenant" -> new TenantsCommand(client, output, out).set(rest);
       case "config" -> new ConfigCommand(client, output, out).set(rest);
       case "role" -> new RolesCommand(client, output, out).set(rest);
@@ -262,6 +296,10 @@ public final class GimleCli {
           new DaemonSetsCommand(client, output, out).delete(requireOne(rest, "daemonset"));
       case "statefulset", "statefulsets" ->
           new StatefulSetsCommand(client, output, out).delete(requireOne(rest, "statefulset"));
+      case "service", "services" ->
+          new ServicesCommand(client, output, out).delete(requireOne(rest, "service"));
+      case "networkpolicy", "networkpolicies" ->
+          new NetworkPolicyCommand(client, output, out).delete(requireOne(rest, "networkpolicy"));
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
@@ -320,6 +358,15 @@ public final class GimleCli {
           cordon <nodeId>
           uncordon <nodeId>
           events <deploymentName> <instanceIndex>
+          get services [name]
+          set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
+                              [--tenant <id>]
+          delete service <name>
+          service endpoints <name>
+          get networkpolicies [name]
+          set networkpolicy <name> --tenant <id> [--deployment ...]
+                                    --allowed-caller-tenant <id> [--allowed-caller-tenant ...]
+          delete networkpolicy <name>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
           delete tenant <id>

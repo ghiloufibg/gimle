@@ -586,6 +586,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | Complete | Yes |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | Complete (v1 scope) | Yes |
 | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | Complete (v1 scope) | Yes |
+| GIMLE-578 | Service CRUD and live endpoint lookup | CLI | Complete | Yes |
+| GIMLE-579 | NetworkPolicy CRUD | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6195,6 +6197,33 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given no --server and no GIMLE_SERVER, When any verb runs, Then "no control-plane server configured" and exit 1, no stack trace; a 307 with no Location reports "control plane leader is currently unknown".
+  ```
+
+#### GIMLE-578 — Service CRUD and live endpoint lookup
+
+- **Category**: CLI
+- **User story**: As a platform operator, I want to create, inspect, and delete a Service (the ClusterIP analogue) and see its current live backing endpoints from the command line, so I don't have to hand-craft a POST /services request just to expose an existing control-plane capability.
+- **Status**: Complete. `gimle get services [name]`, `gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N] [--tenant <id>]`, `gimle delete service <name>`, and `gimle service endpoints <name>` all round-trip against the real `ApiServer` `/services*` surface that already existed with no CLI client of its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`service`/`services` dispatch, including the `service endpoints` sub-verb)
+- **Test coverage**: `GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error`
+- **Gherkin scenario**:
+  ```gherkin
+  Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080.
+  Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set.
+  ```
+
+#### GIMLE-579 — NetworkPolicy CRUD
+
+- **Category**: CLI
+- **User story**: As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the command line, so I don't have to hand-craft a POST /networkpolicies request just to expose an existing control-plane capability.
+- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] --allowed-caller-tenant <id> [--allowed-caller-tenant ...]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface that already existed with no CLI client of its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
+- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
+- **Gherkin scenario**:
+  ```gherkin
+  Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"].
   ```
 
 ### gimle-hilmir

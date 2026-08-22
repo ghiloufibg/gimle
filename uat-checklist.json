@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 577,
+    "totalRequirements": 579,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 458,
+    "notCoveredByAutomatedTest": 460,
     "releaseReadinessPercent": 20.6
   },
   "items": [
@@ -6349,6 +6349,28 @@
       "category": "Artifact Registry",
       "feature": "Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)",
       "step": "Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When \"gimle apply -f\" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-578",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "Service CRUD and live endpoint lookup",
+      "step": "Given no Service named \"web\" exists, When \"gimle set service web --deployment orders-service --port 8080\", Then POST /services creates it and \"gimle get service web\" returns it with deploymentNames [\"orders-service\"] and targetPort defaulted to 8080. Given a Service \"web\" exists, When \"gimle service endpoints web\", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-579",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "NetworkPolicy CRUD",
+      "step": "Given no NetworkPolicy named \"acme-policy\" exists, When \"gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner\", Then POST /networkpolicies creates it and \"gimle get networkpolicy acme-policy\" returns tenantId \"acme\" and allowedCallerTenantIds [\"partner\"].",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
