@@ -7258,15 +7258,15 @@
       "module": "gimle-cli",
       "feature": "Deployment resource management (get/apply/delete)",
       "category": "CLI",
-      "userStory": "As a platform operator, I want to list, apply, and delete Deployment manifests from the command line.",
-      "statusDetail": "Complete",
+      "userStory": "As a platform operator, I want to list, apply, and delete Deployment manifests from the command line, and see a deployment's status as readable columns rather than a raw JSON blob when I'm reading it as a table.",
+      "statusDetail": "Complete. `get deployments` under the default table format flattens each deployment's nested `spec`/`instances`/quota fields into derived columns (module coordinate, placed/desired replica count, a HEALTHY/UNPLACED(n)/QUOTA rollup status) instead of a raw JSON-blob cell -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`",
         "`GimleCli.java`",
         "`ManifestFiles.java`"
       ],
-      "testCoverageDetail": "`GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`",
+      "testCoverageDetail": "`GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`, `get_deployments_in_table_format_humanizes_spec_and_replicas_instead_of_raw_json`, `get_deployments_as_json_still_returns_the_raw_spec_shape`",
       "gherkinSteps": [
         "Given a control plane reachable at --server host:port, When I run \"gimle apply -f orders-service.yaml\" (kind:Deployment), Then /deployments/<name> is PUT; \"gimle get deployments\" lists it."
       ],
@@ -7351,13 +7351,14 @@
       "module": "gimle-cli",
       "feature": "Node inventory and cordon/uncordon",
       "category": "CLI",
-      "userStory": "As a platform operator, I want to list registered nodes and cordon a node before maintenance.",
-      "statusDetail": "Complete (cordon/uncordon lacks dedicated test coverage)",
+      "userStory": "As a platform operator, I want to list registered nodes and cordon a node before maintenance, and see each node's capacity as readable percentages/units rather than a raw JSON blob when I'm reading it as a table.",
+      "statusDetail": "Complete (cordon/uncordon lacks dedicated test coverage). `get nodes` under the default table format flattens each node's nested `capabilities`/`capacity` fields into derived columns (comma-joined tiers, CPU/memory used-percent, human-readable byte/millicore totals, a HEALTHY/STALE/UNKNOWN heartbeat-freshness status) instead of a raw JSON-blob cell, matching the console's own humanization of the identical data -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ResourceFormatting.java`"
       ],
-      "testCoverageDetail": "`GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`",
+      "testCoverageDetail": "`GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`, `get_nodes_in_table_format_humanizes_capabilities_and_capacity_instead_of_raw_json`, `get_nodes_as_json_still_returns_the_raw_capabilities_and_capacity_shape`",
       "gherkinSteps": [
         "Given node \"node-a\" registered, When \"gimle cordon node-a\", Then POST /nodes/node-a/cordon succeeds and prints \"node/node-a cordoned\"."
       ],
@@ -7369,18 +7370,20 @@
       "module": "gimle-cli",
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
-      "userStory": "As an operator debugging a misbehaving instance, I want to see its full lifecycle event history.",
-      "statusDetail": "Complete",
-      "confidence": "Medium",
+      "userStory": "As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.",
+      "statusDetail": "Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.",
+      "confidence": "High",
       "sourceLocations": [
-        "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)"
       ],
-      "testCoverageDetail": "NONE",
+      "testCoverageDetail": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
       "gherkinSteps": [
-        "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed."
+        "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed.",
+        "Given an instance with more lifecycle events than --limit, When \"gimle events orders-service 0 --limit 5\", Then only the 5 most recent events print."
       ],
       "statusSummary": "Complete",
-      "testCoverageLevel": "None"
+      "testCoverageLevel": "Yes"
     },
     {
       "id": "GIMLE-378",
@@ -11273,6 +11276,45 @@
         "Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When \"gimle apply -f\" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed."
       ],
       "statusSummary": "Complete (v1 scope)",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-578",
+      "module": "gimle-cli",
+      "feature": "Service CRUD and live endpoint lookup",
+      "category": "CLI",
+      "userStory": "As a platform operator, I want to create, inspect, and delete a Service (the ClusterIP analogue) and see its current live backing endpoints from the command line, so I don't have to hand-craft a POST /services request just to expose an existing control-plane capability.",
+      "statusDetail": "Complete. `gimle get services [name]`, `gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N] [--tenant <id>]`, `gimle delete service <name>`, and `gimle service endpoints <name>` all round-trip against the real `ApiServer` `/services*` surface that already existed with no CLI client of its own.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`service`/`services` dispatch, including the `service endpoints` sub-verb)"
+      ],
+      "testCoverageDetail": "`GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error`",
+      "gherkinSteps": [
+        "Given no Service named \"web\" exists, When \"gimle set service web --deployment orders-service --port 8080\", Then POST /services creates it and \"gimle get service web\" returns it with deploymentNames [\"orders-service\"] and targetPort defaulted to 8080.",
+        "Given a Service \"web\" exists, When \"gimle service endpoints web\", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-579",
+      "module": "gimle-cli",
+      "feature": "NetworkPolicy CRUD",
+      "category": "CLI",
+      "userStory": "As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the command line, so I don't have to hand-craft a POST /networkpolicies request just to expose an existing control-plane capability.",
+      "statusDetail": "Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] --allowed-caller-tenant <id> [--allowed-caller-tenant ...]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface that already existed with no CLI client of its own.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)"
+      ],
+      "testCoverageDetail": "`GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`",
+      "gherkinSteps": [
+        "Given no NetworkPolicy named \"acme-policy\" exists, When \"gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner\", Then POST /networkpolicies creates it and \"gimle get networkpolicy acme-policy\" returns tenantId \"acme\" and allowedCallerTenantIds [\"partner\"]."
+      ],
+      "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
     }
   ]

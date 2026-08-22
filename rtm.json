@@ -6575,12 +6575,12 @@
       "module": "gimle-cli",
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Added `--limit N`, applied client-side against the already-newest-first response.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Instance lifecycle event timeline\".",
-      "otherTestCoverage": "NONE recorded in the baseline",
+      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
       ]
@@ -9980,6 +9980,38 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java` (`HeadOutcome.Found#tenantId`), `api/ApiServer.java` (`admissionArtifact`'s deployingTenantId cross-check, all four workload kinds)"
       ],
       "otherTestCoverage": "`ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content); `ArtifactSetCommandTest` (admission cross-check: a mismatched tenantId rejected with 400 naming both tenants, a matching tenantId admitted, an untenanted workload against a tenanted coordinate skips the check)"
+    },
+    {
+      "id": "GIMLE-578",
+      "module": "gimle-cli",
+      "feature": "Service CRUD and live endpoint lookup",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Service CRUD and live endpoint lookup\".",
+      "otherTestCoverage": "`GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error`",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`service`/`services` dispatch, including the `service endpoints` sub-verb)"
+      ]
+    },
+    {
+      "id": "GIMLE-579",
+      "module": "gimle-cli",
+      "feature": "NetworkPolicy CRUD",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"NetworkPolicy CRUD\".",
+      "otherTestCoverage": "`GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)"
+      ]
     }
   ]
 }

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 577
+- **Total requirements**: 579
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 458
+- **Not covered by automated test**: 460
 - **Release-readiness (automated coverage)**: 20.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 19 | 0 | 19 | 0.0% |
+| gimle-cli | 21 | 0 | 21 | 0.0% |
 | gimle-hilmir | 30 | 0 | 30 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 26 | 0 | 26 | 0.0% |
@@ -1194,10 +1194,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-374 | DaemonSet resource management | Given a manifest (kind:DaemonSet), When "gimle apply -f node-exporter.yaml", Then /daemonsets/<name> is PUT; no "scale" verb exists (topology-derived, not operator-set). | No |
 | [ ] | GIMLE-375 | StatefulSet resource management | Given a manifest (kind:StatefulSet, replicas:3), When "gimle apply -f orders-statefulset.yaml", Then /statefulsets/<name> is PUT. | No |
 | [ ] | GIMLE-376 | Node inventory and cordon/uncordon | Given node "node-a" registered, When "gimle cordon node-a", Then POST /nodes/node-a/cordon succeeds and prints "node/node-a cordoned". | No |
-| [ ] | GIMLE-377 | Instance lifecycle event timeline | Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed. | No |
+| [ ] | GIMLE-377 | Instance lifecycle event timeline | Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print. | No |
 | [ ] | GIMLE-378 | Tenant management and quota configuration | Given "gimle set tenant acme --max-memory-bytes 1000000000 --max-cpu-millicores 4000 --max-instances 10", Then PUT /tenants/acme is sent; "gimle get tenants" lists "acme". | No |
 | [ ] | GIMLE-379 | Tenant plain configuration key/value store | Given tenant "acme" exists, When "gimle set config acme greeting hello", Then PUT /config/acme/greeting; delete then get fails. | No |
 | [ ] | GIMLE-382 | Log viewing and live tailing | Given "gimle logs instance/orders-service/0", Then GET /logs/instances/orders-service/0?category=APPLICATION&limit=200; "--follow" opens a chunked GET with follow=true and prints new lines until interrupted. | No |
+| [ ] | GIMLE-578 | Service CRUD and live endpoint lookup | Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080. Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set. | No |
+| [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. | No |
 
 #### CLI / Build Tooling
 

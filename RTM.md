@@ -392,7 +392,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-374 | DaemonSet resource management | Active | Not Covered | — |
 | GIMLE-375 | StatefulSet resource management | Active | Not Covered | — |
 | GIMLE-376 | Node inventory and cordon/uncordon | Active | Not Covered | — |
-| GIMLE-377 | Instance lifecycle event timeline | Active | Not Covered | — |
+| GIMLE-377 | Instance lifecycle event timeline | Modified | Not Covered | — |
 | GIMLE-378 | Tenant management and quota configuration | Active | Not Covered | — |
 | GIMLE-379 | Tenant plain configuration key/value store | Active | Not Covered | — |
 | GIMLE-380 | Versioned secrets management (Fafnir proxy) | Active | Not Covered | — |
@@ -592,6 +592,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | New | Not Covered | — |
 | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | New | Not Covered | — |
+| GIMLE-578 | Service CRUD and live endpoint lookup | New | Not Covered | — |
+| GIMLE-579 | NetworkPolicy CRUD | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4348,10 +4350,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-377 — Instance lifecycle event timeline
 
 - **Category**: CLI
-- **Status**: Active
+- **Status**: Modified  _(Added `--limit N`, applied client-side against the already-newest-first response.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Instance lifecycle event timeline".
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`
 
 #### GIMLE-378 — Tenant management and quota configuration
@@ -4461,6 +4463,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client".
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.a_bare_invocation_with_no_verb_prints_usage_rather_than_a_server_configuration_error`, `missing_server_configuration_is_a_clear_error`, `an_unreachable_control_plane_produces_a_clear_error_and_nonzero_exit`, `a_malformed_server_response_produces_a_clear_error_not_a_stack_trace`, `a_404_produces_a_clear_error_and_nonzero_exit`, `unknown_verb_prints_usage_and_nonzero_exit`
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`, `Flags.java`, `ManifestFiles.java`, `ControlPlaneClient.java`, `ApiResponse.java`, `CliException.java`
+
+#### GIMLE-578 — Service CRUD and live endpoint lookup
+
+- **Category**: CLI
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Service CRUD and live endpoint lookup".
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`service`/`services` dispatch, including the `service endpoints` sub-verb)
+
+#### GIMLE-579 — NetworkPolicy CRUD
+
+- **Category**: CLI
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "NetworkPolicy CRUD".
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
 
 ### gimle-hilmir
 
@@ -6144,7 +6164,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**458 of 577 requirements are Not Covered.**
+**460 of 579 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6205,10 +6225,12 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-374 | gimle-cli | DaemonSet resource management | CLI | `GimleCliTest.apply_then_get_daemonsets_round_trips`, `apply_then_delete_removes_the_daemonset` |
 | GIMLE-375 | gimle-cli | StatefulSet resource management | CLI | `GimleCliTest.apply_then_get_statefulsets_round_trips`, `apply_then_delete_removes_the_statefulset` |
 | GIMLE-376 | gimle-cli | Node inventory and cordon/uncordon | CLI | `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field` |
-| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | NONE recorded in the baseline |
+| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails` |
 | GIMLE-378 | gimle-cli | Tenant management and quota configuration | CLI | `GimleCliTest.set_tenant_then_get_tenants_round_trips`, `set_and_delete_tenant_produce_real_json_under_json_output_format` |
 | GIMLE-379 | gimle-cli | Tenant plain configuration key/value store | CLI | `GimleCliTest.set_and_get_config_round_trips`, `set_and_delete_config_produce_real_json_under_json_output_format` |
 | GIMLE-382 | gimle-cli | Log viewing and live tailing | CLI | NONE recorded in the baseline |
+| GIMLE-578 | gimle-cli | Service CRUD and live endpoint lookup | CLI | `GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error` |
+| GIMLE-579 | gimle-cli | NetworkPolicy CRUD | CLI | `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error` |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |

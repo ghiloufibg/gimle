@@ -34,7 +34,16 @@ gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
-gimle events <deploymentName> <instanceIndex>
+gimle events <deploymentName> <instanceIndex> [--limit N]
+gimle get services [name]
+gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
+                          [--tenant <id>]
+gimle delete service <name>
+gimle service endpoints <name>
+gimle get networkpolicies [name]
+gimle set networkpolicy <name> --tenant <id> [--deployment ...]
+                                --allowed-caller-tenant <id> [--allowed-caller-tenant ...]
+gimle delete networkpolicy <name>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>
@@ -96,6 +105,24 @@ so the coordinate a jar is stored under and the identity it declares can never d
 re-push of different bytes under an existing coordinate is refused (a stored version is
 immutable -- push the changed jar as a new version).
 
+`events` returns an instance's full lifecycle timeline, newest-first; `--limit N` caps how many of
+those entries print, applied client-side (the underlying `GET /events` call has no server-side
+`limit` parameter of its own, unlike `audit list` below) — useful against a crash-looping instance
+whose timeline would otherwise be hundreds of lines.
+
+`service`/`networkpolicy` manage the [Service abstraction](../architecture/service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment)
+— a stable name in front of a Deployment's live, ephemeral endpoints, the ClusterIP analogue named
+in the platform's own network-model design. `set service` POSTs to the `/services` collection
+rather than PUTting a per-name path, since a Service names itself in its own request body;
+`--deployment` may repeat (the set of workload names a Service fronts) and `--target-port` defaults
+to `--port` when omitted (the Service listens and forwards on the same port). `service endpoints`
+resolves the Service's current live backing-instance set on every call, never a cached value, so it
+never lags a reconcile interval behind. `networkpolicy` manages the accompanying NetworkPolicy
+analogue — a deny-by-default restriction on which other tenants may call into one tenant's own
+Services; `--tenant` is required (a NetworkPolicy always restricts exactly one tenant's own
+Services), `--deployment` scopes it to specific workloads instead of the whole tenant when given,
+and `--allowed-caller-tenant` may repeat once per permitted caller tenant.
+
 `audit list` reads the cross-resource audit trail (see
 [Authentication and authorization](../architecture/authn-authz.md#audit-logging)) — every
 `WRITE`/`DELETE` authorization decision, allowed and denied, across both the control plane and
@@ -131,8 +158,15 @@ gimle get node-assignments node-1 --server 127.0.0.1:8080
 gimle cordon node-1 --server 127.0.0.1:8080
 gimle uncordon node-1 --server 127.0.0.1:8080
 
-# An instance's own lifecycle timeline (installed, resolved, started, active, ...)
+# An instance's own lifecycle timeline (installed, resolved, started, active, ...) -- --limit caps
+# a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries
 gimle events orders-service-deployment 0 --server 127.0.0.1:8080
+gimle events orders-service-deployment 0 --limit 20 --server 127.0.0.1:8080
+
+# A stable name in front of a Deployment's live endpoints, and who else may call it
+gimle set service orders-web --deployment orders-service-deployment --port 8080 --server 127.0.0.1:8080
+gimle service endpoints orders-web --server 127.0.0.1:8080
+gimle set networkpolicy orders-policy --tenant orders-platform --allowed-caller-tenant billing --server 127.0.0.1:8080
 
 # Who deleted the acme tenant's secrets in the last hour -- allowed and denied attempts alike
 gimle audit list --tenant acme --resource SECRET --since 1712000000000 --server 127.0.0.1:8080

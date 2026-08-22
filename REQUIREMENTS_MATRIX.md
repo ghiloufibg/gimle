@@ -386,7 +386,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-374 | DaemonSet resource management | CLI | Complete | Yes |
 | GIMLE-375 | StatefulSet resource management | CLI | Complete | Yes |
 | GIMLE-376 | Node inventory and cordon/uncordon | CLI | Complete | Yes |
-| GIMLE-377 | Instance lifecycle event timeline | CLI | Complete | None |
+| GIMLE-377 | Instance lifecycle event timeline | CLI | Complete | Yes |
 | GIMLE-378 | Tenant management and quota configuration | CLI | Complete | Yes |
 | GIMLE-379 | Tenant plain configuration key/value store | CLI | Complete | Yes |
 | GIMLE-380 | Versioned secrets management (Fafnir proxy) | CLI / Security | Complete | Yes |
@@ -587,6 +587,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | Complete | Yes |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | Complete (v1 scope) | Yes |
 | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | Complete (v1 scope) | Yes |
+| GIMLE-578 | Service CRUD and live endpoint lookup | CLI | Complete | Yes |
+| GIMLE-579 | NetworkPolicy CRUD | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5969,11 +5971,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
 
 - **Category**: CLI
-- **User story**: As a platform operator, I want to list, apply, and delete Deployment manifests from the command line.
-- **Status**: Complete
+- **User story**: As a platform operator, I want to list, apply, and delete Deployment manifests from the command line, and see a deployment's status as readable columns rather than a raw JSON blob when I'm reading it as a table.
+- **Status**: Complete. `get deployments` under the default table format flattens each deployment's nested `spec`/`instances`/quota fields into derived columns (module coordinate, placed/desired replica count, a HEALTHY/UNPLACED(n)/QUOTA rollup status) instead of a raw JSON-blob cell -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `GimleCli.java`, `ManifestFiles.java`
-- **Test coverage**: `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`
+- **Test coverage**: `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`, `get_deployments_in_table_format_humanizes_spec_and_replicas_instead_of_raw_json`, `get_deployments_as_json_still_returns_the_raw_spec_shape`
 - **Gherkin scenario**:
   ```gherkin
   Given a control plane reachable at --server host:port, When I run "gimle apply -f orders-service.yaml" (kind:Deployment), Then /deployments/<name> is PUT; "gimle get deployments" lists it.
@@ -6034,11 +6036,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-376 — Node inventory and cordon/uncordon
 
 - **Category**: CLI
-- **User story**: As a platform operator, I want to list registered nodes and cordon a node before maintenance.
-- **Status**: Complete (cordon/uncordon lacks dedicated test coverage)
+- **User story**: As a platform operator, I want to list registered nodes and cordon a node before maintenance, and see each node's capacity as readable percentages/units rather than a raw JSON blob when I'm reading it as a table.
+- **Status**: Complete (cordon/uncordon lacks dedicated test coverage). `get nodes` under the default table format flattens each node's nested `capabilities`/`capacity` fields into derived columns (comma-joined tiers, CPU/memory used-percent, human-readable byte/millicore totals, a HEALTHY/STALE/UNKNOWN heartbeat-freshness status) instead of a raw JSON-blob cell, matching the console's own humanization of the identical data -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.
 - **Confidence**: High
-- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`
-- **Test coverage**: `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/ResourceFormatting.java`
+- **Test coverage**: `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`, `get_nodes_in_table_format_humanizes_capabilities_and_capacity_instead_of_raw_json`, `get_nodes_as_json_still_returns_the_raw_capabilities_and_capacity_shape`
 - **Gherkin scenario**:
   ```gherkin
   Given node "node-a" registered, When "gimle cordon node-a", Then POST /nodes/node-a/cordon succeeds and prints "node/node-a cordoned".
@@ -6047,14 +6049,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-377 — Instance lifecycle event timeline
 
 - **Category**: CLI
-- **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history.
-- **Status**: Complete
-- **Confidence**: Medium
-- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`
-- **Test coverage**: NONE
+- **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.
+- **Status**: Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)
+- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
 - **Gherkin scenario**:
   ```gherkin
   Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed.
+  Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print.
   ```
 
 #### GIMLE-378 — Tenant management and quota configuration
@@ -6211,6 +6214,33 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given no --server and no GIMLE_SERVER, When any verb runs, Then "no control-plane server configured" and exit 1, no stack trace; a 307 with no Location reports "control plane leader is currently unknown".
+  ```
+
+#### GIMLE-578 — Service CRUD and live endpoint lookup
+
+- **Category**: CLI
+- **User story**: As a platform operator, I want to create, inspect, and delete a Service (the ClusterIP analogue) and see its current live backing endpoints from the command line, so I don't have to hand-craft a POST /services request just to expose an existing control-plane capability.
+- **Status**: Complete. `gimle get services [name]`, `gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N] [--tenant <id>]`, `gimle delete service <name>`, and `gimle service endpoints <name>` all round-trip against the real `ApiServer` `/services*` surface that already existed with no CLI client of its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`service`/`services` dispatch, including the `service endpoints` sub-verb)
+- **Test coverage**: `GimleCliTest.set_service_then_get_services_round_trips_then_delete`, `set_service_defaults_target_port_to_port_when_omitted`, `service_endpoints_reports_the_declared_port_shape_with_no_live_backing_instance`, `set_service_without_a_deployment_flag_fails`, `get_service_not_found_produces_a_clear_error`
+- **Gherkin scenario**:
+  ```gherkin
+  Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080.
+  Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set.
+  ```
+
+#### GIMLE-579 — NetworkPolicy CRUD
+
+- **Category**: CLI
+- **User story**: As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the command line, so I don't have to hand-craft a POST /networkpolicies request just to expose an existing control-plane capability.
+- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] --allowed-caller-tenant <id> [--allowed-caller-tenant ...]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface that already existed with no CLI client of its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
+- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
+- **Gherkin scenario**:
+  ```gherkin
+  Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"].
   ```
 
 ### gimle-hilmir
