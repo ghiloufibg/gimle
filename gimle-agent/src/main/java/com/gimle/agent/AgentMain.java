@@ -2003,7 +2003,39 @@ public final class AgentMain {
       sendInstallStartSequence(
           instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
-      log.error("failed to bring up instance {}: {}", key, e.getMessage());
+      // This is the sole caller of sendInstallStartSequence for this instance -- nothing retries
+      // it on a later reconcile tick, so a failure here strands the instance forever at whatever
+      // lifecycle state it last reached (often RESOLVED, before StartModule ever went out).
+      // e.getMessage() is frequently null for a bare connection failure, which previously made
+      // this log line read as just "...: null" with no way to diagnose it; including the
+      // exception's own class name, and surfacing a durable TRANSITION_FAILED timeline event the
+      // same way artifact-resolution failures already do above, gives an operator something to
+      // act on instead of a silently stuck instance.
+      log.error(
+          "failed to bring up instance {}: {}: {}",
+          key,
+          e.getClass().getSimpleName(),
+          e.getMessage());
+      // Same guard and rationale as the install-phase Nack handling in readLoop above: only
+      // overwrite the default "INSTALLED" state, never a more advanced one this failure raced
+      // against, and flipping to FAILED is what makes the health reconciler's own alive check
+      // (via observationJson) treat this instance as needing to be healed instead of merely
+      // still-starting forever.
+      if ("INSTALLED".equals(instance.lifecycleState)) {
+        instance.lifecycleState = "FAILED";
+      }
+      postInstanceEvent(
+          httpClient,
+          baseUrl,
+          nodeId,
+          new InstanceEvent(
+              UUID.randomUUID().toString(),
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex(),
+              InstanceEventKind.TRANSITION_FAILED,
+              "failed to bring up instance",
+              Optional.of(e.getClass().getSimpleName() + ": " + e.getMessage()),
+              System.currentTimeMillis()));
     }
   }
 

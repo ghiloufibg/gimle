@@ -808,4 +808,46 @@ class AgentMainTest {
       configServer.stop(0);
     }
   }
+
+  @Test
+  @Timeout(15)
+  void deliver_config_degrades_gracefully_when_control_plane_config_is_unreachable()
+      throws Exception {
+    // Mirrors the Fafnir-unreachable test above, but isolates the sibling gap: a connection
+    // failure hitting the control plane's own /config/{tenantId} (fetchConfigForTenant, also
+    // declared throws IOException) used to escape deliverConfig's plain-config try block
+    // uncaught, since it only caught InterruptedException/RuntimeException -- stranding the
+    // instance exactly like the Fafnir case did, even with no Fafnir endpoint configured at all.
+    URI baseUrl;
+    try (ServerSocket unusedConfigPort = new ServerSocket(0)) {
+      baseUrl = URI.create("http://127.0.0.1:" + unusedConfigPort.getLocalPort());
+    }
+
+    ModuleDescriptor descriptor = descriptor("provider", IsolationTier.TIER_2);
+    AssignedInstance assigned =
+        assignedInstance("provider-deployment", descriptor, Optional.of("acme"));
+
+    Path socketPath = Files.createTempDirectory("gimle-deliver-config").resolve("worker.sock");
+    try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+      server.bind(UnixDomainSocketAddress.of(socketPath));
+      try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
+        workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
+        try (SocketChannel agentRaw = server.accept()) {
+          WorkerConnection agentSide = new WorkerConnection(agentRaw);
+          SupervisedInstance instance = supervisedInstance(assigned, descriptor, agentSide);
+
+          // Must return normally (no Fafnir endpoint configured, so nothing to fall through to)
+          // rather than let the ConnectException from the unreachable control plane escape
+          // uncaught -- before the fix that IOException propagated out of deliverConfig, through
+          // sendInstallStartSequence, leaving StartModule never sent and the instance stuck at
+          // RESOLVED forever.
+          AgentMain.deliverConfig(
+              instance, agentSide, HttpClient.newHttpClient(), baseUrl, null);
+        }
+      }
+    } finally {
+      Files.deleteIfExists(socketPath);
+      Files.deleteIfExists(socketPath.getParent());
+    }
+  }
 }
