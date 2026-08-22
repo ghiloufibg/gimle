@@ -12,6 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -109,7 +110,8 @@ final class AndvariPeerSync implements AutoCloseable {
         if (artifactStore.meta(moduleId, versionId).isPresent()) {
           continue; // already have this coordinate; no network call needed to confirm it further
         }
-        if (pullOne(peer, moduleId, versionId, String.valueOf(version.get("sha256")))) {
+        Optional<String> tenantId = Optional.ofNullable((String) version.get("tenantId"));
+        if (pullOne(peer, moduleId, versionId, String.valueOf(version.get("sha256")), tenantId)) {
           pulled++;
         }
       }
@@ -157,7 +159,8 @@ final class AndvariPeerSync implements AutoCloseable {
    * already goes through, reused rather than duplicated here. Returns whether a new local copy was
    * actually created.
    */
-  private boolean pullOne(URI peer, String moduleId, String version, String expectedSha256)
+  private boolean pullOne(
+      URI peer, String moduleId, String version, String expectedSha256, Optional<String> tenantId)
       throws IOException, InterruptedException {
     URI uri = peer.resolve("/artifacts/" + moduleId + "/" + version);
     HttpResponse<InputStream> response =
@@ -169,7 +172,10 @@ final class AndvariPeerSync implements AutoCloseable {
     }
     PutResult result;
     try (InputStream body = response.body()) {
-      result = artifactStore.put(moduleId, version, body, "andvari-peer-sync:" + peer);
+      // Always a fresh coordinate from this replica's own point of view -- syncFrom only ever
+      // calls pullOne for a coordinate its own meta() lookup just confirmed is missing locally --
+      // so this can only land as CREATED, never the untenanted-to-tenanted backfill branch.
+      result = artifactStore.put(moduleId, version, body, "andvari-peer-sync:" + peer, tenantId);
     }
     if (result.outcome() == PutOutcome.CONFLICT) {
       // Both replicas independently hold different bytes under the identical coordinate -- the

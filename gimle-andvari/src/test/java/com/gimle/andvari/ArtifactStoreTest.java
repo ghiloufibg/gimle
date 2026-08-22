@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -279,6 +280,82 @@ class ArtifactStoreTest {
         store.put("com.example.uncapped", "1.0.0", new ByteArrayInputStream(jar), "ana");
 
     assertEquals(PutOutcome.CREATED, result.outcome());
+  }
+
+  @Test
+  void a_push_with_a_tenant_records_it_and_it_round_trips_through_meta() throws Exception {
+    PutResult result =
+        store.put("com.example.app", "1.0.0", bytes("v1"), "ana", Optional.of("orders-platform"));
+
+    assertEquals(Optional.of("orders-platform"), result.stored().tenantId());
+    assertEquals(
+        Optional.of("orders-platform"),
+        store.meta("com.example.app", "1.0.0").orElseThrow().tenantId());
+  }
+
+  @Test
+  void a_push_with_no_tenant_leaves_tenant_id_empty() throws Exception {
+    PutResult result = store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    assertEquals(Optional.empty(), result.stored().tenantId());
+  }
+
+  @Test
+  void an_untenanted_artifact_can_be_claimed_by_a_later_push_supplying_a_tenant() throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    PutResult claimed =
+        store.put("com.example.app", "1.0.0", bytes("v1"), "ana", Optional.of("orders-platform"));
+
+    assertEquals(PutOutcome.IDENTICAL, claimed.outcome());
+    assertEquals(Optional.of("orders-platform"), claimed.stored().tenantId());
+    assertEquals(
+        Optional.of("orders-platform"),
+        store.meta("com.example.app", "1.0.0").orElseThrow().tenantId());
+  }
+
+  @Test
+  void a_claimed_tenant_cannot_later_be_swapped_for_a_different_one() throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana", Optional.of("orders-platform"));
+
+    PutResult conflict =
+        store.put("com.example.app", "1.0.0", bytes("v1"), "ana", Optional.of("billing"));
+
+    assertEquals(PutOutcome.CONFLICT, conflict.outcome());
+    assertEquals(Optional.of("orders-platform"), conflict.stored().tenantId());
+    assertEquals(
+        Optional.of("orders-platform"),
+        store.meta("com.example.app", "1.0.0").orElseThrow().tenantId());
+  }
+
+  @Test
+  void omitting_the_tenant_on_a_later_identical_push_never_clears_an_existing_one()
+      throws Exception {
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana", Optional.of("orders-platform"));
+
+    PutResult second = store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+
+    assertEquals(PutOutcome.IDENTICAL, second.outcome());
+    assertEquals(Optional.of("orders-platform"), second.stored().tenantId());
+  }
+
+  @Test
+  void a_meta_json_written_before_tenant_tagging_existed_parses_as_untenanted() throws Exception {
+    // Simulates a coordinate committed by an older Andvari build whose meta.json has no
+    // "tenantId" key at all, rather than an explicit null -- meta() must treat that exactly like
+    // Optional.empty(), not throw, so every artifact pushed before this feature existed keeps
+    // working unchanged.
+    store.put("com.example.app", "1.0.0", bytes("v1"), "ana");
+    Path metaFile =
+        tempDir
+            .resolve("artifacts")
+            .resolve("com.example.app")
+            .resolve("1.0.0")
+            .resolve("meta.json");
+    String withoutTenantKey = Files.readString(metaFile);
+    assertFalse(withoutTenantKey.contains("tenantId"));
+
+    assertEquals(Optional.empty(), store.meta("com.example.app", "1.0.0").orElseThrow().tenantId());
   }
 
   private static ByteArrayInputStream bytes(String content) {
