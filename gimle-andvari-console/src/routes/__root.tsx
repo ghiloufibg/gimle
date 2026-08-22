@@ -56,7 +56,7 @@ function CenteredCard({
       <div className="hud-panel w-full max-w-sm rounded-sm p-8 text-center">
         <AndvariMark className="mx-auto h-14 w-14" />
         <p className="hud-label mt-4">gimle // andvari</p>
-        <h1 className="mt-2 text-lg font-semibold">{title}</h1>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
         <div className="mt-6 flex justify-center">{children}</div>
       </div>

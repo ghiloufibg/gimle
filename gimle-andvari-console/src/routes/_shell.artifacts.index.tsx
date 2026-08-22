@@ -70,7 +70,7 @@ function ArtifactsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <HudPanel>
-          <p className="text-sm text-muted-foreground">No modules match this filter.</p>
+          <p className="text-xs text-muted-foreground">No modules match this filter.</p>
         </HudPanel>
       ) : (
         <div className="flex flex-col gap-3">
@@ -88,21 +88,21 @@ function ArtifactsPage() {
               >
                 <div className="min-w-0">
                   <p className="hud-label">module</p>
-                  <p className="truncate font-mono text-sm">{moduleId}</p>
+                  <p className="truncate font-mono text-xs">{moduleId}</p>
                 </div>
                 <div className="flex items-center gap-6">
                   <div>
                     <p className="hud-label">versions</p>
-                    <p className="font-mono text-sm">{versions.length || "—"}</p>
+                    <p className="font-mono text-xs">{versions.length || "—"}</p>
                   </div>
                   <div>
                     <p className="hud-label">latest</p>
-                    <p className="font-mono text-sm">{latest?.version ?? "—"}</p>
+                    <p className="font-mono text-xs">{latest?.version ?? "—"}</p>
                   </div>
                   <div className="hidden sm:block">
                     <p className="hud-label">pushed</p>
                     <p
-                      className="font-mono text-sm text-muted-foreground"
+                      className="font-mono text-xs text-muted-foreground"
                       title={latest ? formatAbsolute(latest.pushedAtEpochMilli) : ""}
                     >
                       {latest ? formatRelative(latest.pushedAtEpochMilli) : "—"}
