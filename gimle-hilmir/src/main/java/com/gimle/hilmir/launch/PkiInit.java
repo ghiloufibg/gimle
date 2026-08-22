@@ -10,20 +10,29 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import javax.crypto.KeyGenerator;
 
 /**
- * {@code hilmir pki init} -- a one-shot spawn of the platform's own {@code PkiBootstrapMain} to
- * generate a brand-new cluster's TLS material, the same shape {@code gimle-holmgang}'s own {@code
- * GimleCluster.generateTlsMaterial} uses for a test cluster.
+ * {@code hilmir pki init} -- a one-shot local generation of a brand-new cluster's shared secret
+ * material: TLS (a spawn of the platform's own {@code PkiBootstrapMain}, the same shape {@code
+ * gimle-holmgang}'s own {@code GimleCluster.generateTlsMaterial} uses for a test cluster) and, when
+ * a Fafnir key file is configured, the Fafnir key itself. Both are cluster-wide material every
+ * machine needs an identical copy of before any process starts -- generating them here, once,
+ * locally, before {@code --remote up} ever dispatches anywhere, is what lets {@code
+ * com.gimle.hilmir.remote.RemoteDispatch} distribute already-consistent files instead of risking
+ * two machines each generating their own independently.
  */
 public final class PkiInit {
 
   private static final Duration TIMEOUT = Duration.ofSeconds(120);
+  private static final int FAFNIR_KEY_BITS = 256;
 
   private PkiInit() {}
 
@@ -37,38 +46,57 @@ public final class PkiInit {
    * {@code GIMLE_HOME} directly instead of mutating the JVM's real environment -- the same shape
    * {@link com.gimle.hilmir.plan.LaunchPlanner}'s own package-private {@code plan} overload uses
    * for the identical problem.
+   *
+   * <p>TLS generation runs whenever {@code tls.materialDir} is configured; otherwise it's skipped
+   * entirely, but Fafnir key generation still applies whenever a Fafnir spans more than one machine
+   * (a plaintext multi-machine Fafnir deployment still needs an identical key everywhere). A
+   * topology with neither -- no TLS material to generate and no multi-machine Fafnir key to
+   * generate -- has nothing for this command to do, and is rejected outright.
    */
   static void run(
       final Topology topology,
       final ResolvedRuntime runtime,
       final PrintStream out,
       final String gimleHomeEnv) {
-    final Path materialDir =
-        topology
-            .tls()
-            .orElseThrow(
-                () ->
-                    new HilmirException(
-                        "topology '"
-                            + topology.name()
-                            + "' declares no tls.materialDir -- pki init only applies to an mtls"
-                            + " topology"))
-            .materialDir();
+    final boolean fafnirSpansMultipleMachines = fafnirSpansMultipleMachines(topology);
+    if (topology.tls().isPresent()) {
+      runTlsBootstrap(topology, runtime, out, gimleHomeEnv);
+    } else if (fafnirSpansMultipleMachines) {
+      out.println(
+          "topology '"
+              + topology.name()
+              + "' declares no tls.materialDir; skipping TLS material generation");
+    } else {
+      throw new HilmirException(
+          "topology '"
+              + topology.name()
+              + "' declares no tls.materialDir and fafnir doesn't span multiple machines -- pki"
+              + " init has nothing to do");
+    }
+    generateFafnirKeyIfNeeded(topology, out);
+  }
+
+  private static void runTlsBootstrap(
+      final Topology topology,
+      final ResolvedRuntime runtime,
+      final PrintStream out,
+      final String gimleHomeEnv) {
+    final Path materialDir = topology.tls().orElseThrow().materialDir();
     final String caCommonName = topology.name() + "-ca";
-    final String hostname = pickHostname(topology);
-    warnIfMultipleHosts(topology, hostname, out);
+    final List<String> hostnames = distinctHostnames(topology);
     createDirectories(runtime.dataRoot());
 
     final List<String> command =
-        buildCommand(topology, runtime, gimleHomeEnv, materialDir, caCommonName, hostname);
+        buildCommand(topology, runtime, gimleHomeEnv, materialDir, caCommonName, hostnames);
     runOneShot(command, runtime.dataRoot().resolve("pki-init.log"));
-    out.println("wrote cluster TLS material to " + materialDir);
+    out.println(
+        "wrote cluster TLS material for " + hostnames.size() + " hostname(s) to " + materialDir);
   }
 
   /**
-   * Just the command line, with no process spawning -- pulled out of {@link #run} so a test can
-   * assert on the resolved {@code java} executable directly (bundled-JRE or not) without needing
-   * {@code gimle-pki} on this module's own classpath to actually run it.
+   * Just the command line, with no process spawning -- pulled out of {@link #runTlsBootstrap} so a
+   * test can assert on the resolved {@code java} executable directly (bundled-JRE or not) without
+   * needing {@code gimle-pki} on this module's own classpath to actually run it.
    */
   static List<String> buildCommand(
       final Topology topology,
@@ -76,49 +104,76 @@ public final class PkiInit {
       final String gimleHomeEnv,
       final Path materialDir,
       final String caCommonName,
-      final String hostname) {
-    return List.of(
-        BundledJreResolver.resolveJavaExecutable(topology, runtime, "pki", gimleHomeEnv),
-        "-cp",
-        runtime.classpath(),
-        "com.gimle.pki.PkiBootstrapMain",
-        materialDir.toString(),
-        caCommonName,
-        hostname);
+      final List<String> hostnames) {
+    final List<String> command =
+        new ArrayList<>(
+            List.of(
+                BundledJreResolver.resolveJavaExecutable(topology, runtime, "pki", gimleHomeEnv),
+                "-cp",
+                runtime.classpath(),
+                "com.gimle.pki.PkiBootstrapMain",
+                materialDir.toString(),
+                caCommonName));
+    command.addAll(hostnames);
+    return command;
+  }
+
+  private static List<String> distinctHostnames(final Topology topology) {
+    return topology.machines().stream().map(Machine::host).distinct().toList();
+  }
+
+  private static boolean fafnirSpansMultipleMachines(final Topology topology) {
+    return topology.fafnir().replicas().stream().map(ServiceReplica::machine).distinct().count()
+        > 1;
   }
 
   /**
-   * The platform's PKI mints DNS-only, single-hostname server SANs today (see {@code
-   * TopologyValidator}'s own {@code MTLS_SINGLE_HOSTNAME_PKI} finding) -- the first control-plane
-   * replica's own machine is the most useful single hostname to pick, since that is the process
-   * every other role's own TLS-mode client dials by name; falling back to the first declared
-   * machine only when the topology declares no control-plane replicas at all.
+   * Generates a fresh AES-256 key at {@code fafnir.keyFile} when one is configured and no file
+   * already exists there -- mirrors {@code gimle-fafnir}'s own {@code KeyFileManager.loadOrCreate}
+   * key format (a bare {@value #FAFNIR_KEY_BITS}-bit key, no header) without adding a compile
+   * dependency on that module, the same "spawn or hand-roll, never link" posture every other
+   * platform component gets from this module. An existing key file is always left untouched -- this
+   * is provisioning for a cluster that doesn't have one yet, never a rotation.
    */
-  private static String pickHostname(final Topology topology) {
-    final List<ServiceReplica> controlPlanes = topology.controlPlane().replicas();
-    if (!controlPlanes.isEmpty()) {
-      return TopologyAddresses.hostOf(topology, controlPlanes.get(0).machine());
+  private static void generateFafnirKeyIfNeeded(final Topology topology, final PrintStream out) {
+    final Optional<Path> keyFile = topology.fafnir().keyFile();
+    if (keyFile.isEmpty()) {
+      return;
     }
-    if (topology.machines().isEmpty()) {
-      throw new HilmirException(
-          "topology '" + topology.name() + "' declares no machines to generate TLS material for");
+    if (Files.exists(keyFile.get())) {
+      out.println("fafnir key file " + keyFile.get() + " already exists; leaving it untouched");
+      return;
     }
-    return topology.machines().get(0).host();
+    writeFafnirKey(keyFile.get());
+    out.println("generated fafnir key file at " + keyFile.get());
   }
 
-  private static void warnIfMultipleHosts(
-      final Topology topology, final String chosenHostname, final PrintStream out) {
-    final Set<String> hosts = new LinkedHashSet<>();
-    for (final Machine machine : topology.machines()) {
-      hosts.add(machine.host());
+  private static void writeFafnirKey(final Path keyFile) {
+    try {
+      final Path parent = keyFile.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
+      final KeyGenerator generator = KeyGenerator.getInstance("AES");
+      generator.init(FAFNIR_KEY_BITS);
+      Files.write(keyFile, generator.generateKey().getEncoded());
+      restrictPermissions(keyFile);
+    } catch (final NoSuchAlgorithmException e) {
+      throw new IllegalStateException("AES key generation unavailable", e);
+    } catch (final IOException e) {
+      throw new HilmirException("failed writing fafnir key file " + keyFile, e);
     }
-    if (hosts.size() > 1) {
-      out.println(
-          "note: transport is mtls across more than one machine, but PkiBootstrapMain mints server"
-              + " leaves for a single hostname only -- only "
-              + chosenHostname
-              + "'s server material was generated; any other machine's server processes will need"
-              + " manually-issued material");
+  }
+
+  /**
+   * Restricts a freshly-written Fafnir key file to owner-read/write only wherever the filesystem
+   * supports POSIX permissions -- mirrors {@code gimle-pki}'s own {@code
+   * PkiBootstrapMain#restrictPermissions}, silently skipped rather than failed where unsupported
+   * (local Windows development only).
+   */
+  private static void restrictPermissions(final Path path) throws IOException {
+    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
     }
   }
 

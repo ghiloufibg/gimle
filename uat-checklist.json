@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 579,
+    "totalRequirements": 580,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 460,
-    "releaseReadinessPercent": 20.6
+    "notCoveredByAutomatedTest": 461,
+    "releaseReadinessPercent": 20.5
   },
   "items": [
     {
@@ -1860,7 +1860,7 @@
       "module": "gimle-mimir",
       "category": "Internal-Infra",
       "feature": "RBAC Authorization Engine",
-      "step": "Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed.",
+      "step": "Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed, and may always read (never write or delete) the cluster-wide Service and NetworkPolicy sets regardless of its own tenant assignments.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -6337,7 +6337,7 @@
       "module": "gimle-hilmir",
       "category": "Release Management",
       "feature": "Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)",
-      "step": "Given a topology declaring two or more machines, When \"hilmir up -f topology.yaml --remote\" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others.",
+      "step": "Given a topology declaring two or more machines, When \"hilmir up -f topology.yaml --remote\" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others. Given a target machine with no hilmir install and a configured archive, When \"hilmir up --remote\" dispatches to it, Then the archive is shipped and atomically unpacked into the resolved install directory before the up command runs there. Given an mtls topology and a machine hosting a subset of roles, When \"hilmir up --remote\" dispatches to it, Then only the TLS leaves and Fafnir key that machine's own role placement needs are copied, generated beforehand by \"hilmir pki init\". Given a machine with a declared sshHostKeyFingerprint that does not match its scanned SSH host key, When \"hilmir up --remote\" dispatches, Then that machine never runs the up command while every other machine is unaffected.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -6371,6 +6371,17 @@
       "category": "CLI",
       "feature": "NetworkPolicy CRUD",
       "step": "Given no NetworkPolicy named \"acme-policy\" exists, When \"gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner\", Then POST /networkpolicies creates it and \"gimle get networkpolicy acme-policy\" returns tenantId \"acme\" and allowedCallerTenantIds [\"partner\"].",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-580",
+      "module": "gimle-hilmir",
+      "category": "Release Management",
+      "feature": "`hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout)",
+      "step": "Given a topology declaring an already-running machine, When \"hilmir upgrade-cluster -f topology.yaml --remote --new-classpath <cp>\" dispatches to it, Then the identical local upgrade-cluster command runs there over SSH with the new classpath and requested roles.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

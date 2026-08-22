@@ -589,6 +589,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | Complete (v1 scope) | Yes |
 | GIMLE-578 | Service CRUD and live endpoint lookup | CLI | Complete | Yes |
 | GIMLE-579 | NetworkPolicy CRUD | CLI | Complete | Yes |
+| GIMLE-580 | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | Release Management | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -3084,14 +3085,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-169 — RBAC Authorization Engine
 
 - **Category**: Internal-Infra
-- **User story**: As an operator, I want a single authorizer combining explicit RoleBindings, an implicit cluster-admin operator group, and node self-service.
+- **User story**: As an operator, I want a single authorizer combining explicit RoleBindings, an implicit cluster-admin operator group, and node self-service (its own node/log endpoints, plus cluster-wide read-only access to the Service and NetworkPolicy sets every node agent needs to relay/proxy).
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.authz.Authorizer#authorize`, `#isNodeSelfService`, `#resolveRole`
-- **Test coverage**: `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing`
+- **Test coverage**: `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing`, `#a_node_may_read_the_cluster_wide_service_and_network_policy_sets_with_no_binding_at_all`, `#a_node_may_never_write_or_delete_a_service_or_network_policy`; `ApiServerNodeServiceAndNetworkPolicyAuthzTest` (`gimle-controlplane`) exercises the same grant through the real mTLS/RBAC HTTP layer.
 - **Gherkin scenario**:
   ```gherkin
-  Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed.
+  Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed, and may always read (never write or delete) the cluster-wide Service and NetworkPolicy sets regardless of its own tenant assignments.
   ```
 
 #### GIMLE-170 — Node-Tenant Assignment Check
@@ -6627,13 +6628,29 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Release Management
 - **User story**: As an operator, I want `hilmir up/down/status` to dispatch over SSH to every machine a topology declares, so I don't need a shell already open on each target machine to bootstrap a real fleet.
-- **Status**: Complete for v1 scope (no host-key verification, no provisioning, no credential handling of its own)
+- **Status**: Complete: real host-key verification (StrictHostKeyChecking against a per-topology known_hosts file, fingerprint-pinned or trust-on-first-use, sequentially before any concurrent dispatch), real self-provisioning (`up --remote` ships and atomically unpacks a configured `archive` when `bin/hilmir` isn't already on the target), and real material distribution (`up --remote` ships exactly the TLS/Fafnir-key material each machine's own role placement needs, generated locally by `hilmir pki init` first) -- none of these are v1 non-goals any more. `upgrade-cluster --remote` is tracked separately as GIMLE-580.
 - **Confidence**: High
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`, `gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`
-- **Test coverage**: `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing); `gimle-holmgang`'s `UtgardSshDeployIT` (a real Docker+SSH round trip: `hilmir up/down/status --remote` against a genuine sshd over an ephemeral authorized keypair, deploying a real greeter-provider instance to `ACTIVE` through the control plane's own HTTP API)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`, `Machine.java` (`sshHostKeyFingerprint`), `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java` (multi-hostname leaves), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/PkiInit.java` (Fafnir key generation), `gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`
+- **Test coverage**: `RemoteDispatchTest` (provisioning, material distribution, host-key pinning including a simulated mismatch, upgrade-cluster dispatch shape); `ResolvedSshTargetTest` (`archive`/`sshHostKeyFingerprint` resolution); `SshProcessExecTest` (strict `known_hosts`-based argv); `PkiBootstrapMainTest` (one leaf per role per hostname, shared CA); `PkiInitTest` (multi-hostname invocation, Fafnir key generation); `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing, `archive`, `sshHostKeyFingerprint`); `gimle-holmgang`'s `UtgardSshDeployIT` (a real Docker+SSH round trip: `hilmir up/down/status --remote` against a genuine sshd over an ephemeral authorized keypair, deploying a real greeter-provider instance to `ACTIVE` through the control plane's own HTTP API)
 - **Gherkin scenario**:
   ```gherkin
   Given a topology declaring two or more machines, When "hilmir up -f topology.yaml --remote" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others.
+  Given a target machine with no hilmir install and a configured archive, When "hilmir up --remote" dispatches to it, Then the archive is shipped and atomically unpacked into the resolved install directory before the up command runs there.
+  Given an mtls topology and a machine hosting a subset of roles, When "hilmir up --remote" dispatches to it, Then only the TLS leaves and Fafnir key that machine's own role placement needs are copied, generated beforehand by "hilmir pki init".
+  Given a machine with a declared sshHostKeyFingerprint that does not match its scanned SSH host key, When "hilmir up --remote" dispatches, Then that machine never runs the up command while every other machine is unaffected.
+  ```
+
+#### GIMLE-580 — `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout)
+
+- **Category**: Release Management
+- **User story**: As a platform operator rolling out a new platform binary across a fleet, I want "hilmir upgrade-cluster" to dispatch over SSH the same way up/down/status do, so I don't need a shell already open on each already-running target machine.
+- **Status**: Complete: `RemoteDispatch.upgradeCluster` re-invokes the identical local `upgrade-cluster --machine <name> --new-classpath ...` command on every target over SSH, sharing the same host-key pinning and per-machine fan-out `up`/`down`/`status --remote` already use. `UpgradeClusterCommand` itself gains no cross-machine logic -- provisioning and material distribution are `up`-specific and don't apply here, since a machine this verb targets is by definition already a running cluster member.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`upgradeCluster`), `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runUpgradeCluster`'s `--remote` branch), `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`
+- **Test coverage**: `RemoteDispatchTest.upgrade_cluster_dispatches_the_new_classpath_and_roles_to_every_machine`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a topology declaring an already-running machine, When "hilmir upgrade-cluster -f topology.yaml --remote --new-classpath <cp>" dispatches to it, Then the identical local upgrade-cluster command runs there over SSH with the new classpath and requested roles.
   ```
 
 ### gimle-maven-plugin

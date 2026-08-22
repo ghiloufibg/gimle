@@ -35,7 +35,8 @@ class BundledJreResolverTest {
         Transport.PLAINTEXT,
         Optional.empty(),
         List.of(),
-        new RuntimeSettings(Optional.empty(), Optional.empty(), Optional.empty(), useBundledJre),
+        new RuntimeSettings(
+            Optional.empty(), Optional.empty(), Optional.empty(), useBundledJre, Optional.empty()),
         new StoreRole(List.of()),
         new ControlPlaneRole(List.of()),
         new FafnirRole(Optional.empty(), List.of()),

@@ -5,9 +5,10 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * The transport seam {@link RemoteDispatch} drives: run a command on a resolved target machine, or
- * copy a file to it. {@link SshProcessExec} is the real, production implementation (shells out to
- * the operator's own {@code ssh}/{@code scp}); tests substitute a fake, the same seam shape {@code
+ * The transport seam {@link RemoteDispatch} drives: run a command on a resolved target machine,
+ * copy a file to it, or establish enough trust in it to do either at all. {@link SshProcessExec} is
+ * the real, production implementation (shells out to the operator's own {@code ssh}/{@code
+ * scp}/{@code ssh-keyscan}/{@code ssh-keygen}); tests substitute a fake, the same seam shape {@code
  * com.gimle.hilmir.launch.MachineLauncher}'s own package-visible {@code up(ClusterPlan, ...)}
  * overload already establishes for local process spawning.
  */
@@ -23,6 +24,24 @@ public interface RemoteExec {
    */
   int exec(ResolvedSshTarget target, List<String> remoteCommand, PrintStream out);
 
+  /**
+   * The same as {@link #exec}, except {@code remoteCommand} runs with no working-directory change
+   * at all -- for anything that must work before {@code target.installDir()} necessarily exists
+   * (provisioning) or that targets an absolute path outside it entirely (TLS/Fafnir material
+   * distribution).
+   */
+  int execRaw(ResolvedSshTarget target, List<String> remoteCommand, PrintStream out);
+
   /** Copies {@code localFile} to {@code remotePath} on {@code target}. Throws on any failure. */
   void putFile(ResolvedSshTarget target, Path localFile, String remotePath);
+
+  /**
+   * Establishes {@code target}'s SSH host key in {@code knownHostsFile} before any {@link #exec}/
+   * {@link #execRaw}/{@link #putFile} call is made against it: when {@code target}'s own {@link
+   * ResolvedSshTarget#hostKeyFingerprint()} is present, the scanned key is verified against it and
+   * this throws on a mismatch (a stale pin or a possible man-in-the-middle) rather than trusting a
+   * different key silently; when absent, whatever key is scanned is trusted on first use. Throws if
+   * the host cannot be reached to scan at all.
+   */
+  void pinHostKey(ResolvedSshTarget target, Path knownHostsFile);
 }

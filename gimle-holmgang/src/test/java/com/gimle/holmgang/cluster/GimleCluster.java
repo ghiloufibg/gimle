@@ -474,7 +474,9 @@ public final class GimleCluster implements AutoCloseable {
       clientPort = leased.get(1);
       final List<String> command = new ArrayList<>();
       command.add(javaExecutablePath);
-      command.addAll(tlsFlags("controlplane"));
+      // "controlplane-localhost": PkiBootstrapMain names leaves <role>-<hostname>, and this
+      // single-machine test cluster always bootstraps for "localhost" (see generateTlsMaterial).
+      command.addAll(tlsFlags("controlplane-localhost"));
       command.addAll(spec.jvmFlags(ProcessRole.STORE));
       if (spec.muninnEnabled()) {
         command.add("-Dgimle.store.muninnEndpoint=" + muninnEndpointsSpec);
@@ -778,7 +780,7 @@ public final class GimleCluster implements AutoCloseable {
             ? com.gimle.hilmir.topology.Transport.MTLS
             : com.gimle.hilmir.topology.Transport.PLAINTEXT,
         mtls ? Optional.of(new TlsMaterial(tlsDir)) : Optional.empty(),
-        List.of(new Machine(MACHINE, host())),
+        List.of(new Machine(MACHINE, host(), Optional.empty(), Optional.empty())),
         RuntimeSettings.EMPTY,
         new StoreRole(storeReplicas),
         new ControlPlaneRole(controlPlaneReplicas),

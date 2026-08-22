@@ -37,15 +37,22 @@ tls:
 
 machines:
   - {name: m1, host: gimle-1.example.com}
-  - {name: m2, host: gimle-2.example.com, ssh: {user: deploy, port: 2222}}
+  - {name: m2, host: gimle-2.example.com, sshHostKeyFingerprint: "SHA256:abc...",
+     ssh: {user: deploy, port: 2222, archive: /local/gimle-platform-m2.tar.gz}}
 
 runtime:                         # entire section optional
   javaExecutable: java
   classpath: /opt/gimle/lib/*
   dataRoot: /var/lib/gimle
-  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle}
+  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle,
+        archive: /local/gimle-platform.tar.gz}
                                   # topology-wide default for `--remote`; a machine's own `ssh:`
-                                  # (like m2's above) overrides it field by field
+                                  # (like m2's above) overrides it field by field. `archive` is the
+                                  # local platform archive `--remote up` ships and unpacks when
+                                  # `<installDir>/bin/hilmir` isn't already there.
+                                  # `sshHostKeyFingerprint` (machine-only, no runtime-wide tier)
+                                  # pins that one host's SSH key; left unset, `--remote` trusts
+                                  # whatever key it scans on first use instead.
 
 store:
   replicas:
@@ -103,8 +110,6 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
 | `STORE_EVEN_REPLICAS` | WARNING | An even store replica count gains no quorum benefit over one fewer replica. |
 | `SINGLE_CONTROL_PLANE` | WARNING | Exactly one control-plane replica. |
 | `NO_AGENTS` | WARNING | Zero agents declared: the cluster can never place a workload. |
-| `FAFNIR_KEY_DISTRIBUTION` | WARNING | Fafnir replicas span more than one machine: the shared key file must be manually distributed to the same path on each. |
-| `MTLS_SINGLE_HOSTNAME_PKI` | WARNING | `transport: mtls` across more than one machine, but `PkiBootstrapMain` mints server leaves for a single hostname only. |
 
 ## CLI verbs
 
@@ -127,10 +132,13 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
 - `hilmir up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>] [--ssh-key <path>]
   [--ssh-port <port>] [--install-dir <path>]` -- the same `up` above, dispatched over SSH instead
   of running locally: with `--machine`, just that one machine; omitted, every machine the topology
-  declares, concurrently. Shells out to the operator's own `ssh`/`scp` (no SSH library dependency),
-  no host-key verification, no provisioning (`<installDir>/bin/hilmir` must already exist on the
-  target -- default `/opt/gimle`), no credential handling of its own. See `gimle-docs`' own Remote
-  (SSH) fleet bootstrap reference section for the full v1 scope and the
+  declares, concurrently. Shells out to the operator's own `ssh`/`scp`/`ssh-keyscan`/`ssh-keygen`
+  (no SSH library dependency); verifies every target's SSH host key against a per-topology
+  `known_hosts` file (pinned to a declared `sshHostKeyFingerprint` when present, trust-on-first-use
+  otherwise); self-provisions `<installDir>/bin/hilmir` from the resolved `archive` when it isn't
+  already there; and distributes exactly the TLS/Fafnir-key material each machine needs, already
+  generated locally by `hilmir pki init` -- no credential handling of its own beyond that. See
+  `gimle-docs`' own Remote (SSH) fleet bootstrap reference section for the full detail and the
   `machines[].ssh:`/`runtime.ssh:` precedence.
 - `hilmir down --machine <name> [--data-root <path>]` -- reads the run ledger at `--data-root`
   (`gimle-data` by default) and stops every process it recorded, in reverse of the order `up`
@@ -146,13 +154,20 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
 - `hilmir status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>] [--ssh-user
   <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]` -- the same `status`,
   dispatched over SSH; same `-f`-required-under-`--remote` asymmetry as `down` above.
-- `hilmir pki init -f <topology.yaml>` -- generates a brand-new mtls topology's cluster CA and
-  per-role leaf certificates under `tls.materialDir` by spawning the platform's own
-  `PkiBootstrapMain` once. Only applies to a topology with `transport: mtls` and a configured
-  `tls.materialDir`. Since the platform's PKI mints DNS-only, single-hostname server SANs today (see
-  `MTLS_SINGLE_HOSTNAME_PKI` below), a multi-machine topology gets material for one machine's
-  hostname only -- printed as a note -- and every other machine's server processes need
-  manually-issued material.
+- `hilmir upgrade-cluster -f <topology.yaml> --machine <name> --new-classpath <cp> [...]` -- a
+  per-machine platform binary rollout; see `gimle-docs`' own Cluster upgrade reference section for
+  its own flags. `hilmir upgrade-cluster -f <topology.yaml> --remote [--machine <name>]
+  --new-classpath <cp> [...] [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>]
+  [--install-dir <path>]` dispatches that exact same command over SSH the same way `up`/`down`/
+  `status --remote` do.
+- `hilmir pki init -f <topology.yaml>` -- generates a brand-new cluster's shared secret material,
+  once, locally: for an mtls topology (`transport: mtls` with `tls.materialDir` configured), the
+  cluster CA and one leaf certificate per (role, machine hostname) by spawning the platform's own
+  `PkiBootstrapMain`; and, whenever `fafnir.keyFile` is configured and no file already exists there,
+  a fresh Fafnir key -- for a plaintext topology this is the *only* thing `pki init` does, and only
+  when Fafnir spans more than one machine (a single-machine Fafnir still just generates its own key
+  on first start, same as always). `--remote up` distributes exactly what each machine needs from
+  this material before starting any process there.
 - `hilmir doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]` --
   static pre-flight checks against a built jar, needing neither a topology document nor a running
   control plane. Runs the full static finding catalog (structural jar inspection, a lenient

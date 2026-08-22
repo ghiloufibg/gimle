@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 579
+- **Total requirements**: 580
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 460
-- **Release-readiness (automated coverage)**: 20.6%
+- **Not covered by automated test**: 461
+- **Release-readiness (automated coverage)**: 20.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -28,7 +28,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
 | gimle-cli | 21 | 0 | 21 | 0.0% |
-| gimle-hilmir | 30 | 0 | 30 | 0.0% |
+| gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 26 | 0 | 26 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
@@ -556,7 +556,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-169 | RBAC Authorization Engine | Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed. | No |
+| [ ] | GIMLE-169 | RBAC Authorization Engine | Given a principal with a custom role bound to a declared permission set; When authorize is called for an action within it; Then allowed; outside it, denied; a group:gimle:operators member is always allowed everything; a gimle:nodes principal may act on its own node/log endpoints with no RoleBinding needed, and may always read (never write or delete) the cluster-wide Service and NetworkPolicy sets regardless of its own tenant assignments. | No |
 | [ ] | GIMLE-170 | Node-Tenant Assignment Check | Given a node with an active instance for tenant "acme"; When isTenantAssignedToNode is checked; Then true; for an unassigned tenant, false. | No |
 
 #### Internal/Infra
@@ -1274,7 +1274,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-408 | Workload readiness polling for `--wait` | Given a Deployment applied with --wait, When instances haven't all reported ACTIVE, Then polls every 2s up to a 5-minute timeout. | No |
 | [ ] | GIMLE-412 | Gateway extension enable (`hilmir enable gateway`) | Given gimle-gateway not registered/deployed, When "hilmir enable gateway --server host:port", Then jar pushed and a synthesized bundle deployed fresh; identical-sha jar already registered skips the push; already-deployed at an older version upgrades instead. | No |
 | [ ] | GIMLE-413 | Gateway extension disable (`hilmir disable gateway`) | Given gateway currently enabled, When "hilmir disable gateway --server host:port", Then the release is fully undeployed; never-enabled reports a clear "nothing to disable" message. | No |
-| [ ] | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Given a topology declaring two or more machines, When "hilmir up -f topology.yaml --remote" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others. | No |
+| [ ] | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Given a topology declaring two or more machines, When "hilmir up -f topology.yaml --remote" with no --machine, Then every machine is dispatched to concurrently over SSH -- the identical local up --machine <name> re-invoked on each target -- and one machine's failure never aborts the others. Given a target machine with no hilmir install and a configured archive, When "hilmir up --remote" dispatches to it, Then the archive is shipped and atomically unpacked into the resolved install directory before the up command runs there. Given an mtls topology and a machine hosting a subset of roles, When "hilmir up --remote" dispatches to it, Then only the TLS leaves and Fafnir key that machine's own role placement needs are copied, generated beforehand by "hilmir pki init". Given a machine with a declared sshHostKeyFingerprint that does not match its scanned SSH host key, When "hilmir up --remote" dispatches, Then that machine never runs the up command while every other machine is unaffected. | No |
+| [ ] | GIMLE-580 | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | Given a topology declaring an already-running machine, When "hilmir upgrade-cluster -f topology.yaml --remote --new-classpath <cp>" dispatches to it, Then the identical local upgrade-cluster command runs there over SSH with the new classpath and requested roles. | No |
 
 #### Release Management / Security
 

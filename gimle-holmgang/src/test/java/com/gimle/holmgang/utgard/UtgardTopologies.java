@@ -47,14 +47,13 @@ public final class UtgardTopologies {
 
   /**
    * An mtls topology with every server-side role (store, control plane, Fafnir) on one {@code
-   * serverMachine} -- the platform's own PKI mints DNS-only, single-hostname server leaves (see
-   * {@code MTLS_SINGLE_HOSTNAME_PKI} in {@code gimle-hilmir}'s validator catalog), so a server role
-   * split across machines would need material this suite cannot generate. The agent(s) in {@code
-   * agentMachines} still run on their own separate machine(s): an agent only ever dials {@code
-   * serverMachine} by name (it presents no server identity of its own that anything here verifies
-   * by hostname), which is exactly the part of a genuinely multi-machine mtls topology that does
-   * work today -- and the part that only means anything over a real, independently resolvable
-   * hostname rather than {@code localhost}.
+   * serverMachine} -- a deliberately simple fixture shape, not a limitation of the platform's own
+   * PKI (which mints a distinct leaf per role per machine hostname, so a server role split across
+   * machines works too). The agent(s) in {@code agentMachines} still run on their own separate
+   * machine(s): an agent only ever dials {@code serverMachine} by name (it presents no server
+   * identity of its own that anything here verifies by hostname), which is exactly the part of a
+   * genuinely multi-machine mtls topology that only means anything over a real, independently
+   * resolvable hostname rather than {@code localhost}.
    */
   public static String mtls(
       final String clusterName,

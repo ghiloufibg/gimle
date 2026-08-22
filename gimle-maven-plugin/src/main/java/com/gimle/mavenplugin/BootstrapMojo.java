@@ -478,10 +478,12 @@ public final class BootstrapMojo extends AbstractMojo {
     List<String> command = new ArrayList<>();
     command.add(GimleProcesses.javaExecutable());
     if (tls) {
+      // PkiBootstrapMain names each role's leaf <role>-<hostname>.crt/.key -- one leaf per
+      // (role, hostname) pair, even though this single-machine bootstrap only ever mints one.
       addTlsFlags(
           command,
-          tlsDir.resolve(certName + ".crt"),
-          tlsDir.resolve(certName + ".key"),
+          tlsDir.resolve(certName + "-" + TLS_HOSTNAME + ".crt"),
+          tlsDir.resolve(certName + "-" + TLS_HOSTNAME + ".key"),
           tlsDir.resolve("ca.crt"));
     }
     command.addAll(extraJvmArgs);

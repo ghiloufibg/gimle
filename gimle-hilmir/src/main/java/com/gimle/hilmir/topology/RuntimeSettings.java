@@ -27,7 +27,8 @@ public record RuntimeSettings(
     Optional<SshSettings> ssh) {
 
   public static final RuntimeSettings EMPTY =
-      new RuntimeSettings(Optional.empty(), Optional.empty(), Optional.empty(), false);
+      new RuntimeSettings(
+          Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty());
 
   public RuntimeSettings {
     if (javaExecutable == null || classpath == null || dataRoot == null || ssh == null) {
@@ -39,14 +40,5 @@ public record RuntimeSettings(
     if (classpath.isPresent() && classpath.get().isBlank()) {
       throw new GimleManifestException("runtime.classpath must be non-blank if present");
     }
-  }
-
-  /** Preserves every pre-existing 4-arg call site: runtime settings with no topology-wide ssh. */
-  public RuntimeSettings(
-      final Optional<String> javaExecutable,
-      final Optional<String> classpath,
-      final Optional<Path> dataRoot,
-      final boolean useBundledJre) {
-    this(javaExecutable, classpath, dataRoot, useBundledJre, Optional.empty());
   }
 }

@@ -37,6 +37,7 @@ import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +65,9 @@ import java.util.Optional;
  *       (--topology &lt;file&gt; | --server &lt;host:clientPort&gt;[,...]) [--pki-dir &lt;dir&gt;]
  *   hilmir upgrade-cluster -f &lt;topology.yaml&gt; --machine &lt;name&gt; --new-classpath &lt;cp&gt;
  *       [--new-java-executable &lt;path&gt;] [--data-root &lt;path&gt;] [--role &lt;ROLE&gt;]...
+ *   hilmir upgrade-cluster -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] --new-classpath &lt;cp&gt;
+ *       [--new-java-executable &lt;path&gt;] [--data-root &lt;path&gt;] [--role &lt;ROLE&gt;]...
+ *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir deploy -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir upgrade -f &lt;bundle.yaml&gt; [--values &lt;file&gt;] [--set k=v]... [--wait] [--dry-run] [-o json]
  *   hilmir rollback --release &lt;name&gt; [--to-revision r] [--wait] [--dry-run] [-o json]
@@ -84,12 +88,17 @@ import java.util.Optional;
  * exception: {@code down}/{@code status --remote} do require {@code -f}, since resolving each
  * target machine's host and SSH settings needs the topology document.
  *
- * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code status} verb
- * over SSH on every machine the topology declares (or just the one {@code --machine} names, when
- * given) instead of running locally -- see {@code com.gimle.hilmir.remote.RemoteDispatch} for the
- * full v1 scope: shells out to the operator's own already-configured {@code ssh}/{@code scp} (no
- * SSH library dependency), no host-key verification, no provisioning (the target's platform archive
- * is assumed already unpacked), and no credential handling of its own.
+ * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code
+ * status}/{@code upgrade-cluster} verb over SSH on every machine the topology declares (or just the
+ * one {@code --machine} names, when given) instead of running locally -- see {@code
+ * com.gimle.hilmir.remote.RemoteDispatch}: shells out to the operator's own already-configured
+ * {@code ssh}/{@code scp}/{@code ssh-keyscan}/{@code ssh-keygen} (no SSH library dependency),
+ * verifies every target's SSH host key against a per-topology {@code known_hosts} file (pinned to a
+ * declared {@code machines[].sshHostKeyFingerprint} when present, trust-on-first-use otherwise --
+ * never the operator's own global known-hosts), self-provisions a missing install from a configured
+ * {@code archive} before {@code up} runs, and distributes exactly the TLS/Fafnir-key material each
+ * machine needs -- but still no credential handling of its own; authentication is entirely the
+ * operator's own {@code ssh} identity.
  *
  * <p>The six release verbs are a separate, Helm-equivalent concern layered on top of the same
  * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
@@ -218,6 +227,7 @@ public final class HilmirMain {
       printFindings(findings, out);
       return 1;
     }
+    final ResolvedRuntime runtime = resolveRuntime(topology);
     if (remoteFlag(args)) {
       return RemoteDispatch.up(
           topology,
@@ -225,10 +235,10 @@ public final class HilmirMain {
           machineFlag(args),
           dataRootFlagOptional(args),
           sshCliFlags(args),
+          runtime,
           out);
     }
     final String machine = requireMachineFlag(args);
-    final ResolvedRuntime runtime = resolveRuntime(topology);
     final List<RunRecord> records = MachineLauncher.up(topology, machine, runtime, out);
     out.println("started " + records.size() + " process(es) on machine " + machine);
     return 0;
@@ -281,6 +291,20 @@ public final class HilmirMain {
   }
 
   private static int runUpgradeCluster(final List<String> args, final PrintStream out) {
+    if (remoteFlag(args)) {
+      final Path topologyFile = requireFileFlagForRemote(args);
+      final Topology topology = parseFile(topologyFile);
+      return RemoteDispatch.upgradeCluster(
+          topology,
+          topologyFile,
+          machineFlag(args),
+          requireFlag(args, "--new-classpath"),
+          optionalFlag(args, "--new-java-executable"),
+          dataRootFlagOptional(args),
+          allValues(args, "--role"),
+          sshCliFlags(args),
+          out);
+    }
     return UpgradeClusterCommand.run(args, out);
   }
 
@@ -463,6 +487,21 @@ public final class HilmirMain {
     return Optional.empty();
   }
 
+  private static String requireFlag(final List<String> args, final String flag) {
+    return optionalFlag(args, flag)
+        .orElseThrow(() -> new HilmirException("missing required flag: " + flag));
+  }
+
+  private static List<String> allValues(final List<String> args, final String flag) {
+    final List<String> values = new ArrayList<>();
+    for (int i = 0; i < args.size(); i++) {
+      if (args.get(i).equals(flag) && i + 1 < args.size()) {
+        values.add(args.get(i + 1));
+      }
+    }
+    return values;
+  }
+
   private static Optional<Integer> optionalIntFlag(final List<String> args, final String flag) {
     return optionalFlag(args, flag)
         .map(
@@ -502,6 +541,9 @@ public final class HilmirMain {
               [--new-java-executable <path>] [--data-root <path>]
               [--role <STORE|CONTROL_PLANE|FAFNIR|MUNINN|ANDVARI>]...
               (platform binary rollout -- NOT the same as the "upgrade" bundle verb below)
+          upgrade-cluster -f <topology.yaml> --remote [--machine <name>] --new-classpath <cp>
+              [--new-java-executable <path>] [--data-root <path>] [--role <ROLE>]...
+              [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           deploy -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           upgrade -f <bundle.yaml> [--values <file>] [--set k=v]... [--wait] [--dry-run] [-o json]
           rollback --release <name> [--to-revision r] [--wait] [--dry-run] [-o json]

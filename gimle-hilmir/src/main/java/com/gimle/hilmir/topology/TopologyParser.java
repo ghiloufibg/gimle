@@ -128,11 +128,13 @@ public final class TopologyParser {
       if (!(entry instanceof Map<?, ?> machine)) {
         throw new GimleManifestException("each 'machines' entry must be a mapping");
       }
-      requireNoUnknownKeys(machine, Set.of("name", "host", "ssh"), "machines[]");
+      requireNoUnknownKeys(
+          machine, Set.of("name", "host", "sshHostKeyFingerprint", "ssh"), "machines[]");
       machines.add(
           new Machine(
               requireString(machine, "name"),
               requireString(machine, "host"),
+              optionalString(machine, "sshHostKeyFingerprint"),
               parseSsh(machine, "machines[].ssh")));
     }
     return machines;
@@ -157,7 +159,7 @@ public final class TopologyParser {
   }
 
   /**
-   * The {@code ssh: { user, port, identityFile, installDir }} block shared by both {@code
+   * The {@code ssh: { user, port, identityFile, installDir, archive }} block shared by both {@code
    * machines[]} (a per-machine override) and {@code runtime} (a topology-wide default) -- see
    * {@link SshSettings}.
    */
@@ -169,13 +171,15 @@ public final class TopologyParser {
     if (!(value instanceof Map<?, ?> map)) {
       throw new GimleManifestException("'" + context + "' must be a mapping");
     }
-    requireNoUnknownKeys(map, Set.of("user", "port", "identityFile", "installDir"), context);
+    requireNoUnknownKeys(
+        map, Set.of("user", "port", "identityFile", "installDir", "archive"), context);
     return Optional.of(
         new SshSettings(
             optionalString(map, "user"),
             optionalInt(map, "port"),
             optionalString(map, "identityFile"),
-            optionalString(map, "installDir")));
+            optionalString(map, "installDir"),
+            optionalString(map, "archive")));
   }
 
   private static List<StoreReplica> parseStoreReplicas(final Map<?, ?> root) {

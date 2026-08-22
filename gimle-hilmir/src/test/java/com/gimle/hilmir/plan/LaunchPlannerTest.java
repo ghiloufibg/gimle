@@ -262,8 +262,8 @@ class LaunchPlannerTest {
     final List<String> controlPlaneTlsFlags =
         List.of(
             "-Dgimle.transport.protocol=tls",
-            "-Dgimle.tls.certFile=" + tlsPath("controlplane.crt"),
-            "-Dgimle.tls.keyFile=" + tlsPath("controlplane.key"),
+            "-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("controlplane-host1.example.com.key"),
             "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
     assertTrue(only(plan, "m1", "store-0").command().containsAll(controlPlaneTlsFlags));
 
@@ -274,8 +274,8 @@ class LaunchPlannerTest {
     final List<String> fafnirTlsFlags =
         List.of(
             "-Dgimle.transport.protocol=tls",
-            "-Dgimle.tls.certFile=" + tlsPath("fafnir.crt"),
-            "-Dgimle.tls.keyFile=" + tlsPath("fafnir.key"),
+            "-Dgimle.tls.certFile=" + tlsPath("fafnir-host1.example.com.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("fafnir-host1.example.com.key"),
             "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
     assertTrue(only(plan, "m1", "fafnir-0").command().containsAll(fafnirTlsFlags));
 
@@ -288,6 +288,49 @@ class LaunchPlannerTest {
                     "-Dgimle.tls.certFile=" + tlsPath("node-node-a.crt"),
                     "-Dgimle.tls.keyFile=" + tlsPath("node-node-a.key"))));
     assertTrue(agent.needsBootstrapToken());
+  }
+
+  @Test
+  void a_control_plane_replica_on_each_machine_presents_that_machines_own_distinct_leaf() {
+    final Topology topology =
+        parse(
+            """
+            name: multi
+            transport: mtls
+            tls:
+              materialDir: /etc/gimle/tls
+            machines:
+              - {name: m1, host: host1.example.com}
+              - {name: m2, host: host2.example.com}
+            store:
+              replicas:
+                - {machine: m1}
+            controlPlane:
+              replicas:
+                - {machine: m1, port: 8080}
+                - {machine: m2, port: 8081}
+            fafnir:
+              keyFile: /etc/gimle/fafnir-secret.key
+              replicas:
+                - {machine: m1, port: 9092}
+            """);
+    final ClusterPlan plan = LaunchPlanner.plan(topology, RUNTIME);
+
+    final ProcessCommand cp1 = only(plan, "m1", "controlplane-0");
+    final ProcessCommand cp2 = only(plan, "m2", "controlplane-1");
+
+    assertTrue(
+        cp1.command()
+            .contains("-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt")));
+    assertTrue(
+        cp2.command()
+            .contains("-Dgimle.tls.certFile=" + tlsPath("controlplane-host2.example.com.crt")));
+    // Never each other's leaf, and both still share the same CA.
+    assertFalse(
+        cp1.command()
+            .contains("-Dgimle.tls.certFile=" + tlsPath("controlplane-host2.example.com.crt")));
+    assertTrue(cp1.command().contains("-Dgimle.tls.caFile=" + tlsPath("ca.crt")));
+    assertTrue(cp2.command().contains("-Dgimle.tls.caFile=" + tlsPath("ca.crt")));
   }
 
   @Test

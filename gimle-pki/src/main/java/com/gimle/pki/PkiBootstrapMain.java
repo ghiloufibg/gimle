@@ -30,11 +30,11 @@ import org.slf4j.LoggerFactory;
  * CertificateSigningRequests}/{@link OwnCertificateRotator}), the same reason {@code gimle-worker}
  * never depends on this module at all.
  *
- * <p>Known limitation: the control plane's leaf SAN only carries DNS names (this module's {@link
- * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a control plane reached by
- * bare IP literal (e.g. {@code https://127.0.0.1:8080}) will fail hostname verification even though
- * the handshake and CA trust chain are otherwise valid -- point clients at the SAN'd hostname (the
- * {@code --hostname} argument here, "localhost" by default) instead.
+ * <p>Known limitation: every leaf's SAN only carries DNS names (this module's {@link
+ * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a process reached by bare
+ * IP literal (e.g. {@code https://127.0.0.1:8080}) will fail hostname verification even though the
+ * handshake and CA trust chain are otherwise valid -- point clients at one of the SAN'd hostnames
+ * (the positional {@code hostname...} arguments here) instead.
  */
 public final class PkiBootstrapMain {
 
@@ -48,37 +48,52 @@ public final class PkiBootstrapMain {
 
   public static void main(String[] args) throws IOException {
     if (args.length < 3) {
-      System.err.println("usage: PkiBootstrapMain <outputDir> <caCommonName> <hostname>");
+      System.err.println("usage: PkiBootstrapMain <outputDir> <caCommonName> <hostname>...");
       System.exit(2);
       return;
     }
     Path outputDir = Path.of(args[0]);
     String caCommonName = args[1];
-    String hostname = args[2];
+    List<String> hostnames = List.of(args).subList(2, args.length);
     Files.createDirectories(outputDir);
 
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=" + caCommonName), CA_VALIDITY);
     writeCa(outputDir, ca);
 
-    issueLeaf(outputDir, ca, "controlplane", "CN=" + hostname, List.of(hostname, "localhost"));
-    // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
-    // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
-    // local dev, per that class's own code comment): every action Fafnir takes being attributable
-    // to its own certificate Subject, not a borrowed one, is directly load-bearing for its audit
-    // story, since it's the one component whose entire job is being the trust boundary for secret
-    // material.
-    issueLeaf(outputDir, ca, "fafnir", "CN=" + hostname, List.of(hostname, "localhost"));
-    // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
-    // own independent Authorizer.authorize(...) check on every proxied read rather than trusting
-    // ApiServer's forwarded-principal claim as proof by itself, and that defense-in-depth check
-    // needs to be attributable to Muninn's own certificate Subject, not a borrowed one.
-    issueLeaf(outputDir, ca, "muninn", "CN=" + hostname, List.of(hostname, "localhost"));
-    // Andvari gets its own distinct identity for the same reason Fafnir and Muninn do: it re-runs
-    // its own independent Authorizer.authorize(...) check on artifact pushes/deletes rather than
-    // trusting a forwarded claim, and pushing executable module jars is supply-chain-adjacent --
-    // every such decision must be attributable to Andvari's own certificate Subject.
-    issueLeaf(outputDir, ca, "andvari", "CN=" + hostname, List.of(hostname, "localhost"));
+    // One leaf per (role, hostname): every process's identity is attributable to its own
+    // certificate Subject, not a borrowed one shared with every other machine hosting the same
+    // role -- see the per-role comments below for why that matters most for Fafnir/Muninn/Andvari
+    // specifically. Filenames disambiguate by hostname (<role>-<hostname>.crt/.key) since a
+    // multi-machine topology mints more than one leaf per role.
+    for (String hostname : hostnames) {
+      issueLeaf(
+          outputDir,
+          ca,
+          "controlplane-" + hostname,
+          "CN=" + hostname,
+          List.of(hostname, "localhost"));
+      // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
+      // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
+      // local dev, per that class's own code comment): every action Fafnir takes being attributable
+      // to its own certificate Subject, not a borrowed one, is directly load-bearing for its audit
+      // story, since it's the one component whose entire job is being the trust boundary for secret
+      // material.
+      issueLeaf(
+          outputDir, ca, "fafnir-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+      // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
+      // own independent Authorizer.authorize(...) check on every proxied read rather than trusting
+      // ApiServer's forwarded-principal claim as proof by itself, and that defense-in-depth check
+      // needs to be attributable to Muninn's own certificate Subject, not a borrowed one.
+      issueLeaf(
+          outputDir, ca, "muninn-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+      // Andvari gets its own distinct identity for the same reason Fafnir and Muninn do: it re-runs
+      // its own independent Authorizer.authorize(...) check on artifact pushes/deletes rather than
+      // trusting a forwarded claim, and pushing executable module jars is supply-chain-adjacent --
+      // every such decision must be attributable to Andvari's own certificate Subject.
+      issueLeaf(
+          outputDir, ca, "andvari-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+    }
     issueLeaf(
         outputDir,
         ca,
@@ -88,8 +103,9 @@ public final class PkiBootstrapMain {
     String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     System.out.println(
-        "wrote cluster CA, control-plane, fafnir, muninn, andvari, and initial-operator material"
-            + " to "
+        "wrote cluster CA, control-plane/fafnir/muninn/andvari material for "
+            + hostnames.size()
+            + " hostname(s), and initial-operator material to "
             + outputDir);
     System.out.println();
     System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);

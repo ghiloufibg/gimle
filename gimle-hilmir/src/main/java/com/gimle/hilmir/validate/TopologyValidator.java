@@ -76,13 +76,6 @@ public final class TopologyValidator {
     final List<String> fafnirMachines =
         topology.fafnir().replicas().stream().map(ServiceReplica::machine).toList();
     checkRole("fafnir", fafnirMachines, "NO_FAFNIR", machineNames, totalMachines, findings);
-    if (new HashSet<>(fafnirMachines).size() > 1) {
-      findings.add(
-          warning(
-              "FAFNIR_KEY_DISTRIBUTION",
-              "fafnir replicas span more than one machine: the shared key file must be manually"
-                  + " distributed to the same path on each -- hilmir cannot copy it for you"));
-    }
 
     final List<String> muninnMachines =
         topology.muninn().replicas().stream().map(ServiceReplica::machine).toList();
@@ -250,14 +243,6 @@ public final class TopologyValidator {
                     + " names, so hostname verification against an IP literal will fail under"
                     + " mtls -- use a DNS hostname instead"));
       }
-    }
-    if (topology.machines().size() > 1) {
-      out.add(
-          warning(
-              "MTLS_SINGLE_HOSTNAME_PKI",
-              "transport is mtls across more than one machine, but PkiBootstrapMain mints server"
-                  + " leaves for a single hostname only -- multi-machine mtls needs"
-                  + " manually-issued per-host server material"));
     }
   }
 

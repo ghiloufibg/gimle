@@ -98,8 +98,7 @@ class UtgardMtlsIT {
     UtgardForensics.record(workDir, "validate", validateResult);
     assertTrue(
         validateResult.succeeded(),
-        "expected only warnings (e.g. MTLS_SINGLE_HOSTNAME_PKI), not errors: "
-            + UtgardExec.describe(validateResult, "validate"));
+        "expected no ERROR findings: " + UtgardExec.describe(validateResult, "validate"));
 
     final UtgardExecResult pkiInitResult =
         machines.hilmir(SERVER_MACHINE, "pki", "init", "-f", TOPOLOGY_PATH);

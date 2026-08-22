@@ -287,24 +287,15 @@ class TopologyValidatorTest {
   }
 
   @Test
-  void reports_mtls_single_hostname_pki_on_a_multi_machine_mtls_topology() {
-    final Finding finding =
-        find(
-            validate(
-                "name: bad\ntransport: mtls\ntls:\n  materialDir: /etc/gimle/tls\n"
-                    + "machines:\n  - {name: m1, host: host1.example.com}\n"
-                    + "  - {name: m2, host: host2.example.com}\n"),
-            "MTLS_SINGLE_HOSTNAME_PKI");
-    assertEquals(Severity.WARNING, finding.severity());
-  }
-
-  @Test
-  void does_not_report_mtls_single_hostname_pki_on_a_single_machine_mtls_topology() {
+  void a_multi_machine_mtls_topology_reports_no_pki_related_warning() {
+    // Real multi-hostname PKI: PkiBootstrapMain mints one leaf per (role, hostname), so a
+    // multi-machine mtls topology needs no warning about it any more -- the code is gone entirely.
     assertFalse(
         has(
             validate(
                 "name: ok\ntransport: mtls\ntls:\n  materialDir: /etc/gimle/tls\n"
-                    + "machines:\n  - {name: m1, host: host1.example.com}\n"),
+                    + "machines:\n  - {name: m1, host: host1.example.com}\n"
+                    + "  - {name: m2, host: host2.example.com}\n"),
             "MTLS_SINGLE_HOSTNAME_PKI"));
   }
 
@@ -369,20 +360,17 @@ class TopologyValidatorTest {
   }
 
   @Test
-  void reports_fafnir_key_distribution_when_fafnir_spans_multiple_machines() {
-    final Finding finding =
-        find(
+  void a_fafnir_spanning_multiple_machines_reports_no_key_distribution_warning() {
+    // hilmir pki init now generates the fafnir key once and --remote distributes it before any
+    // Fafnir process starts, so this topology shape needs no manual-copy warning any more -- the
+    // code is gone entirely.
+    assertFalse(
+        has(
             validate(
-                "name: bad\nmachines:\n  - {name: m1, host: h1}\n  - {name: m2, host: h2}\n"
+                "name: ok\nmachines:\n  - {name: m1, host: h1}\n  - {name: m2, host: h2}\n"
                     + "fafnir:\n  keyFile: /k\n  replicas:\n    - {machine: m1}\n"
                     + "    - {machine: m2}\n"),
-            "FAFNIR_KEY_DISTRIBUTION");
-    assertEquals(Severity.WARNING, finding.severity());
-  }
-
-  @Test
-  void does_not_report_fafnir_key_distribution_when_fafnir_is_single_machine() {
-    assertFalse(has(validate(HEALTHY_TOPOLOGY), "FAFNIR_KEY_DISTRIBUTION"));
+            "FAFNIR_KEY_DISTRIBUTION"));
   }
 
   @Test

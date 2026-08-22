@@ -60,7 +60,9 @@ class TopologyParserTest {
     assertEquals(Transport.MTLS, topology.transport());
     assertEquals(Path.of("/etc/gimle/tls"), topology.tls().orElseThrow().materialDir());
     assertEquals(
-        List.of(new Machine("m1", "gimle-1.example.com"), new Machine("m2", "gimle-2.example.com")),
+        List.of(
+            new Machine("m1", "gimle-1.example.com", Optional.empty(), Optional.empty()),
+            new Machine("m2", "gimle-2.example.com", Optional.empty(), Optional.empty())),
         topology.machines());
     assertEquals(Optional.of("java"), topology.runtime().javaExecutable());
     assertEquals(Optional.of("/opt/gimle/lib/*"), topology.runtime().classpath());
@@ -176,6 +178,27 @@ class TopologyParserTest {
     assertEquals(Optional.of(2200), m1Ssh.port());
     assertEquals(Optional.empty(), m1Ssh.identityFile());
     assertTrue(topology.machines().get(1).ssh().isEmpty());
+  }
+
+  @Test
+  void parses_a_per_machine_ssh_key_and_archive() {
+    final Topology topology =
+        parse(
+            """
+            name: remote
+            machines:
+              - {name: m1, host: gimle-1.example.com, sshHostKeyFingerprint: "SHA256:abc",
+                 ssh: {archive: /local/gimle-platform.tar.gz}}
+            """);
+    final Machine m1 = topology.machines().get(0);
+    assertEquals(Optional.of("SHA256:abc"), m1.sshHostKeyFingerprint());
+    assertEquals(Optional.of("/local/gimle-platform.tar.gz"), m1.ssh().orElseThrow().archive());
+  }
+
+  @Test
+  void per_machine_ssh_host_key_fingerprint_defaults_to_empty_when_absent() {
+    final Topology topology = parse("name: remote\nmachines:\n  - {name: m1, host: h1}\n");
+    assertTrue(topology.machines().get(0).sshHostKeyFingerprint().isEmpty());
   }
 
   @Test

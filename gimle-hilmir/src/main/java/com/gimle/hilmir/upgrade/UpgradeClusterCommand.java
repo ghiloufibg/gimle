@@ -38,9 +38,12 @@ import java.util.stream.Collectors;
  * plane over its HTTP API; this one restarts the platform's own binaries underneath a topology this
  * process has direct OS control over. Neither verb can substitute for the other.
  *
- * <p>Like {@code up}/{@code down}/{@code status}, this verb is strictly per-machine -- hilmir has
- * no remote-execution layer, so a multi-machine rollout is an operator (or an external runbook)
- * invoking this once per machine, in the right order, not a capability this verb provides itself.
+ * <p>This command itself is strictly per-machine, exactly like {@code up}/{@code down}/{@code
+ * status}'s own local form -- a multi-machine rollout is {@code --remote} (see {@code
+ * com.gimle.hilmir.remote.RemoteDispatch#upgradeCluster}) re-invoking this exact command once per
+ * machine over SSH, in the platform's own fixed boot order, the same external-orchestration shape
+ * {@code --remote up}/{@code down}/{@code status} already established; this class itself never
+ * gains any cross-machine logic of its own.
  *
  * <p>{@code --role} is restricted to the five stateless platform process kinds; {@code AGENT} (and
  * {@code WORKER}, which is never spawned as its own process to begin with) is rejected outright --

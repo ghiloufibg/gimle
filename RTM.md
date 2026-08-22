@@ -183,7 +183,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-166 | Store Node Leader-Only Write Gating | Active | Not Covered | — |
 | GIMLE-167 | Store Client Connection Timeout Bounds | Active | Not Covered | — |
 | GIMLE-168 | Store RPC Wire Codec | Active | Not Covered | — |
-| GIMLE-169 | RBAC Authorization Engine | Active | Not Covered | — |
+| GIMLE-169 | RBAC Authorization Engine | Modified | Not Covered | — |
 | GIMLE-170 | Node-Tenant Assignment Check | Active | Not Covered | — |
 | GIMLE-171 | Five-Field Cron Schedule Evaluator | Active | Covered | `workload-manifests.feature` — "A CronJob schedule fires on the day-of-month/day-of-week OR quirk" |
 | GIMLE-172 | Deployment Manifest Parsing (incl. Autoscale & Disruption Budget) | Active | Covered | `workload-manifests.feature` — "A weighted autoscale policy is accepted, an unreplaceable disruption budget is rejected" |
@@ -590,10 +590,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | New | Not Covered | — |
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
-| GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | New | Not Covered | — |
+| GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Modified | Not Covered | — |
 | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | New | Not Covered | — |
 | GIMLE-578 | Service CRUD and live endpoint lookup | New | Not Covered | — |
 | GIMLE-579 | NetworkPolicy CRUD | New | Not Covered | — |
+| GIMLE-580 | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2317,10 +2318,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-169 — RBAC Authorization Engine
 
 - **Category**: Internal-Infra
-- **Status**: Active
+- **Status**: Modified  _(Node self-service extended to grant a gimle:nodes principal cluster-wide read-only access to ResourceKind.SERVICE and ResourceKind.NETWORK_POLICY (previously denied outright, which broke NetworkPolicyRelay's and Bifrost's own polling with a 403).)_
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "RBAC Authorization Engine" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing`
+- **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing`, `#a_node_may_read_the_cluster_wide_service_and_network_policy_sets_with_no_binding_at_all`, `#a_node_may_never_write_or_delete_a_service_or_network_policy`; `ApiServerNodeServiceAndNetworkPolicyAuthzTest` (`gimle-controlplane`) exercises the same grant through the real mTLS/RBAC HTTP layer.
 - **Source location(s)**: `com.gimle.mimir.authz.Authorizer#authorize`, `#isNodeSelfService`, `#resolveRole`
 
 #### GIMLE-170 — Node-Tenant Assignment Check
@@ -4748,11 +4749,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-576 — Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`)
 
 - **Category**: Release Management
+- **Status**: Modified  _(Real host-key verification, self-provisioning, and per-machine material distribution replaced the v1 non-goals; `upgrade-cluster --remote` split out as GIMLE-580.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises --remote against a real cluster -- coverage here requires a .feature scenario driving the real `hilmir` binary, not a plain JUnit *IT class (see this file's own metadata.coverageRule). A real automated Docker+SSH round trip exists as gimle-holmgang's UtgardSshDeployIT (real sshd, an ephemeral authorized keypair, hilmir up/down/status --remote, a genuine deployment reaching ACTIVE) -- informational only, it does not change Coverage. Provisioning, host-key pinning/mismatch, and per-machine material distribution are covered at the unit level (RemoteDispatchTest) but not yet exercised by that same real Docker+SSH IT, since its fixture pre-installs hilmir and a plaintext topology on its container rather than starting from a bare, unprovisioned mtls one. Closing this gap for real needs both a new Holmgang Cucumber step definition driving --remote, and extending UtgardSshDeployIT (or a sibling) to start from an unprovisioned container.
+- **Other test coverage (non-Holmgang, informational only)**: `RemoteDispatchTest` (provisioning, material distribution, host-key pinning incl. a simulated mismatch); `ResolvedSshTargetTest`; `SshProcessExecTest`; `PkiBootstrapMainTest`; `PkiInitTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest`; `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`, `Machine.java` (`sshHostKeyFingerprint`), `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java` (multi-hostname leaves), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/PkiInit.java` (Fafnir key generation), `gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`
+
+#### GIMLE-580 — `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout)
+
+- **Category**: Release Management
 - **Status**: New
 - **Coverage**: Not Covered
-- **Gap note**: No Holmgang Cucumber scenario exercises --remote against a real cluster -- coverage here requires a .feature scenario driving the real `hilmir` binary, not a plain JUnit *IT class (see this file's own metadata.coverageRule). A real automated Docker+SSH round trip now exists as gimle-holmgang's UtgardSshDeployIT (real sshd, an ephemeral authorized keypair, hilmir up/down/status --remote, a genuine deployment reaching ACTIVE) -- informational only, it does not change Coverage, the same way the sibling GIMLE-392's own Utgard*IT coverage doesn't. Closing this gap for real needs a new Holmgang step definition that shells out to the real hilmir binary over --remote from a Cucumber scenario, which none do today.
-- **Other test coverage (non-Holmgang, informational only)**: `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing); `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd)
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java`, `SshProcessExec.java`, `ResolvedSshTarget.java`, `RemoteExec.java`, `RemoteOutput.java`, `SshCliFlags.java`, `SshSettings.java`, `gimle-holmgang/src/test/java/com/gimle/holmgang/utgard/UtgardSshDeployIT.java`, `UtgardSshMachine.java`
+- **Gap note**: No Holmgang Cucumber scenario, and no real-cluster JUnit *IT either, exercises `upgrade-cluster --remote` against a genuine running fleet -- only the SSH dispatch shape itself is unit-tested (RemoteDispatchTest). Closing this gap needs either a new Utgard*IT class (mirroring UtgardSshDeployIT's real sshd fixture) or a Holmgang Cucumber scenario that boots a topology, runs `hilmir upgrade-cluster --remote` against it, and asserts the restarted processes come back healthy.
+- **Other test coverage (non-Holmgang, informational only)**: `RemoteDispatchTest.upgrade_cluster_dispatches_the_new_classpath_and_roles_to_every_machine`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`upgradeCluster`), `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runUpgradeCluster`'s `--remote` branch), `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`
 
 ### gimle-maven-plugin
 
@@ -6164,7 +6174,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**460 of 579 requirements are Not Covered.**
+**461 of 580 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6311,7 +6321,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-099 | gimle-worker | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-124 | gimle-agent | Periodic certificate rotation check and hot-swap of outbound HttpClient | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-135 | gimle-agent | `module-info.java` wiring for the node agent module | Internal-Infra | NONE recorded in the baseline |
-| GIMLE-169 | gimle-mimir | RBAC Authorization Engine | Internal-Infra | `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing` |
+| GIMLE-169 | gimle-mimir | RBAC Authorization Engine | Internal-Infra | `AuthorizerTest#a_principal_with_no_binding_and_no_group_is_denied_everything`, `#an_operator_group_member_is_allowed_everything_via_the_implicit_cluster_admin_binding`, `#a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions`, `#a_tenant_scoped_permission_only_matches_its_own_tenant`, `#a_node_may_act_on_its_own_node_and_log_endpoints_with_no_role_binding_at_all`, `#a_node_is_denied_another_nodes_endpoints`, `#a_binding_referencing_a_role_that_no_longer_exists_grants_nothing`, `#a_node_may_read_the_cluster_wide_service_and_network_policy_sets_with_no_binding_at_all`, `#a_node_may_never_write_or_delete_a_service_or_network_policy`; `ApiServerNodeServiceAndNetworkPolicyAuthzTest` (`gimle-controlplane`) exercises the same grant through the real mTLS/RBAC HTTP layer. |
 | GIMLE-170 | gimle-mimir | Node-Tenant Assignment Check | Internal-Infra | `AuthorizerTest#a_node_with_an_active_assignment_for_the_tenant_is_assigned`, `#a_node_with_no_assignment_for_the_tenant_is_not_assigned`, `#a_node_with_no_assignments_at_all_is_not_assigned` |
 | GIMLE-243 | gimle-controlplane | Independent-executor ticking (lease/reconcile/cert-rotation isolation) | Internal-Infra | `ControlPlaneSchedulingTest` — `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_is_blocked_forever`, `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_throws_every_time` |
 | GIMLE-244 | gimle-controlplane | JPMS module boundary for gimle-controlplane | Internal-Infra | NONE recorded in the baseline |
@@ -6511,7 +6521,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-408 | gimle-hilmir | Workload readiness polling for `--wait` | Release Management | `DeployCommandTest.wait_polls_until_the_workloads_instances_report_active` (indirect); NONE dedicated |
 | GIMLE-412 | gimle-hilmir | Gateway extension enable (`hilmir enable gateway`) | Release Management | `EnableGatewayCommandTest` (5 tests); `GatewayJarLocatorTest` (7 tests) |
 | GIMLE-413 | gimle-hilmir | Gateway extension disable (`hilmir disable gateway`) | Release Management | `DisableGatewayCommandTest` (2 tests) |
-| GIMLE-576 | gimle-hilmir | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | `RemoteDispatchTest`; `ResolvedSshTargetTest`; `SshProcessExecTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest` (`ssh:` block parsing); `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd) |
+| GIMLE-576 | gimle-hilmir | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | `RemoteDispatchTest` (provisioning, material distribution, host-key pinning incl. a simulated mismatch); `ResolvedSshTargetTest`; `SshProcessExecTest`; `PkiBootstrapMainTest`; `PkiInitTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest`; `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd) |
+| GIMLE-580 | gimle-hilmir | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | Release Management | `RemoteDispatchTest.upgrade_cluster_dispatches_the_new_classpath_and_roles_to_every_machine` |
 | GIMLE-394 | gimle-hilmir | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Release Management / Security | `PkiInitTest` (multiple); `HilmirMainTest.pki_requires_the_init_subcommand`, `pki_init_requires_the_file_flag`, `pki_init_refuses_a_topology_with_no_tls_material_dir_dir` |
 | GIMLE-482 | gimle-saga | NDJSON event ingest API | Reporting backend / Internal-Infra | `SagaServerTest.java` — "ingested_events_round_trip_through_the_runs_and_events_apis", "a_malformed_ingest_line_is_rejected_with_its_line_number"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta` |
 | GIMLE-483 | gimle-saga | Idempotent per-run ingest / re-ingest replacement | Reporting backend / Internal-Infra | `SagaStoreTest.java#re_ingesting_a_whole_run_replaces_it_without_double_counting_the_ledger` |

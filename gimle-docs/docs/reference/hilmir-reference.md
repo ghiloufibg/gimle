@@ -10,7 +10,8 @@ it into real, running Gimlé processes on the local machine (or, for `up`/`down`
 remote machine over SSH via the opt-in `--remote` flag — see [Remote (SSH) fleet
 bootstrap](#remote-ssh-fleet-bootstrap) below), or the exact per-machine process commands the
 topology implies. `upgrade-cluster` restarts a subset of those already-running processes
-against a newly-unpacked platform binary, one machine and one role at a time — see
+against a newly-unpacked platform binary, one machine and one role at a time, and has its own
+`--remote` too — see
 [Cluster upgrade (platform binary rollout)](#cluster-upgrade-platform-binary-rollout) below; note this
 is a **different** verb from the release `upgrade` further down, despite the shared word. `store
 add`/`store remove` are an operator-facing surface over the store's own live Raft membership change,
@@ -46,6 +47,15 @@ hilmir status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>
 hilmir pki init -f <topology.yaml>
 ```
 
+`pki init` mints the cluster's shared secret material once, locally, before any machine is bootstrapped:
+for an mtls topology, the cluster CA and one leaf certificate per (role, machine hostname) via
+`PkiBootstrapMain`; and, whenever `fafnir.keyFile` is configured and no file already exists there, a
+fresh Fafnir key — the only thing it does at all for a plaintext topology, and only when Fafnir spans
+more than one machine (a single-machine Fafnir still just generates its own key at first start, same
+as ever). `--remote up` distributes exactly the subset of this material each machine's own role
+placement needs before that machine's own processes start — see [Remote (SSH) fleet
+bootstrap](#remote-ssh-fleet-bootstrap) below.
+
 `validate` checks a topology document for structural and semantic problems (missing machines, port
 conflicts, an even-numbered store replica count, TLS material referenced but never declared) without
 starting anything. `plan` resolves a validated topology into the exact per-machine process commands
@@ -53,9 +63,7 @@ each of Gimlé's process kinds expects — useful for inspecting what `up` would
 `up` actually spawns every process a topology assigns to `--machine`, waiting on any cross-machine
 prerequisite (a store replica another machine hosts, say) via a plain TCP-connect readiness check
 before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
-neither needs the topology document again for local dispatch. `pki init` mints the cluster's
-certificate authority and every process's leaf certificate up front, for a topology that declares
-`tls:`.
+neither needs the topology document again for local dispatch.
 
 `--remote` re-invokes this exact same local `up`/`down`/`status` over SSH instead of running on the
 machine `hilmir` itself is invoked on — see [Remote (SSH) fleet
@@ -120,13 +128,15 @@ either point `GIMLE_HOME` at the newly-unpacked archive before running `upgrade-
 
 ## Remote (SSH) fleet bootstrap
 
-`--remote` on `up`/`down`/`status` dispatches that exact same local verb over SSH to every machine
-a topology declares (or just the one `--machine` names, when given), rather than requiring an
-operator to already have a shell open on each target machine — or `docker exec` into it, the way
-`gimle-holmgang`'s own Utgard test harness does. Nothing about `up`/`down`/`status` themselves
-changes: `--remote` re-invokes the identical `<installDir>/bin/hilmir up|down|status --machine
-<name>` command on the target, over SSH, instead of running it locally — the run ledger, its
-readiness polling, and every other local behavior are untouched.
+`--remote` on `up`/`down`/`status`/`upgrade-cluster` dispatches that exact same local verb over SSH
+to every machine a topology declares (or just the one `--machine` names, when given), rather than
+requiring an operator to already have a shell open on each target machine — or `docker exec` into
+it, the way `gimle-holmgang`'s own Utgard test harness does. Nothing about `up`/`down`/`status`/
+`upgrade-cluster` themselves changes: `--remote` re-invokes the identical `<installDir>/bin/hilmir
+up|down|status|upgrade-cluster --machine <name>` command on the target, over SSH, instead of running
+it locally — the run ledger, its readiness polling, and every other local behavior are untouched.
+`up` additionally self-provisions a missing install and distributes exactly the TLS/Fafnir-key
+material each machine needs, both before that command runs — see below.
 
 ```sh
 hilmir up -f topology.yaml --remote
@@ -135,19 +145,37 @@ hilmir up -f topology.yaml --remote
 brings up every machine the topology declares, concurrently — one SSH session per machine. One
 machine's failure never aborts the others; the exit code is non-zero if any machine failed.
 
-**v1 scope, explicit non-goals:**
+**Host-key verification is real, not skipped.** `--remote` shells out to the operator's own
+already-installed `ssh`/`scp`/`ssh-keyscan`/`ssh-keygen` (no SSH library dependency — the same
+`ProcessBuilder` pattern `hilmir up`'s own local process spawning already uses) with
+`StrictHostKeyChecking=yes` against a per-topology `known_hosts` file (`<dataRoot>/known_hosts` —
+never the operator's own global one). Before any machine's dispatch thread starts, every target's SSH
+host key is pinned into that file, sequentially, one machine at a time: a machine with a declared
+`sshHostKeyFingerprint` (see below) has its scanned key checked against that exact fingerprint and
+refuses to proceed on a mismatch — a rotated key, a stale pin, or a possible man-in-the-middle; a
+machine with none pins whatever key `ssh-keyscan` returns instead (trust-on-first-use). A pinning
+failure is reported and that one machine never dispatches — every other machine is unaffected, the
+same partial-failure posture every other part of `--remote` already has.
 
-- **No host-key verification.** `--remote` shells out to the operator's own already-installed
-  `ssh`/`scp` (no SSH library dependency — the same `ProcessBuilder` pattern `hilmir up`'s own
-  local process spawning already uses) with `StrictHostKeyChecking=no`/`UserKnownHostsFile=/dev/null`
-  — a warning is printed once before dispatch. Do not use `--remote` over an untrusted network.
-- **No provisioning.** `--remote` assumes `<installDir>/bin/hilmir` already exists on every target
-  — it never ships or unpacks a platform archive for you. Get the archive onto each machine first
-  (however you'd normally do that), then `--remote` takes over from there.
-- **No credential handling of its own.** Authentication is entirely the operator's own `ssh`
-  identity — an agent, a default key, or `~/.ssh/config` — the same way it would be for a plain
-  manual `ssh` session. `--remote` never reads, stores, or transmits a password or private key.
-- **`upgrade-cluster` is unaffected** — see its own scope note below; it stays local-only.
+**Provisioning is real.** `up --remote` checks `<installDir>/bin/hilmir` on each target before doing
+anything else; if it's missing, the machine's resolved `archive` (see below) is shipped and unpacked
+into a temp directory, then atomically moved into place — a crash mid-unpack never leaves a
+half-installed directory visible at the real path. A machine that needs provisioning with no
+`archive` configured anywhere fails clearly, naming the machine, rather than silently trying to run a
+binary that was never there.
+
+**Material distribution is real.** After provisioning (and before the topology file itself is
+copied), `up --remote` ships exactly what each machine's own role placement needs, already generated
+locally by `hilmir pki init`: the shared CA certificate; that machine's own per-role TLS leaves (by
+hostname); the CA private key, only to a machine hosting a control plane (it signs agent CSRs); the
+operator identity, only to a machine hosting an agent (it mints that agent's own bootstrap token
+locally); and the Fafnir key file, only to a machine hosting a Fafnir replica. No cross-machine
+ordering is needed for this — every file already has its final, consistent content before any
+`--remote up` dispatch starts, since `pki init` ran first.
+
+**No credential handling of its own.** Authentication is entirely the operator's own `ssh` identity —
+an agent, a default key, or `~/.ssh/config` — the same way it would be for a plain manual `ssh`
+session. `--remote` never reads, stores, or transmits a password or private key.
 
 **SSH connection settings**, highest precedence first: the CLI flags (`--ssh-user`/`--ssh-key`/
 `--ssh-port`/`--install-dir`) shown above; a per-machine override (`machines[].ssh:`); a
@@ -155,22 +183,31 @@ topology-wide default (`runtime.ssh:`); and, for anything left unset at every ti
 own `ssh` configuration decides (so a topology that declares no `ssh:` at all still works, exactly
 as if the operator had typed `ssh <host>` themselves). `installDir` defaults to `/opt/gimle` when
 nothing overrides it, matching every `docker-compose.*.yml` example under `gimle-holmgang/compose/`.
+`archive` (the local platform archive to ship when provisioning) follows that same per-machine-then-
+topology-wide precedence, but with no CLI-flag tier of its own and no built-in default — it's
+topology data (which file to ship), not an operator convenience. `sshHostKeyFingerprint` has no
+tiering at all: it names one specific host's expected key, so it lives only on `machines[]`.
 
 ```yaml
 runtime:
-  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle}
+  ssh: {user: ubuntu, identityFile: /home/op/.ssh/id_ed25519, installDir: /opt/gimle,
+        archive: /local/gimle-platform.tar.gz}
 machines:
   - {name: m1, host: gimle-1.example.com}
-  - {name: m2, host: gimle-2.example.com, ssh: {user: deploy, port: 2222}}
+  - {name: m2, host: gimle-2.example.com, sshHostKeyFingerprint: "SHA256:abc...",
+     ssh: {user: deploy, port: 2222}}
 ```
 
-Here `m1` inherits the topology-wide default entirely; `m2` overrides just `user`/`port`, still
-inheriting `identityFile`/`installDir` from the topology-wide default — precedence resolves field
-by field, not tier by tier.
+Here `m1` inherits the topology-wide default entirely (including `archive`); `m2` overrides just
+`user`/`port`, still inheriting `identityFile`/`installDir`/`archive` from the topology-wide default
+— precedence resolves field by field, not tier by tier. `m2` also pins its own SSH host key via
+`sshHostKeyFingerprint`; `m1` has none declared, so `--remote` trusts whatever key it scans there on
+first use.
 
-`down`/`status --remote` need `-f <topology.yaml>` too, unlike their local form: resolving each
-target's host and SSH settings needs the topology document. Omitting `--machine` under `--remote`
-fans out to every machine the topology declares, for `down`/`status` exactly as it does for `up`.
+`down`/`status`/`upgrade-cluster --remote` need `-f <topology.yaml>` too, unlike their local form:
+resolving each target's host and SSH settings needs the topology document. Omitting `--machine` under
+`--remote` fans out to every machine the topology declares, for every verb exactly as it does for
+`up`.
 
 ## Cluster upgrade (platform binary rollout)
 
@@ -179,6 +216,10 @@ hilmir upgrade-cluster -f <topology.yaml> --machine <name>
     --new-classpath <classpath-string>
     [--new-java-executable <path>] [--data-root <path>]
     [--role <STORE|CONTROL_PLANE|FAFNIR|MUNINN|ANDVARI>]...
+hilmir upgrade-cluster -f <topology.yaml> --remote [--machine <name>]
+    --new-classpath <classpath-string>
+    [--new-java-executable <path>] [--data-root <path>] [--role <ROLE>]...
+    [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
 ```
 
 `upgrade-cluster` rolls out a new platform binary to one machine's already-running processes: kill,
@@ -186,14 +227,14 @@ respawn against the new classpath, wait for readiness, repeat for the next role 
 upgrade`, which is a completely different, bundle-workload-rollout concern (see
 [Release verbs](#release-verbs) below).
 
-**Scope: `upgrade-cluster` has no remote-execution layer of its own.** Unlike `up`/`down`/`status`
-(which gained an opt-in `--remote` SSH mode — see [Remote (SSH) fleet
-bootstrap](#remote-ssh-fleet-bootstrap) above), this verb only ever touches OS processes on the one
-machine it runs on. Rolling out a new platform binary across a whole cluster means an operator (or
-an external runbook/script) invoking `hilmir upgrade-cluster` once per machine, in the right order —
-this verb deliberately does not attempt SSH, an agent-driven fanout, or any other cross-machine
-orchestration of its own. (A future `--remote` for this verb, mirroring `up`/`down`/`status`'s own,
-is a natural extension but is not built yet.)
+**Scope: this command itself is strictly per-machine, with `--remote` layered on top exactly like
+`up`/`down`/`status`'s own.** `UpgradeClusterCommand` itself only ever touches OS processes on the
+one machine it runs on and has no cross-machine logic of its own; a multi-machine rollout is
+`hilmir upgrade-cluster -f <topology.yaml> --remote --new-classpath <cp> [...]` re-invoking this
+exact command once per machine over SSH, in the platform's own fixed boot order — see [Remote (SSH)
+fleet bootstrap](#remote-ssh-fleet-bootstrap) above for the shared host-key-pinning/dispatch
+mechanics (provisioning and material distribution are `up`-specific and don't apply here: a machine
+`upgrade-cluster` targets is, by definition, already a running member of the cluster).
 
 `--new-classpath` is required and deliberately independent of both the topology's own
 `runtime.classpath` and whichever `hilmir` binary happens to be invoking the command: point it at a

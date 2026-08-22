@@ -97,8 +97,9 @@ public final class LaunchPlanner {
       command.add(
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "mimir", gimleHomeEnv));
       // No per-store leaf exists in the platform's own generated material; the store presents the
-      // control-plane certificate, the same reuse GimleCluster's own tlsFlags already established.
-      command.addAll(tlsFlags(topology, "controlplane"));
+      // control-plane certificate for its own machine, the same reuse GimleCluster's own tlsFlags
+      // already established.
+      command.addAll(tlsFlags(topology, "controlplane", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.STORE));
       if (!topology.muninn().replicas().isEmpty()) {
         command.add("-Dgimle.store.muninnEndpoint=" + muninnEndpointsSpec(topology));
@@ -139,7 +140,7 @@ public final class LaunchPlanner {
       final List<String> command = new ArrayList<>();
       command.add(
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "muninn", gimleHomeEnv));
-      command.addAll(tlsFlags(topology, "muninn"));
+      command.addAll(tlsFlags(topology, "muninn", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.MUNINN));
       command.add(dataRootFlag(dataDir));
       command.add(logRootFlag(runtime, id));
@@ -173,7 +174,7 @@ public final class LaunchPlanner {
       final List<String> command = new ArrayList<>();
       command.add(
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "andvari", gimleHomeEnv));
-      command.addAll(tlsFlags(topology, "andvari"));
+      command.addAll(tlsFlags(topology, "andvari", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.ANDVARI));
       command.add(dataRootFlag(dataDir));
       command.add(logRootFlag(runtime, id));
@@ -219,7 +220,7 @@ public final class LaunchPlanner {
       final List<String> command = new ArrayList<>();
       command.add(
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "fafnir", gimleHomeEnv));
-      command.addAll(tlsFlags(topology, "fafnir"));
+      command.addAll(tlsFlags(topology, "fafnir", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.FAFNIR));
       if (!topology.muninn().replicas().isEmpty()) {
         command.add("-Dgimle.fafnir.muninnEndpoint=" + muninnEndpointsSpec(topology));
@@ -257,7 +258,7 @@ public final class LaunchPlanner {
       command.add(
           BundledJreResolver.resolveJavaExecutable(
               topology, runtime, "controlplane", gimleHomeEnv));
-      command.addAll(tlsFlags(topology, "controlplane"));
+      command.addAll(tlsFlags(topology, "controlplane", replica.machine()));
       if (topology.transport() == Transport.MTLS) {
         // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap
         // through this control plane.
@@ -315,8 +316,10 @@ public final class LaunchPlanner {
       command.add(runtime.javaExecutable());
       // The agent's own leaf does not exist yet -- it generates a keypair/CSR against these paths
       // and bootstraps its certificate through the control plane at first launch, gated by a
-      // bootstrap token the launcher (not this planner) mints and appends.
-      command.addAll(tlsFlags(topology, "node-" + agent.nodeId()));
+      // bootstrap token the launcher (not this planner) mints and appends. Its own nodeId is
+      // already a globally unique identity, unlike a role name (which repeats across machines), so
+      // this path is never hostname-suffixed the way tlsFlags's per-role leaves are.
+      command.addAll(ownLeafTlsFlags(topology, "node-" + agent.nodeId()));
       command.addAll(topology.jvmFlags(ProcessRole.AGENT));
       command.add("-Dgimle.agent.fafnirEndpoint=" + fafnirEndpointAt(topology, i));
       if (!topology.muninn().replicas().isEmpty()) {
@@ -362,16 +365,42 @@ public final class LaunchPlanner {
     return out;
   }
 
-  /** The four flags every mtls-mode process gets, presenting {@code certName}'s leaf. */
-  private static List<String> tlsFlags(final Topology topology, final String certName) {
+  /**
+   * The four flags every mtls-mode process gets, presenting {@code certName}'s leaf for {@code
+   * machineName}'s own hostname -- {@code PkiBootstrapMain} mints one leaf per (role, hostname)
+   * pair, named {@code <certName>-<hostname>.crt/.key}, so every process's identity is attributable
+   * to its own certificate Subject rather than a leaf shared with every other machine hosting the
+   * same role.
+   */
+  private static List<String> tlsFlags(
+      final Topology topology, final String certName, final String machineName) {
+    if (topology.transport() != Transport.MTLS) {
+      return List.of();
+    }
+    final Path dir = materialDir(topology);
+    final String leafName = certName + "-" + hostOf(topology, machineName);
+    return List.of(
+        "-Dgimle.transport.protocol=tls",
+        "-Dgimle.tls.certFile=" + dir.resolve(leafName + ".crt"),
+        "-Dgimle.tls.keyFile=" + dir.resolve(leafName + ".key"),
+        "-Dgimle.tls.caFile=" + dir.resolve("ca.crt"));
+  }
+
+  /**
+   * The agent-only variant of {@link #tlsFlags}: {@code leafName} is used as-is, with no {@code
+   * -<hostname>} suffix -- an agent's own leaf isn't minted by {@code PkiBootstrapMain} at all (it
+   * self-bootstraps via CSR at first launch), and its {@code node-<nodeId>} name is already
+   * globally unique, so there's no same-role-different-machine collision to disambiguate.
+   */
+  private static List<String> ownLeafTlsFlags(final Topology topology, final String leafName) {
     if (topology.transport() != Transport.MTLS) {
       return List.of();
     }
     final Path dir = materialDir(topology);
     return List.of(
         "-Dgimle.transport.protocol=tls",
-        "-Dgimle.tls.certFile=" + dir.resolve(certName + ".crt"),
-        "-Dgimle.tls.keyFile=" + dir.resolve(certName + ".key"),
+        "-Dgimle.tls.certFile=" + dir.resolve(leafName + ".crt"),
+        "-Dgimle.tls.keyFile=" + dir.resolve(leafName + ".key"),
         "-Dgimle.tls.caFile=" + dir.resolve("ca.crt"));
   }
 

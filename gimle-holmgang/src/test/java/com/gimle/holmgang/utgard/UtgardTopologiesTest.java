@@ -51,7 +51,7 @@ class UtgardTopologiesTest {
   }
 
   @Test
-  void mtls_topology_parses_and_warns_about_spanning_more_than_one_machine() {
+  void mtls_topology_spanning_more_than_one_machine_parses_and_validates_with_no_errors() {
     final String yaml =
         UtgardTopologies.mtls(
             "utgard-mtls",
@@ -64,15 +64,12 @@ class UtgardTopologiesTest {
     assertTrue(topology.tls().isPresent());
     assertEquals("/opt/gimle/tls", topology.tls().get().materialDir().toString());
 
+    // A multi-machine mtls topology is real, fully-supported PKI territory now (PkiBootstrapMain
+    // mints one leaf per machine hostname) -- no ERROR, and no warning about it either.
     final List<Finding> findings = TopologyValidator.validate(topology);
     assertFalse(
         findings.stream().anyMatch(f -> f.severity() == Severity.ERROR),
         "expected no ERROR findings, got: " + findings);
-    // The whole point of this topology: it spans two machines under mtls, so the validator's own
-    // documented single-hostname-PKI limitation must surface as a WARNING, not silently pass.
-    assertTrue(
-        findings.stream().anyMatch(f -> "MTLS_SINGLE_HOSTNAME_PKI".equals(f.code())),
-        "expected MTLS_SINGLE_HOSTNAME_PKI among: " + findings);
   }
 
   @Test
