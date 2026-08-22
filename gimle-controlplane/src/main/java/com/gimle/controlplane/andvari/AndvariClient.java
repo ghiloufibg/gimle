@@ -49,6 +49,7 @@ public final class AndvariClient implements AutoCloseable {
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
   private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
+  private static final String TENANT_HEADER = "X-Gimle-Artifact-Tenant";
 
   private final List<URI> baseUris;
   private final HttpClient httpClient;
@@ -198,6 +199,7 @@ public final class AndvariClient implements AutoCloseable {
         response.statusCode(),
         response.headers().firstValue("Content-Type"),
         response.headers().firstValue(SHA256_HEADER),
+        response.headers().firstValue(TENANT_HEADER),
         response.body());
   }
 
@@ -206,7 +208,11 @@ public final class AndvariClient implements AutoCloseable {
    * body} exactly once.
    */
   public record StreamingResponse(
-      int statusCode, Optional<String> contentType, Optional<String> sha256, InputStream body) {}
+      int statusCode,
+      Optional<String> contentType,
+      Optional<String> sha256,
+      Optional<String> tenantId,
+      InputStream body) {}
 
   private URI artifactUri(URI baseUri, ModuleId moduleId) {
     return baseUri.resolve("/artifacts/" + moduleId.name() + "/" + moduleId.version().toString());

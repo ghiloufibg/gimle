@@ -3300,12 +3300,23 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
+      // The caller's own tenant claim on a push -- forwarded verbatim so Andvari's own
+      // authorizeArtifacts can check the claim itself, not just the forwarded-principal identity.
+      if ("PUT".equals(method)) {
+        Optional<String> tenantId =
+            Optional.ofNullable(exchange.getRequestHeaders().getFirst("X-Gimle-Artifact-Tenant"));
+        tenantId.ifPresent(tenant -> forwardHeaders.put("X-Gimle-Artifact-Tenant", tenant));
+      }
       InputStream requestBody = "PUT".equals(method) ? exchange.getRequestBody() : null;
       AndvariClient.StreamingResponse response =
           registry.get().forward(method, path, requestBody, forwardHeaders);
       response
           .sha256()
           .ifPresent(sha -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Sha256", sha));
+      response
+          .tenantId()
+          .ifPresent(
+              tenant -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Tenant", tenant));
       response
           .contentType()
           .ifPresent(type -> exchange.getResponseHeaders().add("Content-Type", type));
