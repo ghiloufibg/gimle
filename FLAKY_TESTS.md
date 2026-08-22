@@ -154,6 +154,17 @@ a future session wonders why a given test no longer needs its old exclusion:
   momentary blip self-corrects within the same confirmation window a real, sustained eviction never
   would. Confirmed clean across 3 further isolated runs after the fix.
 
+## 2026-08-22 QA hardening pass: silent zero-test-count under parallel class execution
+
+- **`ServiceCatalogCodecTest`** (`gimle-fabric`, whole class) — observed under this module's own
+  class-level concurrency (root pom.xml) silently under-reporting its test count (0/3, then 2/3 on
+  a second run) with no failure raised, rather than the timing failures every other entry in this
+  file traces to the same cause — a worse symptom shape, since a build this happens to still
+  reports BUILD SUCCESS instead of flagging anything wrong. Correct count (3/3) every time in
+  isolation. Same CPU-contention-under-class-level-concurrency cause `GossipMemberTest` (also
+  `gimle-fabric`) needed `@Isolated` for; added here too. Confirmed clean across 3 full-module runs
+  (118/118 every time, `ServiceCatalogCodecTest` itself 3/3 every time).
+
 A parallel pass looked at whether the standing `-T 1C` (root `.mvn/maven.config`) combined with
 this pom's own `junit.jupiter.execution.parallel.config.dynamic.factor=1.0` oversubscribes cores
 on this 4-core sandbox whenever multiple modules' own concurrent-class phases land at once — a
