@@ -600,6 +600,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-583 | Narrowed config delivery to instances declaring `configMapRefs` | New | Not Covered | — |
 | GIMLE-584 | `gimle configmap` command | New | Not Covered | — |
 | GIMLE-585 | ConfigMaps screen | New | Not Covered | — |
+| GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | New | Not Covered | — |
+| GIMLE-587 | NetworkPolicy CRUD (Networking screen) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5205,6 +5207,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)
 - **Source location(s)**: `gimle-console/src/types/index.ts` (`ConfigMap`), `gimle-console/src/repositories/configmaps.ts`, `http/configmaps.ts`, `index.ts`, `gimle-console/src/stores/useConfigMapsStore.ts`, `gimle-console/src/routes/configmaps.tsx`, `components/app-sidebar.tsx`
 
+#### GIMLE-586 — Service CRUD and live endpoint lookup (Networking screen)
+
+- **Category**: Web Console / Frontend
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang step definition drives the console UI at all today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls, and the console's own Playwright suite (`gimle-console/e2e/`) isn't wired into Holmgang. Closing this gap needs either a Holmgang step def that drives a headless browser against the console, or a Playwright scenario added to `e2e/` exercising the Networking screen's Services tab against a real cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/services.test.ts`, `src/repositories/http/services.test.ts`
+- **Source location(s)**: `gimle-console/src/routes/networking.tsx` (`ServicesTab`), `gimle-console/src/stores/useServicesStore.ts`, `gimle-console/src/repositories/http/services.ts`, `gimle-console/src/repositories/services.ts`
+
+#### GIMLE-587 — NetworkPolicy CRUD (Networking screen)
+
+- **Category**: Web Console / Frontend
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: Same gap as GIMLE-580: no Holmgang step definition drives the console UI, and the console's own Playwright suite doesn't cover the Networking screen yet. Closing this gap needs a Playwright scenario exercising the NetworkPolicies tab against a real cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/networkPolicies.test.ts`, `src/repositories/http/networkPolicies.test.ts`
+- **Source location(s)**: `gimle-console/src/routes/networking.tsx` (`NetworkPoliciesTab`), `gimle-console/src/stores/useNetworkPoliciesStore.ts`, `gimle-console/src/repositories/http/networkPolicies.ts`, `gimle-console/src/repositories/networkPolicies.ts`
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -6224,7 +6244,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**466 of 585 requirements are Not Covered.**
+**468 of 587 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6675,6 +6695,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-474 | gimle-andvari-console | Andvari copy-to-clipboard utility | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-481 | gimle-saga-console | Saga console theming (no auth surface) | Web Console / Frontend | `SagaServerTest.java` — "the_bundled_console_is_served_at_console" |
 | GIMLE-585 | gimle-console | ConfigMaps screen | Web Console / Frontend | `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection) |
+| GIMLE-586 | gimle-console | Service CRUD and live endpoint lookup (Networking screen) | Web Console / Frontend | `src/repositories/services.test.ts`, `src/repositories/http/services.test.ts` |
+| GIMLE-587 | gimle-console | NetworkPolicy CRUD (Networking screen) | Web Console / Frontend | `src/repositories/networkPolicies.test.ts`, `src/repositories/http/networkPolicies.test.ts` |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

@@ -595,6 +595,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-583 | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Complete | Partial |
 | GIMLE-584 | `gimle configmap` command | CLI | Complete | Partial |
 | GIMLE-585 | ConfigMaps screen | Web Console / Frontend | Complete | Yes |
+| GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | Web Console / Frontend | Complete | Yes |
+| GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -7284,6 +7286,33 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it.
+  ```
+
+#### GIMLE-586 — Service CRUD and live endpoint lookup (Networking screen)
+
+- **Category**: Web Console / Frontend
+- **User story**: As a platform operator, I want to create, inspect, and delete a Service (the ClusterIP analogue) and see its current live backing endpoints from the console, so I don't have to reach for the CLI just to expose an existing control-plane capability.
+- **Status**: Complete. The Networking screen's Services tab round-trips against the real `ApiServer` `/services*` surface `HttpServicesRepository` reads/writes -- the same API `gimle-cli`'s `ServicesCommand` (GIMLE-578) already covers, now with a console surface too. Create/edit is one inline form (name, tenant, comma-separated deployment names, port, target port); each row expands to its live endpoint set via the uncached `GET /services/{name}/endpoints` read.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/networking.tsx` (`ServicesTab`), `gimle-console/src/stores/useServicesStore.ts`, `gimle-console/src/repositories/http/services.ts`, `gimle-console/src/repositories/services.ts`
+- **Test coverage**: `src/repositories/services.test.ts` (Mock repo), `src/repositories/http/services.test.ts` (Http repo: fetchAll/fetchOne/fetchEndpoints GET, save POST, remove DELETE, all against the real wire shapes)
+- **Gherkin scenario**:
+  ```gherkin
+  Given no Service named "orders-web" exists, When an operator submits the Services tab's create form with deployment "orders-service" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080.
+  Given a Service "orders-web" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown.
+  ```
+
+#### GIMLE-587 — NetworkPolicy CRUD (Networking screen)
+
+- **Category**: Web Console / Frontend
+- **User story**: As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the console, so I don't have to reach for the CLI just to expose an existing control-plane capability.
+- **Status**: Complete. The Networking screen's NetworkPolicies tab round-trips against the real `ApiServer` `/networkpolicies*` surface `HttpNetworkPoliciesRepository` reads/writes -- the same API `gimle-cli`'s `NetworkPolicyCommand` (GIMLE-579) already covers, now with a console surface too. `SERVICE`/`NETWORK_POLICY` were also added to the console's own `ResourceKind` union so the Access Control screen can grant/withhold either permission -- previously impossible from the console at all, regardless of this screen.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/networking.tsx` (`NetworkPoliciesTab`), `gimle-console/src/stores/useNetworkPoliciesStore.ts`, `gimle-console/src/repositories/http/networkPolicies.ts`, `gimle-console/src/repositories/networkPolicies.ts`, `gimle-console/src/types/index.ts` (`ResourceKind` gains `SERVICE`/`NETWORK_POLICY`)
+- **Test coverage**: `src/repositories/networkPolicies.test.ts` (Mock repo), `src/repositories/http/networkPolicies.test.ts` (Http repo: fetchAll/fetchOne GET, save POST, remove DELETE, all against the real wire shapes)
+- **Gherkin scenario**:
+  ```gherkin
+  Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"].
   ```
 
 ### gimle-fafnir-console

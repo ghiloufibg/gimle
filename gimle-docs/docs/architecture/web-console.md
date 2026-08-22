@@ -23,9 +23,9 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Nineteen screens, each backed by a real `Http*Repository` hitting the control plane's own API —
-the same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth.
-Seventeen live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
+Twenty screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
+same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Eighteen
+live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
 instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
 "System" nav group, separate from the rest:
 
@@ -39,6 +39,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment. |
 | Instances | Per-instance detail: lifecycle state, health, resource usage. |
 | Nodes | Registered node agents and their reported capacity — the UI equivalent of `gimle get nodes`. |
+| Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
 | Metrics | Cluster-wide derived signals (lifecycle mix, placement coverage, node capacity, backpressure, tenant quota pressure) plus a per-process metrics-history time series, below. |
 | Traces | Per-process trace-span history, below. |

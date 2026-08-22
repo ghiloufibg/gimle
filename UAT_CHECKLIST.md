@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 585
+- **Total requirements**: 587
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 466
+- **Not covered by automated test**: 468
 - **Release-readiness (automated coverage)**: 20.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 22 | 0 | 22 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 27 | 0 | 27 | 0.0% |
+| gimle-console | 29 | 0 | 29 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1368,6 +1368,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-458 | Control-plane status panel | Given the control plane is running, When I open `/controlplane`, Then scheduler/quota-enforcer badges show "running". | No |
 | [ ] | GIMLE-459 | Theme toggle (light/dark) | Given I click the theme toggle, When dark mode is selected, Then the preference persists across reloads. | No |
 | [ ] | GIMLE-585 | ConfigMaps screen | Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it. | No |
+| [ ] | GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | Given no Service named "orders-web" exists, When an operator submits the Services tab's create form with deployment "orders-service" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080. Given a Service "orders-web" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown. | No |
+| [ ] | GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"]. | No |
 
 #### Web Console / Testing
 

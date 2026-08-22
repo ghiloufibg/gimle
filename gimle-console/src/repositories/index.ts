@@ -19,6 +19,8 @@ import { HttpRolesRepository } from "./http/roles";
 import { HttpRoleBindingsRepository } from "./http/roleBindings";
 import { HttpAccountsRepository } from "./http/accounts";
 import { HttpArtifactsRepository } from "./http/artifacts";
+import { HttpServicesRepository } from "./http/services";
+import { HttpNetworkPoliciesRepository } from "./http/networkPolicies";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -40,3 +42,5 @@ export const rolesRepo = new HttpRolesRepository();
 export const roleBindingsRepo = new HttpRoleBindingsRepository();
 export const accountsRepo = new HttpAccountsRepository();
 export const artifactsRepo = new HttpArtifactsRepository();
+export const servicesRepo = new HttpServicesRepository();
+export const networkPoliciesRepo = new HttpNetworkPoliciesRepository();

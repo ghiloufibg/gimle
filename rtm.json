@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 585,
+  "requirementCount": 587,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10117,6 +10117,42 @@
         "`gimle-console/src/routes/configmaps.tsx`, `components/app-sidebar.tsx`"
       ],
       "otherTestCoverage": "`repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)"
+    },
+    {
+      "id": "GIMLE-586",
+      "module": "gimle-console",
+      "feature": "Service CRUD and live endpoint lookup (Networking screen)",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang step definition drives the console UI at all today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls, and the console's own Playwright suite (`gimle-console/e2e/`) isn't wired into Holmgang. Closing this gap needs either a Holmgang step def that drives a headless browser against the console, or a Playwright scenario added to `e2e/` exercising the Networking screen's Services tab against a real cluster.",
+      "otherTestCoverage": "`src/repositories/services.test.ts`, `src/repositories/http/services.test.ts`",
+      "sourceLocations": [
+        "`gimle-console/src/routes/networking.tsx` (`ServicesTab`)",
+        "`gimle-console/src/stores/useServicesStore.ts`",
+        "`gimle-console/src/repositories/http/services.ts`",
+        "`gimle-console/src/repositories/services.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-587",
+      "module": "gimle-console",
+      "feature": "NetworkPolicy CRUD (Networking screen)",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Same gap as GIMLE-580: no Holmgang step definition drives the console UI, and the console's own Playwright suite doesn't cover the Networking screen yet. Closing this gap needs a Playwright scenario exercising the NetworkPolicies tab against a real cluster.",
+      "otherTestCoverage": "`src/repositories/networkPolicies.test.ts`, `src/repositories/http/networkPolicies.test.ts`",
+      "sourceLocations": [
+        "`gimle-console/src/routes/networking.tsx` (`NetworkPoliciesTab`)",
+        "`gimle-console/src/stores/useNetworkPoliciesStore.ts`",
+        "`gimle-console/src/repositories/http/networkPolicies.ts`",
+        "`gimle-console/src/repositories/networkPolicies.ts`"
+      ]
     }
   ]
 }

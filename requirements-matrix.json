@@ -1,7 +1,7 @@
 {
   "title": "Giml\u00e9 Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Giml\u00e9 codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository \u2014 main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories \u2014 not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor \u2014 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`\u2026`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test \u2014 direct or indirect \u2014 was found for that specific behavior.",
-  "requirementCount": 585,
+  "requirementCount": 587,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11439,6 +11439,50 @@
       "testCoverageDetail": "`repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection)",
       "gherkinSteps": [
         "Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-586",
+      "module": "gimle-console",
+      "feature": "Service CRUD and live endpoint lookup (Networking screen)",
+      "category": "Web Console / Frontend",
+      "userStory": "As a platform operator, I want to create, inspect, and delete a Service (the ClusterIP analogue) and see its current live backing endpoints from the console, so I don't have to reach for the CLI just to expose an existing control-plane capability.",
+      "statusDetail": "Complete. The Networking screen's Services tab round-trips against the real `ApiServer` `/services*` surface `HttpServicesRepository` reads/writes -- the same API `gimle-cli`'s `ServicesCommand` (GIMLE-578) already covers, now with a console surface too. Create/edit is one inline form (name, tenant, comma-separated deployment names, port, target port); each row expands to its live endpoint set via the uncached `GET /services/{name}/endpoints` read.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/networking.tsx` (`ServicesTab`)",
+        "`gimle-console/src/stores/useServicesStore.ts`",
+        "`gimle-console/src/repositories/http/services.ts`",
+        "`gimle-console/src/repositories/services.ts`"
+      ],
+      "testCoverageDetail": "`src/repositories/services.test.ts` (Mock repo), `src/repositories/http/services.test.ts` (Http repo: fetchAll/fetchOne/fetchEndpoints GET, save POST, remove DELETE, all against the real wire shapes)",
+      "gherkinSteps": [
+        "Given no Service named \"orders-web\" exists, When an operator submits the Services tab's create form with deployment \"orders-service\" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080.",
+        "Given a Service \"orders-web\" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-587",
+      "module": "gimle-console",
+      "feature": "NetworkPolicy CRUD (Networking screen)",
+      "category": "Web Console / Frontend",
+      "userStory": "As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the console, so I don't have to reach for the CLI just to expose an existing control-plane capability.",
+      "statusDetail": "Complete. The Networking screen's NetworkPolicies tab round-trips against the real `ApiServer` `/networkpolicies*` surface `HttpNetworkPoliciesRepository` reads/writes -- the same API `gimle-cli`'s `NetworkPolicyCommand` (GIMLE-579) already covers, now with a console surface too. `SERVICE`/`NETWORK_POLICY` were also added to the console's own `ResourceKind` union so the Access Control screen can grant/withhold either permission -- previously impossible from the console at all, regardless of this screen.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/networking.tsx` (`NetworkPoliciesTab`)",
+        "`gimle-console/src/stores/useNetworkPoliciesStore.ts`",
+        "`gimle-console/src/repositories/http/networkPolicies.ts`",
+        "`gimle-console/src/repositories/networkPolicies.ts`",
+        "`gimle-console/src/types/index.ts` (`ResourceKind` gains `SERVICE`/`NETWORK_POLICY`)"
+      ],
+      "testCoverageDetail": "`src/repositories/networkPolicies.test.ts` (Mock repo), `src/repositories/http/networkPolicies.test.ts` (Http repo: fetchAll/fetchOne GET, save POST, remove DELETE, all against the real wire shapes)",
+      "gherkinSteps": [
+        "Given no NetworkPolicy named \"acme-billing-policy\" exists, When an operator submits the NetworkPolicies tab's create form with tenant \"acme\" and allowed caller tenant \"partner\", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds [\"partner\"]."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

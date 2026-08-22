@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 585,
+    "totalRequirements": 587,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 466,
+    "notCoveredByAutomatedTest": 468,
     "releaseReadinessPercent": 20.3
   },
   "items": [
@@ -6437,6 +6437,28 @@
       "category": "Web Console / Frontend",
       "feature": "ConfigMaps screen",
       "step": "Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-586",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Service CRUD and live endpoint lookup (Networking screen)",
+      "step": "Given no Service named \"orders-web\" exists, When an operator submits the Services tab's create form with deployment \"orders-service\" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080. Given a Service \"orders-web\" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-587",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "NetworkPolicy CRUD (Networking screen)",
+      "step": "Given no NetworkPolicy named \"acme-billing-policy\" exists, When an operator submits the NetworkPolicies tab's create form with tenant \"acme\" and allowed caller tenant \"partner\", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds [\"partner\"].",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

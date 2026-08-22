@@ -239,6 +239,39 @@ export interface Tenant {
   };
 }
 
+/**
+ * The ClusterIP analogue: a stable name fronting one or more Deployments/DaemonSets/StatefulSets
+ * matched by name. `tenantId` is absent (not empty-string) for an untenanted Service, matching how
+ * `ApiServer#serviceToJson` only writes the field when the spec actually carries one.
+ */
+export interface Service {
+  name: string;
+  tenantId?: string;
+  deploymentNames: string[];
+  port: number;
+  targetPort: number;
+}
+
+/** `GET /services/{name}/endpoints` -- live, reconciler-independent, never cached alongside `Service`. */
+export interface ServiceEndpoints {
+  name: string;
+  port: number;
+  targetPort: number;
+  endpoints: { host: string; port: number }[];
+}
+
+/**
+ * A declared, deny-by-default restriction on which other tenants may call into `tenantId`'s own
+ * Services. `deploymentNames` empty means the whole tenant is covered, matching
+ * `NetworkPolicySpec#deploymentNames()`'s `Optional.empty()` serializing as `[]` over the wire.
+ */
+export interface NetworkPolicy {
+  name: string;
+  tenantId: string;
+  deploymentNames: string[];
+  allowedCallerTenantIds: string[];
+}
+
 export interface ConfigEntry {
   tenantId: string;
   key: string;
@@ -470,7 +503,9 @@ export type ResourceKind =
   | "ROLE_BINDING"
   | "ACCOUNT"
   | "AUDIT"
-  | "ARTIFACT";
+  | "ARTIFACT"
+  | "SERVICE"
+  | "NETWORK_POLICY";
 
 export type Verb = "READ" | "WRITE" | "DELETE" | "APPROVE";
 
@@ -513,6 +548,8 @@ export const RESOURCE_KINDS: ResourceKind[] = [
   "ACCOUNT",
   "AUDIT",
   "ARTIFACT",
+  "SERVICE",
+  "NETWORK_POLICY",
 ];
 
 export const VERBS: Verb[] = ["READ", "WRITE", "DELETE", "APPROVE"];
