@@ -15,12 +15,19 @@ import com.gimle.core.protocol.ControlMessage;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.StandardProtocolFamily;
+import java.net.URI;
 import java.net.UnixDomainSocketAddress;
+import java.net.http.HttpClient;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -28,7 +35,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Regression: {@link AgentMain#prepareResourceLimit} must hand the limiter the manifest's resource
@@ -735,6 +744,68 @@ class AgentMainTest {
     } finally {
       Files.deleteIfExists(socketPath);
       Files.deleteIfExists(socketPath.getParent());
+    }
+  }
+
+  // ---- deliverConfig: a tenant instance must not get stuck when Fafnir is unreachable ----
+
+  @Test
+  @Timeout(15)
+  void deliver_config_degrades_gracefully_when_fafnir_is_unreachable() throws Exception {
+    // Real HTTP server backing baseUrl's own /config/{tenantId}, so this test isolates the
+    // Fafnir-unreachable path alone rather than also exercising fetchConfigForTenant's own
+    // already-covered RuntimeException fallback.
+    HttpServer configServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    configServer.createContext(
+        "/config/acme",
+        exchange -> {
+          try (InputStream in = exchange.getRequestBody()) {
+            in.readAllBytes();
+          }
+          byte[] body = "[]".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    configServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    configServer.start();
+    try {
+      URI baseUrl = URI.create("http://127.0.0.1:" + configServer.getAddress().getPort());
+
+      // Bound then immediately closed, so connecting to it fails fast with a real
+      // ConnectException instead of hanging on a real remote host's connect timeout.
+      URI fafnirBaseUrl;
+      try (ServerSocket unusedFafnirPort = new ServerSocket(0)) {
+        fafnirBaseUrl = URI.create("http://127.0.0.1:" + unusedFafnirPort.getLocalPort());
+      }
+
+      ModuleDescriptor descriptor = descriptor("provider", IsolationTier.TIER_2);
+      AssignedInstance assigned =
+          assignedInstance("provider-deployment", descriptor, Optional.of("acme"));
+
+      Path socketPath = Files.createTempDirectory("gimle-deliver-config").resolve("worker.sock");
+      try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+        server.bind(UnixDomainSocketAddress.of(socketPath));
+        try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
+          workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
+          try (SocketChannel agentRaw = server.accept()) {
+            WorkerConnection agentSide = new WorkerConnection(agentRaw);
+            SupervisedInstance instance = supervisedInstance(assigned, descriptor, agentSide);
+
+            // Must return normally rather than let the ConnectException from the unreachable
+            // Fafnir endpoint escape uncaught -- before the fix that IOException propagated out
+            // of deliverConfig, through sendInstallStartSequence, leaving StartModule never sent
+            // and the instance stuck at RESOLVED forever.
+            AgentMain.deliverConfig(
+                instance, agentSide, HttpClient.newHttpClient(), baseUrl, fafnirBaseUrl);
+          }
+        }
+      } finally {
+        Files.deleteIfExists(socketPath);
+        Files.deleteIfExists(socketPath.getParent());
+      }
+    } finally {
+      configServer.stop(0);
     }
   }
 }
