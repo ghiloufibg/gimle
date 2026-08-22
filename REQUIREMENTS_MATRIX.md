@@ -574,6 +574,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-562 | Cluster-machine platform distribution archive | Packaging | Complete | Partial |
 | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | Complete | Partial |
 | GIMLE-564 | Distribution archive checksums and SBOM generation | Packaging | Complete | None |
+| GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Raft Consensus / Internal-Infra / Testing | Complete | Yes |
 | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Reconciliation / Service Fabric | Complete | Yes |
 | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Fabric / Multi-tenancy | Complete | Yes |
 | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | Complete | Yes |
@@ -585,6 +586,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | Complete | Yes |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | Complete | Yes |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | Complete (v1 scope) | Yes |
+| GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | Complete (v1 scope) | Yes |
 
 ## Detailed Requirements
 
@@ -3233,6 +3235,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported.
   ```
 
+#### GIMLE-565 — Norn deterministic virtual-time Raft fault-injection simulation
+
+- **Category**: Raft Consensus / Internal-Infra / Testing
+- **User story**: As a control-plane operator, I want confidence that Raft's safety invariants hold under many seeded, deterministic fault schedules (node isolation, restart, healing, concurrent proposals) far faster than a real-time, live-timer test could ever afford, so a Raft regression is caught by a seeded replay rather than surfacing first in a live cluster.
+- **Status**: Complete: `NornCluster` wires real in-process `RaftNode`s directly to each other's `RaftRpcHandler` methods (no sockets, no `RaftTransport`) sharing one `TestClock`, so `advanceVirtualTime` fires every due election-timeout/check-quorum tick for free instead of waiting out the real 150-300ms/300ms production windows; only that tick-firing is virtualized, peer RPC dispatch and a leader's replication heartbeat pacing still run on `RaftNode`'s real background threads at real wall-clock speed, so this is a seeded, replayable fault schedule layered over a real Raft implementation, not a bit-for-bit-deterministic single-threaded simulator.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`, `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornScheduler.java`, `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornRaftSimulationTest.java` (added in commit `6bd450f`, "test: add Norn deterministic Raft fault-injection simulation")
+- **Test coverage**: `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds; each round applies one weighted, seeded action (isolate a node, restart a node, heal all, propose a `PutTenant` mutation via the current leader, or a no-op time advance) then asserts `NornCluster.assertSafetyInvariants` (Raft's own Election Safety §5.2 — at most one leader per term, checked against each node's own `currentTerm()`; and Log Matching §5.3 — identical entries at any index/term both nodes agree on, checked pairwise over every node and every appended index) after every round, plus `assertEventuallyLive` (liveness — the cluster elects a leader and commits a fresh write within a 10-second virtual-time budget) once each seed's fault storm ends via `healAll`. A failing seed's ledger of per-round actions is printed on assertion failure so it reproduces by rerunning just that one seed.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round.
+  Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget.
+  Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed.
+  ```
+
 #### GIMLE-572 — NetworkPolicySpec durable persistence through StoreClient
 
 - **Category**: Networking/Security
@@ -5092,6 +5109,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given Andvari is running; When GET /status; Then process-level status is returned with no RBAC check.
+  ```
+
+#### GIMLE-577 — Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)
+
+- **Category**: Artifact Registry
+- **User story**: As a platform team publishing a multi-service application, I want to push every module jar in one command and tag each with the tenant it belongs to, so I don't have to run `gimle artifact push` once per jar, and Andvari finally records real ownership instead of the moduleId-scoping stand-in it used before.
+- **Status**: Complete, including the admission-time tenant cross-check -- a deploying workload's own tenantId is checked against a registry-resolved coordinate's recorded tenant, rejecting on mismatch (either side untenanted skips the check). Still deliberately deferred: no server-side staging/two-phase commit for stricter all-or-nothing set semantics (publish stays pre-flight HEAD then sequential idempotent PUT, not a transaction), no migration of gimle-examples/orders-platform onto registry coordinates.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java` (tenant field, untenanted-to-tenanted backfill, tenant-swap conflict), `AndvariServer.java` (`X-Gimle-Artifact-Tenant` header, dual-scope authorization), `AndvariPeerSync.java` (tenant propagated across replica sync), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`, `api/ApiServer.java` (`/artifacts/*` proxy header passthrough), `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifest.java`, `ArtifactSetModuleEntry.java`, `ArtifactSetManifestParser.java`, `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`, `ArtifactCommand.java` (`--tenant`), `ControlPlaneClient.java` (`head`/`putFile` with headers), `GimleCli.java` (`kind: ArtifactSet` dispatch), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java` (`HeadOutcome.Found#tenantId`), `api/ApiServer.java` (`admissionArtifact`'s deployingTenantId cross-check, all four workload kinds)
+- **Test coverage**: `ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content); `ArtifactSetCommandTest` (admission cross-check: a mismatched tenantId rejected with 400 naming both tenants, a matching tenantId admitted, an untenanted workload against a tenanted coordinate skips the check)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed.
   ```
 
 ### gimle-muninn
@@ -8450,11 +8480,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an end user who only needs the gimle CLI, I want a minimal standalone tarball with gimle-cli's own runtime dependency closure plus a launcher script.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`
+- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`, `gimle-dist/src/main/dist/bin/gimle.cmd`
 - **Test coverage**: NONE automated
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle.
+  Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle, bin/gimle.cmd, and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle.
   ```
 
 #### GIMLE-561 — Standalone Hilmir bootstrap-tool distribution archive
@@ -8463,11 +8493,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an operator bootstrapping a new cluster machine, I want a minimal standalone tarball with gimle-hilmir's runtime closure plus its launcher.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`
+- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 - **Test coverage**: NONE automated
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml.
+  Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir, bin/hilmir.cmd, and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml.
   ```
 
 #### GIMLE-562 — Cluster-machine platform distribution archive
@@ -8476,11 +8506,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an operator standing up a cluster machine, I want one archive with every process-kind jar on a single flat classpath, plus gimle-gateway's hosted-module jar kept separately.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`
+- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle.cmd`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 - **Test coverage**: NONE automated; proven indirectly by gimle-holmgang's Docker Compose validation
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and both wrapper scripts.
+  Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and all four wrapper scripts (bin/gimle, bin/gimle.cmd, bin/hilmir, bin/hilmir.cmd).
   ```
 
 #### GIMLE-563 — Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)

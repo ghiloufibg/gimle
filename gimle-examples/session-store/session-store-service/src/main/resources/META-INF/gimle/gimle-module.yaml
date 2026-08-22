@@ -1,0 +1,24 @@
+name: com.example.sessionstore.store
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 64Mi
+    cpu: 50m
+  limit:
+    memory: 256Mi
+    cpu: 500m
+# 64 MiB volume -- generous for a demo's worth of session records, small enough to allocate on any
+# real node without a second thought.
+volume:
+  sizeBytes: 67108864
+  mountPath: /data
+exports:
+  - service: com.example.sessionstore.SessionStore
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.sessionstore.store.SessionStoreHooks
+health:
+  liveness: com.example.sessionstore.store.SessionStoreLivenessProbe
+  readiness: com.example.sessionstore.store.SessionStoreReadinessProbe

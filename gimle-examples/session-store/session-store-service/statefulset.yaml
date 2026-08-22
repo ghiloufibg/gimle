@@ -1,0 +1,12 @@
+# kind: StatefulSet -- required for the volume: this module's own gimle-module.yaml declares to
+# actually be allocated (persistent storage is only ever provisioned for a StatefulSet-hosted
+# instance). Single replica: this app proves out real cross-restart durability for one store, not
+# a sharded/replicated multi-node store -- that would need consistent hashing and replication
+# logic well beyond what this example is about. See ../README.md.
+kind: StatefulSet
+name: session-store-statefulset
+module:
+  name: com.example.sessionstore.store
+  version: 1.0.0
+artifactPath: gimle-examples/session-store/session-store-service/target/session-store-service.jar
+replicas: 1

@@ -787,7 +787,11 @@ public final class ApiServer implements AutoCloseable {
     // untenanted deployments already had before this field existed -- DeploymentReconciler still
     // catches an unreadable artifact every tick regardless.
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
+        admissionArtifact(
+            parsedSpec.artifactPath(),
+            parsedSpec.moduleId(),
+            parsedSpec.vessel(),
+            parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -828,15 +832,25 @@ public final class ApiServer implements AutoCloseable {
    * reconcilers converge once it's back), and present records the registry's own digest while
    * best-effort pulling the jar through the local cache so the tenant-quota plugin still gets a
    * descriptor to charge against.
-   */
-  /**
-   * {@code vessel}, when present, routes the local-path/registry-coordinate read through {@link
+   *
+   * <p>{@code vessel}, when present, routes the local-path/registry-coordinate read through {@link
    * VesselArtifacts} instead of {@link ModuleArtifactReader} -- see {@link
    * ArtifactResolver#resolve(String, ModuleId, Optional)}'s own javadoc for why this is the one
    * place every admission path needs to know a spec is vessel-hosted, and nowhere else does.
+   *
+   * <p>{@code deployingTenantId} is the submitted workload's own {@code tenantId} -- checked
+   * against a registry-resolved coordinate's recorded tenant (see {@code
+   * AndvariClient.HeadOutcome.Found#tenantId}), rejecting outright on a mismatch the same way a
+   * missing coordinate already is: an artifact tagged for one tenant should never silently end up
+   * backing another tenant's workload. Either side being untenanted skips the check entirely --
+   * this is purely additive over every existing untenanted deployment/artifact combination, which
+   * never had a tenant to compare in the first place.
    */
   private AdmissionArtifact admissionArtifact(
-      String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
+      String artifactPath,
+      ModuleId moduleId,
+      Optional<VesselSpec> vessel,
+      Optional<String> deployingTenantId) {
     if (ArtifactReference.isLocalPath(artifactPath)) {
       Optional<ModuleArtifact> artifact = readArtifactIfPossible(artifactPath, moduleId, vessel);
       return new AdmissionArtifact(
@@ -869,11 +883,26 @@ public final class ApiServer implements AutoCloseable {
             unreachable.reason());
         yield new AdmissionArtifact(Optional.empty(), Optional.empty(), Optional.empty());
       }
-      case AndvariClient.HeadOutcome.Found found ->
-          new AdmissionArtifact(
-              Optional.empty(),
-              artifactResolver.resolveIfPossible(artifactPath, moduleId, vessel),
-              Optional.of(found.sha256()));
+      case AndvariClient.HeadOutcome.Found found -> {
+        if (found.tenantId().isPresent()
+            && deployingTenantId.isPresent()
+            && !found.tenantId().get().equals(deployingTenantId.get())) {
+          yield AdmissionArtifact.rejection(
+              "artifact "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + " is recorded in the registry under tenant '"
+                  + found.tenantId().get()
+                  + "', not '"
+                  + deployingTenantId.get()
+                  + "'");
+        }
+        yield new AdmissionArtifact(
+            Optional.empty(),
+            artifactResolver.resolveIfPossible(artifactPath, moduleId, vessel),
+            Optional.of(found.sha256()));
+      }
     };
   }
 
@@ -1313,7 +1342,11 @@ public final class ApiServer implements AutoCloseable {
     // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
+        admissionArtifact(
+            parsedSpec.artifactPath(),
+            parsedSpec.moduleId(),
+            parsedSpec.vessel(),
+            parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -1593,7 +1626,11 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
+        admissionArtifact(
+            parsedSpec.artifactPath(),
+            parsedSpec.moduleId(),
+            parsedSpec.vessel(),
+            parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -1721,7 +1758,11 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     AdmissionArtifact admitted =
-        admissionArtifact(parsedSpec.artifactPath(), parsedSpec.moduleId(), parsedSpec.vessel());
+        admissionArtifact(
+            parsedSpec.artifactPath(),
+            parsedSpec.moduleId(),
+            parsedSpec.vessel(),
+            parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
       return;
@@ -3300,12 +3341,23 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
+      // The caller's own tenant claim on a push -- forwarded verbatim so Andvari's own
+      // authorizeArtifacts can check the claim itself, not just the forwarded-principal identity.
+      if ("PUT".equals(method)) {
+        Optional<String> tenantId =
+            Optional.ofNullable(exchange.getRequestHeaders().getFirst("X-Gimle-Artifact-Tenant"));
+        tenantId.ifPresent(tenant -> forwardHeaders.put("X-Gimle-Artifact-Tenant", tenant));
+      }
       InputStream requestBody = "PUT".equals(method) ? exchange.getRequestBody() : null;
       AndvariClient.StreamingResponse response =
           registry.get().forward(method, path, requestBody, forwardHeaders);
       response
           .sha256()
           .ifPresent(sha -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Sha256", sha));
+      response
+          .tenantId()
+          .ifPresent(
+              tenant -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Tenant", tenant));
       response
           .contentType()
           .ifPresent(type -> exchange.getResponseHeaders().add("Content-Type", type));

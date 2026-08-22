@@ -56,6 +56,8 @@ public final class ArtifactCommand {
       throw new CliException("artifact push requires the path to a module jar");
     }
     Path jar = Path.of(args.get(0));
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Optional<String> tenantId = Optional.ofNullable(flags.getOrDefault("--tenant", null));
     ModuleArtifact artifact;
     try {
       artifact = ModuleArtifactReader.read(jar);
@@ -65,8 +67,11 @@ public final class ArtifactCommand {
     String moduleId = artifact.id().name();
     String version = artifact.id().version().toString();
 
+    Map<String, String> headers =
+        tenantId.map(id -> Map.of("X-Gimle-Artifact-Tenant", id)).orElse(Map.of());
     String response =
-        client.expectSuccess(client.putFile("/artifacts/" + moduleId + "/" + version, jar));
+        client.expectSuccess(
+            client.putFile("/artifacts/" + moduleId + "/" + version, jar, headers));
     Map<String, Object> parsed = Json.asObject(Json.parse(response));
     boolean created = Boolean.TRUE.equals(parsed.get("created"));
 
@@ -74,6 +79,9 @@ public final class ArtifactCommand {
         resultBody(created ? "pushed" : "already-present", moduleId, version);
     body.put("sha256", parsed.get("sha256"));
     body.put("sizeBytes", parsed.get("sizeBytes"));
+    if (parsed.get("tenantId") != null) {
+      body.put("tenantId", parsed.get("tenantId"));
+    }
     OutputFormat.printResult(
         output,
         body,
@@ -144,7 +152,7 @@ public final class ArtifactCommand {
         usage: gimle artifact <verb> [args]
 
         verbs:
-          push <jar>                       (coordinate read from the jar's own gimle-module.yaml)
+          push <jar> [--tenant <id>]       (coordinate read from the jar's own gimle-module.yaml)
           list [moduleId]
           get <moduleId> <version> [--to <path>]
           delete <moduleId> <version>

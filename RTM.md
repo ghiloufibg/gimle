@@ -591,6 +591,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | New | Not Covered | — |
 | GIMLE-575 | Bifrost fails closed for a NetworkPolicySpec-restricted Service | New | Not Covered | — |
 | GIMLE-576 | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | New | Not Covered | — |
+| GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3794,6 +3795,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `AndvariServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`
 - **Source location(s)**: `AndvariServer.handleStatus`
 
+#### GIMLE-577 — Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`)
+
+- **Category**: Artifact Registry
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario exercises an ArtifactSet publish against a real cluster -- coverage here requires a .feature scenario driving the real gimle binary, not the real JUnit/in-process coverage that already exists (ArtifactSetCommandTest's own real-AndvariServer-behind-ApiServer round trip does not count, per this file's own metadata.coverageRule).
+- **Other test coverage (non-Holmgang, informational only)**: `ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content); `ArtifactSetCommandTest` (admission cross-check: a mismatched tenantId rejected with 400 naming both tenants, a matching tenantId admitted, an untenanted workload against a tenanted coordinate skips the check)
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java` (tenant field, untenanted-to-tenanted backfill, tenant-swap conflict), `AndvariServer.java` (`X-Gimle-Artifact-Tenant` header, dual-scope authorization), `AndvariPeerSync.java` (tenant propagated across replica sync), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`, `api/ApiServer.java` (`/artifacts/*` proxy header passthrough), `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifest.java`, `ArtifactSetModuleEntry.java`, `ArtifactSetManifestParser.java`, `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`, `ArtifactCommand.java` (`--tenant`), `ControlPlaneClient.java` (`head`/`putFile` with headers), `GimleCli.java` (`kind: ArtifactSet` dispatch), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java` (`HeadOutcome.Found#tenantId`), `api/ApiServer.java` (`admissionArtifact`'s deployingTenantId cross-check, all four workload kinds)
+
 ### gimle-muninn
 
 #### GIMLE-319 — Node platform-log ingest
@@ -6081,7 +6091,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Standalone CLI distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`
+- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`, `gimle-dist/src/main/dist/bin/gimle.cmd`
 
 #### GIMLE-561 — Standalone Hilmir bootstrap-tool distribution archive
 
@@ -6090,7 +6100,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Standalone Hilmir bootstrap-tool distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`
+- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 
 #### GIMLE-562 — Cluster-machine platform distribution archive
 
@@ -6099,7 +6109,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Cluster-machine platform distribution archive`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`
+- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle.cmd`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 
 #### GIMLE-563 — Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)
 
@@ -6134,7 +6144,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**457 of 576 requirements are Not Covered.**
+**458 of 577 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6150,6 +6160,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-299 | gimle-andvari | Size-limited streaming upload rejection | Artifact Registry | Implicit in `ArtifactStoreTest`'s put-path coverage |
 | GIMLE-302 | gimle-andvari | Version retention sweeping (count and age based) | Artifact Registry | `ArtifactRetentionSweeperTest` — `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing` |
 | GIMLE-308 | gimle-andvari | Generated `maven-metadata.xml` (never stored, always fresh) | Artifact Registry | `AndvariServerMavenRepositoryTest` — `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically` |
+| GIMLE-577 | gimle-andvari | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | `ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content); `ArtifactSetCommandTest` (admission cross-check: a mismatched tenantId rejected with 400 naming both tenants, a matching tenantId admitted, an untenanted workload against a tenanted coordinate skips the check) |
 | GIMLE-306 | gimle-andvari | Maven-2-shaped `/repository/**` interop surface | Artifact Registry / API Server | `AndvariServerMavenRepositoryTest` — `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable` |
 | GIMLE-265 | gimle-controlplane | `/artifacts/*` streaming proxy to Andvari | Artifact Registry / Internal-Infra | `AndvariClientTest`; end-to-end in `gimle-smoke-tests/AndvariRegistryIT` |
 | GIMLE-266 | gimle-controlplane | Andvari-client multi-endpoint failover with rotation | Artifact Registry / Internal-Infra | `AndvariClientTest` — `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable` |

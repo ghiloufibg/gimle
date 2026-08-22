@@ -1,0 +1,11 @@
+# kind: Deployment -- six replicas so the fabric's own load balancer has a real pool to spread
+# mapreduce-coordinator's (by default) 200 chunks across; see ../README.md for the full story of
+# how that fan-out happens, and for how to push both the replica count and the chunk count higher
+# still for a genuinely large-scale run.
+kind: Deployment
+name: mapreduce-worker-deployment
+module:
+  name: com.example.mapreduce.worker
+  version: 1.0.0
+artifactPath: gimle-examples/mapreduce-wordcount/mapreduce-worker/target/mapreduce-worker.jar
+replicas: 6

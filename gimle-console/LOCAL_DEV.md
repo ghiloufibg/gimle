@@ -104,6 +104,11 @@ module's own `gimle:controlplane` execution no-ops immediately (matching one spe
 in its own terminal. Once it logs that it's serving, `http://127.0.0.1:8080/console` should load
 the console shell (with an empty/loading state — no agent has registered yet).
 
+To run `ControlPlaneMain` directly instead of via `mvn gimle:controlplane` (`ControlPlaneMojo`
+supplies its flags automatically, including a `--fafnir-endpoint` default), see
+`gimle-controlplane/README.md`'s own "Process entrypoint" section for the full invocation —
+`--fafnir-endpoint host:port` is mandatory there, not optional.
+
 ## 5. Launch one node agent
 
 In a fourth terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):

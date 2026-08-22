@@ -75,7 +75,8 @@ import org.slf4j.LoggerFactory;
  * GET            /artifacts                        catalog of module ids
  * GET            /artifacts/{moduleId}             stored versions with checksums/provenance
  * HEAD/GET       /artifacts/{moduleId}/{version}   digest headers / raw jar bytes
- * PUT            /artifacts/{moduleId}/{version}   upload (raw jar body); differing re-push is 409
+ * PUT            /artifacts/{moduleId}/{version}   upload (raw jar body, optional tenant header);
+ *                                                   a differing digest or tenant on re-push is 409
  * DELETE         /artifacts/{moduleId}/{version}   operator-driven removal
  * </pre>
  *
@@ -90,8 +91,10 @@ import org.slf4j.LoggerFactory;
  * itself. A {@code gimle:nodes} principal may only ever pull -- never push or delete -- and only a
  * coordinate its node currently holds an assignment for (see {@link #nodeHasAssignmentFor}). A
  * {@link com.gimle.core.authz.Permission} may additionally be scoped to a single {@code moduleId}
- * (Andvari's own stand-in for {@code FafnirServer}'s tenant scope, since it has no separate tenant
- * dimension of its own) -- see {@link #authorizeArtifacts}'s own javadoc.
+ * (Andvari's own long-standing stand-in for a real tenant dimension) or, now that a push may tag a
+ * coordinate with an actual tenant id, to that tenant directly -- see {@link #authorizeArtifacts}'s
+ * own javadoc for which of a coordinate's tenant values (claimed on the request, or already on
+ * record) each verb checks.
  *
  * <p>Also carries its own console session story ({@code /auth/login}/{@code /auth/logout}/{@code
  * /auth/session}) and an optional bundled-SPA static serving surface ({@link #serveConsole}), both
@@ -108,6 +111,7 @@ public final class AndvariServer implements AutoCloseable {
   private static final String FORWARDED_PRINCIPAL_HEADER = "X-Gimle-Forwarded-Principal";
   private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
+  private static final String TENANT_HEADER = "X-Gimle-Artifact-Tenant";
   private static final String MAVEN_METADATA_FILE = "maven-metadata.xml";
   private static final DateTimeFormatter MAVEN_TIMESTAMP =
       DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
@@ -391,34 +395,55 @@ public final class AndvariServer implements AutoCloseable {
   /**
    * The manifest-check equivalent an agent runs before a real download: existence plus digest, no
    * body. The digest travels in {@value #SHA256_HEADER} rather than the body since HEAD has none.
+   * Looked up before authorization, not after, so a coordinate's own recorded tenant (if any) is
+   * available to {@link #authorizeArtifacts}'s scope check -- see that method's own javadoc for why
+   * a read checks the *stored* tenant rather than anything the caller might claim.
    */
   private void handleHead(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version, moduleId, version)) {
+    Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
+    if (!authorizeArtifacts(
+        exchange,
+        Verb.READ,
+        moduleId + ":" + version,
+        moduleId,
+        version,
+        meta.flatMap(StoredArtifact::tenantId))) {
       return;
     }
-    Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
     if (meta.isEmpty()) {
       exchange.sendResponseHeaders(404, -1);
       return;
     }
     exchange.getResponseHeaders().add(SHA256_HEADER, meta.get().sha256());
+    meta.get()
+        .tenantId()
+        .ifPresent(tenantId -> exchange.getResponseHeaders().add(TENANT_HEADER, tenantId));
     exchange.getResponseHeaders().add("Content-Type", "application/java-archive");
     exchange.sendResponseHeaders(200, -1);
   }
 
   private void handleDownload(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.READ, moduleId + ":" + version, moduleId, version)) {
+    Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
+    if (!authorizeArtifacts(
+        exchange,
+        Verb.READ,
+        moduleId + ":" + version,
+        moduleId,
+        version,
+        meta.flatMap(StoredArtifact::tenantId))) {
       return;
     }
-    Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
     Optional<Path> jar = artifactStore.jarPath(moduleId, version);
     if (meta.isEmpty() || jar.isEmpty()) {
       respond(exchange, 404, "no artifact stored for " + moduleId + ":" + version);
       return;
     }
     exchange.getResponseHeaders().add(SHA256_HEADER, meta.get().sha256());
+    meta.get()
+        .tenantId()
+        .ifPresent(tenantId -> exchange.getResponseHeaders().add(TENANT_HEADER, tenantId));
     exchange.getResponseHeaders().add("Content-Type", "application/java-archive");
     exchange.sendResponseHeaders(200, meta.get().sizeBytes());
     String actualSha256;
@@ -498,13 +523,17 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleUpload(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.WRITE, moduleId + ":" + version, moduleId, version)) {
+    // A write's own claim is what's checked, not whatever (if anything) already sits on record --
+    // see authorizeArtifacts's javadoc for why that distinction is load-bearing, not cosmetic.
+    Optional<String> requestedTenant = firstHeader(exchange, TENANT_HEADER);
+    if (!authorizeArtifacts(
+        exchange, Verb.WRITE, moduleId + ":" + version, moduleId, version, requestedTenant)) {
       return;
     }
     String pushedBy = resolvePrincipal(exchange).map(Principal::name).orElse("anonymous");
     PutResult result;
     try (var body = exchange.getRequestBody()) {
-      result = artifactStore.put(moduleId, version, body, pushedBy);
+      result = artifactStore.put(moduleId, version, body, pushedBy, requestedTenant);
     } catch (ArtifactStore.ArtifactTooLargeException e) {
       respond(exchange, 413, e.getMessage());
       return;
@@ -517,9 +546,11 @@ public final class AndvariServer implements AutoCloseable {
               + moduleId
               + ":"
               + version
-              + " already exists with sha256 "
+              + " already exists (sha256 "
               + result.stored().sha256()
-              + " -- a stored version is immutable; push the changed jar as a new version");
+              + result.stored().tenantId().map(tenantId -> ", tenant " + tenantId).orElse("")
+              + ") -- a stored version's content and tenant are both immutable; push the changed"
+              + " jar as a new version, or drop --tenant if you didn't mean to change ownership");
       return;
     }
     Map<String, Object> body = versionJson(result.stored());
@@ -529,7 +560,10 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleDelete(HttpExchange exchange, String moduleId, String version)
       throws IOException {
-    if (!authorizeArtifacts(exchange, Verb.DELETE, moduleId + ":" + version, moduleId, version)) {
+    Optional<String> storedTenant =
+        artifactStore.meta(moduleId, version).flatMap(StoredArtifact::tenantId);
+    if (!authorizeArtifacts(
+        exchange, Verb.DELETE, moduleId + ":" + version, moduleId, version, storedTenant)) {
       return;
     }
     if (!artifactStore.delete(moduleId, version)) {
@@ -731,16 +765,28 @@ public final class AndvariServer implements AutoCloseable {
    * pull path has no use for -- while everything else goes through this process's own independent
    * {@link Authorizer} check against RBAC state it reads itself.
    *
-   * <p>{@code moduleId}, when present, is threaded through as {@link Authorizer#authorize}'s own
-   * {@code tenant} scope -- exactly the mechanism {@code FafnirServer} already uses for a real
-   * tenant id, reused here since Andvari has no separate tenant dimension of its own and a module
-   * coordinate is the natural unit an operator would want to scope a grant to (e.g. a CI service
-   * account that may only push one team's module, not the whole store). An unscoped {@link
-   * com.gimle.core.authz.Permission} (the common case -- {@code cluster-admin}, or any role an
-   * operator never bothered to narrow) still matches every module exactly as before; only a {@link
-   * com.gimle.core.authz.Permission#scoped} grant is now actually restrictive. A {@code null}
-   * moduleId (the full catalog listing, which addresses no single module) only ever matches an
-   * unscoped grant -- a module-scoped principal cannot enumerate the whole store.
+   * <p>{@code moduleId}, when present, is threaded through as one of two {@link
+   * Authorizer#authorize} {@code tenant}-scope checks -- either granting access is enough. This is
+   * the same mechanism {@code FafnirServer} already uses for a real tenant id, reused here since
+   * Andvari has no separate tenant dimension of its own and a module coordinate is a natural unit
+   * an operator would want to scope a grant to (e.g. a CI service account that may only push one
+   * team's module, not the whole store). An unscoped {@link com.gimle.core.authz.Permission} (the
+   * common case -- {@code cluster-admin}, or any role an operator never bothered to narrow) still
+   * matches every module exactly as before; only a {@link com.gimle.core.authz.Permission#scoped}
+   * grant is now actually restrictive. A {@code null} moduleId (the full catalog listing, which
+   * addresses no single module) only ever matches an unscoped grant -- a module-scoped principal
+   * cannot enumerate the whole store.
+   *
+   * <p>The other check is against a coordinate's actual, real tenant -- {@code tenantId}, supplied
+   * by each caller -- and which value that is depends on the verb, a distinction that closes a real
+   * gap rather than being cosmetic: on a {@code PUT} it is the tenant *claimed in this request's
+   * own* {@value #TENANT_HEADER} header (see {@link #handleUpload}), because that is the ownership
+   * assertion actually being made right now, on a coordinate that may not even exist yet --
+   * checking anything already on record would let a caller stamp an arbitrary tenant onto a new or
+   * newly-claimed coordinate without ever holding write permission for it. On every other verb it
+   * is the coordinate's already-{@code stored} tenant (see {@link #handleHead}/{@link
+   * #handleDownload}/{@link #handleDelete}), since nothing is being claimed there, only checked.
+   * Either the tenant-scope or the moduleId-scope check succeeding is sufficient.
    *
    * <p>Push/delete decisions are audited both ways ({@code FafnirServer}'s dual-audit shape); reads
    * are deliberately not durably audited -- pulls are the high-volume path, and a pull discloses
@@ -748,6 +794,17 @@ public final class AndvariServer implements AutoCloseable {
    */
   private boolean authorizeArtifacts(
       HttpExchange exchange, Verb verb, String target, String moduleId, String version)
+      throws IOException {
+    return authorizeArtifacts(exchange, verb, target, moduleId, version, Optional.empty());
+  }
+
+  private boolean authorizeArtifacts(
+      HttpExchange exchange,
+      Verb verb,
+      String target,
+      String moduleId,
+      String version,
+      Optional<String> tenantId)
       throws IOException {
     if (!(exchange instanceof HttpsExchange)) {
       return true;
@@ -764,12 +821,15 @@ public final class AndvariServer implements AutoCloseable {
                 && moduleId != null
                 && version != null
                 && nodeHasAssignmentFor(principal.name(), moduleId, version)
-            : authorizer.authorize(
-                principal,
-                ResourceKind.ARTIFACT,
-                verb,
-                Optional.ofNullable(moduleId),
-                Optional.empty());
+            : (tenantId.isPresent()
+                    && authorizer.authorize(
+                        principal, ResourceKind.ARTIFACT, verb, tenantId, Optional.empty()))
+                || authorizer.authorize(
+                    principal,
+                    ResourceKind.ARTIFACT,
+                    verb,
+                    Optional.ofNullable(moduleId),
+                    Optional.empty());
     if (verb != Verb.READ) {
       recordAudit(principal, verb, target, allowed);
     }
@@ -1098,6 +1158,7 @@ public final class AndvariServer implements AutoCloseable {
     json.put("sizeBytes", stored.sizeBytes());
     json.put("pushedAtEpochMilli", stored.pushedAtEpochMilli());
     json.put("pushedBy", stored.pushedBy());
+    stored.tenantId().ifPresent(tenantId -> json.put("tenantId", tenantId));
     return json;
   }
 

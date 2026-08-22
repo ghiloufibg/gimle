@@ -48,7 +48,7 @@ services:
       unpack:
         condition: service_completed_successfully
     volumes:
-      - gimle-install:/opt/gimle:ro
+      - gimle-install:/opt/gimle
       - ./ssh-remote/sshd-entrypoint.sh:/holmgang/sshd-entrypoint.sh:ro
       - m1-data:/data
     ports:

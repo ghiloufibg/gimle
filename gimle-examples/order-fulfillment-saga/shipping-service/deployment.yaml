@@ -1,0 +1,11 @@
+# tenantId is required: shipping.failureRate is delivered via tenant config, never to an
+# untenanted instance (AgentMain#deliverConfig). See ../README.md for the gimle set tenant/config
+# commands to run first.
+kind: Deployment
+name: shipping-service-deployment
+module:
+  name: com.example.orderfulfillment.shipping
+  version: 1.0.0
+tenantId: order-fulfillment-saga
+artifactPath: gimle-examples/order-fulfillment-saga/shipping-service/target/shipping-service.jar
+replicas: 2

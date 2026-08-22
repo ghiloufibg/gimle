@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.gimle-session-store</groupId>
+    <artifactId>session-store</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>session-store-client</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Session Store: session-store-client</name>
+  <description>
+    A background caller exercising session-store-service over the real fabric on a loop --
+    put/get/delete cycles against a rolling set of session ids, the same "watch it happen" caller
+    pattern gimle-examples/greeter-consumer already establishes, extended to also verify a
+    previously written session is still readable after the store's own instance restarts.
+  </description>
+
+  <properties>
+    <finalName>session-store-client</finalName>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${finalName}</finalName>
+  </build>
+</project>

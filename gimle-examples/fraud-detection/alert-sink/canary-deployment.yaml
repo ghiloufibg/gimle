@@ -1,0 +1,18 @@
+# The exact same jar and gimle-module.yaml as deployment.yaml, reused unchanged under a SECOND
+# tenant with a deliberately high alertsink.failureRate -- a bad canary rollout of the same
+# AlertSink service/version, which is what makes this app's circuit-breaking demonstration real:
+# fraud-scorer's own lookupService(AlertSink.class) sees this replica as just another AlertSink
+# candidate alongside the two healthy ones from deployment.yaml, and gimle-fabric's own
+# CircuitBreaker is the thing that organically stops routing to it once its error rate crosses
+# threshold -- not any code in this app. See ../README.md.
+#
+# gimle set tenant fraud-detection-canary --max-memory-bytes 134217728 --max-cpu-millicores 500 --max-instances 3
+# gimle set config fraud-detection-canary alertsink.failureRate 0.9
+kind: Deployment
+name: alert-sink-canary-deployment
+module:
+  name: com.example.frauddetection.alertsink
+  version: 1.0.0
+tenantId: fraud-detection-canary
+artifactPath: gimle-examples/fraud-detection/alert-sink/target/alert-sink.jar
+replicas: 1

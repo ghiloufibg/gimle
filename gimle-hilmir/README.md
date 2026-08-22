@@ -153,6 +153,21 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
   `MTLS_SINGLE_HOSTNAME_PKI` below), a multi-machine topology gets material for one machine's
   hostname only -- printed as a note -- and every other machine's server processes need
   manually-issued material.
+- `hilmir doctor <jar> [<dep-jar>...] [--vessel] [--server host:port] [--tenant <id>] [-o json]` --
+  static pre-flight checks against a built jar, needing neither a topology document nor a running
+  control plane. Runs the full static finding catalog (structural jar inspection, a lenient
+  `gimle-module.yaml` read, and a bytecode hazard scan for things like `System.exit`, shutdown-hook
+  registration, non-daemon threads, native-library loading, server-socket opening, and an
+  unshutdown static `ExecutorService`) against `<jar>`; any further positional jars are extra
+  artifacts on the same hypothetical module path, consulted only by the split-package/bundled-
+  logging-binding checks. Evaluates module-hosting intent by default (the richer, more constrained
+  path); `--vessel` switches to the smaller vessel-hosting check set instead, mirroring how a real
+  deploy manifest's own `vessel:` block presence/absence -- not jar-sniffing -- is the platform's
+  actual switch. `--server host:port` adds cluster-aware checks on top: `REGISTRY_COORDINATE_NOT_FOUND`
+  if the jar's own `(name, version)` isn't present in the artifact registry behind that control
+  plane, and (with `--tenant <id>`) `TENANT_NOT_FOUND` if that tenant doesn't exist there either.
+  Exits non-zero on any `ERROR`-severity finding, matching `hilmir validate`'s own exit-code
+  convention; `-o json` prints findings as a JSON array instead of the default text listing.
 
 `down`/`status` deliberately take `--data-root` rather than `-f` for local dispatch: the run ledger
 lives under a resolved runtime's own data root, and neither verb needs the topology document again

@@ -14,4 +14,18 @@ set -eu
 install -d -m 700 -o operator -g operator /home/operator/.ssh
 install -m 600 -o operator -g operator /run/secrets/operator-pubkey /home/operator/.ssh/authorized_keys
 
+# RemoteDispatch's own "up" scp's the topology document straight into <installDir> itself
+# (hilmir-remote-topology-<machine>.yaml, alongside bin/ and lib/) before ssh-exec'ing bin/hilmir
+# there, so the operator user needs write access to that one directory -- not recursively into
+# bin/lib/modules, which stay root-owned since nothing here needs to write into them. /opt/gimle
+# matches every compose scenario's own installDir/runtime.ssh.installDir convention.
+chown operator:operator /opt/gimle
+
+# A fresh named volume mounts owned by root -- MachineLauncher's own spawned processes (each an SSH
+# session running as operator, never root) write their own java argfile and data/log directories
+# straight under runtime.dataRoot, so operator needs to own this scenario's own /data too.
+if [ -d /data ]; then
+  chown operator:operator /data
+fi
+
 exec /usr/sbin/sshd -D -e

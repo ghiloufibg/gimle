@@ -1,0 +1,19 @@
+name: com.example.nodelocalcache.cache
+version: 1.0.0
+isolation:
+  tier: TIER_2
+resources:
+  request:
+    memory: 32Mi
+    cpu: 20m
+  limit:
+    memory: 64Mi
+    cpu: 100m
+exports:
+  - service: com.example.nodelocalcache.FeatureFlagCache
+    version: 1.0.0
+lifecycle:
+  hooks: com.example.nodelocalcache.cache.LocalFlagCacheHooks
+health:
+  liveness: com.example.nodelocalcache.cache.LocalFlagCacheLivenessProbe
+  readiness: com.example.nodelocalcache.cache.LocalFlagCacheReadinessProbe

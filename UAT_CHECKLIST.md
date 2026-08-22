@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 576
+- **Total requirements**: 577
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 457
-- **Release-readiness (automated coverage)**: 20.7%
+- **Not covered by automated test**: 458
+- **Release-readiness (automated coverage)**: 20.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 66 | 14 | 52 | 21.2% |
 | gimle-fafnir | 21 | 11 | 10 | 52.4% |
-| gimle-andvari | 22 | 2 | 20 | 9.1% |
+| gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
@@ -604,7 +604,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Manually verify: Norn deterministic virtual-time Raft fault-injection simulation. Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford. | No |
+| [ ] | GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round. Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget. Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed. | No |
 
 #### State Store
 
@@ -1000,6 +1000,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-299 | Size-limited streaming upload rejection | Given -Dgimle.andvari.maxArtifactBytes (default 500 MiB); When a push streams past that many bytes; Then aborted with 413 before writing excess bytes. | No |
 | [ ] | GIMLE-302 | Version retention sweeping (count and age based) | Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal. | No |
 | [ ] | GIMLE-308 | Generated `maven-metadata.xml` (never stored, always fresh) | Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release. | No |
+| [ ] | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed. | No |
 
 #### Artifact Registry / API Server
 
@@ -1577,9 +1578,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-560 | Standalone CLI distribution archive | Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle. | No |
-| [ ] | GIMLE-561 | Standalone Hilmir bootstrap-tool distribution archive | Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml. | No |
-| [ ] | GIMLE-562 | Cluster-machine platform distribution archive | Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and both wrapper scripts. | No |
+| [ ] | GIMLE-560 | Standalone CLI distribution archive | Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle, bin/gimle.cmd, and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle. | No |
+| [ ] | GIMLE-561 | Standalone Hilmir bootstrap-tool distribution archive | Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir, bin/hilmir.cmd, and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml. | No |
+| [ ] | GIMLE-562 | Cluster-machine platform distribution archive | Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and all four wrapper scripts (bin/gimle, bin/gimle.cmd, bin/hilmir, bin/hilmir.cmd). | No |
 | [ ] | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Given `mvn -pl gimle-dist -am install -P dist-with-jre`, When the profile's exec-maven-plugin executions run, Then a trimmed JRE (--strip-debug --no-header-files --no-man-pages) is jlinked per component; the three archives additionally contain jre/<component>/ for their own components. | No |
 | [ ] | GIMLE-564 | Distribution archive checksums and SBOM generation | Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each. | No |
 

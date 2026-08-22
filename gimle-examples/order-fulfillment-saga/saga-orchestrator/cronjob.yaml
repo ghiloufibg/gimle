@@ -1,0 +1,19 @@
+# kind: CronJob -- the primary way to run this module: a fresh Job fires every 5 minutes (fast
+# enough to watch fire more than once during a short manual-validation session), each one
+# generating a fresh batch of synthetic orders and running the full saga against the live
+# inventory-reservation/payment-service/shipping-service deployments.
+#
+# tenantId (applied to every Job this CronJob generates) is required -- see job.yaml's own comment
+# for why, and the same gimle set tenant/config commands to run first against tenant
+# "order-fulfillment-saga" before applying this manifest.
+kind: CronJob
+name: order-fulfillment-saga-cronjob
+schedule: "*/5 * * * *"
+concurrencyPolicy: Forbid
+tenantId: order-fulfillment-saga
+jobTemplate:
+  module:
+    name: com.example.orderfulfillment.orchestrator
+    version: 1.0.0
+  artifactPath: gimle-examples/order-fulfillment-saga/saga-orchestrator/target/saga-orchestrator.jar
+  activeDeadlineSeconds: 300

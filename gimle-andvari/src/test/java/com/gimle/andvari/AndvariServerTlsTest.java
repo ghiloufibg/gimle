@@ -176,6 +176,83 @@ class AndvariServerTlsTest {
             .statusCode());
   }
 
+  @Test
+  @Timeout(10)
+  void a_tenant_scoped_permission_grants_push_for_a_coordinate_claiming_that_tenant()
+      throws Exception {
+    HttpClient tenantPusher = tls.clientWithLeaf(ca, "tenant-pusher");
+    grantRole(
+        "orders-platform-pusher",
+        Set.of(Permission.scoped(ResourceKind.ARTIFACT, Verb.WRITE, "orders-platform")),
+        "tenant-pusher");
+
+    // The grant is scoped by tenant, not moduleId -- it covers any coordinate this push claims
+    // for that tenant, unlike the moduleId-scoped grant above.
+    assertEquals(
+        200,
+        send(tenantPusher, pushWithTenant("com.example.orders", "1.0.0", "orders-platform"))
+            .statusCode());
+    assertEquals(
+        200,
+        send(tenantPusher, pushWithTenant("com.example.billing", "1.0.0", "orders-platform"))
+            .statusCode());
+    // A push naming no tenant at all falls back to moduleId-scoping only, which this principal
+    // never holds -- the tenant grant doesn't blanket-cover untenanted pushes.
+    assertEquals(403, send(tenantPusher, push("com.example.untenanted", "1.0.0")).statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_push_cannot_claim_a_tenant_the_caller_holds_no_permission_for() throws Exception {
+    // Closes the actual gap this authorization split exists for: holding write permission for
+    // "billing" must never let a caller stamp an unrelated tenant onto a brand-new coordinate --
+    // the claim itself, not just some existing record, is what gets checked.
+    HttpClient billingPusher = tls.clientWithLeaf(ca, "billing-pusher");
+    grantRole(
+        "billing-pusher",
+        Set.of(Permission.scoped(ResourceKind.ARTIFACT, Verb.WRITE, "billing")),
+        "billing-pusher");
+
+    assertEquals(
+        403,
+        send(billingPusher, pushWithTenant("com.example.app", "1.0.0", "orders-platform"))
+            .statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void reads_and_deletes_check_the_stored_tenant_not_a_caller_supplied_claim() throws Exception {
+    HttpClient operator =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "admin-operator");
+    assertEquals(
+        200,
+        send(operator, pushWithTenant("com.example.app", "1.0.0", "orders-platform")).statusCode());
+
+    HttpClient tenantReader = tls.clientWithLeaf(ca, "orders-platform-reader");
+    grantRole(
+        "orders-platform-reader",
+        Set.of(
+            Permission.scoped(ResourceKind.ARTIFACT, Verb.READ, "orders-platform"),
+            Permission.scoped(ResourceKind.ARTIFACT, Verb.DELETE, "orders-platform")),
+        "orders-platform-reader");
+
+    // Neither request below claims any tenant of its own -- the grant matches because the
+    // coordinate's already-stored tenant is what a read/delete checks, not anything the caller
+    // asserts (there is nothing to assert on a read in the first place).
+    assertEquals(200, send(tenantReader, pull("com.example.app", "1.0.0")).statusCode());
+    assertEquals(
+        200,
+        send(tenantReader, HttpRequest.newBuilder(uri("com.example.app", "1.0.0")).DELETE().build())
+            .statusCode());
+  }
+
+  private HttpRequest pushWithTenant(String moduleId, String version, String tenantId) {
+    return HttpRequest.newBuilder(uri(moduleId, version))
+        .header("X-Gimle-Artifact-Tenant", tenantId)
+        .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+        .build();
+  }
+
   private void grantRole(String roleName, Set<Permission> permissions, String principalName) {
     store.client().propose(new StateMutation.PutRole(new Role(roleName, permissions)));
     store

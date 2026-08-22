@@ -5,9 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -21,6 +26,7 @@ class GimleBannerTest {
 
   private static final String COLOR_PROPERTY = "gimle.color";
   private static final String ENABLED_PROPERTY = "gimle.banner.enabled";
+  private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{[^}]*}");
 
   @AfterEach
   void clearProperties() {
@@ -105,5 +111,51 @@ class GimleBannerTest {
         new PrintStream(buffer, true, StandardCharsets.UTF_8), Map.of("app.name", "X"));
 
     assertTrue(buffer.size() > 0, "expected the banner to print when the property is unset");
+  }
+
+  // Every line that carries the wordmark (marked by the ${C_GOLD_B} placeholder that colors it)
+  // must render to the same visible width as every other such line -- the pictogram and the
+  // block-letter wordmark sit side by side on each row, so one short row throws the whole banner
+  // out of alignment. This is a template-content invariant, not a rendering one: it is checked
+  // against the raw resource text (placeholders present, unresolved) rather than through
+  // GimleBanner.render, so it fails the same way regardless of color mode. The caller-supplied
+  // byline (${app.name} etc.) also colors itself with ${C_GOLD_B} but is free-text of whatever
+  // length the caller passes, not part of the fixed-width pictogram block, so it's excluded here.
+  @Test
+  void wordmark_rows_are_the_same_width_in_the_unicode_banner() {
+    assertWordmarkRowsAlign("banner.txt");
+  }
+
+  @Test
+  void wordmark_rows_are_the_same_width_in_the_ascii_banner() {
+    assertWordmarkRowsAlign("banner-ascii.txt");
+  }
+
+  private static void assertWordmarkRowsAlign(String resource) {
+    List<String> wordmarkRows =
+        loadResourceLines(resource).stream()
+            .filter(line -> line.contains("${C_GOLD_B}") && !line.contains("${app."))
+            .map(line -> PLACEHOLDER.matcher(line).replaceAll(""))
+            .toList();
+
+    assertFalse(wordmarkRows.isEmpty(), "expected at least one wordmark row in " + resource);
+    int expectedWidth = wordmarkRows.get(0).length();
+    for (String row : wordmarkRows) {
+      assertEquals(
+          expectedWidth,
+          row.length(),
+          () -> "wordmark row width mismatch in " + resource + " -- misaligned row: " + row);
+    }
+  }
+
+  private static List<String> loadResourceLines(String resource) {
+    try (InputStream in = GimleBanner.class.getClassLoader().getResourceAsStream(resource)) {
+      if (in == null) {
+        throw new IOException("resource not found: " + resource);
+      }
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8).lines().toList();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 }

@@ -1,0 +1,78 @@
+name: naked-infra-ssh
+transport: plaintext
+
+# The full six-machine naked-infra shape (see topology-naked-infra.yaml), brought up as a single
+# `hilmir up --remote` from the host instead of six separate `docker compose exec ... hilmir up
+# --machine <name>` calls -- see docker-compose.naked-infra-ssh.yml for the container side of this
+# and why every machine below shares host.docker.internal instead of each getting its own
+# container-network alias the way topology-naked-infra.yaml's machines do.
+#
+# Because every machine resolves to the identical host.docker.internal address, every machine also
+# needs its own distinct port for both SSH and its own Gimlé process -- there is no default-port
+# reuse the way topology-naked-infra.yaml gets for free from six distinct container hostnames:
+#
+#   machine        ssh    Gimlé process port(s)
+#   store          2211   raftPort 19080, clientPort 19091
+#   muninn         2212   port 19093
+#   andvari        2213   port 19094
+#   fafnir         2214   port 19092
+#   controlplane   2215   port 18080
+#   agent          2216   gossipPort 19090 (unused -- a single agent has no peer to gossip with)
+
+machines:
+  - name: store
+    host: host.docker.internal
+    ssh: {port: 2211}
+  - name: muninn
+    host: host.docker.internal
+    ssh: {port: 2212}
+  - name: andvari
+    host: host.docker.internal
+    ssh: {port: 2213}
+  - name: fafnir
+    host: host.docker.internal
+    ssh: {port: 2214}
+  - name: controlplane
+    host: host.docker.internal
+    ssh: {port: 2215}
+  - name: agent
+    host: host.docker.internal
+    ssh: {port: 2216}
+
+runtime:
+  classpath: /opt/gimle/lib/*
+  dataRoot: /data
+  useBundledJre: false
+  ssh: {user: operator, installDir: /opt/gimle}
+
+store:
+  replicas:
+    - machine: store
+      raftPort: 19080
+      clientPort: 19091
+
+muninn:
+  replicas:
+    - machine: muninn
+      port: 19093
+
+andvari:
+  replicas:
+    - machine: andvari
+      port: 19094
+
+fafnir:
+  keyFile: /data/fafnir.key
+  replicas:
+    - machine: fafnir
+      port: 19092
+
+controlPlane:
+  replicas:
+    - machine: controlplane
+      port: 18080
+
+agents:
+  - machine: agent
+    nodeId: agent-0
+    gossipPort: 19090
