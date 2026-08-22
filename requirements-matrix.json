@@ -7370,18 +7370,20 @@
       "module": "gimle-cli",
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
-      "userStory": "As an operator debugging a misbehaving instance, I want to see its full lifecycle event history.",
-      "statusDetail": "Complete",
-      "confidence": "Medium",
+      "userStory": "As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.",
+      "statusDetail": "Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.",
+      "confidence": "High",
       "sourceLocations": [
-        "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)"
       ],
-      "testCoverageDetail": "NONE",
+      "testCoverageDetail": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
       "gherkinSteps": [
-        "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed."
+        "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed.",
+        "Given an instance with more lifecycle events than --limit, When \"gimle events orders-service 0 --limit 5\", Then only the 5 most recent events print."
       ],
       "statusSummary": "Complete",
-      "testCoverageLevel": "None"
+      "testCoverageLevel": "Yes"
     },
     {
       "id": "GIMLE-378",

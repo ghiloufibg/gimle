@@ -6575,12 +6575,12 @@
       "module": "gimle-cli",
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Added `--limit N`, applied client-side against the already-newest-first response.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Instance lifecycle event timeline\".",
-      "otherTestCoverage": "NONE recorded in the baseline",
+      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
       ]

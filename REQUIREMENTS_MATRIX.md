@@ -386,7 +386,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-374 | DaemonSet resource management | CLI | Complete | Yes |
 | GIMLE-375 | StatefulSet resource management | CLI | Complete | Yes |
 | GIMLE-376 | Node inventory and cordon/uncordon | CLI | Complete | Yes |
-| GIMLE-377 | Instance lifecycle event timeline | CLI | Complete | None |
+| GIMLE-377 | Instance lifecycle event timeline | CLI | Complete | Yes |
 | GIMLE-378 | Tenant management and quota configuration | CLI | Complete | Yes |
 | GIMLE-379 | Tenant plain configuration key/value store | CLI | Complete | Yes |
 | GIMLE-380 | Versioned secrets management (Fafnir proxy) | CLI / Security | Complete | Yes |
@@ -6033,14 +6033,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-377 — Instance lifecycle event timeline
 
 - **Category**: CLI
-- **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history.
-- **Status**: Complete
-- **Confidence**: Medium
-- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`
-- **Test coverage**: NONE
+- **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.
+- **Status**: Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)
+- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
 - **Gherkin scenario**:
   ```gherkin
   Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed.
+  Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print.
   ```
 
 #### GIMLE-378 — Tenant management and quota configuration

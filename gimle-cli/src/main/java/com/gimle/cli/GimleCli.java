@@ -32,7 +32,7 @@ import java.util.List;
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
- *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt;
+ *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
  *   gimle get services [name]
  *   gimle set service &lt;name&gt; --deployment &lt;name&gt; [--deployment ...] --port N [--target-port N]
  *                             [--tenant &lt;id&gt;]
@@ -208,9 +208,10 @@ public final class GimleCli {
   private static void handleEvents(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     if (args.size() < 2) {
-      throw new CliException("usage: gimle events <deploymentName> <instanceIndex>");
+      throw new CliException("usage: gimle events <deploymentName> <instanceIndex> [--limit N]");
     }
-    new EventsCommand(client, output, out).run(args.get(0), args.get(1));
+    new EventsCommand(client, output, out)
+        .run(args.get(0), args.get(1), args.subList(2, args.size()));
   }
 
   /**
@@ -357,7 +358,7 @@ public final class GimleCli {
           get node-assignments <nodeId>
           cordon <nodeId>
           uncordon <nodeId>
-          events <deploymentName> <instanceIndex>
+          events <deploymentName> <instanceIndex> [--limit N]
           get services [name]
           set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
                               [--tenant <id>]

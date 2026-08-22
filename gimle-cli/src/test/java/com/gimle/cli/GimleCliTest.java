@@ -134,6 +134,29 @@ class GimleCliTest {
         HttpResponse.BodyHandlers.discarding());
   }
 
+  /**
+   * Appends one instance event directly against the real {@link ApiServer}, bypassing the CLI --
+   * the same "real server, not mocked" shortcut {@link #registerNode} uses for its own resource.
+   */
+  private void appendInstanceEvent(
+      String deploymentName, int instanceIndex, String id, long occurredAtEpochMilli)
+      throws Exception {
+    Map<String, Object> body =
+        Map.of(
+            "id", id,
+            "deploymentName", deploymentName,
+            "instanceIndex", instanceIndex,
+            "kind", "ACTIVE",
+            "message", "instance became active",
+            "occurredAtEpochMilli", occurredAtEpochMilli);
+    HttpClient client = HttpClient.newHttpClient();
+    client.send(
+        HttpRequest.newBuilder(URI.create("http://" + serverAddress + "/nodes/node-events/events"))
+            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body)))
+            .build(),
+        HttpResponse.BodyHandlers.discarding());
+  }
+
   private Path writeManifest(String name, int replicas) throws IOException {
     Path file = tempDir.resolve(name + ".yaml");
     Files.writeString(
@@ -993,5 +1016,39 @@ class GimleCliTest {
     int exit = run("-o", "json", "get", "deployments");
     assertEquals(0, exit, stderr());
     assertTrue(stdout().contains("\"artifactPath\""));
+  }
+
+  // ---- events --limit -- previously unsupported by this command ----
+
+  @Test
+  void events_with_no_limit_returns_every_event() throws Exception {
+    appendInstanceEvent("orders-service", 0, "evt-1", 1_000L);
+    appendInstanceEvent("orders-service", 0, "evt-2", 2_000L);
+    appendInstanceEvent("orders-service", 0, "evt-3", 3_000L);
+
+    int exit = run("events", "orders-service", "0");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("evt-1"));
+    assertTrue(stdout().contains("evt-2"));
+    assertTrue(stdout().contains("evt-3"));
+  }
+
+  @Test
+  void events_with_limit_caps_the_returned_list() throws Exception {
+    appendInstanceEvent("orders-service", 0, "evt-a", 1_000L);
+    appendInstanceEvent("orders-service", 0, "evt-b", 2_000L);
+    appendInstanceEvent("orders-service", 0, "evt-c", 3_000L);
+
+    int exit = run("-o", "json", "events", "orders-service", "0", "--limit", "1");
+    assertEquals(0, exit, stderr());
+    List<Object> parsed = Json.asArray(Json.parse(stdout()));
+    assertEquals(1, parsed.size(), stdout());
+  }
+
+  @Test
+  void events_with_a_non_numeric_limit_fails() {
+    int exit = run("events", "orders-service", "0", "--limit", "not-a-number");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("--limit"));
   }
 }

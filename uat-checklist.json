@@ -4159,7 +4159,7 @@
       "module": "gimle-cli",
       "category": "CLI",
       "feature": "Instance lifecycle event timeline",
-      "step": "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed.",
+      "step": "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When \"gimle events orders-service 0 --limit 5\", Then only the 5 most recent events print.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
