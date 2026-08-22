@@ -104,7 +104,7 @@ function NewDeployment() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name || !form.moduleName || !form.moduleVersion || !form.artifactPath) {
+    if (!form.name || !form.moduleName || !form.moduleVersion) {
       toast.error("Fill required fields");
       return;
     }
@@ -182,15 +182,21 @@ function NewDeployment() {
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="ap" className="text-xs">
-            Artifact path *
+            Artifact path
           </Label>
           <Input
             id="ap"
             value={form.artifactPath}
             onChange={(e) => setForm({ ...form, artifactPath: e.target.value })}
             className="font-mono text-sm h-9"
-            placeholder="s3://bucket/path/to.jar"
+            placeholder="s3://bucket/path/to.jar — leave blank to pull from Andvari"
           />
+          <p className="text-xs text-muted-foreground">
+            Leave blank to resolve <span className="font-mono">{form.moduleName || "module"}</span>
+            {"@"}
+            <span className="font-mono">{form.moduleVersion || "version"}</span> from the Andvari
+            artifact registry instead of naming a jar directly.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="grid gap-1.5">

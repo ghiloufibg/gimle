@@ -126,6 +126,25 @@ describe("HttpDeploymentsRepository", () => {
     expect(putInit.body as string).not.toContain("disruption:");
   });
 
+  it("create() omits the artifactPath: line entirely for a blank artifactPath (registry-only deploy)", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse(), () => jsonResponse(RAW_DEPLOYMENT)]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.create({
+      name: "checkout-service",
+      moduleId: { name: "checkout-service", version: "1.2.3" },
+      artifactPath: "",
+      replicas: 2,
+      tenantId: null,
+    });
+
+    const [, putInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    // A *present but blank* artifactPath is a manifest error server-side
+    // (ManifestFields.optionalArtifactPath) -- the key must be absent entirely so the control
+    // plane resolves the module coordinate from the Andvari registry instead.
+    expect(putInit.body as string).not.toContain("artifactPath:");
+  });
+
   it("create() PUTs a disruption: block in the YAML manifest when disruption is set", async () => {
     const fetchMock = stubFetchSequence([() => okResponse(), () => jsonResponse(RAW_DEPLOYMENT)]);
     const repo = new HttpDeploymentsRepository();

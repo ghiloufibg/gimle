@@ -110,9 +110,14 @@ function toManifestYaml(spec: DeploymentSpecInput): string {
     `module:`,
     `  name: ${q(spec.moduleId.name)}`,
     `  version: ${q(spec.moduleId.version)}`,
-    `artifactPath: ${q(spec.artifactPath)}`,
     `replicas: ${spec.replicas}`,
   ];
+  // Omitted entirely, not sent blank: ManifestFields.optionalArtifactPath treats a *present but
+  // blank* artifactPath as a manifest error ("omit it entirely to resolve..."), and only an
+  // absent key resolves the module's (name, version) coordinate from the Andvari registry.
+  if (spec.artifactPath.trim() !== "") {
+    lines.push(`artifactPath: ${q(spec.artifactPath)}`);
+  }
   if (spec.tenantId) lines.push(`tenantId: ${q(spec.tenantId)}`);
   if (spec.autoscale) lines.push(...autoscaleYaml(spec.autoscale));
   if (spec.disruption) lines.push(...disruptionYaml(spec.disruption));
