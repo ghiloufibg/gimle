@@ -96,6 +96,47 @@ class AuthorizerTest {
             node, ResourceKind.ROLE, Verb.READ, Optional.empty(), Optional.empty()));
   }
 
+  /**
+   * Every node agent polls {@code GET /networkpolicies} ({@code NetworkPolicyRelay}) and, when
+   * Bifrost is enabled, {@code GET /services} -- both cluster-wide, unscoped by tenant or target,
+   * with no {@link RoleBinding} needing to exist for it, the same way {@link
+   * BuiltinRoles#GROUP_NODES} already gets its own node/log self-service. Discovered live: a
+   * freshly-bootstrapped node had no RBAC path to either at all, so its very first policy poll came
+   * back 403.
+   */
+  @Test
+  void a_node_may_read_the_cluster_wide_service_and_network_policy_sets_with_no_binding_at_all() {
+    Authorizer authorizer = authorizer("node-service-networkpolicy-read");
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertTrue(
+        authorizer.authorize(
+            node, ResourceKind.NETWORK_POLICY, Verb.READ, Optional.empty(), Optional.empty()));
+    assertTrue(
+        authorizer.authorize(
+            node, ResourceKind.SERVICE, Verb.READ, Optional.empty(), Optional.empty()));
+  }
+
+  /** A node may never declare or remove a Service or NetworkPolicy itself. */
+  @Test
+  void a_node_may_never_write_or_delete_a_service_or_network_policy() {
+    Authorizer authorizer = authorizer("node-service-networkpolicy-write-denied");
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.NETWORK_POLICY, Verb.DELETE, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.SERVICE, Verb.WRITE, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.SERVICE, Verb.DELETE, Optional.empty(), Optional.empty()));
+  }
+
   @Test
   void a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions() {
     StateStore store = new StateStore(tempDir.resolve("custom-role"));

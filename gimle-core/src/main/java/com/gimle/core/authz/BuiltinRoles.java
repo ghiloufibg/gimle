@@ -14,8 +14,9 @@ import java.util.Set;
  * unconditional full access, so defaulting the operator group to {@code cluster-admin} changes
  * nothing for a cluster with no custom {@link RoleBinding}s yet. No role is bound to {@link
  * #GROUP_NODES} beyond the node self-service short-circuit in {@code Authorizer} itself -- a node
- * gets exactly its own subresources and nothing else, by construction, with no {@link Role} object
- * involved at all.
+ * gets exactly its own subresources, plus read-only access to the cluster-wide Service/
+ * NetworkPolicy sets every node agent needs to do its job, and nothing else, by construction, with
+ * no {@link Role} object involved at all.
  */
 public final class BuiltinRoles {
 

@@ -49,7 +49,7 @@ public final class Authorizer {
       Verb verb,
       Optional<String> tenant,
       Optional<String> targetId) {
-    if (isNodeSelfService(principal, resource, targetId)) {
+    if (isNodeSelfService(principal, resource, verb, targetId)) {
       return true;
     }
     // group:gimle:operators is bound to the built-in cluster-admin role implicitly -- not a stored
@@ -99,15 +99,27 @@ public final class Authorizer {
 
   /**
    * A {@code gimle:nodes} principal may always act on its own node/log endpoints -- {@code
-   * targetId} equal to its own name -- with no {@link RoleBinding} needing to exist for it. Not
-   * granted for any other resource: a node has no access to deployments, tenants, config, or any
-   * other node's endpoints, under this design a real tightening versus the pre-RBAC baseline where
-   * any valid certificate could hit every route.
+   * targetId} equal to its own name -- with no {@link RoleBinding} needing to exist for it. It may
+   * also always {@link Verb#READ} the cluster-wide {@link ResourceKind#SERVICE}/{@link
+   * ResourceKind#NETWORK_POLICY} sets, unscoped by tenant or target: every node agent polls both
+   * ({@code NetworkPolicyRelay}, to relay the full policy set down to its supervised workers; a
+   * Bifrost-enabled agent's own {@code ServiceSource}, to know every Service it might need to front
+   * a local proxy for) as an unavoidable part of its own job, not as a per-tenant privilege -- a
+   * node cannot know in advance which tenants' Services/NetworkPolicies its future assignments will
+   * need, and both relays are deliberately unfiltered by design (see {@code NetworkPolicyRelay}'s
+   * own javadoc), so scoping this to only-currently-assigned tenants would just break on the next
+   * reassignment. Write/delete on either stays denied -- a node never declares a Service or
+   * NetworkPolicy itself. Not granted for any other resource: a node has no access to deployments,
+   * tenants, config, or any other node's endpoints, under this design a real tightening versus the
+   * pre-RBAC baseline where any valid certificate could hit every route.
    */
   private static boolean isNodeSelfService(
-      Principal principal, ResourceKind resource, Optional<String> targetId) {
+      Principal principal, ResourceKind resource, Verb verb, Optional<String> targetId) {
     if (!principal.groups().contains(BuiltinRoles.GROUP_NODES)) {
       return false;
+    }
+    if (resource == ResourceKind.SERVICE || resource == ResourceKind.NETWORK_POLICY) {
+      return verb == Verb.READ;
     }
     if (resource != ResourceKind.NODE && resource != ResourceKind.LOGS) {
       return false;

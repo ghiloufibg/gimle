@@ -41,9 +41,15 @@ subtractive.
 `Authorizer` resolves a request in two steps:
 
 1. **Node self-service, checked first.** A `group:gimle:nodes` principal always reaches its own
-   `/nodes/{id}/*` and `/logs/nodes/{id}` — no `RoleBinding` needs to exist for it. Nothing else: a
-   node has no access to deployments, tenants, config, or another node's endpoints. This is a real
-   tightening versus the pre-RBAC baseline, where any valid certificate reached every route.
+   `/nodes/{id}/*` and `/logs/nodes/{id}` — no `RoleBinding` needs to exist for it. It can also
+   always *read* the cluster-wide `/networkpolicies` and `/services` sets, unscoped by tenant or
+   target — `NetworkPolicyRelay` ships every policy down to its supervised workers regardless of
+   which tenants this node currently hosts instances for, and a Bifrost-enabled agent needs to know
+   about every `Service` it might front a local proxy for, so this can't be a per-tenant grant the
+   way `isTenantAssignedToNode` below is. Write/delete on either stays denied — a node never
+   declares a `Service` or `NetworkPolicy` itself. Nothing else: a node has no access to
+   deployments, tenants, config, or another node's endpoints. This is a real tightening versus the
+   pre-RBAC baseline, where any valid certificate reached every route.
 2. **Otherwise, collect every matching `RoleBinding`** (direct `user:` match, or `group:` match
    against any of the principal's groups), union their roles' permissions, and check for a match.
 
