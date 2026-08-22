@@ -15,7 +15,17 @@ import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
+/**
+ * Observed under this module's own class-level concurrency (root pom.xml) silently under- reporting
+ * its test count (0 or 2 of 3 methods executed, no failure raised) rather than failing outright --
+ * a worse symptom shape than the timing failures {@code RaftClusterTest} (gimle-mimir) and {@code
+ * SecretStoreTest} (gimle-fafnir) already needed {@link Isolated} for, since a build this happens
+ * to can still report BUILD SUCCESS. Same CPU-contention-under-class-level- concurrency root cause
+ * as those, just manifesting as dropped test execution instead of a missed timeout.
+ */
+@Isolated
 class ServiceCatalogCodecTest {
 
   private static final MemberId NODE =

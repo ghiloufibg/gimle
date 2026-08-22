@@ -7,7 +7,18 @@ import io.micrometer.core.instrument.search.Search;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
+/**
+ * Observed under this module's own class-level concurrency (root pom.xml) silently under- reporting
+ * its test count (0 of 6 methods executed, twice in a row, no failure raised) rather than failing
+ * outright -- a worse symptom shape than the timing failures {@code RaftClusterTest} (gimle-mimir)
+ * and {@code SecretStoreTest} (gimle-fafnir) already needed {@link Isolated} for, since a build
+ * this happens to can still report BUILD SUCCESS. Same CPU-contention-under-class-
+ * level-concurrency root cause as those, just manifesting as dropped test execution instead of a
+ * missed timeout.
+ */
+@Isolated
 class StoreMetricsTest {
 
   @Test

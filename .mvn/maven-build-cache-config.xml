@@ -76,5 +76,30 @@
         </goalsList>
       </goalsLists>
     </runAlways>
+    <!-- Another class of "changed" the input-glob hash by design cannot see: -DskipTests /
+         -Dmaven.test.skip=true don't touch a single source file, so a project built once with
+         either flag set gets the exact same checksum as the same source built without it. Without
+         this block, a -DskipTests install populates a cache entry that a later plain test/verify
+         of the same source then happily restores from, reporting BUILD SUCCESS with
+         surefire:test's execution "skipped (cached)" and no surefire-reports directory ever
+         written — the build looks green but nothing was actually tested. reconcile is the
+         extension's own mechanism for exactly this shape of problem (its own schema
+         documentation: "plugin properties which might be affected by command line flags, etc"):
+         at restore time it reflectively reads the live surefire:test Mojo's skip/skipTests
+         fields (propertyName here doubles as both the field name and, absent an expression, the
+         parameter to read) and compares each against what was recorded when the cache entry was
+         written. A mismatch forces the real goal to run instead of restoring it from cache, so a
+         plain test/verify after a -DskipTests build always executes tests for real, while two
+         plain runs of unchanged source still hit the cache exactly as before. -->
+    <reconcile>
+      <plugins>
+        <plugin artifactId="maven-surefire-plugin" goal="test">
+          <reconciles>
+            <reconcile propertyName="skipTests" />
+            <reconcile propertyName="skip" />
+          </reconciles>
+        </plugin>
+      </plugins>
+    </reconcile>
   </executionControl>
 </cache>
