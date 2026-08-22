@@ -62,7 +62,7 @@ function LoginPage() {
         <div className="hud-panel p-6">
           <div className="flex flex-col items-center text-center">
             <FafnirMark className="size-20" />
-            <h1 className="mt-3 text-lg font-semibold tracking-tight">Gimlé Fafnir Vault</h1>
+            <h1 className="mt-3 text-sm font-semibold tracking-tight">Gimlé Fafnir Vault</h1>
             <div className="hud-label mt-1">secrets vault</div>
           </div>
 
@@ -97,7 +97,7 @@ function LoginPage() {
 
             {error && <ErrorBanner message={error} />}
 
-            <Button type="submit" className="w-full" disabled={pending}>
+            <Button type="submit" className="w-full text-xs" disabled={pending}>
               {pending ? "Authenticating…" : "Log in"}
             </Button>
           </form>

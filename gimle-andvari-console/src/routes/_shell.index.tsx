@@ -34,7 +34,7 @@ function Tile({
     <HudPanel label={label} className="flex-1">
       <p
         className={cn(
-          "font-mono text-xl font-bold",
+          "font-mono text-3xl font-bold tabular-nums",
           tone === "ok" && "text-status-ok",
           tone === "warn" && "text-status-warn",
         )}
@@ -89,7 +89,7 @@ function OverviewPage() {
 
       <HudPanel label="recent pushes">
         {recent.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No artifacts pushed yet.</p>
+          <p className="text-xs text-muted-foreground">No artifacts pushed yet.</p>
         ) : (
           <ul className="divide-y divide-border/60">
             {recent.map((item) => (

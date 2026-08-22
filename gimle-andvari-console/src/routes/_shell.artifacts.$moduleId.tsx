@@ -104,7 +104,7 @@ function ModuleDetailPage() {
             <Skeleton className="h-8 rounded-sm" />
           </div>
         ) : sorted.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No versions stored for this module.</p>
+          <p className="text-xs text-muted-foreground">No versions stored for this module.</p>
         ) : (
           <Table>
             <TableHeader>

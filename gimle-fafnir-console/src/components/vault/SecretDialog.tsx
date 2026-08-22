@@ -59,7 +59,7 @@ export function SecretDialog({
             </Label>
             <Input
               id="secret-key"
-              className="font-mono text-sm"
+              className="font-mono text-xs"
               value={keyName}
               disabled={editing}
               placeholder="db/password"
@@ -72,7 +72,7 @@ export function SecretDialog({
             </Label>
             <Textarea
               id="secret-value"
-              className="min-h-28 font-mono text-sm"
+              className="min-h-28 font-mono text-xs"
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />

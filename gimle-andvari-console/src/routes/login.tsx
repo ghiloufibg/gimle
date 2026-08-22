@@ -42,7 +42,7 @@ function LoginPage() {
       <div className="w-full max-w-sm">
         <form onSubmit={onSubmit} className="hud-panel rounded-sm p-8">
           <AndvariMark className="mx-auto h-20 w-20" />
-          <h1 className="mt-4 text-center text-xl font-semibold tracking-tight">Gimlé Andvari</h1>
+          <h1 className="mt-4 text-center text-sm font-semibold tracking-tight">Gimlé Andvari</h1>
           <p className="hud-label mt-1.5 text-center">module artifact registry</p>
 
           {error ? (
@@ -61,7 +61,7 @@ function LoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
-                className="rounded-sm font-mono"
+                className="rounded-sm font-mono text-sm"
               />
             </div>
             <div className="space-y-1.5">
@@ -74,12 +74,12 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                className="rounded-sm font-mono"
+                className="rounded-sm font-mono text-sm"
               />
             </div>
           </div>
 
-          <Button type="submit" disabled={pending} className="mt-6 w-full rounded-sm">
+          <Button type="submit" disabled={pending} className="mt-6 w-full rounded-sm text-xs">
             {pending ? "Authenticating…" : "Log in"}
           </Button>
         </form>

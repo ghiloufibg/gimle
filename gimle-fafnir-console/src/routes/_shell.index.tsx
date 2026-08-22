@@ -119,7 +119,7 @@ function OverviewPage() {
             </CardHeader>
             <CardContent>
               {status.tenants.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No tenants known to this vault.</p>
+                <p className="text-xs text-muted-foreground">No tenants known to this vault.</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {status.tenants.map((tenant) => (
