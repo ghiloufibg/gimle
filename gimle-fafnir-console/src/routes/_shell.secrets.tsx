@@ -141,7 +141,7 @@ function SecretsPage() {
           <div className="hud-label">tenant id</div>
           <Input
             list="tenant-options"
-            className="h-8 font-mono text-sm"
+            className="h-8 font-mono text-xs"
             value={tenantInput}
             placeholder="asgard"
             onChange={(event) => setTenantInput(event.target.value)}
@@ -173,7 +173,7 @@ function SecretsPage() {
       ) : store.secrets.length === 0 ? (
         <div className="hud-panel p-8 text-center">
           <div className="hud-label">empty</div>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             No secrets stored for <span className="font-mono">{store.tenantId}</span>.
           </p>
         </div>
