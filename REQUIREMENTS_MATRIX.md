@@ -8450,11 +8450,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an end user who only needs the gimle CLI, I want a minimal standalone tarball with gimle-cli's own runtime dependency closure plus a launcher script.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`
+- **Source location(s)**: `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle`, `gimle-dist/src/main/dist/bin/gimle.cmd`
 - **Test coverage**: NONE automated
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle.
+  Given `mvn -pl gimle-dist package`, When the cli assembly execution runs, Then `gimle-cli-<version>.tar.gz` contains bin/gimle, bin/gimle.cmd, and lib/*.jar scoped to exactly gimle-cli/core/module/pki, slf4j, logback, snakeyaml, Bouncy Castle.
   ```
 
 #### GIMLE-561 — Standalone Hilmir bootstrap-tool distribution archive
@@ -8463,11 +8463,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an operator bootstrapping a new cluster machine, I want a minimal standalone tarball with gimle-hilmir's runtime closure plus its launcher.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`
+- **Source location(s)**: `gimle-dist/src/main/assembly/hilmir.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/hilmir`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 - **Test coverage**: NONE automated
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml.
+  Given `mvn -pl gimle-dist package`, When the hilmir assembly execution runs, Then `gimle-hilmir-<version>.tar.gz` contains bin/hilmir, bin/hilmir.cmd, and lib/*.jar scoped to hilmir, core, slf4j, logback, snakeyaml.
   ```
 
 #### GIMLE-562 — Cluster-machine platform distribution archive
@@ -8476,11 +8476,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **User story**: As an operator standing up a cluster machine, I want one archive with every process-kind jar on a single flat classpath, plus gimle-gateway's hosted-module jar kept separately.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`
+- **Source location(s)**: `gimle-dist/src/main/assembly/platform.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/dist/bin/gimle.cmd`, `gimle-dist/src/main/dist/bin/hilmir.cmd`
 - **Test coverage**: NONE automated; proven indirectly by gimle-holmgang's Docker Compose validation
 - **Gherkin scenario**:
   ```gherkin
-  Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and both wrapper scripts.
+  Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and all four wrapper scripts (bin/gimle, bin/gimle.cmd, bin/hilmir, bin/hilmir.cmd).
   ```
 
 #### GIMLE-563 — Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)

@@ -17,12 +17,15 @@ its own subset of that graph via `<includes>`/`<excludes>`.
 | `gimle-cli-<version>.tar.gz` | `src/main/assembly/cli.xml` | Exactly `gimle-cli`'s own runtime dependency closure (`gimle-cli`, `gimle-core`, `gimle-module`, `gimle-pki`, slf4j, logback, snakeyaml, Bouncy Castle) — nothing else. Ships `bin/gimle`. |
 | `gimle-hilmir-<version>.tar.gz` | `src/main/assembly/hilmir.xml` | Exactly `gimle-hilmir`'s own runtime dependency closure (`gimle-hilmir`, `gimle-core`, slf4j, logback, snakeyaml). Ships `bin/hilmir`. |
 
-Each archive's `bin/` script (`src/main/dist/bin/gimle`, `src/main/dist/bin/hilmir`) builds its
-classpath from every jar under its own sibling `lib/` directory at runtime, regardless of the
-caller's working directory. Java selection precedence in both scripts: an explicit `JAVA_HOME`
-always wins; otherwise a bundled `jre/<component>/` is preferred if present (see below); otherwise
-plain `java` on `PATH`. `bin/hilmir` additionally exports `GIMLE_HOME` so Hilmir can locate its own
-install root (in particular `modules/`) without guessing from `java.class.path`.
+Each archive's `bin/` scripts (`src/main/dist/bin/{gimle,hilmir}` for `sh`, `src/main/dist/bin/
+{gimle,hilmir}.cmd` for Windows) build their classpath from every jar under their own sibling
+`lib/` directory at runtime, regardless of the caller's working directory. Java selection
+precedence in every script: an explicit `JAVA_HOME` always wins; otherwise a bundled
+`jre/<component>/` is preferred if present (see below); otherwise plain `java` on `PATH`. The
+`hilmir`/`hilmir.cmd` pair additionally exports `GIMLE_HOME` so Hilmir can locate its own install
+root (in particular `modules/`) without guessing from `java.class.path`. The `.sh` and `.cmd`
+variant of each launcher must stay behaviorally in sync -- a change to one's classpath/Java
+selection logic needs the same change made to the other.
 
 After assembly, `postprocess-archives` (via `maven-antrun-plugin`, using Ant's own `<checksum>`/
 `<copy>` tasks rather than a shell script so it runs the same on every OS including Windows, where a

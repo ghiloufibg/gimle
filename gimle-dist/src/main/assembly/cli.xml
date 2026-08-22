@@ -41,6 +41,7 @@
       <fileMode>0755</fileMode>
       <includes>
         <include>gimle</include>
+        <include>gimle.cmd</include>
       </includes>
     </fileSet>
   </fileSets>
