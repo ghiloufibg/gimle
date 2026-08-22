@@ -164,6 +164,12 @@ a future session wonders why a given test no longer needs its old exclusion:
   isolation. Same CPU-contention-under-class-level-concurrency cause `GossipMemberTest` (also
   `gimle-fabric`) needed `@Isolated` for; added here too. Confirmed clean across 3 full-module runs
   (118/118 every time, `ServiceCatalogCodecTest` itself 3/3 every time).
+- **`StoreMetricsTest`** (`gimle-observability`, whole class) — same failure shape as
+  `ServiceCatalogCodecTest` above, observed independently in the same pass: silently under-reported
+  0/6 twice in a row under full-suite parallel execution, no failure raised, correct count (6/6)
+  every time in isolation. `gimle-observability` had no `@Isolated` usage anywhere despite this.
+  Added. Confirmed clean across 3 full-module runs (58/58 every time, `StoreMetricsTest` itself 6/6
+  every time).
 
 A parallel pass looked at whether the standing `-T 1C` (root `.mvn/maven.config`) combined with
 this pom's own `junit.jupiter.execution.parallel.config.dynamic.factor=1.0` oversubscribes cores
