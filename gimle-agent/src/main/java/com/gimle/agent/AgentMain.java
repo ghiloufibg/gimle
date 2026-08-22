@@ -2044,7 +2044,7 @@ public final class AgentMain {
    * -Dgimle.agent.fafnirEndpoint} was never configured -- instances still start, simply without any
    * secret values delivered, exactly like a tenant that never uses secrets.
    */
-  private static void deliverConfig(
+  static void deliverConfig(
       SupervisedInstance instance,
       WorkerConnection connection,
       HttpClient httpClient,
@@ -2078,6 +2078,13 @@ public final class AgentMain {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
+      } catch (IOException e) {
+        // Fafnir unreachable (e.g. connection refused): degrade exactly like the
+        // no-fafnirBaseUrl-configured case documented above, not by leaving the instance stuck.
+        log.warn(
+            "failed to fetch secrets for tenant {}: {}; instance will start without them",
+            tenantId.get(),
+            e.getMessage());
       } catch (RuntimeException e) {
         log.warn(
             "failed to fetch secrets for tenant {}: {}; instance will start without them",
