@@ -1,6 +1,9 @@
 package com.gimle.cli;
 
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -66,7 +69,14 @@ public final class GimleCli {
   private GimleCli() {}
 
   public static void main(String[] args) {
-    int exitCode = run(args, System.out, System.err);
+    // Since JEP 400 (Java 18), System.out/System.err default to the host's native encoding, not
+    // file.encoding -- on a POSIX/C-locale host that turns every non-ASCII byte into '?'. Force
+    // UTF-8 explicitly rather than relying on the platform default.
+    PrintStream out =
+        new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
+    PrintStream err =
+        new PrintStream(new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8);
+    int exitCode = run(args, out, err);
     if (exitCode != 0) {
       System.exit(exitCode);
     }
