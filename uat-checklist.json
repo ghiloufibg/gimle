@@ -1992,7 +1992,7 @@
       "module": "gimle-mimir",
       "category": "Raft Consensus / Internal-Infra / Testing",
       "feature": "Norn deterministic virtual-time Raft fault-injection simulation",
-      "step": "Manually verify: Norn deterministic virtual-time Raft fault-injection simulation. Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford.",
+      "step": "Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round. Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget. Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

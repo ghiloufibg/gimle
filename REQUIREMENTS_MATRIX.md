@@ -574,6 +574,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-562 | Cluster-machine platform distribution archive | Packaging | Complete | Partial |
 | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | Complete | Partial |
 | GIMLE-564 | Distribution archive checksums and SBOM generation | Packaging | Complete | None |
+| GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Raft Consensus / Internal-Infra / Testing | Complete | Yes |
 | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Reconciliation / Service Fabric | Complete | Yes |
 | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Fabric / Multi-tenancy | Complete | Yes |
 | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | Complete | Yes |
@@ -3232,6 +3233,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported.
+  ```
+
+#### GIMLE-565 — Norn deterministic virtual-time Raft fault-injection simulation
+
+- **Category**: Raft Consensus / Internal-Infra / Testing
+- **User story**: As a control-plane operator, I want confidence that Raft's safety invariants hold under many seeded, deterministic fault schedules (node isolation, restart, healing, concurrent proposals) far faster than a real-time, live-timer test could ever afford, so a Raft regression is caught by a seeded replay rather than surfacing first in a live cluster.
+- **Status**: Complete: `NornCluster` wires real in-process `RaftNode`s directly to each other's `RaftRpcHandler` methods (no sockets, no `RaftTransport`) sharing one `TestClock`, so `advanceVirtualTime` fires every due election-timeout/check-quorum tick for free instead of waiting out the real 150-300ms/300ms production windows; only that tick-firing is virtualized, peer RPC dispatch and a leader's replication heartbeat pacing still run on `RaftNode`'s real background threads at real wall-clock speed, so this is a seeded, replayable fault schedule layered over a real Raft implementation, not a bit-for-bit-deterministic single-threaded simulator.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`, `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornScheduler.java`, `gimle-mimir/src/test/java/com/gimle/mimir/raft/NornRaftSimulationTest.java` (added in commit `6bd450f`, "test: add Norn deterministic Raft fault-injection simulation")
+- **Test coverage**: `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds; each round applies one weighted, seeded action (isolate a node, restart a node, heal all, propose a `PutTenant` mutation via the current leader, or a no-op time advance) then asserts `NornCluster.assertSafetyInvariants` (Raft's own Election Safety §5.2 — at most one leader per term, checked against each node's own `currentTerm()`; and Log Matching §5.3 — identical entries at any index/term both nodes agree on, checked pairwise over every node and every appended index) after every round, plus `assertEventuallyLive` (liveness — the cluster elects a leader and commits a fresh write within a 10-second virtual-time budget) once each seed's fault storm ends via `healAll`. A failing seed's ledger of per-round actions is printed on assertion failure so it reproduces by rerunning just that one seed.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round.
+  Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget.
+  Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed.
   ```
 
 #### GIMLE-572 — NetworkPolicySpec durable persistence through StoreClient
