@@ -940,4 +940,58 @@ class GimleCliTest {
     assertEquals(1, exit);
     assertTrue(stderr().contains("not found"));
   }
+
+  // ---- table-output humanization for get nodes / get deployments ----
+
+  @Test
+  void get_nodes_in_table_format_humanizes_capabilities_and_capacity_instead_of_raw_json()
+      throws Exception {
+    registerNode("node-table");
+
+    int exit = run("get", "nodes");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("node-table"));
+    assertTrue(stdout().contains("TIER_1"));
+    // The raw JSON blob a table cell used to contain -- confirms the capabilities map is now
+    // flattened into its own column rather than serialized whole.
+    assertFalse(stdout().contains("supportedTiers"));
+  }
+
+  @Test
+  void get_nodes_as_json_still_returns_the_raw_capabilities_and_capacity_shape() throws Exception {
+    registerNode("node-raw");
+
+    int exit = run("-o", "json", "get", "nodes");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("\"supportedTiers\""));
+  }
+
+  @Test
+  void get_deployments_in_table_format_humanizes_spec_and_replicas_instead_of_raw_json()
+      throws Exception {
+    Path manifest = writeManifest("humanized-service", 3);
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    int exit = run("get", "deployments");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("humanized-service"));
+    assertTrue(stdout().contains("com.gimle.example.orders@1.0.0"));
+    // No placed instances (no real agent in this test) -- replicas prints as placed/desired and
+    // health flags the shortfall, rather than a raw {"name":...,"moduleId":{...}} blob cell.
+    assertTrue(stdout().contains("0/3"));
+    assertTrue(stdout().contains("UNPLACED(3)"));
+    assertFalse(stdout().contains("\"artifactPath\""));
+  }
+
+  @Test
+  void get_deployments_as_json_still_returns_the_raw_spec_shape() throws Exception {
+    Path manifest = writeManifest("raw-json-service", 1);
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    int exit = run("-o", "json", "get", "deployments");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("\"artifactPath\""));
+  }
 }

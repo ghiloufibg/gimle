@@ -5955,11 +5955,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
 
 - **Category**: CLI
-- **User story**: As a platform operator, I want to list, apply, and delete Deployment manifests from the command line.
-- **Status**: Complete
+- **User story**: As a platform operator, I want to list, apply, and delete Deployment manifests from the command line, and see a deployment's status as readable columns rather than a raw JSON blob when I'm reading it as a table.
+- **Status**: Complete. `get deployments` under the default table format flattens each deployment's nested `spec`/`instances`/quota fields into derived columns (module coordinate, placed/desired replica count, a HEALTHY/UNPLACED(n)/QUOTA rollup status) instead of a raw JSON-blob cell -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `GimleCli.java`, `ManifestFiles.java`
-- **Test coverage**: `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`
+- **Test coverage**: `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`, `get_deployments_in_table_format_humanizes_spec_and_replicas_instead_of_raw_json`, `get_deployments_as_json_still_returns_the_raw_spec_shape`
 - **Gherkin scenario**:
   ```gherkin
   Given a control plane reachable at --server host:port, When I run "gimle apply -f orders-service.yaml" (kind:Deployment), Then /deployments/<name> is PUT; "gimle get deployments" lists it.
@@ -6020,11 +6020,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-376 — Node inventory and cordon/uncordon
 
 - **Category**: CLI
-- **User story**: As a platform operator, I want to list registered nodes and cordon a node before maintenance.
-- **Status**: Complete (cordon/uncordon lacks dedicated test coverage)
+- **User story**: As a platform operator, I want to list registered nodes and cordon a node before maintenance, and see each node's capacity as readable percentages/units rather than a raw JSON blob when I'm reading it as a table.
+- **Status**: Complete (cordon/uncordon lacks dedicated test coverage). `get nodes` under the default table format flattens each node's nested `capabilities`/`capacity` fields into derived columns (comma-joined tiers, CPU/memory used-percent, human-readable byte/millicore totals, a HEALTHY/STALE/UNKNOWN heartbeat-freshness status) instead of a raw JSON-blob cell, matching the console's own humanization of the identical data -- `-o json` is unaffected, still returning the full-fidelity raw shape for scripting.
 - **Confidence**: High
-- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`
-- **Test coverage**: `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/ResourceFormatting.java`
+- **Test coverage**: `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`, `get_nodes_in_table_format_humanizes_capabilities_and_capacity_instead_of_raw_json`, `get_nodes_as_json_still_returns_the_raw_capabilities_and_capacity_shape`
 - **Gherkin scenario**:
   ```gherkin
   Given node "node-a" registered, When "gimle cordon node-a", Then POST /nodes/node-a/cordon succeeds and prints "node/node-a cordoned".
