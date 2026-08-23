@@ -49,9 +49,9 @@ public record LimitRangeSpec(
     ResourceSpec maxSpec = max.get();
     if (minSpec.memoryBytes() > maxSpec.memoryBytes()) {
       throw new IllegalArgumentException(
-          "min"
+          "min "
               + pairName
-              + " memory exceeds max"
+              + " memory exceeds max "
               + pairName
               + ": "
               + minSpec.memory()
@@ -60,9 +60,9 @@ public record LimitRangeSpec(
     }
     if (minSpec.cpuMillicores() > maxSpec.cpuMillicores()) {
       throw new IllegalArgumentException(
-          "min"
+          "min "
               + pairName
-              + " cpu exceeds max"
+              + " cpu exceeds max "
               + pairName
               + ": "
               + minSpec.cpu()
