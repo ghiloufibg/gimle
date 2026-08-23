@@ -59,5 +59,11 @@ public enum ResourceKind {
   // Guards a tenant's named, multi-key SecretMap objects -- distinct from SECRET (which guards the
   // same tenant's loose flat secret keys) for the identical reason CONFIGMAP is split from CONFIG:
   // a role can be granted "read flat secrets" without also getting "read named SecretMaps."
-  SECRETMAP
+  SECRETMAP,
+  // Guards declaring/editing a tenant's LimitRange -- the per-workload min/max resource bound,
+  // distinct from TENANT (which guards the tenant object itself, including its aggregate
+  // ResourceQuota): a role can be granted "manage this tenant" without also getting "constrain
+  // what any single deployment within it may request," the same independent-grant reasoning
+  // NETWORK_POLICY already establishes relative to SERVICE.
+  LIMIT_RANGE
 }

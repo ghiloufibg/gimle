@@ -9,6 +9,7 @@ import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
@@ -28,6 +29,7 @@ import com.gimle.mimir.manifest.DeploymentManifestParser;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobManifestParser;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetManifestParser;
@@ -135,6 +137,8 @@ public final class StateStore implements StoreReader {
   private final Map<String, Account> accounts = new ConcurrentHashMap<>();
   private final Map<String, ReconcilerInstanceState> reconcilerInstanceStates =
       new ConcurrentHashMap<>();
+  private final Map<String, LimitRangeSpec> limitRanges = new ConcurrentHashMap<>();
+  private final Map<String, Boolean> limitRangeViolations = new ConcurrentHashMap<>();
 
   /**
    * The store's first many-per-key resource: every other map here holds at most one current value
@@ -233,6 +237,8 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(instanceEventsDir());
       Files.createDirectories(auditEventsDir());
       Files.createDirectories(controllerRevisionsDir());
+      Files.createDirectories(limitRangesDir());
+      Files.createDirectories(limitRangeViolationDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1125,6 +1131,48 @@ public final class StateStore implements StoreReader {
         .findFirst();
   }
 
+  // ---- limit range ----
+
+  public void putLimitRange(LimitRangeSpec spec) {
+    writeAtomically(limitRangeFile(spec.tenantId()), limitRangeSpecToYaml(spec));
+    limitRanges.put(spec.tenantId(), spec);
+  }
+
+  public Optional<LimitRangeSpec> getLimitRange(String tenantId) {
+    return Optional.ofNullable(limitRanges.get(tenantId));
+  }
+
+  public List<LimitRangeSpec> listLimitRanges() {
+    return List.copyOf(limitRanges.values());
+  }
+
+  public void removeLimitRange(String tenantId) {
+    deleteQuietly(limitRangeFile(tenantId));
+    limitRanges.remove(tenantId);
+  }
+
+  // ---- limit-range-violation bookkeeping ----
+
+  /**
+   * Set by {@code LimitRangeReconciler} every tick, read by the API server's deployment status
+   * surface -- same level-triggered, remove-the-file-when-false shape as {@link
+   * #putQuotaViolation}, but a separate flag: "violates this tenant's LimitRange" and "over the
+   * tenant's aggregate quota" are independently-true-or-false failure modes.
+   */
+  public void putLimitRangeViolation(String deploymentName, boolean violating) {
+    if (!violating) {
+      deleteQuietly(limitRangeViolationFile(deploymentName));
+      limitRangeViolations.remove(deploymentName);
+      return;
+    }
+    writeAtomically(limitRangeViolationFile(deploymentName), "violating: true\n");
+    limitRangeViolations.put(deploymentName, Boolean.TRUE);
+  }
+
+  public boolean isLimitRangeViolating(String deploymentName) {
+    return limitRangeViolations.getOrDefault(deploymentName, Boolean.FALSE);
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -1172,7 +1220,12 @@ public final class StateStore implements StoreReader {
         auditEventsSnapshotOrder(),
         List.copyOf(services.values()),
         List.copyOf(networkPolicies.values()),
-        controllerRevisions.values().stream().flatMap(List::stream).toList());
+        controllerRevisions.values().stream().flatMap(List::stream).toList(),
+        List.copyOf(limitRanges.values()),
+        limitRangeViolations.entrySet().stream()
+            .filter(Map.Entry::getValue)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toUnmodifiableSet()));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1203,6 +1256,8 @@ public final class StateStore implements StoreReader {
     List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
     List.copyOf(services.keySet()).forEach(this::removeService);
     List.copyOf(networkPolicies.keySet()).forEach(this::removeNetworkPolicy);
+    List.copyOf(limitRanges.keySet()).forEach(this::removeLimitRange);
+    List.copyOf(limitRangeViolations.keySet()).forEach(name -> putLimitRangeViolation(name, false));
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
@@ -1294,6 +1349,8 @@ public final class StateStore implements StoreReader {
     // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
+    snapshot.limitRanges().forEach(this::putLimitRange);
+    snapshot.limitRangeViolatingDeployments().forEach(name -> putLimitRangeViolation(name, true));
   }
 
   /**
@@ -1380,6 +1437,22 @@ public final class StateStore implements StoreReader {
 
   private Path networkPolicyFile(String name) {
     return networkPoliciesDir().resolve(name + ".yaml");
+  }
+
+  private Path limitRangesDir() {
+    return root.resolve("limitranges");
+  }
+
+  private Path limitRangeFile(String tenantId) {
+    return limitRangesDir().resolve(tenantId + ".yaml");
+  }
+
+  private Path limitRangeViolationDir() {
+    return root.resolve("limitrange-violations");
+  }
+
+  private Path limitRangeViolationFile(String deploymentName) {
+    return limitRangeViolationDir().resolve(deploymentName + ".yaml");
   }
 
   private Path assignmentFile(String deploymentName, int instanceIndex) {
@@ -1655,6 +1728,20 @@ public final class StateStore implements StoreReader {
         file -> {
           NetworkPolicySpec spec = networkPolicySpecFromMap(loadMap(file));
           networkPolicies.put(spec.name(), spec);
+        });
+    loadEach(
+        limitRangesDir(),
+        "*.yaml",
+        file -> {
+          LimitRangeSpec spec = limitRangeSpecFromMap(loadMap(file));
+          limitRanges.put(spec.tenantId(), spec);
+        });
+    loadEach(
+        limitRangeViolationDir(),
+        "*.yaml",
+        file -> {
+          String deploymentName = fileNameWithoutYamlSuffix(file);
+          limitRangeViolations.put(deploymentName, Boolean.TRUE);
         });
     loadEach(
         assignmentsDir(),
@@ -2490,6 +2577,39 @@ public final class StateStore implements StoreReader {
         (String) root.get("tenantId"),
         deploymentNames,
         allowedCallerTenantIds);
+  }
+
+  private static String limitRangeSpecToYaml(LimitRangeSpec spec) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("tenantId", spec.tenantId());
+    spec.minRequest().ifPresent(r -> root.put("minRequest", resourceSpecToMap(r)));
+    spec.maxRequest().ifPresent(r -> root.put("maxRequest", resourceSpecToMap(r)));
+    spec.minLimit().ifPresent(r -> root.put("minLimit", resourceSpecToMap(r)));
+    spec.maxLimit().ifPresent(r -> root.put("maxLimit", resourceSpecToMap(r)));
+    return new Yaml().dump(root);
+  }
+
+  private static LimitRangeSpec limitRangeSpecFromMap(Map<?, ?> root) {
+    return new LimitRangeSpec(
+        (String) root.get("tenantId"),
+        resourceSpecFromMap((Map<?, ?>) root.get("minRequest")),
+        resourceSpecFromMap((Map<?, ?>) root.get("maxRequest")),
+        resourceSpecFromMap((Map<?, ?>) root.get("minLimit")),
+        resourceSpecFromMap((Map<?, ?>) root.get("maxLimit")));
+  }
+
+  private static Map<String, Object> resourceSpecToMap(ResourceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("memory", spec.memory());
+    map.put("cpu", spec.cpu());
+    return map;
+  }
+
+  private static Optional<ResourceSpec> resourceSpecFromMap(Map<?, ?> map) {
+    if (map == null) {
+      return Optional.empty();
+    }
+    return Optional.of(new ResourceSpec((String) map.get("memory"), (String) map.get("cpu")));
   }
 
   private static String configEntryToYaml(ConfigEntry entry) {

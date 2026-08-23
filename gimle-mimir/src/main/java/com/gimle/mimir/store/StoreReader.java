@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -148,4 +149,10 @@ public interface StoreReader {
 
   Optional<ControllerRevision> getControllerRevision(
       String workloadKind, String name, int revision);
+
+  Optional<LimitRangeSpec> getLimitRange(String tenantId);
+
+  List<LimitRangeSpec> listLimitRanges();
+
+  boolean isLimitRangeViolating(String deploymentName);
 }

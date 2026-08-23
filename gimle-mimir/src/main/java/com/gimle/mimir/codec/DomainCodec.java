@@ -34,6 +34,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
@@ -207,6 +208,37 @@ public final class DomainCodec {
       allowedCallerTenantIds.add(in.readUTF());
     }
     return new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
+  }
+
+  public static void writeLimitRangeSpec(DataOutputStream out, LimitRangeSpec spec)
+      throws IOException {
+    out.writeUTF(spec.tenantId());
+    writeOptionalResourceSpec(out, spec.minRequest());
+    writeOptionalResourceSpec(out, spec.maxRequest());
+    writeOptionalResourceSpec(out, spec.minLimit());
+    writeOptionalResourceSpec(out, spec.maxLimit());
+  }
+
+  public static LimitRangeSpec readLimitRangeSpec(DataInputStream in) throws IOException {
+    String tenantId = in.readUTF();
+    Optional<ResourceSpec> minRequest = readOptionalResourceSpec(in);
+    Optional<ResourceSpec> maxRequest = readOptionalResourceSpec(in);
+    Optional<ResourceSpec> minLimit = readOptionalResourceSpec(in);
+    Optional<ResourceSpec> maxLimit = readOptionalResourceSpec(in);
+    return new LimitRangeSpec(tenantId, minRequest, maxRequest, minLimit, maxLimit);
+  }
+
+  private static void writeOptionalResourceSpec(DataOutputStream out, Optional<ResourceSpec> spec)
+      throws IOException {
+    out.writeBoolean(spec.isPresent());
+    if (spec.isPresent()) {
+      writeResourceSpec(out, spec.get());
+    }
+  }
+
+  private static Optional<ResourceSpec> readOptionalResourceSpec(DataInputStream in)
+      throws IOException {
+    return in.readBoolean() ? Optional.of(readResourceSpec(in)) : Optional.empty();
   }
 
   public static void writeJobSpec(DataOutputStream out, JobSpec spec) throws IOException {

@@ -13,6 +13,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -113,6 +114,9 @@ public sealed interface StoreRpc {
           ListAuditEvents,
           ListControllerRevisions,
           GetControllerRevision,
+          GetLimitRange,
+          ListLimitRanges,
+          IsLimitRangeViolating,
           Status {}
 
   sealed interface Response extends StoreRpc
@@ -163,6 +167,8 @@ public sealed interface StoreRpc {
           AuditEventListResult,
           ControllerRevisionListResult,
           ControllerRevisionResult,
+          LimitRangeResult,
+          LimitRangeListResult,
           StatusResult {}
 
   // ---- leader-only requests (writes, plus the one leader-local read) ----
@@ -227,9 +233,15 @@ public sealed interface StoreRpc {
 
   record ListNetworkPolicies() implements Request {}
 
+  record GetLimitRange(String tenantId) implements Request {}
+
+  record ListLimitRanges() implements Request {}
+
   record ListAssignmentsFor(String deploymentName) implements Request {}
 
   record IsQuotaViolating(String deploymentName) implements Request {}
+
+  record IsLimitRangeViolating(String deploymentName) implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
 
@@ -469,6 +481,10 @@ public sealed interface StoreRpc {
   record ControllerRevisionListResult(List<ControllerRevision> values) implements Response {}
 
   record ControllerRevisionResult(boolean present, ControllerRevision value) implements Response {}
+
+  record LimitRangeResult(boolean present, LimitRangeSpec value) implements Response {}
+
+  record LimitRangeListResult(List<LimitRangeSpec> values) implements Response {}
 
   /**
    * {@code leaderId} is {@code ""} when the answering node has no current leader hint (a

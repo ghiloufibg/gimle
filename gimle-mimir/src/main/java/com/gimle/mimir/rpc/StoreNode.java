@@ -10,6 +10,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -72,10 +73,14 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetNetworkPolicy r -> networkPolicyResult(store.getNetworkPolicy(r.name()));
       case StoreRpc.ListNetworkPolicies r ->
           new StoreRpc.NetworkPolicyListResult(store.listNetworkPolicies());
+      case StoreRpc.GetLimitRange r -> limitRangeResult(store.getLimitRange(r.tenantId()));
+      case StoreRpc.ListLimitRanges r -> new StoreRpc.LimitRangeListResult(store.listLimitRanges());
       case StoreRpc.ListAssignmentsFor r ->
           new StoreRpc.AssignmentListResult(store.listAssignmentsFor(r.deploymentName()));
       case StoreRpc.IsQuotaViolating r ->
           new StoreRpc.BoolResult(store.isQuotaViolating(r.deploymentName()));
+      case StoreRpc.IsLimitRangeViolating r ->
+          new StoreRpc.BoolResult(store.isLimitRangeViolating(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
       case StoreRpc.GetJobSpec r -> jobSpecResult(store.getJobSpec(r.name()));
@@ -281,6 +286,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.NetworkPolicyResult(true, v))
         .orElseGet(() -> new StoreRpc.NetworkPolicyResult(false, null));
+  }
+
+  private static StoreRpc.LimitRangeResult limitRangeResult(Optional<LimitRangeSpec> value) {
+    return value
+        .map(v -> new StoreRpc.LimitRangeResult(true, v))
+        .orElseGet(() -> new StoreRpc.LimitRangeResult(false, null));
   }
 
   private static StoreRpc.JobSpecResult jobSpecResult(Optional<JobSpec> value) {

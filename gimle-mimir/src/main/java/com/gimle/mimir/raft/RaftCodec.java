@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -118,6 +119,9 @@ public final class RaftCodec {
   private static final byte MUT_PUT_NETWORK_POLICY = 50;
   private static final byte MUT_REMOVE_NETWORK_POLICY = 51;
   private static final byte MUT_APPEND_CONTROLLER_REVISION = 52;
+  private static final byte MUT_PUT_LIMIT_RANGE = 53;
+  private static final byte MUT_REMOVE_LIMIT_RANGE = 54;
+  private static final byte MUT_PUT_LIMIT_RANGE_VIOLATION = 55;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -397,6 +401,19 @@ public final class RaftCodec {
         out.writeByte(MUT_APPEND_CONTROLLER_REVISION);
         DomainCodec.writeControllerRevision(out, m.revision());
       }
+      case StateMutation.PutLimitRange m -> {
+        out.writeByte(MUT_PUT_LIMIT_RANGE);
+        DomainCodec.writeLimitRangeSpec(out, m.spec());
+      }
+      case StateMutation.RemoveLimitRange m -> {
+        out.writeByte(MUT_REMOVE_LIMIT_RANGE);
+        out.writeUTF(m.tenantId());
+      }
+      case StateMutation.PutLimitRangeViolation m -> {
+        out.writeByte(MUT_PUT_LIMIT_RANGE_VIOLATION);
+        out.writeUTF(m.deploymentName());
+        out.writeBoolean(m.violating());
+      }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
         DomainCodec.writeInstanceAssignment(out, m.assignment());
@@ -619,6 +636,11 @@ public final class RaftCodec {
       case MUT_REMOVE_NETWORK_POLICY -> new StateMutation.RemoveNetworkPolicy(in.readUTF());
       case MUT_APPEND_CONTROLLER_REVISION ->
           new StateMutation.AppendControllerRevision(DomainCodec.readControllerRevision(in));
+      case MUT_PUT_LIMIT_RANGE ->
+          new StateMutation.PutLimitRange(DomainCodec.readLimitRangeSpec(in));
+      case MUT_REMOVE_LIMIT_RANGE -> new StateMutation.RemoveLimitRange(in.readUTF());
+      case MUT_PUT_LIMIT_RANGE_VIOLATION ->
+          new StateMutation.PutLimitRangeViolation(in.readUTF(), in.readBoolean());
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
@@ -852,6 +874,14 @@ public final class RaftCodec {
       for (ControllerRevision revision : snapshot.controllerRevisions()) {
         DomainCodec.writeControllerRevision(out, revision);
       }
+      out.writeInt(snapshot.limitRanges().size());
+      for (LimitRangeSpec spec : snapshot.limitRanges()) {
+        DomainCodec.writeLimitRangeSpec(out, spec);
+      }
+      out.writeInt(snapshot.limitRangeViolatingDeployments().size());
+      for (String name : snapshot.limitRangeViolatingDeployments()) {
+        out.writeUTF(name);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1038,6 +1068,16 @@ public final class RaftCodec {
       for (int i = 0; i < controllerRevisionCount; i++) {
         controllerRevisions.add(DomainCodec.readControllerRevision(in));
       }
+      List<LimitRangeSpec> limitRanges = new ArrayList<>();
+      int limitRangeCount = in.readInt();
+      for (int i = 0; i < limitRangeCount; i++) {
+        limitRanges.add(DomainCodec.readLimitRangeSpec(in));
+      }
+      Set<String> limitRangeViolatingDeployments = new LinkedHashSet<>();
+      int limitRangeViolatingCount = in.readInt();
+      for (int i = 0; i < limitRangeViolatingCount; i++) {
+        limitRangeViolatingDeployments.add(in.readUTF());
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -1069,7 +1109,9 @@ public final class RaftCodec {
           auditEvents,
           services,
           networkPolicies,
-          controllerRevisions);
+          controllerRevisions,
+          limitRanges,
+          limitRangeViolatingDeployments);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

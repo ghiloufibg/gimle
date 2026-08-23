@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -177,6 +178,16 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
+  public Optional<LimitRangeSpec> getLimitRange(String tenantId) {
+    StoreRpc.LimitRangeResult r =
+        (StoreRpc.LimitRangeResult) sendRead(new StoreRpc.GetLimitRange(tenantId));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<LimitRangeSpec> listLimitRanges() {
+    return ((StoreRpc.LimitRangeListResult) sendRead(new StoreRpc.ListLimitRanges())).values();
+  }
+
   public List<InstanceAssignment> listAssignmentsFor(String deploymentName) {
     return ((StoreRpc.AssignmentListResult)
             sendRead(new StoreRpc.ListAssignmentsFor(deploymentName)))
@@ -185,6 +196,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public boolean isQuotaViolating(String deploymentName) {
     return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsQuotaViolating(deploymentName))).value();
+  }
+
+  public boolean isLimitRangeViolating(String deploymentName) {
+    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsLimitRangeViolating(deploymentName)))
+        .value();
   }
 
   public boolean isNodeCordoned(String nodeId) {

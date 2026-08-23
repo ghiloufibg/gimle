@@ -11,6 +11,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -377,6 +378,27 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putControllerRevision(revision);
+    }
+  }
+
+  record PutLimitRange(LimitRangeSpec spec) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putLimitRange(spec);
+    }
+  }
+
+  record RemoveLimitRange(String tenantId) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeLimitRange(tenantId);
+    }
+  }
+
+  record PutLimitRangeViolation(String deploymentName, boolean violating) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putLimitRangeViolation(deploymentName, violating);
     }
   }
 

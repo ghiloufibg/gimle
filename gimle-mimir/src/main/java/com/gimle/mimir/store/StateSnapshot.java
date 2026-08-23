@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -58,7 +59,9 @@ public record StateSnapshot(
     List<AuditEvent> auditEvents,
     List<ServiceSpec> services,
     List<NetworkPolicySpec> networkPolicies,
-    List<ControllerRevision> controllerRevisions) {
+    List<ControllerRevision> controllerRevisions,
+    List<LimitRangeSpec> limitRanges,
+    Set<String> limitRangeViolatingDeployments) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -106,5 +109,7 @@ public record StateSnapshot(
     services = List.copyOf(services);
     networkPolicies = List.copyOf(networkPolicies);
     controllerRevisions = List.copyOf(controllerRevisions);
+    limitRanges = List.copyOf(limitRanges);
+    limitRangeViolatingDeployments = Set.copyOf(limitRangeViolatingDeployments);
   }
 }

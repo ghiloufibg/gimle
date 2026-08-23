@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -159,6 +160,11 @@ public final class StoreCodec {
   private static final byte TAG_GET_CONTROLLER_REVISION = 103;
   private static final byte TAG_CONTROLLER_REVISION_LIST_RESULT = 104;
   private static final byte TAG_CONTROLLER_REVISION_RESULT = 105;
+  private static final byte TAG_GET_LIMIT_RANGE = 106;
+  private static final byte TAG_LIST_LIMIT_RANGES = 107;
+  private static final byte TAG_LIMIT_RANGE_RESULT = 108;
+  private static final byte TAG_LIMIT_RANGE_LIST_RESULT = 109;
+  private static final byte TAG_IS_LIMIT_RANGE_VIOLATING = 110;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -234,12 +240,21 @@ public final class StoreCodec {
           out.writeUTF(v.name());
         }
         case StoreRpc.ListNetworkPolicies v -> out.writeByte(TAG_LIST_NETWORK_POLICIES);
+        case StoreRpc.GetLimitRange v -> {
+          out.writeByte(TAG_GET_LIMIT_RANGE);
+          out.writeUTF(v.tenantId());
+        }
+        case StoreRpc.ListLimitRanges v -> out.writeByte(TAG_LIST_LIMIT_RANGES);
         case StoreRpc.ListAssignmentsFor v -> {
           out.writeByte(TAG_LIST_ASSIGNMENTS_FOR);
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.IsQuotaViolating v -> {
           out.writeByte(TAG_IS_QUOTA_VIOLATING);
+          out.writeUTF(v.deploymentName());
+        }
+        case StoreRpc.IsLimitRangeViolating v -> {
+          out.writeByte(TAG_IS_LIMIT_RANGE_VIOLATING);
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.IsNodeCordoned v -> {
@@ -443,6 +458,20 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (NetworkPolicySpec s : v.values()) {
             DomainCodec.writeNetworkPolicySpec(out, s);
+          }
+        }
+        case StoreRpc.LimitRangeResult v -> {
+          out.writeByte(TAG_LIMIT_RANGE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeLimitRangeSpec(out, v.value());
+          }
+        }
+        case StoreRpc.LimitRangeListResult v -> {
+          out.writeByte(TAG_LIMIT_RANGE_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (LimitRangeSpec s : v.values()) {
+            DomainCodec.writeLimitRangeSpec(out, s);
           }
         }
         case StoreRpc.JobSpecResult v -> {
@@ -737,8 +766,11 @@ public final class StoreCodec {
         case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
         case TAG_GET_NETWORK_POLICY -> new StoreRpc.GetNetworkPolicy(in.readUTF());
         case TAG_LIST_NETWORK_POLICIES -> new StoreRpc.ListNetworkPolicies();
+        case TAG_GET_LIMIT_RANGE -> new StoreRpc.GetLimitRange(in.readUTF());
+        case TAG_LIST_LIMIT_RANGES -> new StoreRpc.ListLimitRanges();
         case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
+        case TAG_IS_LIMIT_RANGE_VIOLATING -> new StoreRpc.IsLimitRangeViolating(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
         case TAG_GET_JOB_SPEC -> new StoreRpc.GetJobSpec(in.readUTF());
@@ -835,6 +867,19 @@ public final class StoreCodec {
             values.add(DomainCodec.readNetworkPolicySpec(in));
           }
           yield new StoreRpc.NetworkPolicyListResult(values);
+        }
+        case TAG_LIMIT_RANGE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.LimitRangeResult(
+              present, present ? DomainCodec.readLimitRangeSpec(in) : null);
+        }
+        case TAG_LIMIT_RANGE_LIST_RESULT -> {
+          int count = in.readInt();
+          List<LimitRangeSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readLimitRangeSpec(in));
+          }
+          yield new StoreRpc.LimitRangeListResult(values);
         }
         case TAG_JOB_SPEC_RESULT -> {
           boolean present = in.readBoolean();
