@@ -9,9 +9,10 @@ import java.util.Optional;
 /**
  * A deliberately crashing stand-in for a worker JVM, used by {@link WorkerProcessSupervisorTest} to
  * exercise real kill-and-respawn behavior without needing the full {@code gimle-worker} runtime.
- * {@code WorkerProcessSupervisor} reuses the same {@code baseCommand} across every respawn, so
- * varying behavior across invocations (crash instantly the first N times, then stay up for a while)
- * needs state that outlives any single invocation -- a counter file, incremented on each run.
+ * Most tests here hand {@code WorkerProcessSupervisor} the same command supplier across every
+ * respawn, so varying behavior across invocations (crash instantly the first N times, then stay up
+ * for a while) needs state that outlives any single invocation -- a counter file, incremented on
+ * each run.
  *
  * <p>Args: {@code <counterFile> <immediateCrashCount> <stableSleepMillis> <exitCode> [<hsErrDir>]}.
  * The optional 5th argument, when non-blank, has this driver write a stub {@code hs_err_pid<its own

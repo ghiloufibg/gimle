@@ -18,16 +18,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Spawns and supervises one worker JVM. {@code baseCommand} is everything up to (but not including)
- * the worker's sole application argument -- the control-socket path, which this class appends
- * itself, so the same base command is reused across every respawn. Caller supplies the fully-formed
- * command (java executable, any {@code ResourceLimiter}-derived JVM flags, module-path/classpath,
- * main class) since discovering {@code gimle-worker}'s own runtime artifacts is a packaging concern
- * outside this class's job.
+ * Spawns and supervises one worker JVM. {@code baseCommand} is a supplier of everything up to (but
+ * not including) the worker's sole application argument -- the control-socket path, which this
+ * class appends itself -- invoked fresh on every spawn, including a crash-triggered respawn, rather
+ * than snapshotted once: some of what the caller bakes into that command (a Sleipnir-trained AOT
+ * cache path, most notably) can only become available in the background after this supervisor is
+ * first constructed, and a respawn is exactly the spawn most worth benefiting from it once it has.
+ * Caller supplies the fully-formed command (java executable, any {@code ResourceLimiter}-derived
+ * JVM flags, module-path/classpath, main class) since discovering {@code gimle-worker}'s own
+ * runtime artifacts is a packaging concern outside this class's job.
  *
  * <p>Restart is driven by {@link Process#onExit()} without a prior deliberate {@link #stop()} --
  * matching this platform's worker-level restart tier of destroy-and-respawn within sub-second
@@ -56,7 +60,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   private static final Consumer<String> NO_OP_ON_RESPAWNED = workerId -> {};
 
   private final String workerId;
-  private final List<String> baseCommand;
+  private final Supplier<List<String>> baseCommand;
   private final Path controlSocketPath;
   private final RestartTracker restartTracker;
   private final Consumer<String> onRestartBudgetExhausted;
@@ -73,7 +77,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
 
   public WorkerProcessSupervisor(
       String workerId,
-      List<String> baseCommand,
+      Supplier<List<String>> baseCommand,
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted) {
@@ -99,7 +103,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    */
   public WorkerProcessSupervisor(
       String workerId,
-      List<String> baseCommand,
+      Supplier<List<String>> baseCommand,
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted,
@@ -125,7 +129,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    */
   public WorkerProcessSupervisor(
       String workerId,
-      List<String> baseCommand,
+      Supplier<List<String>> baseCommand,
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted,
@@ -156,7 +160,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    */
   public WorkerProcessSupervisor(
       String workerId,
-      List<String> baseCommand,
+      Supplier<List<String>> baseCommand,
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted,
@@ -188,7 +192,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
    */
   public WorkerProcessSupervisor(
       String workerId,
-      List<String> baseCommand,
+      Supplier<List<String>> baseCommand,
       Path controlSocketPath,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted,
@@ -198,7 +202,7 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       Consumer<CrashInfo> onCrash,
       Consumer<String> onRespawned) {
     this.workerId = workerId;
-    this.baseCommand = List.copyOf(baseCommand);
+    this.baseCommand = baseCommand;
     this.controlSocketPath = controlSocketPath;
     this.restartTracker = restartTracker;
     this.onRestartBudgetExhausted = onRestartBudgetExhausted;
@@ -214,7 +218,12 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   }
 
   private void spawn() throws IOException {
-    List<String> command = new ArrayList<>(baseCommand);
+    // Recomputed on every call (initial spawn and every respawn alike) -- not cached from
+    // construction time -- so a respawn after this instance's supervisor was first built can pick
+    // up state that only became available since (a Sleipnir cache that finished training in the
+    // background, most notably) instead of being permanently locked to whatever the very first
+    // spawn saw.
+    List<String> command = new ArrayList<>(baseCommand.get());
     command.add(controlSocketPath.toString());
     // Deliberately not inheritIO(): that would have the worker write directly to this JVM's own
     // native stdout, which -- when this JVM is itself a Surefire-forked test process -- is the

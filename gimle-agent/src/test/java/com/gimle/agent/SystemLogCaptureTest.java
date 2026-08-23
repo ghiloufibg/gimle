@@ -46,7 +46,7 @@ class SystemLogCaptureTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "syslog-probe",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> {},

@@ -72,7 +72,7 @@ class AgentWorkerIntegrationTest {
     try (ControlChannelServer server = new ControlChannelServer(socketPath)) {
       WorkerProcessSupervisor supervisor =
           new WorkerProcessSupervisor(
-              "worker-it", baseCommand, socketPath, restartTracker, id -> {});
+              "worker-it", () -> baseCommand, socketPath, restartTracker, id -> {});
       try {
         supervisor.start();
 

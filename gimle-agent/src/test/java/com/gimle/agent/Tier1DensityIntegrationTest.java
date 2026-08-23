@@ -74,7 +74,7 @@ class Tier1DensityIntegrationTest {
     try (ControlChannelServer server = new ControlChannelServer(socketPath)) {
       WorkerProcessSupervisor supervisor =
           new WorkerProcessSupervisor(
-              "worker-density-it", baseCommand, socketPath, restartTracker, id -> {});
+              "worker-density-it", () -> baseCommand, socketPath, restartTracker, id -> {});
       try {
         supervisor.start();
 

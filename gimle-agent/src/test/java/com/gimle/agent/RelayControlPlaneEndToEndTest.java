@@ -132,7 +132,7 @@ class RelayControlPlaneEndToEndTest {
     try (ControlChannelServer server = new ControlChannelServer(socketPath)) {
       WorkerProcessSupervisor supervisor =
           new WorkerProcessSupervisor(
-              "worker-relay-e2e", baseCommand, socketPath, restartTracker, id -> {});
+              "worker-relay-e2e", () -> baseCommand, socketPath, restartTracker, id -> {});
       try {
         supervisor.start();
 

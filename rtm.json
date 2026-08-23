@@ -10421,12 +10421,13 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant",
+      "otherTestCoverage": "`WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant, `WorkerProcessSupervisorTest#a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time`",
       "sourceLocations": [
         "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`",
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java`"
       ]
     }
   ]

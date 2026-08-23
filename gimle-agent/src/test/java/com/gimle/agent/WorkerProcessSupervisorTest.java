@@ -18,6 +18,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -52,7 +54,7 @@ class WorkerProcessSupervisorTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "escalate",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> {
@@ -111,7 +113,7 @@ class WorkerProcessSupervisorTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "reset",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> fail("should not exhaust its budget"),
@@ -165,7 +167,7 @@ class WorkerProcessSupervisorTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "oom",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> {},
@@ -198,7 +200,7 @@ class WorkerProcessSupervisorTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "native",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> {},
@@ -231,7 +233,7 @@ class WorkerProcessSupervisorTest {
     try (WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             "unknown",
-            command,
+            () -> command,
             socketPath,
             tracker,
             id -> {},
@@ -246,6 +248,64 @@ class WorkerProcessSupervisorTest {
       assertEquals(CrashInfo.Cause.UNKNOWN, crash.cause());
       assertTrue(crash.hsErrLog().isEmpty());
     }
+  }
+
+  /**
+   * Regression test for a real bug found by launching a genuine cluster: {@code baseCommand} used
+   * to be snapshotted once at construction, so a caller (Sleipnir's own AOT-cache-path resolution,
+   * in production) that only knows its final answer sometime after this supervisor is built could
+   * never have a later crash-triggered respawn benefit from it -- every respawn kept reusing
+   * whatever the very first {@code spawn()} call saw. Proven here with two distinct command
+   * variants: v1 crashes on its one and only invocation; v2 (what a fresh supplier call must return
+   * once background state changes between spawns) stays up and writes a marker file the frozen-v1
+   * behavior this guards against would never produce.
+   */
+  @Test
+  @Timeout(value = 20, unit = TimeUnit.SECONDS)
+  void a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time()
+      throws Exception {
+    Path counterFileV1 = tempDir.resolve("counter-fresh-v1");
+    Path counterFileV2 = tempDir.resolve("counter-fresh-v2");
+    Path socketPath = tempDir.resolve("socket-fresh");
+    List<String> commandV1 = crashingCommand(counterFileV1, 1, 0, 1);
+    List<String> commandV2 = crashingCommand(counterFileV2, 0, 5000, 0);
+    AtomicInteger supplierCalls = new AtomicInteger();
+    Supplier<List<String>> commandSupplier =
+        () -> supplierCalls.getAndIncrement() == 0 ? commandV1 : commandV2;
+
+    RestartTracker tracker =
+        new RestartTracker(
+            Duration.ofMillis(200), 2.0, Duration.ofSeconds(5), 5, Duration.ofMinutes(10));
+
+    try (WorkerProcessSupervisor supervisor =
+        new WorkerProcessSupervisor(
+            "fresh-command",
+            commandSupplier,
+            socketPath,
+            tracker,
+            id -> fail("should not exhaust its restart budget"),
+            Optional.empty(),
+            Duration.ofSeconds(30))) {
+      supervisor.start();
+
+      // Polls for the v2 marker file itself, not just a second distinct pid -- observing the
+      // respawned process's pid only proves the OS accepted exec(), not that its JVM has run far
+      // enough into main() to have written the file yet.
+      awaitFileExists(
+          counterFileV2,
+          Duration.ofSeconds(15),
+          "expected the respawn to use the freshly-supplied v2 command, not a frozen snapshot of"
+              + " v1's command from construction time");
+    }
+  }
+
+  private void awaitFileExists(Path file, Duration timeout, String failureMessage)
+      throws InterruptedException {
+    Instant deadline = Instant.now().plus(timeout);
+    while (!Files.exists(file) && Instant.now().isBefore(deadline)) {
+      Thread.sleep(20);
+    }
+    assertTrue(Files.exists(file), failureMessage);
   }
 
   private List<String> crashingCommand(

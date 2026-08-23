@@ -86,6 +86,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -1743,21 +1744,25 @@ public final class AgentMain {
     ControlChannelServer server = new ControlChannelServer(socketPath);
     ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
-    // Sleipnir: a populated cache for this exact worker classpath/flag set, if training has
-    // completed by now -- absent, this spawns exactly like it always has (AOTMode=auto means a
-    // worker is never blocked on, or broken by, whether Sleipnir has finished training yet).
+    // Sleipnir: aotCacheKey is fixed for this instance's whole lifetime (computed once, purely a
+    // function of commandTail), but aotCachePath is re-resolved by the supplier below on every
+    // spawn -- including a crash-triggered respawn -- rather than snapshotted here, since training
+    // can still be running in the background at this exact moment and a later respawn must be able
+    // to pick up a cache that only finished training after this instance's first spawn. Absent,
+    // this spawns exactly like it always has (AOTMode=auto means a worker is never blocked on, or
+    // broken by, whether Sleipnir has finished training yet).
     Optional<String> aotCacheKey = sleipnirCache.keyFor(commandTail);
-    Optional<Path> aotCachePath = sleipnirCache.cacheFor(commandTail);
-    List<String> baseCommand =
-        buildWorkerCommand(
-            javaExecutable,
-            commandTail,
-            resourceLimiter,
-            handle,
-            workerLogRoot,
-            nodeId,
-            assigned,
-            aotCachePath);
+    Supplier<List<String>> baseCommand =
+        () ->
+            buildWorkerCommand(
+                javaExecutable,
+                commandTail,
+                resourceLimiter,
+                handle,
+                workerLogRoot,
+                nodeId,
+                assigned,
+                sleipnirCache.cacheFor(commandTail));
 
     RestartTracker restartTracker =
         new RestartTracker(
