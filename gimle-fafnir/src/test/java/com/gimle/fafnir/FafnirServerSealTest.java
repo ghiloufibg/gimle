@@ -198,6 +198,34 @@ class FafnirServerSealTest {
     assertTrue(Json.asObject(results.get(0)).containsKey("error"));
   }
 
+  /**
+   * A {@code sealingKeyId} outside the valid byte range must be rejected on its own terms, not
+   * silently truncated by a raw {@code (byte)} cast -- 999 cast that way becomes 231 ({@code 999 &
+   * 0xFF}), which would otherwise report a confusing "no sealing key with id 231" for a caller who
+   * sent 999. Caught via manual end-to-end testing, not anticipated by the original design.
+   */
+  @Test
+  @Timeout(15)
+  void an_out_of_range_sealing_key_id_is_rejected_without_silent_truncation() throws Exception {
+    String sealed =
+        Json.write(
+            Map.of(
+                "sealingKeyId", 999,
+                "wrappedKey", Base64.getEncoder().encodeToString(new byte[384]),
+                "ciphertext", Base64.getEncoder().encodeToString(new byte[32])));
+
+    HttpResponse<String> commit =
+        send(
+            "POST",
+            "/secretmaps/acme/db-creds/seal",
+            Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
+
+    List<Object> results = Json.asArray(Json.asObject(Json.parse(commit.body())).get("results"));
+    Object error = Json.asObject(results.get(0)).get("error");
+    assertTrue(error instanceof String, "expected an error message, got: " + error);
+    assertTrue(((String) error).contains("between 0 and 255"), (String) error);
+  }
+
   @Test
   @Timeout(15)
   void a_key_retired_after_rotation_can_no_longer_apply_a_blob_sealed_under_it() throws Exception {

@@ -435,7 +435,17 @@ public final class FafnirServer implements AutoCloseable {
 
   private static byte parseKeyIdBody(HttpExchange exchange) throws IOException {
     Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
-    Object raw = body.get("keyId");
+    return parseKeyId(body.get("keyId"));
+  }
+
+  /**
+   * Shared range check for every wire-carried key id byte -- {@code parseKeyIdBody} (the
+   * rotate/retire request bodies) and {@link #handleSealSecretMap}'s per-entry {@code sealingKeyId}
+   * both go through this rather than a raw {@code (byte)} cast, which would silently wrap a
+   * too-large value (e.g. 999) into an unrelated in-range byte (231) instead of rejecting it -- a
+   * confusing "no sealing key with id 231" for a caller who actually sent 999.
+   */
+  private static byte parseKeyId(Object raw) {
     if (!(raw instanceof Number number)) {
       throw new IllegalArgumentException("'keyId' must be an integer");
     }
@@ -831,7 +841,7 @@ public final class FafnirServer implements AutoCloseable {
       String key = entry.getKey();
       try {
         Map<String, Object> envelopeJson = Json.asObject(entry.getValue());
-        byte sealingKeyId = (byte) ((Number) envelopeJson.get("sealingKeyId")).intValue();
+        byte sealingKeyId = parseKeyId(envelopeJson.get("sealingKeyId"));
         SealCipher.SealedEnvelope envelope =
             new SealCipher.SealedEnvelope(
                 sealingKeyId,
