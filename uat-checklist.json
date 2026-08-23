@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 600,
+    "totalRequirements": 602,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 481,
+    "notCoveredByAutomatedTest": 483,
     "releaseReadinessPercent": 19.8
   },
   "items": [
@@ -6602,6 +6602,28 @@
       "category": "CLI",
       "feature": "`gimle seal` command, `secret retire-key`, `secretmap seal` verbs",
       "step": "Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-601",
+      "module": "gimle-mimir",
+      "category": "Workload Lifecycle",
+      "feature": "ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback",
+      "step": "Given module \"greeter-provider\" version \"1.0.0\" deployed with 2 replicas as \"rollback-greeter\", And it is rolled to a rebuilt provider version \"1.1.0\", When \"rollback-greeter\" is rolled back to the previous revision, Then within 180s all 2 instances of \"rollback-greeter\" are ACTIVE on version \"1.0.0\".",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-602",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs",
+      "step": "Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

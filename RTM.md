@@ -1,9 +1,9 @@
 # Gimlé Requirements Traceability Matrix (RTM)
 
 - **Baseline requirements document**: `REQUIREMENTS_MATRIX.md`, generated at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640`
-- **Current HEAD scanned**: `4826e8cd1cb7549925b16848d0ec1eb93741b66a` (`4826e8c`), branch `claude/gimle-requirements-matrix-lfkqqe`
+- **Current HEAD scanned**: `4134b92c10afb9075a446f1a5dfaf4ea1681dcd5` (`4134b92`), branch `claude/kubernetes-kinds-gimle-gap-o5499m`
 - **Rebase acknowledgment**: this branch was rebased onto `origin/master` for this scan. Between the baseline commit and `origin/master`'s current tip there is exactly **one** new commit -- `6bd450f` ("test: add Norn deterministic Raft fault-injection simulation"), which adds three new test-only files to `gimle-mimir` and modifies nothing else (`git diff 919bd40..origin/master --stat` confirms 3 files changed, 807 insertions, 0 deletions, 0 files touched elsewhere). Consequently **every one of the 564 baseline requirements is unchanged (`Active`)** -- none are `Modified` or `Removed` -- and exactly **one new requirement** (`GIMLE-565`) was discovered and added.
-- **Scan date**: 2026-08-17
+- **Scan date**: 2026-08-23
 
 ## Coverage rule (strict, as specified)
 
@@ -615,6 +615,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-598 | `/seal/*` and key-retirement HTTP routes | New | Not Covered | — |
 | GIMLE-599 | `/seal/*` and `/secrets/retire-key` proxy routes | New | Not Covered | — |
 | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | New | Not Covered | — |
+| GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | New | Not Covered | — |
+| GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2510,6 +2512,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises `secretMapRefs` admission or collision rejection against a real running cluster -- see GIMLE-578's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretMapRefsPluginTest` covers empty refs, no-tenant rejection, unknown-name rejection, cross-SecretMap key collision, SecretMap-vs-ConfigMap collision, SecretMap-vs-flat-config collision, and SecretMap-vs-flat-secret collision. `DomainCodecTest`/`DeploymentManifestParserTest` cover the wire/YAML round trip.
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java`, `DeploymentManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/SecretMapRefsPlugin.java`
+
+#### GIMLE-601 — ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback
+
+- **Category**: Workload Lifecycle
+- **Status**: New  _(newly added as part of the ControllerRevision revision-history and rollback work)_
+- **Coverage**: Not Covered
+- **Gap note**: A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags="@rollback"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.
+- **Other test coverage (non-Holmgang, informational only)**: `ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/ControllerRevision.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AppendControllerRevision`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putControllerRevision`/`listControllerRevisions`/`getControllerRevision`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRollbackDeployment`/`handleRollbackStatefulSet`/`handleRollbackDaemonSet`)
 
 ### gimle-fabric
 
@@ -4638,6 +4649,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SealCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`retireKey`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`seal`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)
 
+#### GIMLE-602 — `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs
+
+- **Category**: CLI
+- **Status**: New  _(newly added as part of the ControllerRevision revision-history and rollback work)_
+- **Coverage**: Not Covered
+- **Gap note**: A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags="@rollback"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleDeploymentVerb`/`handleStatefulSetVerb`/`handleDaemonSetVerb`)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -6374,7 +6394,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**481 of 600 requirements are Not Covered.**
+**483 of 602 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6445,6 +6465,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-592 | gimle-cli | `gimle secretmap` command | CLI | Exercised end-to-end by `ApiServerSecretMapTest`'s HTTP-level coverage of the same `/secretmaps/*` surface `SecretMapCommand` calls; no dedicated `SecretMapCommandTest` fixture exists, the same gap `ConfigMapCommand` has (GIMLE-584). |
 | GIMLE-595 | gimle-cli | `secretmap versions`/`secretmap rollback` verbs | CLI | Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same). |
 | GIMLE-600 | gimle-cli | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent. |
+| GIMLE-602 | gimle-cli | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path. |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -6859,3 +6880,4 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-101 | gimle-agent | Node agent registration and repeating reconcile/heartbeat/rotate tick loop | Worker Supervision / Internal-Infra | `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel`, `ControlPlaneAgentWorkerIntegrationTest#control_plane_places_replicas_on_real_agents_and_reschedules_after_an_agent_is_killed` |
 | GIMLE-091 | gimle-worker | Stopping/Uninstalled teardown of scheduler, probes, and service registry | Worker Supervision / Module System | `WorkerRuntimeTest#stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry`, `#on_uninstalled_fires_the_close_callback_exactly_once_with_the_registered_identity` |
 | GIMLE-114 | gimle-agent | Install-phase Nack escalates to FAILED (closing the "stuck at INSTALLED" gap) | Worker Supervision / Self-Healing | NONE recorded in the baseline |
+| GIMLE-601 | gimle-mimir | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Workload Lifecycle | `ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). |

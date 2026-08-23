@@ -3,15 +3,15 @@
   "metadata": {
     "baselineDocument": "REQUIREMENTS_MATRIX.md",
     "baselineCommit": "919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640",
-    "currentHeadCommit": "4826e8cd1cb7549925b16848d0ec1eb93741b66a",
-    "currentHeadShort": "4826e8c",
-    "branch": "claude/gimle-requirements-matrix-lfkqqe",
+    "currentHeadCommit": "4134b92c10afb9075a446f1a5dfaf4ea1681dcd5",
+    "currentHeadShort": "4134b92",
+    "branch": "claude/kubernetes-kinds-gimle-gap-o5499m",
     "rebaseAcknowledgment": "this branch was rebased onto `origin/master` for this scan. Between the baseline commit and `origin/master`'s current tip there is exactly **one** new commit -- `6bd450f` (\"test: add Norn deterministic Raft fault-injection simulation\"), which adds three new test-only files to `gimle-mimir` and modifies nothing else (`git diff 919bd40..origin/master --stat` confirms 3 files changed, 807 insertions, 0 deletions, 0 files touched elsewhere). Consequently **every one of the 564 baseline requirements is unchanged (`Active`)** -- none are `Modified` or `Removed` -- and exactly **one new requirement** (`GIMLE-565`) was discovered and added.",
-    "scanDate": "2026-08-17",
+    "scanDate": "2026-08-23",
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 600,
+  "requirementCount": 602,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10368,6 +10368,42 @@
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)"
       ],
       "otherTestCoverage": "Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent."
+    },
+    {
+      "id": "GIMLE-601",
+      "module": "gimle-mimir",
+      "feature": "ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback",
+      "category": "Workload Lifecycle",
+      "status": "New",
+      "statusNote": "newly added as part of the ControllerRevision revision-history and rollback work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags=\"@rollback\"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/ControllerRevision.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AppendControllerRevision`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putControllerRevision`/`listControllerRevisions`/`getControllerRevision`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRollbackDeployment`/`handleRollbackStatefulSet`/`handleRollbackDaemonSet`)"
+      ],
+      "otherTestCoverage": "`ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`)."
+    },
+    {
+      "id": "GIMLE-602",
+      "module": "gimle-cli",
+      "feature": "`deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "newly added as part of the ControllerRevision revision-history and rollback work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags=\"@rollback\"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleDeploymentVerb`/`handleStatefulSetVerb`/`handleDaemonSetVerb`)"
+      ],
+      "otherTestCoverage": "`GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path."
     }
   ]
 }

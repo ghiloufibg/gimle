@@ -1,7 +1,7 @@
 {
   "title": "Giml\u00e9 Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Giml\u00e9 codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository \u2014 main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories \u2014 not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor \u2014 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`\u2026`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test \u2014 direct or indirect \u2014 was found for that specific behavior.",
-  "requirementCount": 600,
+  "requirementCount": 602,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11742,6 +11742,51 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-601",
+      "module": "gimle-mimir",
+      "feature": "ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback",
+      "category": "Workload Lifecycle",
+      "userStory": "As an operator, I want a Deployment/StatefulSet/DaemonSet's admitted module-version history recorded, and a way to restore an earlier one, without a Kubernetes-style Pod/ReplicaSet split -- the platform's own equivalent of Kubernetes' ControllerRevision (used natively by StatefulSet/DaemonSet, not the heavier Pod-owning ReplicaSet).",
+      "statusDetail": "Complete. A new `ControllerRevision` record (`gimle-mimir/store`) embeds the exact `WorkloadSpec` (`DeploymentSpec`/`StatefulSetSpec`/`DaemonSetSpec`; Job/CronJob explicitly excluded -- run-to-completion workloads have no \"roll back to an earlier desired state\" concept) admitted under one `(workloadKind, name)` pair, replicated via a new `StateMutation.AppendControllerRevision` with no `Remove*` counterpart -- retention-cap pruning (`MAX_REVISIONS_PER_WORKLOAD = 10`, matching Kubernetes' own default `revisionHistoryLimit`) is internal to `StateStore.putControllerRevision`, the same deterministic-under-replay shape `AppendInstanceEvent`/`AppendAuditEvent` already establish. `ApiServer` mints a new revision only when `moduleId`/`artifactPath`/`artifactSha256` actually change (a replica-count/placement/autoscale-only PUT mints nothing, matching Kubernetes' own template-hash-triggered `ControllerRevision` creation) -- decided at the admission handler, not inside `StateStore`, since a mutation's `applyTo` must stay a pure function of itself and the store's current content during Raft replay. New `GET /{deployments,statefulsets,daemonsets}/{name}/revisions` and `POST .../rollback` routes reuse the existing sub-route mechanism `resolveCronJobNameOrHandleSubRoute` already established, gated on the existing `ResourceKind.DEPLOYMENT`/`STATEFULSET`/`DAEMONSET` (no new RBAC kind). Rollback is forward-only -- restoring an earlier revision's content always appends a brand-new revision, never rewriting history, the same semantics `SecretMapStore#rollback` and `gimle-hilmir`'s own release rollback already establish -- and re-validates through the identical path a fresh apply takes: the full `deploymentAdmissionChain` for Deployment, artifact-resolution only for StatefulSet/DaemonSet (neither has an `AdmissionChain` today, a pre-existing, documented gap this work does not paper over).",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/ControllerRevision.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AppendControllerRevision`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putControllerRevision`/`listControllerRevisions`/`getControllerRevision`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeControllerRevision`/`readControllerRevision`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (`MUT_APPEND_CONTROLLER_REVISION`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveDeploymentNameOrHandleSubRoute`/`resolveStatefulSetNameOrHandleSubRoute`/`resolveDaemonSetNameOrHandleSubRoute`, `handleRollbackDeployment`/`handleRollbackStatefulSet`/`handleRollbackDaemonSet`, `nextRevisionFor`, `resolveRollbackTarget`)"
+      ],
+      "testCoverageDetail": "`ControllerRevisionTest` (compact-constructor rejections: blank/invalid `workloadKind`, spec-kind mismatch, spec-name mismatch, non-positive revision/rollbackOfRevision), `StateStoreTest` (append/list/get, newest-first ordering, retention-cap pruning and its on-disk cleanup, cross-kind key separation, snapshot/restore round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds, including a rollback-stamped revision, inside a full `StateSnapshot` round trip), `ApiServerDeploymentRollbackTest` (content-changed vs. not-changed minting, rollback happy path with and without an explicit `toRevision`, forward-only semantics, 404s for an unknown deployment/revision), `ApiServerStatefulSetDaemonSetRollbackTest` (the same mechanism for the two kinds with no `AdmissionChain` to re-run).",
+      "gherkinSteps": [
+        "Given module \"greeter-provider\" version \"1.0.0\" deployed with 2 replicas as \"rollback-greeter\", And it is rolled to a rebuilt provider version \"1.1.0\", When \"rollback-greeter\" is rolled back to the previous revision, Then within 180s all 2 instances of \"rollback-greeter\" are ACTIVE on version \"1.0.0\"."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-602",
+      "module": "gimle-cli",
+      "feature": "`deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs",
+      "category": "CLI",
+      "userStory": "As an operator, I want to list a Deployment/StatefulSet/DaemonSet's revision history and roll it back to an earlier one from the CLI.",
+      "statusDetail": "Complete. `deployment`/`statefulset`/`daemonset` are promoted to dedicated top-level verbs (additive alongside the existing `get`/`delete` noun dispatch, which keeps working unchanged) for the same reason `cronjob`/`service` already are: `rollback`/`revisions` are actions three-verb GET/apply/DELETE dispatch has no shape for. Each of `DeploymentsCommand`/`StatefulSetsCommand`/`DaemonSetsCommand` gained `revisions(name)` (`GET .../revisions`, printed as a list) and `rollback(args)` (`POST .../rollback` with an optional `--to-revision N` flag -- omitted defaults server-side to the revision immediately before the current one, matching `gimle-hilmir`'s own `rollback --release <name> [--to-revision N]` default) -- registered in the same top-level verb switch and both usage-text locations (`GimleCli`'s own class javadoc and runtime `usage()` string) `cronjob trigger`/`service endpoints` already use.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java` (`revisions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleDeploymentVerb`/`handleStatefulSetVerb`/`handleDaemonSetVerb`, usage text)"
+      ],
+      "testCoverageDetail": "`GimleCliTest` (real `ApiServer`, not mocked): `deployment revisions` lists history newest-first, `deployment rollback` with no flag restores the previous revision, `deployment rollback --to-revision N` restores an explicit one, and rollback of an unknown deployment fails with the server's own 404 message surfaced to stderr.",
+      "gherkinSteps": [
+        "Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

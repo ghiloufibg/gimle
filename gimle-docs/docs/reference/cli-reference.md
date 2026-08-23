@@ -29,6 +29,12 @@ gimle delete job <name>
 gimle delete cronjob <name>
 gimle delete daemonset <name>
 gimle delete statefulset <name>
+gimle deployment revisions <name>
+gimle deployment rollback <name> [--to-revision N]
+gimle statefulset revisions <name>
+gimle statefulset rollback <name> [--to-revision N]
+gimle daemonset revisions <name>
+gimle daemonset rollback <name> [--to-revision N]
 gimle cronjob trigger <name>
 gimle get nodes
 gimle get node-assignments <nodeId>
@@ -221,6 +227,13 @@ gimle apply -f gimle-examples/greeter-provider/deployment.yaml --server 127.0.0.
 # List every deployment, or look up one by name
 gimle get deployments --server 127.0.0.1:8080
 gimle get deployments greeter-provider-deployment --server 127.0.0.1:8080
+
+# A bad rollout's history and a way back -- revisions lists newest-first, rollback with no
+# --to-revision restores the one immediately before the current one; statefulset/daemonset accept
+# the identical two verbs
+gimle deployment revisions orders-service-deployment --server 127.0.0.1:8080
+gimle deployment rollback orders-service-deployment --server 127.0.0.1:8080
+gimle deployment rollback orders-service-deployment --to-revision 2 --server 127.0.0.1:8080
 
 # Tail a target's logs live -- the CLI-side equivalent of the console's own Logs screen
 gimle logs instance/greeter-consumer-deployment/0 --follow --server 127.0.0.1:8080

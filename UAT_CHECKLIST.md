@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 600
+- **Total requirements**: 602
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 481
+- **Not covered by automated test**: 483
 - **Release-readiness (automated coverage)**: 19.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 39 | 5 | 34 | 12.8% |
-| gimle-mimir | 49 | 32 | 17 | 65.3% |
+| gimle-mimir | 50 | 32 | 18 | 64.0% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 69 | 14 | 55 | 20.3% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 25 | 0 | 25 | 0.0% |
+| gimle-cli | 26 | 0 | 26 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 31 | 0 | 31 | 0.0% |
@@ -647,6 +647,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 
+#### Workload Lifecycle
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Given module "greeter-provider" version "1.0.0" deployed with 2 replicas as "rollback-greeter", And it is rolled to a rebuilt provider version "1.1.0", When "rollback-greeter" is rolled back to the previous revision, Then within 180s all 2 instances of "rollback-greeter" are ACTIVE on version "1.0.0". | No |
+
 ### gimle-fabric
 
 #### Circuit Breaking
@@ -1240,6 +1246,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-592 | `gimle secretmap` command | Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed. | No |
 | [ ] | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version. | No |
 | [ ] | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version. | No |
+| [ ] | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first. | No |
 
 #### CLI / Build Tooling
 

@@ -86,3 +86,12 @@ A module that leaks anyway can be moved to
 on classloader disposal at all.
 
 :::
+
+A Deployment/StatefulSet/DaemonSet also keeps a bounded history (10 revisions) of every admitted
+module version it has run — recorded only when the module coordinate actually changes, not on a
+plain replica-count or placement edit. `gimle deployment revisions <name>` lists that history, and
+`gimle deployment rollback <name> [--to-revision N]` restores an earlier one — forward-only, the
+same drain-then-dispose mechanics above apply to the rollback exactly as they would to any other
+`apply`, since a rollback is just another admitted spec pointing at an older module version.
+StatefulSet and DaemonSet accept the identical two verbs. See the [CLI reference](./cli-reference.md)
+for the full flag shape.
