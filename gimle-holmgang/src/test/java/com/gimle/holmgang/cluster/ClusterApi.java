@@ -1,7 +1,9 @@
 package com.gimle.holmgang.cluster;
 
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.protocol.Json;
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.holmgang.topology.LimitRangeSpec;
 import com.gimle.holmgang.topology.QuotaSpec;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -70,6 +72,44 @@ public final class ClusterApi {
                 "maxMemoryBytes", quota.maxMemoryBytes(),
                 "maxCpuMillicores", quota.maxCpuMillicores(),
                 "maxInstances", quota.maxInstances())));
+  }
+
+  public void putLimitRange(final String tenantId, final LimitRangeSpec range) {
+    expectOk("PUT", "/limitranges/" + tenantId, limitRangeBody(range), "limit range creation");
+  }
+
+  /**
+   * Like {@link #putLimitRange}, but returns the raw status instead of failing on a non-200 -- for
+   * scenarios asserting the rejection itself.
+   */
+  public int tryPutLimitRange(final String tenantId, final LimitRangeSpec range) {
+    try {
+      return httpClient
+          .send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/" + tenantId))
+                  .method(
+                      "PUT",
+                      HttpRequest.BodyPublishers.ofString(
+                          limitRangeBody(range), StandardCharsets.UTF_8))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new HolmgangException("limit range write attempt failed against " + baseUrl, e);
+    }
+  }
+
+  private static String limitRangeBody(final LimitRangeSpec range) {
+    final Map<String, Object> body = new LinkedHashMap<>();
+    range.minRequest().ifPresent(r -> body.put("minRequest", resourceSpecJson(r)));
+    range.maxRequest().ifPresent(r -> body.put("maxRequest", resourceSpecJson(r)));
+    range.minLimit().ifPresent(r -> body.put("minLimit", resourceSpecJson(r)));
+    range.maxLimit().ifPresent(r -> body.put("maxLimit", resourceSpecJson(r)));
+    return Json.write(body);
+  }
+
+  private static Map<String, Object> resourceSpecJson(final ResourceSpec spec) {
+    return Map.of("memory", spec.memory(), "cpu", spec.cpu());
   }
 
   public void putAccount(final String username, final String password) {

@@ -21,7 +21,8 @@ class InvariantTest {
     return new ClusterView(
         Instant.now(),
         0,
-        Map.of("greeter", new ClusterView.DeploymentView("greeter", total, false, instances)),
+        Map.of(
+            "greeter", new ClusterView.DeploymentView("greeter", total, false, false, instances)),
         Map.of());
   }
 

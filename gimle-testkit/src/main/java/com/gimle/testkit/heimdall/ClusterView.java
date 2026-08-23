@@ -39,7 +39,11 @@ public record ClusterView(
   }
 
   public record DeploymentView(
-      String name, int desiredReplicas, boolean quotaViolating, List<InstanceView> instances) {
+      String name,
+      int desiredReplicas,
+      boolean quotaViolating,
+      boolean limitRangeViolating,
+      List<InstanceView> instances) {
 
     public DeploymentView {
       instances = List.copyOf(instances);
@@ -77,6 +81,7 @@ public record ClusterView(
           + ", ACTIVE="
           + countInState("ACTIVE")
           + (quotaViolating ? ", QUOTA-VIOLATING" : "")
+          + (limitRangeViolating ? ", LIMIT-RANGE-VIOLATING" : "")
           + " ["
           + String.join(", ", parts)
           + "]";
@@ -131,6 +136,7 @@ public record ClusterView(
               name,
               ((Number) spec.get("replicas")).intValue(),
               Boolean.TRUE.equals(status.get("quotaViolating")),
+              Boolean.TRUE.equals(status.get("limitRangeViolating")),
               instances));
     }
     final Map<String, NodeView> nodes = new LinkedHashMap<>();

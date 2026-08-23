@@ -13,12 +13,12 @@ import java.util.stream.Stream;
  * Proves Sleipnir (the JDK AOT-cache worker-startup accelerator) degrades safely under Holmgang's
  * own conditions -- {@code GimleCluster.classpath()} is the test JVM's own mixed dir+jar classpath,
  * JEP 483-ineligible, so a Holmgang scenario can't measure real cache-accelerated speedup the way
- * {@code WorkerStartupBenchIT} does (see {@code gimle-holmgang/README.md}'s "No checked-in AOT-cache
- * A/B fixture" section). What it can and does prove: the ineligibility is logged once, a deployment
- * still reaches ACTIVE normally, and no cache files are ever written.
+ * {@code WorkerStartupBenchIT} does (see {@code gimle-holmgang/README.md}'s "No checked-in
+ * AOT-cache A/B fixture" section). What it can and does prove: the ineligibility is logged once, a
+ * deployment still reaches ACTIVE normally, and no cache files are ever written.
  *
- * <p>Reads the node agent's own {@code agent-platform.log} and {@code aot-cache/} directly off
- * disk at the paths {@code LaunchPlanner} itself derives ({@code
+ * <p>Reads the node agent's own {@code agent-platform.log} and {@code aot-cache/} directly off disk
+ * at the paths {@code LaunchPlanner} itself derives ({@code
  * workDir/<nodeId>-logs/agent-platform.log}, {@code workDir/<nodeId>/aot-cache/}) -- there is no
  * agent-log equivalent of {@code LogConditions} (instance-log-scoped only) to reuse instead.
  */

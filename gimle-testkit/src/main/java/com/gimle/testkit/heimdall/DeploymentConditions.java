@@ -65,6 +65,14 @@ public final class DeploymentConditions {
             view.deployments().containsKey(name) && view.deployments().get(name).quotaViolating());
   }
 
+  public HeimdallCondition reportsLimitRangeViolation() {
+    return register(
+        "deployment " + name + " reports a limit range violation",
+        view ->
+            view.deployments().containsKey(name)
+                && view.deployments().get(name).limitRangeViolating());
+  }
+
   private HeimdallCondition register(
       final String description, final Predicate<ClusterView> predicate) {
     final String scoped =

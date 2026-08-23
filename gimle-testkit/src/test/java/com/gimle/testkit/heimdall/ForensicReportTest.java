@@ -34,6 +34,7 @@ class ForensicReportTest {
                     "greeter",
                     1,
                     false,
+                    false,
                     List.of(
                         new ClusterView.InstanceView(
                             0, "node-1", Optional.of("ACTIVE"), Optional.of("1.0.0"))))),
