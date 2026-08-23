@@ -225,9 +225,17 @@ public final class DeploymentReconciler {
 
   private void placeInstances(
       DeploymentSpec spec, List<Integer> toPlace, ModuleDescriptor descriptor) {
+    // Nodes this very loop has already chosen for this deployment, this tick -- buildCandidates
+    // otherwise only sees store.listAssignments(), which mutations.propose below does not affect
+    // (proposals commit after this whole reconciliation pass, not per-call), so a fresh multi-
+    // replica placement's own later indices could never see its own earlier ones in the same tick.
+    // Without this, antiAffinity silently failed to spread a brand-new deployment's replicas at
+    // all: every index scored the same "no existing replicas anywhere" snapshot and the scheduler's
+    // deterministic tie-break picked the identical best-scoring node for every one of them.
+    Set<String> placedThisTick = new HashSet<>();
     for (int index : toPlace) {
       try {
-        List<NodeCandidate> candidates = buildCandidates(spec.name());
+        List<NodeCandidate> candidates = buildCandidates(spec.name(), placedThisTick);
         String nodeId =
             scheduler.place(
                 spec.name(),
@@ -238,6 +246,7 @@ public final class DeploymentReconciler {
                 spec.tenantId(),
                 spec.placement().requiredNodeLabels().orElse(Set.of()),
                 candidates);
+        placedThisTick.add(nodeId);
         mutations.propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
@@ -509,8 +518,15 @@ public final class DeploymentReconciler {
     return indices;
   }
 
-  private List<NodeCandidate> buildCandidates(String deploymentName) {
-    Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>();
+  /**
+   * {@code alsoRunningThisDeployment} folds in nodes this same reconciliation tick has already
+   * chosen for {@code deploymentName} but not yet committed to the store -- see {@link
+   * #placeInstances}'s own rationale for why that's necessary for anti-affinity to work at all
+   * across a single multi-replica placement batch.
+   */
+  private List<NodeCandidate> buildCandidates(
+      String deploymentName, Set<String> alsoRunningThisDeployment) {
+    Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>(alsoRunningThisDeployment);
     // Every distinct tenantId already assigned to each node, across every deployment (not just
     // this one) -- the scheduler needs the full picture to enforce node-level tenant segregation
     // for Tier 2/3 placements.

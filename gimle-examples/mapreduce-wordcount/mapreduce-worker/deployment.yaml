@@ -1,7 +1,13 @@
 # kind: Deployment -- six replicas so the fabric's own load balancer has a real pool to spread
 # mapreduce-coordinator's (by default) 200 chunks across; see ../README.md for the full story of
 # how that fan-out happens, and for how to push both the replica count and the chunk count higher
-# still for a genuinely large-scale run.
+# still for a genuinely large-scale run. Deliberately NOT placement.antiAffinity: true -- that's a
+# hard per-node exclusion (Scheduler#place throws GimleSchedulingException.antiAffinityViolated,
+# not a soft preference, the moment every eligible node already has one replica), so six replicas
+# would permanently strand every replica past the cluster's own node count. This deployment's
+# point is fabric load-balancing over a real replica pool, not a guaranteed one-per-node spread --
+# see flag-consumer's own deployment.yaml for the anti-affinity demonstration instead, sized to
+# fit whatever cluster it's actually deployed to.
 kind: Deployment
 name: mapreduce-worker-deployment
 module:

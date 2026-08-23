@@ -15,12 +15,15 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -202,6 +205,41 @@ class DeploymentReconcilerTest {
     assertEquals(2, assignments.size());
     assertEquals(
         2, Set.copyOf(assignments.stream().map(InstanceAssignment::nodeId).toList()).size());
+  }
+
+  @Test
+  void anti_affinity_spreads_a_fresh_multi_replica_placement_even_with_deferred_mutations() {
+    // The other anti-affinity test's two-arg constructor applies each proposed mutation to the
+    // store synchronously (mutation -> mutation.applyTo(store)), so its own second placement
+    // already sees the first one's assignment when it re-reads the store -- masking exactly the
+    // bug this test exists to catch. Production's real MutationSink (a RaftNode) does not offer
+    // that guarantee: propose() during one reconciliation pass is not necessarily visible to a
+    // read from within that same pass. This test reproduces that by collecting proposals and only
+    // applying them once reconcileOnce() has fully returned, the same gap placeInstances's own
+    // placedThisTick set now closes without relying on the store to reflect a same-tick sibling.
+    StateStore store = new StateStore(tempDir.resolve("store-anti-affinity-deferred"));
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    registerNode(store, "node-b", 500L * 1024 * 1024, 4000);
+    registerNode(store, "node-c", 500L * 1024 * 1024, 4000);
+    store.putDeployment(
+        deployment("orders-service", 3, jar, new PlacementConstraints(Optional.empty(), true)));
+
+    List<StateMutation> deferred = new ArrayList<>();
+    new DeploymentReconciler(
+            store,
+            scheduler,
+            deferred::add,
+            DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            Clock.systemUTC())
+        .reconcileOnce();
+    deferred.forEach(mutation -> mutation.applyTo(store));
+
+    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
+    assertEquals(3, assignments.size());
+    assertEquals(
+        3, Set.copyOf(assignments.stream().map(InstanceAssignment::nodeId).toList()).size());
   }
 
   @Test

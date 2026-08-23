@@ -202,7 +202,9 @@ class FabricServerTest {
     FabricFrame response = call.get(5, TimeUnit.SECONDS);
     assertEquals(
         "hello:world",
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
     assertEquals(0, ctx.inFlightCount());
   }
 
@@ -351,7 +353,9 @@ class FabricServerTest {
 
     assertInstanceOf(FabricFrame.InvokeError.class, response);
     Object thrown =
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeError) response).serializedThrowable());
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader());
     assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
   }
 
@@ -393,7 +397,9 @@ class FabricServerTest {
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
     assertEquals(
         "hello:world",
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
   }
 
   @Test
@@ -447,7 +453,9 @@ class FabricServerTest {
 
     assertInstanceOf(FabricFrame.InvokeError.class, response);
     Object thrown =
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeError) response).serializedThrowable());
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader());
     assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
   }
 
@@ -469,7 +477,9 @@ class FabricServerTest {
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
     assertEquals(
         "hello:world",
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
   }
 
   @Test

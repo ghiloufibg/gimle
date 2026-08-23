@@ -62,7 +62,7 @@
            transitive "requires com.gimle.core"), so a module here that needs a gimle-core type
            (GimleClusterException) declares this dependency, and the matching "requires static
            com.gimle.core" in its own module-info, directly rather than relying on the classpath
-           fallback + --add-reads workaround gimle-examples/orders-platform needs for Spring. -->
+           fallback plus the add-reads workaround gimle-examples/orders-platform needs for Spring. -->
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-core</artifactId>

@@ -81,7 +81,10 @@ class FabricTransportTlsTest {
     FabricFrame response = FabricClient.call(address, invokeGreet("world"));
 
     FabricFrame.InvokeResponse invokeResponse = (FabricFrame.InvokeResponse) response;
-    assertEquals("hello:world", ObjectMarshalling.deserialize(invokeResponse.serializedReturn()));
+    assertEquals(
+        "hello:world",
+        ObjectMarshalling.deserialize(
+            invokeResponse.serializedReturn(), getClass().getClassLoader()));
   }
 
   @Test
@@ -102,7 +105,10 @@ class FabricTransportTlsTest {
     // UDS path stayed plaintext exactly as designed, unaffected by the TLS config this test set.
     FabricFrame response = FabricClient.call(udsAddress, invokeGreet("local"));
     FabricFrame.InvokeResponse invokeResponse = (FabricFrame.InvokeResponse) response;
-    assertEquals("hello:local", ObjectMarshalling.deserialize(invokeResponse.serializedReturn()));
+    assertEquals(
+        "hello:local",
+        ObjectMarshalling.deserialize(
+            invokeResponse.serializedReturn(), getClass().getClassLoader()));
   }
 
   @Test

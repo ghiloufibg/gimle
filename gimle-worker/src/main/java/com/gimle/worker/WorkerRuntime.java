@@ -249,7 +249,7 @@ public final class WorkerRuntime {
                   ready -> onReadinessResult(id, ready));
             });
 
-    descriptor.jobHooksClass().ifPresent(className -> runJobHooks(id, className, handle));
+    descriptor.jobHooksClass().ifPresent(className -> runJobHooks(id, className, handle, mdcTags));
   }
 
   /**
@@ -261,8 +261,18 @@ public final class WorkerRuntime {
    * which drives the {@code ACTIVE -&gt; COMPLETED}/{@code ACTIVE -&gt; FAILED} transition and its
    * {@link LifecycleEvent} the same {@link #onLifecycleEvent} sink every other transition already
    * flows through.
+   *
+   * <p>{@code mdcTags} is wrapped around the whole virtual thread body via {@link
+   * InstanceMdcContext#runTagged} -- unlike {@code WorkerMain#runCommand}'s synchronous hooks
+   * (onInstall/onStart/onStop/onUninstall), which inherit the calling control-channel thread's
+   * already-tagged MDC for free, this thread is a brand-new one with no MDC of its own: without
+   * this, every line {@link JobHooks#run} (and anything it calls, including a Job's own fabric
+   * fan-out) logs lands in the worker's shared PLATFORM log instead of this instance's own
+   * APPLICATION log -- indistinguishable from the run never having happened at all when read back
+   * through this instance's own per-instance log file.
    */
-  private void runJobHooks(ModuleId id, String className, ModuleLayerHandle handle) {
+  private void runJobHooks(
+      ModuleId id, String className, ModuleLayerHandle handle, Map<String, String> mdcTags) {
     JobHooks hooks = instantiate(id, className, handle, JobHooks.class);
     ModuleContext ctx =
         controller
@@ -273,20 +283,33 @@ public final class WorkerRuntime {
         .name("gimle-job-" + id.name() + "-" + id.version())
         .start(
             () -> {
-              CompletionStatus status;
               try {
-                status = hooks.run(ctx);
-              } catch (RuntimeException e) {
-                log.warn("job {} run threw: {}", id, e.getMessage());
-                status = CompletionStatus.FAILED;
-              }
-              try {
-                controller.complete(id, status);
-              } catch (RuntimeException e) {
-                // The module already left ACTIVE some other way (e.g. an operator uninstalled it
-                // mid-run) between hooks.run() returning and this call -- best-effort, matching
-                // restartModule's own "lost race against a concurrent transition" posture.
-                log.warn("could not complete job {}: {}", id, e.getMessage());
+                InstanceMdcContext.runTagged(
+                    mdcTags,
+                    () -> {
+                      CompletionStatus status;
+                      try {
+                        status = hooks.run(ctx);
+                      } catch (RuntimeException e) {
+                        log.warn("job {} run threw: {}", id, e.getMessage());
+                        status = CompletionStatus.FAILED;
+                      }
+                      try {
+                        controller.complete(id, status);
+                      } catch (RuntimeException e) {
+                        // The module already left ACTIVE some other way (e.g. an operator
+                        // uninstalled it mid-run) between hooks.run() returning and this call --
+                        // best-effort, matching restartModule's own "lost race against a
+                        // concurrent transition" posture.
+                        log.warn("could not complete job {}: {}", id, e.getMessage());
+                      }
+                      return null;
+                    });
+              } catch (Exception e) {
+                // Callable<Void>'s signature declares a checked Exception that the lambda above
+                // never actually throws -- same "impossible in practice" shape WorkerMain#
+                // runCommand's own identical wrapping already has to satisfy the compiler for.
+                throw new IllegalStateException("unexpected checked exception from job " + id, e);
               }
             });
   }

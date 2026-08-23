@@ -39,3 +39,8 @@ gimle-docs/node_modules/
 gimle-docs/build/
 gimle-docs/.docusaurus/
 gimle-docs/static/javadoc/
+
+# qa-manual-validation -- a local hand-run QA cluster (Docker Compose + unpacked gimle-dist
+# archives + built gimle-examples jars), regenerated from a real build rather than authored
+# content meant for the repo, and large (unpacked distributions + a dozen-plus jars).
+qa-manual-validation/

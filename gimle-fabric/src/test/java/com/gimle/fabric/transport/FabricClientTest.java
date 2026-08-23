@@ -122,7 +122,9 @@ class FabricClientTest {
 
     assertEquals(
         "hello:world",
-        ObjectMarshalling.deserialize(((FabricFrame.InvokeResponse) response).serializedReturn()));
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
   }
 
   @Test
