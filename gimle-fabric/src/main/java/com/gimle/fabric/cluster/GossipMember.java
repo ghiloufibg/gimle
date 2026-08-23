@@ -212,10 +212,23 @@ public final class GossipMember implements AutoCloseable {
   }
 
   /**
-   * Contacts every configured seed and blocks until at least one acks or {@code pingTimeout}
-   * elapses. A single unreachable seed is treated as this being the very first node of a new
-   * cluster rather than an error; two or more configured seeds with none reachable is a genuine
-   * failure to join.
+   * Number of ping-and-wait rounds {@link #join} attempts against configured seeds before giving
+   * up. A single UDP ping with no retry is fragile against exactly the kind of transient
+   * container-startup networking churn (a peer's hostname not yet resolvable, its network namespace
+   * still initializing, its own receive loop not yet scheduled) that a multi-container
+   * Compose/Kubernetes bring-up routinely hits -- one lost packet during that narrow window would
+   * otherwise permanently and silently split the cluster in two, since nothing re-attempts a seed
+   * after {@link #join} returns: unlike SWIM's steady-state failure detection, {@link #tick}'s own
+   * probing only ever targets members already in {@link #members}, so a node that learns of no peer
+   * at join time has no organic path back into the cluster afterward.
+   */
+  private static final int JOIN_ATTEMPTS = 5;
+
+  /**
+   * Contacts every configured seed, retrying up to {@link #JOIN_ATTEMPTS} times, and blocks until
+   * at least one acks or every attempt's {@code pingTimeout} elapses. A single unreachable seed
+   * (after all attempts) is treated as this being the very first node of a new cluster rather than
+   * an error; two or more configured seeds with none reachable is a genuine failure to join.
    */
   public void join(List<InetSocketAddress> seeds) {
     List<InetSocketAddress> others =
@@ -227,6 +240,33 @@ public final class GossipMember implements AutoCloseable {
       return;
     }
 
+    boolean reachable = false;
+    for (int attempt = 1;
+        attempt <= JOIN_ATTEMPTS && !reachable && !Thread.currentThread().isInterrupted();
+        attempt++) {
+      reachable = attemptJoinRound(others, attempt);
+    }
+
+    if (!reachable) {
+      if (others.size() <= 1) {
+        log.info(
+            "{}: its single configured seed {} is unreachable after {} attempts; treating this as"
+                + " a legitimate empty-cluster start, not an error",
+            self.nodeId(),
+            others.get(0),
+            JOIN_ATTEMPTS);
+        return;
+      }
+      throw GimleClusterException.noReachableSeed(
+          self.nodeId(), others.stream().map(InetSocketAddress::toString).toList());
+    }
+  }
+
+  /**
+   * One ping-and-wait round against every seed in {@code others}, in parallel -- {@code true} the
+   * moment any one acks, {@code false} if none does within {@link GossipConfig#pingTimeout()}.
+   */
+  private boolean attemptJoinRound(List<InetSocketAddress> others, int attempt) {
     List<Long> seqs = new ArrayList<>();
     List<CompletableFuture<MemberId>> futures = new ArrayList<>();
     for (InetSocketAddress seed : others) {
@@ -238,35 +278,27 @@ public final class GossipMember implements AutoCloseable {
       try {
         send(seed, new SwimMessage.Ping(seq, currentPiggyback(), catalogPayload()), true);
       } catch (IOException e) {
-        log.warn("{}: failed to contact seed {}: {}", self.nodeId(), seed, e.getMessage());
+        log.warn(
+            "{}: failed to contact seed {} (attempt {}/{}): {}",
+            self.nodeId(),
+            seed,
+            attempt,
+            JOIN_ATTEMPTS,
+            e.getMessage());
       }
     }
 
-    boolean reachable;
     try {
       CompletableFuture.anyOf(futures.toArray(CompletableFuture[]::new))
           .get(config.pingTimeout().toMillis(), TimeUnit.MILLISECONDS);
-      reachable = true;
+      return true;
     } catch (ExecutionException | InterruptedException | TimeoutException e) {
-      reachable = false;
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
+      return false;
     } finally {
       seqs.forEach(joinWaiters::remove);
-    }
-
-    if (!reachable) {
-      if (others.size() <= 1) {
-        log.info(
-            "{}: its single configured seed {} is unreachable; treating this as a legitimate"
-                + " empty-cluster start, not an error",
-            self.nodeId(),
-            others.get(0));
-        return;
-      }
-      throw GimleClusterException.noReachableSeed(
-          self.nodeId(), others.stream().map(InetSocketAddress::toString).toList());
     }
   }
 

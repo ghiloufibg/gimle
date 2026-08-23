@@ -106,6 +106,33 @@ class GossipMemberTest {
   }
 
   @Test
+  @Timeout(20)
+  void join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving()
+      throws Exception {
+    // node-a's socket is bound (it has an address to send to) but its receive loop hasn't started
+    // yet -- the exact race a freshly-created container's not-yet-scheduled process hits: node-b's
+    // first join ping(s) go unanswered even though node-a is about to come up. Without retries,
+    // join() would give up on the first attempt and node-b would silently start its own,
+    // permanently separate one-node cluster.
+    GossipMember a = newMember("node-a");
+    GossipMember b = newMember("node-b");
+    b.start();
+
+    Thread joiner = new Thread(() -> b.join(List.of(a.self().gossipAddress())));
+    joiner.start();
+    // Longer than one pingTimeout (40ms) so at least the first attempt is guaranteed to fail, but
+    // well short of every attempt's budget (5 * 40ms = 200ms) so join() must be retrying to
+    // succeed at all.
+    Thread.sleep(60);
+    a.start();
+    joiner.join(Duration.ofSeconds(5).toMillis());
+    assertTrue(!joiner.isAlive(), "join() did not return within its own retry budget");
+
+    assertTrue(isAlive(a, "node-b"));
+    assertTrue(isAlive(b, "node-a"));
+  }
+
+  @Test
   @Timeout(30)
   void a_killed_member_converges_to_dead_across_the_rest() throws Exception {
     GossipMember a = newMember("node-a");
