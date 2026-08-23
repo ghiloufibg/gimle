@@ -487,6 +487,15 @@ public final class ClusterApi {
     expectOkNoBody("DELETE", "/deployments/" + deploymentName, "deployment deletion");
   }
 
+  /**
+   * Rolls back to the revision immediately before the deployment's current one -- no {@code
+   * toRevision} in the request body, matching {@code gimle deployment rollback <name>}'s own
+   * no-flag default.
+   */
+  public void rollbackDeployment(final String deploymentName) {
+    expectOkNoBody("POST", "/deployments/" + deploymentName + "/rollback", "deployment rollback");
+  }
+
   public void deleteStatefulSet(final String name) {
     expectOkNoBody("DELETE", "/statefulsets/" + name, "statefulset deletion");
   }

@@ -189,6 +189,18 @@ public final class DeploymentSteps {
     world.deployments.remove(deployment);
   }
 
+  /**
+   * Restores the revision immediately before the current one -- no explicit target, matching
+   * {@code gimle deployment rollback <name>}'s own no-flag default. Deliberately does not update
+   * {@code world.deployments}: the client has no way to know which prior version the server picked
+   * without reading it back, and no scenario using this step needs that bookkeeping -- {@link
+   * #allInstancesActiveOnVersion} asserts against live cluster state, not recorded bookkeeping.
+   */
+  @When("{string} is rolled back to the previous revision")
+  public void isRolledBackToThePreviousRevision(final String deployment) {
+    world.cluster().api().rollbackDeployment(deployment);
+  }
+
   @Then("within {int}s deployment {string} is ACTIVE")
   public void deploymentIsActive(final int seconds, final String deployment) {
     world.cluster().when().deployment(deployment).isActive().await(Duration.ofSeconds(seconds));
