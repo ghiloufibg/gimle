@@ -27,6 +27,12 @@ import java.util.List;
  *   gimle delete cronjob &lt;name&gt;
  *   gimle delete daemonset &lt;name&gt;
  *   gimle delete statefulset &lt;name&gt;
+ *   gimle deployment revisions &lt;name&gt;
+ *   gimle deployment rollback &lt;name&gt; [--to-revision N]
+ *   gimle statefulset revisions &lt;name&gt;
+ *   gimle statefulset rollback &lt;name&gt; [--to-revision N]
+ *   gimle daemonset revisions &lt;name&gt;
+ *   gimle daemonset rollback &lt;name&gt; [--to-revision N]
  *   gimle cronjob trigger &lt;name&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
@@ -181,6 +187,9 @@ public final class GimleCli {
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       case "service", "services" -> handleServiceVerb(rest, client, output, out);
+      case "deployment", "deployments" -> handleDeploymentVerb(rest, client, output, out);
+      case "statefulset", "statefulsets" -> handleStatefulSetVerb(rest, client, output, out);
+      case "daemonset", "daemonsets" -> handleDaemonSetVerb(rest, client, output, out);
       default -> throw new CliException(usage());
     }
   }
@@ -252,6 +261,69 @@ public final class GimleCli {
       case "endpoints" ->
           new ServicesCommand(client, output, out).endpoints(requireOne(rest, "service endpoints"));
       default -> throw new CliException("unknown service action: " + action);
+    }
+  }
+
+  /**
+   * {@code deployment}/{@code deployments} as a distinct top-level verb -- not just noun dispatch
+   * under {@code get}/{@code delete} above -- for the same reason {@code cronjob}/{@code service}
+   * are: {@code rollback}/{@code revisions} are actions three-verb dispatch has no shape for.
+   * Additive alongside the existing {@code get deployment}/{@code delete deployment} noun dispatch,
+   * which keeps working unchanged.
+   */
+  private static void handleDeploymentVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException(
+          "usage: gimle deployment rollback <name> [--to-revision N] | gimle deployment revisions"
+              + " <name>");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    switch (action) {
+      case "rollback" -> new DeploymentsCommand(client, output, out).rollback(rest);
+      case "revisions" ->
+          new DeploymentsCommand(client, output, out)
+              .revisions(requireOne(rest, "deployment revisions"));
+      default -> throw new CliException("unknown deployment action: " + action);
+    }
+  }
+
+  /** Mirrors {@link #handleDeploymentVerb} exactly, for StatefulSet. */
+  private static void handleStatefulSetVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException(
+          "usage: gimle statefulset rollback <name> [--to-revision N] | gimle statefulset"
+              + " revisions <name>");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    switch (action) {
+      case "rollback" -> new StatefulSetsCommand(client, output, out).rollback(rest);
+      case "revisions" ->
+          new StatefulSetsCommand(client, output, out)
+              .revisions(requireOne(rest, "statefulset revisions"));
+      default -> throw new CliException("unknown statefulset action: " + action);
+    }
+  }
+
+  /** Mirrors {@link #handleDeploymentVerb} exactly, for DaemonSet. */
+  private static void handleDaemonSetVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException(
+          "usage: gimle daemonset rollback <name> [--to-revision N] | gimle daemonset revisions"
+              + " <name>");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    switch (action) {
+      case "rollback" -> new DaemonSetsCommand(client, output, out).rollback(rest);
+      case "revisions" ->
+          new DaemonSetsCommand(client, output, out)
+              .revisions(requireOne(rest, "daemonset revisions"));
+      default -> throw new CliException("unknown daemonset action: " + action);
     }
   }
 
@@ -375,6 +447,12 @@ public final class GimleCli {
           delete cronjob <name>
           delete daemonset <name>
           delete statefulset <name>
+          deployment revisions <name>
+          deployment rollback <name> [--to-revision N]
+          statefulset revisions <name>
+          statefulset rollback <name> [--to-revision N]
+          daemonset revisions <name>
+          daemonset rollback <name> [--to-revision N]
           cronjob trigger <name>
           get nodes
           get node-assignments <nodeId>

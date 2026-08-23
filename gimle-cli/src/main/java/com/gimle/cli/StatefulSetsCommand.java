@@ -1,11 +1,13 @@
 package com.gimle.cli;
 
+import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code get statefulsets [name]}, {@code apply -f <file.yaml>}, {@code delete statefulset <name>}
@@ -52,6 +54,40 @@ public final class StatefulSetsCommand {
     client.expectSuccess(client.delete("/statefulsets/" + name));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "statefulset/" + name + " deleted", out);
+  }
+
+  /** {@code statefulset revisions <name>} -- mirrors {@link DeploymentsCommand#revisions}. */
+  public void revisions(String name) {
+    Map<String, Object> response = client.getObject("/statefulsets/" + name + "/revisions");
+    OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
+  }
+
+  /**
+   * {@code statefulset rollback <name> [--to-revision N]} -- mirrors {@link
+   * DeploymentsCommand#rollback}.
+   */
+  public void rollback(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("statefulset rollback requires <name> [--to-revision N]");
+    }
+    String name = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Map<String, Object> body = new LinkedHashMap<>();
+    String toRevision = flags.getOrDefault("--to-revision", null);
+    if (toRevision != null) {
+      body.put("toRevision", parseRevision(toRevision));
+    }
+    String response =
+        client.expectSuccess(client.post("/statefulsets/" + name + "/rollback", Json.write(body)));
+    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+  }
+
+  private static int parseRevision(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("--to-revision must be an integer, got: " + raw);
+    }
   }
 
   private static Map<String, Object> resultBody(String result, String name) {

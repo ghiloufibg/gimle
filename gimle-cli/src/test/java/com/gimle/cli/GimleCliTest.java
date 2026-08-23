@@ -158,6 +158,10 @@ class GimleCliTest {
   }
 
   private Path writeManifest(String name, int replicas) throws IOException {
+    return writeManifest(name, "1.0.0", replicas);
+  }
+
+  private Path writeManifest(String name, String version, int replicas) throws IOException {
     Path file = tempDir.resolve(name + ".yaml");
     Files.writeString(
         file,
@@ -166,11 +170,11 @@ class GimleCliTest {
         name: %s
         module:
           name: com.gimle.example.orders
-          version: 1.0.0
-        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+          version: %s
+        artifactPath: /var/gimle/artifacts/orders-%s.jar
         replicas: %d
         """
-            .formatted(name, replicas));
+            .formatted(name, version, version, replicas));
     return file;
   }
 
@@ -792,6 +796,61 @@ class GimleCliTest {
     int triggerExit = run("cronjob", "trigger", "no-such-cronjob");
     assertEquals(1, triggerExit);
     assertTrue(stderr().contains("no such cronjob"));
+  }
+
+  @Test
+  void deployment_revisions_lists_history_newest_first() throws Exception {
+    run("apply", "-f", writeManifest("orders-service", "1.0.0", 1).toString());
+    run("apply", "-f", writeManifest("orders-service", "1.1.0", 1).toString());
+
+    outBuffer.reset();
+    int exit = run("-o", "json", "deployment", "revisions", "orders-service");
+    assertEquals(0, exit);
+    List<Map<String, Object>> revisions = Json.asObjectList(Json.parse(stdout().trim()));
+    assertEquals(2, revisions.size());
+    assertEquals(2L, revisions.get(0).get("revision"));
+    assertEquals(1L, revisions.get(1).get("revision"));
+  }
+
+  @Test
+  void deployment_rollback_with_no_flag_restores_the_previous_revision() throws Exception {
+    run("apply", "-f", writeManifest("orders-service", "1.0.0", 1).toString());
+    run("apply", "-f", writeManifest("orders-service", "1.1.0", 1).toString());
+
+    outBuffer.reset();
+    int rollbackExit = run("deployment", "rollback", "orders-service");
+    assertEquals(0, rollbackExit);
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "deployment", "orders-service");
+    assertEquals(0, getExit);
+    Map<String, Object> status = Json.asObject(Json.parse(stdout().trim()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("1.0.0", Json.asObject(spec.get("moduleId")).get("version"));
+  }
+
+  @Test
+  void deployment_rollback_to_an_explicit_revision_restores_that_one() throws Exception {
+    run("apply", "-f", writeManifest("orders-service", "1.0.0", 1).toString());
+    run("apply", "-f", writeManifest("orders-service", "1.1.0", 1).toString());
+    run("apply", "-f", writeManifest("orders-service", "1.2.0", 1).toString());
+
+    outBuffer.reset();
+    int rollbackExit = run("deployment", "rollback", "orders-service", "--to-revision", "1");
+    assertEquals(0, rollbackExit);
+
+    outBuffer.reset();
+    run("-o", "json", "get", "deployment", "orders-service");
+    Map<String, Object> status = Json.asObject(Json.parse(stdout().trim()));
+    Map<String, Object> spec = Json.asObject(status.get("spec"));
+    assertEquals("1.0.0", Json.asObject(spec.get("moduleId")).get("version"));
+  }
+
+  @Test
+  void deployment_rollback_of_an_unknown_deployment_fails() throws Exception {
+    int rollbackExit = run("deployment", "rollback", "never-deployed");
+    assertEquals(1, rollbackExit);
+    assertTrue(stderr().contains("no revision history"));
   }
 
   @Test

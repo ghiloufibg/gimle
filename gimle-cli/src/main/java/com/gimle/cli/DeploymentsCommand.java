@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -7,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code get deployments [name]}, {@code apply -f <file.yaml>}, {@code delete deployment <name>}.
@@ -56,6 +58,41 @@ public final class DeploymentsCommand {
     client.expectSuccess(client.delete("/deployments/" + name));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "deployment/" + name + " deleted", out);
+  }
+
+  /** {@code deployment revisions <name>} -- newest-first, the same order the API itself returns. */
+  public void revisions(String name) {
+    Map<String, Object> response = client.getObject("/deployments/" + name + "/revisions");
+    OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
+  }
+
+  /**
+   * {@code deployment rollback <name> [--to-revision N]} -- omitted {@code --to-revision} rolls
+   * back to the revision immediately before the current one, matching {@code gimle-hilmir}'s own
+   * {@code rollback --release <name> [--to-revision N]} default.
+   */
+  public void rollback(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("deployment rollback requires <name> [--to-revision N]");
+    }
+    String name = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Map<String, Object> body = new LinkedHashMap<>();
+    String toRevision = flags.getOrDefault("--to-revision", null);
+    if (toRevision != null) {
+      body.put("toRevision", parseRevision(toRevision));
+    }
+    String response =
+        client.expectSuccess(client.post("/deployments/" + name + "/rollback", Json.write(body)));
+    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+  }
+
+  private static int parseRevision(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("--to-revision must be an integer, got: " + raw);
+    }
   }
 
   private static Map<String, Object> resultBody(String result, String name) {
