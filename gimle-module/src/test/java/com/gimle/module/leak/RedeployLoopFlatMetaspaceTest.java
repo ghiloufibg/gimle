@@ -40,6 +40,26 @@ class RedeployLoopFlatMetaspaceTest {
   @Test
   @Timeout(value = 3, unit = TimeUnit.MINUTES)
   void redeploy_loop_keeps_metaspace_flat() throws Exception {
+    runRedeployLoopAndAssertFlat(List.of());
+  }
+
+  @Test
+  @Timeout(value = 3, unit = TimeUnit.MINUTES)
+  void redeploy_loop_keeps_metaspace_flat_with_aot_mode_auto() throws Exception {
+    // No trained cache -- AOTMode=auto with no -XX:AOTCache= is a genuinely absent-cache run,
+    // proving the flag's mere presence (the state every worker would carry once Sleipnir's worker
+    // cache lands) doesn't perturb this leak-sensitive path. A genuinely trained-cache variant
+    // isn't achievable here without re-solving the jars-only-classpath problem RedeployLoopDriver's
+    // own classpath has too (SubprocessTestSupport.buildClasspath resolves several of these anchor
+    // classes to target/classes directories under a plain reactor build) -- and it wouldn't test
+    // anything AOT-specific anyway: this driver runs all 500 iterations inside one already-booted
+    // JVM, so cache-accelerated class loading could only ever touch iteration 1, while the classes
+    // reloaded every iteration go through ModuleClassLoader, categorically outside the AOT cache's
+    // reach (a JPMS user-defined loader gets no AOT benefit at all, JEP 483's own constraint).
+    runRedeployLoopAndAssertFlat(List.of("-XX:AOTMode=auto"));
+  }
+
+  private void runRedeployLoopAndAssertFlat(List<String> extraJvmFlags) throws Exception {
     Path jar =
         TestModuleBuilder.module(
                 """
@@ -79,16 +99,18 @@ class RedeployLoopFlatMetaspaceTest {
                 // elsewhere.
                 Logger.class));
 
-    ProcessBuilder pb =
-        new ProcessBuilder(
-            javaExecutable,
-            "-XX:MaxMetaspaceSize=96m",
-            "-cp",
-            classpath,
-            RedeployLoopDriver.class.getName(),
-            jar.toAbsolutePath().toString(),
-            Integer.toString(ITERATIONS),
-            Integer.toString(SAMPLE_EVERY));
+    List<String> command = new ArrayList<>();
+    command.add(javaExecutable);
+    command.add("-XX:MaxMetaspaceSize=96m");
+    command.addAll(extraJvmFlags);
+    command.add("-cp");
+    command.add(classpath);
+    command.add(RedeployLoopDriver.class.getName());
+    command.add(jar.toAbsolutePath().toString());
+    command.add(Integer.toString(ITERATIONS));
+    command.add(Integer.toString(SAMPLE_EVERY));
+
+    ProcessBuilder pb = new ProcessBuilder(command);
     pb.redirectErrorStream(true);
     Process process = pb.start();
 

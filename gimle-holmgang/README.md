@@ -102,6 +102,29 @@ Without `-Dgimle.surtr.workload`, `SurtrIT` skips via a JUnit assumption, so ord
 runs are untouched. Bundled workloads live in `workloads/`; the property also accepts a filesystem
 path to a custom one.
 
+### No checked-in AOT-cache A/B fixture (yet)
+
+Every topology's `jvm: {worker: [...]}` key (`ClusterTopologyParser`) threads straight into each
+spawned worker's own command tail, so in principle a second topology adding
+`jvm: worker: ["-XX:AOTCache=<path>", "-XX:AOTMode=auto"]` next to an existing one lets Surtr's own
+before/after workflow measure a JDK AOT cache's effect on `submitToInstalled`/`startingToActive`
+percentiles the same way it measures anything else. Phase A of the Sleipnir startup-cache design
+doesn't ship that fixture, though: `GimleCluster.classpath()` is `System.getProperty("java.class.path")`
+— the *test JVM's own* classpath, which mixes real jars with `target/classes` directories depending
+on how the reactor was built. That's exactly the shape JEP 483 disqualifies from AOT eligibility, and
+it isn't stable across builds the way a checked-in fixture needs. Worse, a cache trained against a
+stale classpath fingerprint doesn't fail loudly — `AOTMode=auto` silently falls back to an uncached
+start — so a checked-in `surtr-density-aot.yaml` would risk quietly measuring nothing rather than
+failing in an obvious way.
+
+If you want to try it anyway: capture `System.getProperty("java.class.path")` immediately before
+your own `GimleCluster.start()` call, train a cache against exactly that string (same
+`-Dgimle.worker.aotTraining=true -XX:AOTCacheOutput=<path>` one-shot recipe `WorkerStartupBenchIT`
+in `gimle-agent` uses), point a topology's `jvm: worker: [...]` at the result, and diff that run's
+`summary.json` against a baseline run's. A durable, checked-in version of this needs a
+runtime-image-style launch path for Holmgang-booted clusters (a stable, jars-only classpath) before
+it's worth automating — out of scope for Phase A.
+
 ## Run report (Saga)
 
 Every `-Pvalidation` run writes one **Saga** report — a versioned `holmgang-report.json` under

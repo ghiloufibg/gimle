@@ -103,4 +103,50 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Two independent, redundant defenses against WorkerStartupBenchIT ever running under plain
+        mvn verify, copied verbatim from gimle-holmgang/gimle-smoke-tests, where an unqualified
+        -Dtest='!A,!B,...' (exclusions only, no positive pattern) was observed to broaden
+        Surefire's own default class discovery enough to pick an *IT class up anyway: the excludes
+        pattern alone is not enough, and JUnit 5's tag-based excludedGroups filtering is a separate
+        mechanism unaffected by that override. Every concrete *IT class in this module carries
+        @Tag("aotbench") for exactly this. Plain unit tests still run under the default build.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+          <excludedGroups>aotbench</excludedGroups>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>aotbench</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
