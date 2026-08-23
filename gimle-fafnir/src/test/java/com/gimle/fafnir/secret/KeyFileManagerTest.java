@@ -2,6 +2,7 @@ package com.gimle.fafnir.secret;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -123,5 +124,82 @@ class KeyFileManagerTest {
     assertTrue(ring.keysById().containsKey((byte) 1));
     assertTrue(ring.keysById().containsKey((byte) 2));
     assertTrue(ring.keysById().containsKey((byte) 3));
+  }
+
+  // ---- retirement ----
+
+  @Test
+  void retire_removes_a_non_active_key_from_the_ring_and_from_disk() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+    KeyRing rotated = KeyFileManager.rotate(keyFile, ring); // active now 1
+    KeyRing rotatedAgain = KeyFileManager.rotate(keyFile, rotated); // active now 2, id 1 retireable
+
+    KeyRing retired = KeyFileManager.retire(keyFile, rotatedAgain, (byte) 1);
+
+    assertEquals(2, retired.keysById().size());
+    assertTrue(retired.keysById().containsKey((byte) 0));
+    assertTrue(retired.keysById().containsKey((byte) 2));
+    assertFalse(retired.keysById().containsKey((byte) 1));
+  }
+
+  @Test
+  void a_retired_key_stays_gone_after_reloading_from_disk() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+    KeyRing rotated = KeyFileManager.rotate(keyFile, ring);
+    KeyRing rotatedAgain = KeyFileManager.rotate(keyFile, rotated); // active now 2, id 1 retireable
+    KeyFileManager.retire(keyFile, rotatedAgain, (byte) 1);
+
+    KeyRing reloaded = KeyFileManager.loadAllOrCreate(keyFile);
+
+    assertFalse(reloaded.keysById().containsKey((byte) 1));
+    assertTrue(reloaded.keysById().containsKey((byte) 0));
+    assertTrue(reloaded.keysById().containsKey((byte) 2));
+  }
+
+  @Test
+  void a_value_encrypted_under_a_retired_key_no_longer_decrypts() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+    KeyRing rotated = KeyFileManager.rotate(keyFile, ring); // active now 1
+    byte[] ciphertext =
+        SecretCipher.encrypt("hello".getBytes(), rotated.activeKey(), rotated.activeKeyId());
+    KeyRing rotatedAgain = KeyFileManager.rotate(keyFile, rotated); // active now 2, id 1 retireable
+
+    KeyRing retired = KeyFileManager.retire(keyFile, rotatedAgain, rotated.activeKeyId());
+
+    assertThrows(
+        IllegalStateException.class, () -> SecretCipher.decrypt(ciphertext, retired.keysById()));
+  }
+
+  @Test
+  void retiring_the_active_key_is_rejected() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+
+    assertThrows(
+        GimleSecretsException.class,
+        () -> KeyFileManager.retire(keyFile, ring, ring.activeKeyId()));
+  }
+
+  @Test
+  void retiring_an_unknown_key_id_is_rejected() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+    KeyRing rotated = KeyFileManager.rotate(keyFile, ring);
+
+    assertThrows(
+        GimleSecretsException.class, () -> KeyFileManager.retire(keyFile, rotated, (byte) 99));
+  }
+
+  @Test
+  void retiring_key_id_zero_is_rejected() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+    KeyRing rotated = KeyFileManager.rotate(keyFile, ring);
+
+    assertThrows(
+        GimleSecretsException.class, () -> KeyFileManager.retire(keyFile, rotated, (byte) 0));
   }
 }

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 596,
+    "totalRequirements": 600,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 477,
-    "releaseReadinessPercent": 20.0
+    "notCoveredByAutomatedTest": 481,
+    "releaseReadinessPercent": 19.8
   },
   "items": [
     {
@@ -6558,6 +6558,50 @@
       "category": "Web Console / Frontend",
       "feature": "SecretMaps screen History panel",
       "step": "Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks \"Roll back\" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked \"rollback of v1\".",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-597",
+      "module": "gimle-fafnir",
+      "category": "Secrets Management",
+      "feature": "Sealed SecretMap envelope crypto and key retirement",
+      "step": "Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-598",
+      "module": "gimle-fafnir",
+      "category": "Secrets Management",
+      "feature": "`/seal/*` and key-retirement HTTP routes",
+      "step": "Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-599",
+      "module": "gimle-controlplane",
+      "category": "Secrets Management",
+      "feature": "`/seal/*` and `/secrets/retire-key` proxy routes",
+      "step": "Given an operator's mTLS identity holds a `SECRET`/`WRITE` grant, When they call `POST /seal/rotate-key` through the control plane, Then the request is proxied through to Fafnir and a new active sealing key id is returned; a caller with no such grant instead receives 403.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-600",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`gimle seal` command, `secret retire-key`, `secretmap seal` verbs",
+      "step": "Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

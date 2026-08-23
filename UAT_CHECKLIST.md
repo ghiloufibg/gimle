@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 596
+- **Total requirements**: 600
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 477
-- **Release-readiness (automated coverage)**: 20.0%
+- **Not covered by automated test**: 481
+- **Release-readiness (automated coverage)**: 19.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,13 +21,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 39 | 5 | 34 | 12.8% |
 | gimle-mimir | 49 | 32 | 17 | 65.3% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 68 | 14 | 54 | 20.6% |
-| gimle-fafnir | 23 | 11 | 12 | 47.8% |
+| gimle-controlplane | 69 | 14 | 55 | 20.3% |
+| gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 24 | 0 | 24 | 0.0% |
+| gimle-cli | 25 | 0 | 25 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 31 | 0 | 31 | 0.0% |
@@ -939,6 +939,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-263 | Secrets key rotation trigger (proxied) | Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts. | Yes |
 | [ ] | GIMLE-590 | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Given a caller certificate with no SECRETMAP grant, When it PUTs or GETs `/secretmaps/{tenant}/{name}`, Then both are rejected with 403, independent of any SECRET grant it might hold. | No |
+| [ ] | GIMLE-599 | `/seal/*` and `/secrets/retire-key` proxy routes | Given an operator's mTLS identity holds a `SECRET`/`WRITE` grant, When they call `POST /seal/rotate-key` through the control plane, Then the request is proxied through to Fafnir and a new active sealing key id is returned; a caller with no such grant instead receives 403. | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -1008,6 +1009,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed. | Yes |
 | [ ] | GIMLE-588 | SecretMap store and `/secretmaps/*` API | Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path. | No |
 | [ ] | GIMLE-594 | SecretMap group-version ledger and rollback | Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`. | No |
+| [ ] | GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key. | No |
+| [ ] | GIMLE-598 | `/seal/*` and key-retirement HTTP routes | Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext. | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -1236,6 +1239,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-584 | `gimle configmap` command | Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller. | No |
 | [ ] | GIMLE-592 | `gimle secretmap` command | Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed. | No |
 | [ ] | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version. | No |
+| [ ] | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version. | No |
 
 #### CLI / Build Tooling
 

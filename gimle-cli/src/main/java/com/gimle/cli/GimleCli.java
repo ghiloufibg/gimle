@@ -54,6 +54,7 @@ import java.util.List;
  *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
  *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
  *   gimle secret rotate-key
+ *   gimle secret retire-key &lt;keyId&gt;
  *   gimle configmap list &lt;tenantId&gt;
  *   gimle configmap get &lt;tenantId&gt; &lt;name&gt;
  *   gimle configmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
@@ -66,6 +67,12 @@ import java.util.List;
  *   gimle secretmap delete &lt;tenantId&gt; &lt;name&gt; [--destroy]
  *   gimle secretmap versions &lt;tenantId&gt; &lt;name&gt;
  *   gimle secretmap rollback &lt;tenantId&gt; &lt;name&gt; &lt;groupVersion&gt;
+ *   gimle secretmap seal &lt;tenantId&gt; &lt;name&gt; --from-sealed key=path [...]
+ *   gimle seal public-key [--out &lt;path&gt;]
+ *   gimle seal value &lt;plaintext&gt; --public-key &lt;path&gt; --tenant &lt;id&gt; --name &lt;name&gt; --key &lt;key&gt;
+ *                     [--out &lt;path&gt;]
+ *   gimle seal rotate-key
+ *   gimle seal retire-key &lt;keyId&gt;
  *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;]
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
@@ -169,6 +176,7 @@ public final class GimleCli {
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
+      case "seal", "seals" -> new SealCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
@@ -394,6 +402,7 @@ public final class GimleCli {
           secret delete <tenantId> <key> [--destroy]
           secret versions <tenantId> <key>
           secret rotate-key
+          secret retire-key <keyId>
           configmap list <tenantId>
           configmap get <tenantId> <name>
           configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
@@ -404,6 +413,11 @@ public final class GimleCli {
           secretmap delete <tenantId> <name> [--destroy]
           secretmap versions <tenantId> <name>
           secretmap rollback <tenantId> <name> <groupVersion>
+          secretmap seal <tenantId> <name> --from-sealed key=path [...]
+          seal public-key [--out <path>]
+          seal value <plaintext> --public-key <path> --tenant <id> --name <name> --key <key> [--out <path>]
+          seal rotate-key
+          seal retire-key <keyId>
           artifact push <jar> [--tenant <id>]
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]

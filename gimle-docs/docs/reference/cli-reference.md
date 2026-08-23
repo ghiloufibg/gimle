@@ -56,6 +56,7 @@ gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
+gimle secret retire-key <keyId>
 gimle configmap list <tenantId>
 gimle configmap get <tenantId> <name>
 gimle configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
@@ -66,6 +67,11 @@ gimle secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-fil
 gimle secretmap delete <tenantId> <name> [--destroy]
 gimle secretmap versions <tenantId> <name>
 gimle secretmap rollback <tenantId> <name> <groupVersion>
+gimle secretmap seal <tenantId> <name> --from-sealed key=path [...]
+gimle seal public-key [--out <path>]
+gimle seal value <plaintext> --public-key <path> --tenant <id> --name <name> --key <key> [--out <path>]
+gimle seal rotate-key
+gimle seal retire-key <keyId>
 gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
@@ -105,7 +111,12 @@ call is proxied by the control plane to Fafnir, the dedicated secrets service (s
 claims a new, immutable version rather than overwriting the last one; `get` defaults to the latest
 version, `--version N` reads a specific one; `delete` soft-deletes by default (every version stays
 recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
-key and re-encrypts every existing secret under it, cluster-wide.
+key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is
+destructive in a different, sharper way than `delete`: it stops Fafnir from trusting that key id at
+all, so any value still encrypted under it — one `rotate-key` alone never re-encrypts — becomes
+permanently unrecoverable through this surface from that moment on. Retiring the currently active
+key is rejected outright; rotate first, confirm nothing still depends on the old key, then retire
+it.
 
 Like `secret`, `configmap` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
 `list` here returns names scoped to one tenant-owned ConfigMap object, not the flat per-key rows
@@ -138,6 +149,28 @@ the per-key ledger above. `versions` lists a SecretMap's full group-version hist
 a brand-new version (never rewriting the old one), a deleted key back to deleted — and records the
 rollback itself as a new, later group version rather than rewriting history. A key added after the
 target group version and never part of it is left untouched, not deleted.
+
+`secretmap seal <tenantId> <name> --from-sealed key=path [...]` is `set`'s offline-sealed
+counterpart: instead of a plaintext `--from-literal`/`--from-file` value, each `path` names a
+sealed-envelope JSON file produced by `seal value` below. The plaintext is never visible to, or
+readable back by, whoever produced the envelope — only Fafnir's own private sealing key can unwrap
+it, which `seal` does at commit time before applying the recovered plaintext through the same write
+path `set` uses (so it gets the identical per-key group versioning). A blob sealed for the wrong
+tenant, name, or key is rejected as a per-key failure, the same shape `set` already reports.
+
+`seal` is the standalone verb for Fafnir's asymmetric sealing-key lifecycle and the client-side
+sealing operation itself, distinct from `secret`/`secretmap` since `public-key`/`value` are
+global, tenant-agnostic operations. `seal public-key [--out <path>]` fetches Fafnir's current
+public sealing key — unauthenticated, since the key is meant to be public, but only ever served
+over TLS. `seal value <plaintext> --public-key <path> --tenant <id> --name <name> --key <key>`
+is the one command in this CLI that never calls the control plane: it reads a previously-saved
+`public-key` response and seals entirely client-side, so a CI pipeline or a value committed to a
+config repo ahead of deploy needs no live authenticated session to produce a value only Fafnir can
+recover. `seal rotate-key`/`seal retire-key <keyId>` mirror `secret rotate-key`/`retire-key`
+exactly, but retiring a sealing key is strictly less destructive than retiring a `secret` key: it
+only blocks unwrapping sealed blobs not yet committed — a SecretMap value already applied through
+`secretmap seal` was re-encrypted under Fafnir's current symmetric key at commit time and never
+stored in sealed form, so it is unaffected by a later sealing-key retirement.
 
 `artifact` is a distinct top-level verb for the same reason `secret` is: `push` has no shape in
 three-verb dispatch. Every call is proxied by the control plane to Andvari, the artifact registry

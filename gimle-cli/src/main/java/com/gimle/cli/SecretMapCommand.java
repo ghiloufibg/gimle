@@ -36,6 +36,12 @@ import java.util.Set;
  * content or deleted state -- as a brand-new group version, never rewriting history, the same
  * forward-only semantics {@code com.gimle.fafnir.secretmap.SecretMapStore#rollback} itself
  * documents. A key added after the target group version and never part of it is left untouched.
+ *
+ * <p>{@code seal <tenantId> <name> --from-sealed key=path [...]} is {@code set}'s offline-sealed
+ * counterpart: each {@code path} is a sealed-envelope JSON file produced by {@code gimle seal
+ * value} (never plaintext, and never decoded/re-encoded here -- the file's JSON is forwarded
+ * byte-for-byte under its key), and Fafnir itself unwraps and applies it. One outcome is reported
+ * per key, the same shape {@code set} already prints.
  */
 public final class SecretMapCommand {
 
@@ -62,6 +68,7 @@ public final class SecretMapCommand {
       case "delete" -> delete(rest);
       case "versions" -> versions(rest);
       case "rollback" -> rollback(rest);
+      case "seal" -> seal(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -174,6 +181,46 @@ public final class SecretMapCommand {
     }
   }
 
+  private void seal(List<String> args) {
+    if (args.size() < 2) {
+      throw new CliException("secretmap seal requires <tenantId> <name> --from-sealed key=path");
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), Set.of("--from-sealed"));
+    List<String> fromSealed = flags.getAll("--from-sealed");
+    if (fromSealed.isEmpty()) {
+      throw new CliException("secretmap seal requires at least one --from-sealed key=path");
+    }
+
+    Map<String, Object> sealed = new LinkedHashMap<>();
+    for (String entry : fromSealed) {
+      int eq = entry.indexOf('=');
+      if (eq < 0) {
+        throw new CliException("--from-sealed must be key=path, got: " + entry);
+      }
+      String key = entry.substring(0, eq);
+      String path = entry.substring(eq + 1);
+      sealed.put(key, Json.parse(readSealedEnvelope(path)));
+    }
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("sealed", sealed);
+    String response =
+        client.expectSuccess(
+            client.post("/secretmaps/" + tenantId + "/" + name + "/seal", Json.write(body)));
+    Map<String, Object> responseBody = Json.asObject(Json.parse(response));
+    OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
+  }
+
+  private static String readSealedEnvelope(String path) {
+    try {
+      return Files.readString(Path.of(path), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException("could not read --from-sealed path: " + path, e);
+    }
+  }
+
   /**
    * {@code path} alone: the key is the file's own base name. {@code key=path}: an explicit key --
    * the identical kubectl-style convention {@link ConfigMapCommand#addFromFile} already
@@ -232,6 +279,7 @@ public final class SecretMapCommand {
           delete <tenantId> <name> [--destroy]
           versions <tenantId> <name>
           rollback <tenantId> <name> <groupVersion>
+          seal <tenantId> <name> --from-sealed key=path [...]
         """;
   }
 }

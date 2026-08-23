@@ -23,6 +23,11 @@ import java.util.Set;
  * {@code /config/*}'s plain-string {@code value} field) -- this class is the one place that
  * encoding is visible at all: {@code set}/{@code get} take and print the plaintext string a caller
  * actually typed or expects to read.
+ *
+ * <p>{@code retire-key <keyId>} actually stops trusting a key id -- unlike {@code rotate-key}, this
+ * is destructive: any value still encrypted under that id becomes permanently unrecoverable through
+ * this surface from that moment on. Retiring the currently active key is rejected outright (rotate
+ * first).
  */
 public final class SecretCommand {
 
@@ -49,6 +54,7 @@ public final class SecretCommand {
       case "delete" -> delete(rest);
       case "versions" -> versions(rest);
       case "rotate-key" -> rotateKey();
+      case "retire-key" -> retireKey(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -144,6 +150,30 @@ public final class SecretCommand {
         output, resultBody, "secrets key rotated (active key id " + activeKeyId + ")", out);
   }
 
+  private void retireKey(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("secret retire-key requires <keyId>");
+    }
+    int keyId = parseKeyId(args.get(0));
+    String response =
+        client.expectSuccess(
+            client.post("/secrets/retire-key", Json.write(Map.of("keyId", keyId))));
+    Object retiredKeyId = Json.asObject(Json.parse(response)).get("retiredKeyId");
+    Map<String, Object> resultBody = new LinkedHashMap<>();
+    resultBody.put("result", "retired");
+    resultBody.put("kind", "secret-key");
+    resultBody.put("retiredKeyId", retiredKeyId);
+    OutputFormat.printResult(output, resultBody, "secrets key " + retiredKeyId + " retired", out);
+  }
+
+  private static int parseKeyId(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("keyId must be an integer, got: " + raw);
+    }
+  }
+
   private static Map<String, Object> resultBody(String result, String tenantId, String key) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", result);
@@ -179,6 +209,7 @@ public final class SecretCommand {
           delete <tenantId> <key> [--destroy]
           versions <tenantId> <key>
           rotate-key
+          retire-key <keyId>
         """;
   }
 }

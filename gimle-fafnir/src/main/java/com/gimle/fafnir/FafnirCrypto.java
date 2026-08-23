@@ -121,4 +121,21 @@ public final class FafnirCrypto {
     }
     return newRing.activeKeyId();
   }
+
+  /**
+   * Actually stops trusting {@code keyId}: see {@link KeyFileManager#retire}'s own javadoc for
+   * exactly what that means (destructive, not a soft flag -- any ciphertext still encrypted under
+   * this id becomes permanently unrecoverable through {@link #decrypt} from this point on). Unlike
+   * {@link #rotate}, there is no re-encryption sweep to run here -- nothing needs to move *to* a
+   * retired key, only away from one, and {@link #rotate} already handles that side.
+   */
+  public byte retire(byte keyId) {
+    KeyRing newRing = KeyFileManager.retire(secretKeyFilePath, keyRing, keyId);
+    keyRing = newRing;
+    log.info(
+        "secrets key id {} retired, new fingerprint={}",
+        Byte.toUnsignedInt(keyId),
+        newRing.fingerprint());
+    return keyId;
+  }
 }

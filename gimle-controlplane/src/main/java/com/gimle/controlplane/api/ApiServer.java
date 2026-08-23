@@ -424,8 +424,16 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/accounts", instrument("accounts", this::handleAccountsList));
     target.createContext(
         "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
+    target.createContext(
+        "/secrets/retire-key", instrument("secrets-retire-key", this::handleRetireSecretsKeyProxy));
     target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
     target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMapsProxy));
+    target.createContext(
+        "/seal/public-key", instrument("seal-public-key", this::handleSealPublicKeyProxy));
+    target.createContext(
+        "/seal/rotate-key", instrument("seal-rotate-key", this::handleSealRotateKeyProxy));
+    target.createContext(
+        "/seal/retire-key", instrument("seal-retire-key", this::handleSealRetireKeyProxy));
     // One bare-prefix context with an in-handler path check rather than "/artifacts/" +
     // "/artifacts" pair: the catalog listing lives at the bare path, and the JDK server's
     // prefix matching would otherwise let "/artifactsX" through -- same defense AndvariServer's
@@ -3449,6 +3457,88 @@ public final class ApiServer implements AutoCloseable {
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
+    }
+  }
+
+  /**
+   * Sibling of {@link #handleRotateSecretsKey}, same {@code SECRET}/{@code WRITE} global gate -- a
+   * byte-for-byte relay to Fafnir's own {@code /secrets/retire-key} via {@link
+   * FafnirClient#forward}, the same generic relay style {@link #handleSecretMapsProxy} already
+   * established, rather than a second dedicated typed method.
+   */
+  private void handleRetireSecretsKeyProxy(HttpExchange exchange) {
+    forwardGlobalAdminRoute(exchange, "/secrets/retire-key", ResourceKind.SECRET);
+  }
+
+  // ---- /seal/public-key, /seal/rotate-key, /seal/retire-key ----
+
+  /**
+   * The one proxied route with no authorization check at all: fetching the sealing public key is
+   * meant to be reachable by a caller with zero Gimlé credentials -- the whole point of asymmetric
+   * sealing is that a caller who can only seal, not read, needs this key before it can seal
+   * anything. A check here would protect nothing, so none is forwarded, and no principal is
+   * resolved either (nothing to attribute for an anonymous, harmless read).
+   */
+  private void handleSealPublicKeyProxy(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      FafnirClient.RawResponse response =
+          fafnirClient.forward("GET", "/seal/public-key", null, Map.of());
+      relay(exchange, response);
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("seal public key proxy request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleSealRotateKeyProxy(HttpExchange exchange) {
+    forwardGlobalAdminRoute(exchange, "/seal/rotate-key", ResourceKind.SECRET);
+  }
+
+  private void handleSealRetireKeyProxy(HttpExchange exchange) {
+    forwardGlobalAdminRoute(exchange, "/seal/retire-key", ResourceKind.SECRET);
+  }
+
+  /**
+   * Shared body for the three cluster-wide (non-tenant-scoped) admin routes above that require
+   * authorization: checks {@code kind}/{@code Verb.WRITE} unscoped (the same shape {@link
+   * #handleRotateSecretsKey} already uses), then relays the request body verbatim to Fafnir's own
+   * identically-named route.
+   */
+  private void forwardGlobalAdminRoute(HttpExchange exchange, String path, ResourceKind kind) {
+    try {
+      if (!requireAuthorized(exchange, kind, Verb.WRITE, Optional.empty())) {
+        return;
+      }
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      byte[] body = readBody(exchange).getBytes(StandardCharsets.UTF_8);
+      FafnirClient.RawResponse response = fafnirClient.forward("POST", path, body, Map.of());
+      relay(exchange, response);
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("{} proxy request failed: {}", path, e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void relay(HttpExchange exchange, FafnirClient.RawResponse response) throws IOException {
+    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+    exchange.sendResponseHeaders(response.statusCode(), response.body().length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(response.body());
     }
   }
 

@@ -606,6 +606,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-594 | SecretMap group-version ledger and rollback | Secrets Management | Complete | Yes |
 | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | CLI | Complete | Partial |
 | GIMLE-596 | SecretMaps screen History panel | Web Console / Frontend | Complete | Yes |
+| GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | Secrets Management | Complete | Yes |
+| GIMLE-598 | `/seal/*` and key-retirement HTTP routes | Secrets Management | Complete | Yes |
+| GIMLE-599 | `/seal/*` and `/secrets/retire-key` proxy routes | Secrets Management | Complete | Yes |
+| GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -4645,6 +4649,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a caller certificate with no SECRETMAP grant, When it PUTs or GETs `/secretmaps/{tenant}/{name}`, Then both are rejected with 403, independent of any SECRET grant it might hold.
   ```
 
+#### GIMLE-599 — `/seal/*` and `/secrets/retire-key` proxy routes
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want to reach Fafnir's sealing-key lifecycle and key-retirement operations through the control plane's own authenticated API, the same way every other Fafnir-backed operation is reached, never talking to Fafnir directly.
+- **Status**: Complete. Four new proxy handlers on `ApiServer`, all using the generic `fafnirClient.forward(method, path, body, headers)` relay style the `/secretmaps/` proxy already established rather than `rotate-key`'s older dedicated-typed-method style, since none of these needs response reshaping: `/seal/public-key` performs no authorization check at all and forwards no principal-identifying headers (matching Fafnir's own reasoning -- a check would protect nothing for a deliberately public value); `/seal/rotate-key`, `/seal/retire-key`, and `/secrets/retire-key` are each gated on `ResourceKind.SECRET`/`Verb.WRITE`/unscoped, the identical check `/secrets/rotate-key`'s existing proxy handler already uses, via a new shared `forwardGlobalAdminRoute` helper. `POST /secretmaps/{tenantId}/{name}/seal` needed zero `ApiServer` changes -- it already falls under the existing generic `/secretmaps/` proxy context, which Phase 2's rollback work had already extended to forward POST requests with a body.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSealPublicKeyProxy`, `handleSealRotateKeyProxy`, `handleSealRetireKeyProxy`, `handleRetireSecretsKeyProxy`, `forwardGlobalAdminRoute`, `relay`)
+- **Test coverage**: `ApiServerSealTest` (plaintext round-trip: public-key proxies through, a seal-commit on a SecretMap proxies through and round-trips to the plaintext, rotate-key proxies through and the new active id can seal a committable value), `ApiServerSealAuthzTest` (real mTLS/RBAC: an operator grant may rotate and retire; a caller with no secret grant is rejected with 403 on both new admin routes; the public-key route is reachable even by a caller with no grant at all).
+- **Gherkin scenario**:
+  ```gherkin
+  Given an operator's mTLS identity holds a `SECRET`/`WRITE` grant, When they call `POST /seal/rotate-key` through the control plane, Then the request is proxied through to Fafnir and a new active sealing key id is returned; a caller with no such grant instead receives 403.
+  ```
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -4944,6 +4961,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`.
+  ```
+
+#### GIMLE-597 — Sealed SecretMap envelope crypto and key retirement
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want to seal a secret value offline against Fafnir's public sealing key and have Fafnir irrevocably retire a symmetric or sealing key id, so a value can be committed for later application without ever exposing the plaintext to whoever holds only the public key, and a key id can be permanently distrusted once it should no longer be used.
+- **Status**: Complete. `SealCipher` builds the sealing envelope: a fresh, single-use AES-256 data key encrypts the plaintext via the existing `SecretCipher.encrypt`/`decrypt` completely unchanged, and the data key itself is RSA-OAEP-wrapped under the recipient's public key with `(tenantId, name, key)` bound in as the OAEP label (`PSource.PSpecified`, not a `SecretCipher` AAD parameter, since that class has none to add without breaking "reuse it unchanged") -- a label mismatch makes `Cipher.unwrap` throw before any plaintext is ever recovered, so a sealed blob is cryptographically non-transferable to a different tenant/name/key. `aadFor` is a length-prefixed, delimiter-free encoding rather than a naive `:`-joined string, since `tenantId` (unlike `name`/`key`) has no guaranteed delimiter-free property. `SealingKeyRing`/`SealingKeyFileManager` mirror `KeyRing`/`KeyFileManager`'s file-per-id-plus-`.active`-sidecar convention exactly for RSA-3072 keypairs (private key PKCS8 DER, public key X.509 DER, stored as separate sibling files rather than reconstructed at load time). Key retirement needs no `SecretCipher` change at all: `SecretCipher.decrypt` already looks a key up purely by the id byte embedded in the blob against a caller-supplied map, so retiring a key is just removing its id from that map -- `KeyFileManager.retire`/`SealingKeyFileManager.retire` delete the id's key file(s) and return a ring with that id gone. A serious correctness gap was found and closed before it reached the ring's public shape: `loadAllOrCreate` auto-vivifies (regenerates) key id 0 if its file is ever absent, so retiring id 0 would otherwise cause a silent, different key to be resurrected under the same id on the next load; retiring id 0 is now permanently rejected in both `KeyFileManager.retire` and `SealingKeyFileManager.retire`. Retiring the currently-active id (either ring) is also rejected outright -- rotate first.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`), `gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`), `gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`cannotRetireActiveKey`, `unknownKeyId`, `cannotRetireBaseKey`)
+- **Test coverage**: `SealCipherTest` (seal/unseal round-trip recovers the exact plaintext; wrong tenant/name/key/private-key in the AAD all throw before any plaintext is recovered; a corrupted wrapped-key throws cleanly; AAD length-prefixing never collides across different field boundaries), `SealingKeyRingTest` (record validation and accessors), `SealingKeyFileManagerTest` and `KeyFileManagerTest` (persist/reload round-trip, rotate keeps old keys loadable, retire actually deletes the key file(s) and removes the id from the ring, retiring the active id/an unknown id/id 0 are all rejected, a value or blob still encrypted or sealed under a retired id can no longer be recovered).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key.
+  ```
+
+#### GIMLE-598 — `/seal/*` and key-retirement HTTP routes
+
+- **Category**: Secrets Management
+- **User story**: As a caller holding only Fafnir's public sealing key, I want to fetch it and submit a sealed SecretMap value for Fafnir to unwrap and apply on my behalf; as an operator, I want to rotate or retire the sealing key and the symmetric secrets key over HTTP.
+- **Status**: Complete. `GET /seal/public-key` returns `{sealingKeyId, publicKey (base64 X.509 DER), algorithm}` and is deliberately unauthenticated at Fafnir's own layer -- the key is meant to be public, so a check would protect nothing, but the route must still only ever be reached over TLS. `POST /seal/rotate-key` / `POST /seal/retire-key` (body `{keyId}`) manage `SealingCrypto`; `POST /secrets/retire-key` (body `{keyId}`) is the new symmetric-side counterpart to the existing `/secrets/rotate-key`, both unauthenticated at Fafnir's own layer for the same network-trust-boundary reasoning that route already established. All three business-rule rejections (retire the active id, retire an unknown id, retire id 0) surface as 400, not 500. `POST /secretmaps/{tenantId}/{name}/seal` was added to `handleSecretMaps`'s existing reserved-segment branch alongside `versions`/`rollback`, authorized identically to the existing `PUT` (`ResourceKind.SECRETMAP`/`Verb.WRITE`) since sealing changes how the value crosses the wire, not whether the caller may write it: for each submitted key it looks up the named sealing key id, recomputes the `(tenantId, name, key)` AAD, and unseals -- any failure (unknown/retired key id, label mismatch, corrupt blob) becomes a per-key failure without ever touching the store for that key. Every successfully-recovered plaintext is collected into one map and handed to the existing, unchanged `SecretMapStore.setMany`, so seal-commit gets Phase 2's group-versioning for free and reuses the same per-key result JSON shape `set` already returns.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSealPublicKey`, `handleSealRotateKey`, `handleSealRetireKey`, `handleRetireSecretsKey`, `handleSealSecretMap`)
+- **Test coverage**: `FafnirServerSealTest`: the public key is reachable with no auth header at all; a validly-sealed envelope committed via `POST /secretmaps/{t}/{n}/seal` round-trips to the plaintext; a blob sealed for a different tenant, name, or an unknown sealing key id is rejected as a per-key failure rather than a 500; rotating then retiring the old sealing key stops that key from applying a blob sealed under it -- the literal exit criterion; a parallel case for the symmetric side confirms retiring a `KeyRing` key strands a value still encrypted under it, the accepted destructive-consequence case documented as expected behavior, not a bug.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext.
   ```
 
 ### gimle-andvari
@@ -6401,6 +6444,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version.
+  ```
+
+#### GIMLE-600 — `gimle seal` command, `secret retire-key`, `secretmap seal` verbs
+
+- **Category**: CLI
+- **User story**: As an operator, I want CLI verbs to fetch Fafnir's public sealing key, seal a value entirely offline with no live session or network call, commit a sealed SecretMap value, and rotate or retire both the sealing key and the symmetric secrets key.
+- **Status**: Complete. New top-level `SealCommand` (`seal`/`seals` verb): `public-key [--out <path>]` fetches and optionally saves the raw `GET /seal/public-key` response; `value <plaintext> --public-key <path> --tenant <id> --name <name> --key <key> [--out <path>]` is the one command in the whole CLI that never calls the control plane -- it reads a previously-saved public-key response and calls `SealCipher.seal` directly, client-side; `rotate-key`/`retire-key <keyId>` mirror `secret rotate-key`'s result-printing shape under a `sealing-key` kind. `SecretCommand` gained `retire-key <keyId>` (`POST /secrets/retire-key`), documented as destructive in its own javadoc. `SecretMapCommand` gained `seal <tenantId> <name> --from-sealed key=path [...]`, forwarding each sealed-envelope JSON file's content byte-for-byte under its key to `POST /secretmaps/{tenantId}/{name}/seal` and printing the same per-key result list `set` already does. `gimle-cli`'s dependency on `gimle-fafnir` was promoted from test-only to compile scope (and `module-info.java` gained `requires com.gimle.fafnir`) specifically so `SealCommand#value` can call `SealCipher` directly.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SealCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`retireKey`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`seal`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`seal`/`seals` verb dispatch, usage text), `gimle-cli/pom.xml`, `gimle-cli/src/main/java/module-info.java`
+- **Test coverage**: Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying `/seal/*`, `/secrets/retire-key`, and `/secretmaps/*/seal` routes these verbs call; no dedicated CLI unit test file exists, matching the rest of this class family's own untested-at-the-CLI-layer precedent (`SecretMapCommand`'s `versions`/`rollback`, `ConfigMapCommand`, are the same). A full `mvn -pl gimle-cli verify` (fmt, checkstyle, spotbugs, the existing `GimleCliTest` suite) stayed green after every change in this module.
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version.
   ```
 
 ### gimle-hilmir

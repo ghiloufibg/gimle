@@ -611,6 +611,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-594 | SecretMap group-version ledger and rollback | New | Not Covered | — |
 | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | New | Not Covered | — |
 | GIMLE-596 | SecretMaps screen History panel | New | Not Covered | — |
+| GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | New | Not Covered | — |
+| GIMLE-598 | `/seal/*` and key-retirement HTTP routes | New | Not Covered | — |
+| GIMLE-599 | `/seal/*` and `/secrets/retire-key` proxy routes | New | Not Covered | — |
+| GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3445,6 +3449,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerSecretMapTest` (plaintext CRUD through the proxy to a real in-process Fafnir), `ApiServerSecretMapAuthzTest` (real mTLS: an operator role may write/read, a no-grant caller gets 403 on both).
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy`, `/secretmaps/` route registration, `deploymentAdmissionChain`)
 
+#### GIMLE-599 — `/seal/*` and `/secrets/retire-key` proxy routes
+
+- **Category**: Secrets Management
+- **Status**: New  _(newly added as part of the Sealed SecretMap (v2) and key lifecycle work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the control plane's `/seal/*` proxy routes against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerSealTest` (plaintext proxy round-trip) and `ApiServerSealAuthzTest` (real mTLS/RBAC, including the deliberate no-auth public-key route) cover this in full.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSealPublicKeyProxy`, `handleSealRotateKeyProxy`, `handleSealRetireKeyProxy`, `handleRetireSecretsKeyProxy`, `forwardGlobalAdminRoute`)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -3679,6 +3692,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises SecretMap group-version stamping or rollback against a real running cluster -- see GIMLE-588's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes).
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapStore.java` (`withWriteLease`, `stampGroupVersion`, `listGroupVersions`, `rollback`, `SecretMapGroupVersion`/`SecretMapKeySnapshot`/`RollbackOutcome`), `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`listLinearizable`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/versions`, `/rollback` routes and handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy` POST support)
+
+#### GIMLE-597 — Sealed SecretMap envelope crypto and key retirement
+
+- **Category**: Secrets Management
+- **Status**: New  _(newly added as part of the Sealed SecretMap (v2) and key lifecycle work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`), `gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)
+
+#### GIMLE-598 — `/seal/*` and key-retirement HTTP routes
+
+- **Category**: Secrets Management
+- **Status**: New  _(newly added as part of the Sealed SecretMap (v2) and key lifecycle work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the `/seal/*` routes or `/secretmaps/*/seal` against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSealTest` covers the full exit criterion end to end: seal, commit, apply, wrong-tenant/name rejection, and retirement stopping trust.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSealPublicKey`, `handleSealRotateKey`, `handleSealRetireKey`, `handleRetireSecretsKey`, `handleSealSecretMap`)
 
 ### gimle-andvari
 
@@ -4597,6 +4628,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the `secretmap versions`/`secretmap rollback` CLI verbs against a real running cluster -- see GIMLE-588's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same).
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`versions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)
+
+#### GIMLE-600 — `gimle seal` command, `secret retire-key`, `secretmap seal` verbs
+
+- **Category**: CLI
+- **Status**: New  _(newly added as part of the Sealed SecretMap (v2) and key lifecycle work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the `seal`, `secret retire-key`, or `secretmap seal` CLI verbs against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SealCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`retireKey`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`seal`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)
 
 ### gimle-hilmir
 
@@ -6334,7 +6374,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**477 of 596 requirements are Not Covered.**
+**481 of 600 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6404,6 +6444,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-584 | gimle-cli | `gimle configmap` command | CLI | Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json). |
 | GIMLE-592 | gimle-cli | `gimle secretmap` command | CLI | Exercised end-to-end by `ApiServerSecretMapTest`'s HTTP-level coverage of the same `/secretmaps/*` surface `SecretMapCommand` calls; no dedicated `SecretMapCommandTest` fixture exists, the same gap `ConfigMapCommand` has (GIMLE-584). |
 | GIMLE-595 | gimle-cli | `secretmap versions`/`secretmap rollback` verbs | CLI | Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same). |
+| GIMLE-600 | gimle-cli | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent. |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -6721,6 +6762,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-590 | gimle-controlplane | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Secrets Management | `ApiServerSecretMapTest` (plaintext CRUD through the proxy to a real in-process Fafnir), `ApiServerSecretMapAuthzTest` (real mTLS: an operator role may write/read, a no-grant caller gets 403 on both). |
 | GIMLE-591 | gimle-agent | Narrowed secret delivery via `secretMapRefs` | Secrets Management | `AgentMainTest#secret_map_refs_narrows_delivery_to_only_the_named_secretmaps_keys` drives a real fake Fafnir + control-plane HTTP server pair and a real Unix-socket `WorkerConnection`, asserting only the named SecretMap's key arrives as `ConfigDelivered` and that the unscoped flat `/secrets/{tenantId}` listing is never even called once `secretMapRefs` is declared. |
 | GIMLE-594 | gimle-fafnir | SecretMap group-version ledger and rollback | Secrets Management | `SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes). |
+| GIMLE-597 | gimle-fafnir | Sealed SecretMap envelope crypto and key retirement | Secrets Management | `SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full. |
+| GIMLE-598 | gimle-fafnir | `/seal/*` and key-retirement HTTP routes | Secrets Management | `FafnirServerSealTest` covers the full exit criterion end to end: seal, commit, apply, wrong-tenant/name rejection, and retirement stopping trust. |
+| GIMLE-599 | gimle-controlplane | `/seal/*` and `/secrets/retire-key` proxy routes | Secrets Management | `ApiServerSealTest` (plaintext proxy round-trip) and `ApiServerSealAuthzTest` (real mTLS/RBAC, including the deliberate no-auth public-key route) cover this in full. |
 | GIMLE-262 | gimle-controlplane | `/secrets/*` byte-for-byte proxy to Fafnir | Secrets Management / Internal-Infra | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered`, `a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` |
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |

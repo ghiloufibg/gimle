@@ -57,14 +57,16 @@
       <artifactId>gimle-controlplane</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- ApiServer no longer performs crypto in-process: GimleCliTest needs
-         a real, in-process FafnirServer/FafnirClient pair backing it, the same "small enough to
-         duplicate rather than a new coupling" InProcessFafnir fixture shape gimle-controlplane's
-         own tests already use. -->
+    <!-- Compile scope (not test-only): SealCommand's "seal value" verb runs SealCipher.seal
+         directly, entirely offline, rather than calling the control plane, since the whole point
+         of the sealing workflow is that no network round-trip (and no live authenticated session)
+         is needed to produce a sealed blob. GimleCliTest also reuses this dependency for a real,
+         in-process FafnirServer/FafnirClient pair backing it, the same "small enough to duplicate
+         rather than a new coupling" InProcessFafnir fixture shape gimle-controlplane's own tests
+         already use. -->
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-fafnir</artifactId>
-      <scope>test</scope>
     </dependency>
     <!-- ArtifactSetCommandTest needs a real, in-process AndvariServer behind ApiServer's own
          /artifacts/* proxy to exercise a genuine multi-jar apply against the real registry, not a

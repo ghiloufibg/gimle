@@ -127,9 +127,7 @@ public final class KeyFileManager {
     byte newId = (byte) (highestExisting + 1);
     SecretKey newKey = generateKey();
     try {
-      Path newKeyFile =
-          baseKeyFilePath.resolveSibling(
-              baseKeyFilePath.getFileName() + "." + Byte.toUnsignedInt(newId));
+      Path newKeyFile = keyFilePathForId(baseKeyFilePath, newId);
       Files.write(newKeyFile, newKey.getEncoded());
       restrictPermissions(newKeyFile);
       Path activeFile = activeKeyFile(baseKeyFilePath);
@@ -142,6 +140,49 @@ public final class KeyFileManager {
     Map<Byte, SecretKey> updated = new HashMap<>(current.keysById());
     updated.put(newId, newKey);
     return new KeyRing(newId, updated);
+  }
+
+  /**
+   * Actually stops trusting {@code keyId}: deletes its on-disk key file and drops it from the
+   * returned {@link KeyRing}, so any ciphertext still encrypted under it becomes permanently
+   * unrecoverable through {@link SecretCipher#decrypt(byte[], Map)} the moment that ring replaces
+   * {@code current} in {@code FafnirCrypto} -- a deliberately destructive operation, not a soft
+   * flag, matching what "retire" is meant to accomplish. Rejects retiring {@code
+   * current.activeKeyId()} (rotate to a new active key first) or an id {@code current} doesn't
+   * hold.
+   */
+  public static KeyRing retire(Path baseKeyFilePath, KeyRing current, byte keyId) {
+    if (keyId == 0) {
+      // #loadAllOrCreate always regenerates a fresh id-0 key if baseKeyFilePath is absent (the
+      // "first run" case every other id's own file relies on that never triggering for it) --
+      // deleting it wouldn't retire it, it would silently resurrect a *different* key under the
+      // same id on the next load. Rotate away from id 0; it can never be retired.
+      throw GimleSecretsException.cannotRetireBaseKey("secrets");
+    }
+    if (keyId == current.activeKeyId()) {
+      throw GimleSecretsException.cannotRetireActiveKey("secrets", Byte.toUnsignedInt(keyId));
+    }
+    if (!current.keysById().containsKey(keyId)) {
+      throw GimleSecretsException.unknownKeyId("secrets", Byte.toUnsignedInt(keyId));
+    }
+    try {
+      Files.delete(keyFilePathForId(baseKeyFilePath, keyId));
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed to delete retired secrets key file", e);
+    }
+    Map<Byte, SecretKey> updated = new HashMap<>(current.keysById());
+    updated.remove(keyId);
+    return new KeyRing(current.activeKeyId(), updated);
+  }
+
+  // Id 0 is always the base file itself; every other id lives at "<baseFileName>.<id>" -- the
+  // same layout #rotate already writes, shared here so retire deletes exactly the file rotate (or
+  // the original loadOrCreate, for id 0) created.
+  private static Path keyFilePathForId(Path baseKeyFilePath, byte id) {
+    return id == 0
+        ? baseKeyFilePath
+        : baseKeyFilePath.resolveSibling(
+            baseKeyFilePath.getFileName() + "." + Byte.toUnsignedInt(id));
   }
 
   private static Path activeKeyFile(Path baseKeyFilePath) {

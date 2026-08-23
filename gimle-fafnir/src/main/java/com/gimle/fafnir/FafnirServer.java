@@ -6,6 +6,7 @@ import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.session.SessionKeyFileManager;
@@ -17,6 +18,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.HttpResponses;
 import com.gimle.core.web.SpaStaticHandler;
+import com.gimle.fafnir.secret.SealCipher;
 import com.gimle.fafnir.secretmap.SecretMapCodec;
 import com.gimle.fafnir.secretmap.SecretMapStore;
 import com.gimle.mimir.authz.Authorizer;
@@ -37,10 +39,12 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -98,6 +102,7 @@ public final class FafnirServer implements AutoCloseable {
   private final FafnirCrypto crypto;
   private final SecretStore secretStore;
   private final SecretMapStore secretMapStore;
+  private final SealingCrypto sealingCrypto;
   private final Authorizer authorizer;
   private final FafnirMetrics metrics;
   private final Instant startedAt = Instant.now();
@@ -132,6 +137,8 @@ public final class FafnirServer implements AutoCloseable {
     this.crypto = crypto;
     this.secretStore = new SecretStore(crypto.storeClient(), crypto);
     this.secretMapStore = new SecretMapStore(crypto.storeClient(), secretStore);
+    this.sealingCrypto =
+        new SealingCrypto(crypto.secretKeyFilePath().resolveSibling("sealing.key"));
     this.authorizer = new Authorizer(crypto.storeClient());
     this.metrics = metrics;
     this.sessionSigningKey =
@@ -168,8 +175,16 @@ public final class FafnirServer implements AutoCloseable {
     target.createContext("/internal/secrets/encrypt", instrument("encrypt", this::handleEncrypt));
     target.createContext("/internal/secrets/decrypt", instrument("decrypt", this::handleDecrypt));
     target.createContext("/secrets/rotate-key", instrument("rotate-key", this::handleRotateKey));
+    target.createContext(
+        "/secrets/retire-key", instrument("retire-key", this::handleRetireSecretsKey));
     target.createContext("/secrets/", instrument("secrets", this::handleSecrets));
     target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMaps));
+    target.createContext(
+        "/seal/public-key", instrument("seal-public-key", this::handleSealPublicKey));
+    target.createContext(
+        "/seal/rotate-key", instrument("seal-rotate-key", this::handleSealRotateKey));
+    target.createContext(
+        "/seal/retire-key", instrument("seal-retire-key", this::handleSealRetireKey));
     target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
@@ -327,6 +342,108 @@ public final class FafnirServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * Sibling of {@link #handleRotateKey}, same unauthenticated-at-this-layer posture (the proxy is
+   * the actual trust boundary -- see that method's own class javadoc): {@code keyId} is a
+   * caller-named id to actually stop trusting, not a value Fafnir chooses itself, so a bad id or a
+   * request naming the still-active key surfaces as 400, distinct from a genuine internal error.
+   */
+  private void handleRetireSecretsKey(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      byte keyId = parseKeyIdBody(exchange);
+      byte retired = crypto.retire(keyId);
+      respondJson(exchange, 200, Map.of("retiredKeyId", Byte.toUnsignedInt(retired)));
+    } catch (GimleSecretsException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("secrets key retirement failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- /seal/public-key, /seal/rotate-key, /seal/retire-key ----
+
+  /**
+   * Unauthenticated for a different reason than the two handlers above: not "the proxy is the real
+   * trust boundary," but that the key is meant to be public -- a check here would protect nothing,
+   * and would only get in the way of the caller this endpoint exists for: one with no Fafnir
+   * credentials at all, sealing a value offline before it can commit one.
+   */
+  private void handleSealPublicKey(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          Map.of(
+              "sealingKeyId", Byte.toUnsignedInt(sealingCrypto.activeSealingKeyId()),
+              "publicKey", encodeBase64(sealingCrypto.activePublicKey().getEncoded()),
+              "algorithm", "RSA-OAEP-SHA256"));
+    } catch (IOException | RuntimeException e) {
+      log.warn("seal public key lookup failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleSealRotateKey(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      byte newKeyId = sealingCrypto.rotate();
+      respondJson(exchange, 200, Map.of("activeSealingKeyId", Byte.toUnsignedInt(newKeyId)));
+    } catch (IOException | RuntimeException e) {
+      log.warn("sealing key rotation failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleSealRetireKey(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      byte keyId = parseKeyIdBody(exchange);
+      byte retired = sealingCrypto.retire(keyId);
+      respondJson(exchange, 200, Map.of("retiredKeyId", Byte.toUnsignedInt(retired)));
+    } catch (GimleSecretsException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("sealing key retirement failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private static byte parseKeyIdBody(HttpExchange exchange) throws IOException {
+    Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+    Object raw = body.get("keyId");
+    if (!(raw instanceof Number number)) {
+      throw new IllegalArgumentException("'keyId' must be an integer");
+    }
+    int value = number.intValue();
+    if (value < 0 || value > 255) {
+      throw new IllegalArgumentException("'keyId' must be between 0 and 255");
+    }
+    return (byte) value;
   }
 
   // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions] ----
@@ -535,6 +652,13 @@ public final class FafnirServer implements AutoCloseable {
           }
           return;
         }
+        if ("seal".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.WRITE, tenantId, Optional.of(name))) {
+            handleSealSecretMap(exchange, tenantId, name);
+          }
+          return;
+        }
         // DELETE /secretmaps/{tenantId}/{name}/{key}[?destroy=true] -- a single member key.
         String key = parts[2];
         if (!"DELETE".equals(exchange.getRequestMethod())) {
@@ -680,6 +804,62 @@ public final class FafnirServer implements AutoCloseable {
             Map.of("results", resultsJson, "groupVersion", applied.newGroupVersion()));
       }
     }
+  }
+
+  /**
+   * {@code POST /secretmaps/{tenantId}/{name}/seal}, body {@code {"sealed": {"<key>":
+   * {"sealingKeyId", "wrappedKey", "ciphertext"}, ...}}} -- the "commit"+"apply" half of seal,
+   * commit, apply: for each entry, unwraps the data key under the matching sealing private key with
+   * an OAEP label bound to this exact {@code (tenantId, name, key)}, then decrypts the payload. Any
+   * failure (unknown/retired sealing key id, a label bound to a different tenant/name/key, a
+   * corrupt blob) becomes that key's own {@link SecretMapStore.SecretMapKeyResult#failed} entry
+   * *without* ever calling {@link SecretMapStore#setMany} for it -- only successfully-recovered
+   * plaintexts reach that existing, unchanged write path, which is what gives seal-commit Phase 2's
+   * group-versioning for free.
+   */
+  private void handleSealSecretMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+    Map<String, Object> rawSealed = Json.asObject(body.get("sealed"));
+    if (rawSealed.isEmpty()) {
+      respond(exchange, 400, "'sealed' must be a non-empty mapping of key to sealed envelope");
+      return;
+    }
+    Map<String, byte[]> recovered = new LinkedHashMap<>();
+    List<SecretMapStore.SecretMapKeyResult> failures = new ArrayList<>();
+    for (Map.Entry<String, Object> entry : rawSealed.entrySet()) {
+      String key = entry.getKey();
+      try {
+        Map<String, Object> envelopeJson = Json.asObject(entry.getValue());
+        byte sealingKeyId = (byte) ((Number) envelopeJson.get("sealingKeyId")).intValue();
+        SealCipher.SealedEnvelope envelope =
+            new SealCipher.SealedEnvelope(
+                sealingKeyId,
+                decodeBase64((String) envelopeJson.get("wrappedKey")),
+                decodeBase64((String) envelopeJson.get("ciphertext")));
+        PrivateKey privateKey =
+            sealingCrypto
+                .privateKeyFor(sealingKeyId)
+                .orElseThrow(
+                    () ->
+                        GimleSecretsException.unknownKeyId(
+                            "sealing", Byte.toUnsignedInt(sealingKeyId)));
+        byte[] aad = SealCipher.aadFor(tenantId, name, key);
+        recovered.put(key, SealCipher.unseal(envelope, privateKey, aad));
+      } catch (RuntimeException e) {
+        failures.add(
+            new SecretMapStore.SecretMapKeyResult(
+                key, OptionalInt.empty(), Optional.of(String.valueOf(e.getMessage()))));
+      }
+    }
+    List<SecretMapStore.SecretMapKeyResult> results = new ArrayList<>();
+    if (!recovered.isEmpty()) {
+      results.addAll(secretMapStore.setMany(tenantId, name, recovered));
+    }
+    results.addAll(failures);
+    List<Map<String, Object>> resultsJson =
+        results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
+    respondJson(exchange, 200, Map.of("results", resultsJson));
   }
 
   private static Map<String, Object> groupVersionToJson(

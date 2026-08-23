@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 596,
+  "requirementCount": 600,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10302,6 +10302,72 @@
         "`gimle-console/src/routes/secretmaps.tsx`"
       ],
       "otherTestCoverage": "`repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`)."
+    },
+    {
+      "id": "GIMLE-597",
+      "module": "gimle-fafnir",
+      "feature": "Sealed SecretMap envelope crypto and key retirement",
+      "category": "Secrets Management",
+      "status": "New",
+      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)"
+      ],
+      "otherTestCoverage": "`SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full."
+    },
+    {
+      "id": "GIMLE-598",
+      "module": "gimle-fafnir",
+      "feature": "`/seal/*` and key-retirement HTTP routes",
+      "category": "Secrets Management",
+      "status": "New",
+      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises the `/seal/*` routes or `/secretmaps/*/seal` against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSealPublicKey`, `handleSealRotateKey`, `handleSealRetireKey`, `handleRetireSecretsKey`, `handleSealSecretMap`)"
+      ],
+      "otherTestCoverage": "`FafnirServerSealTest` covers the full exit criterion end to end: seal, commit, apply, wrong-tenant/name rejection, and retirement stopping trust."
+    },
+    {
+      "id": "GIMLE-599",
+      "module": "gimle-controlplane",
+      "feature": "`/seal/*` and `/secrets/retire-key` proxy routes",
+      "category": "Secrets Management",
+      "status": "New",
+      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises the control plane's `/seal/*` proxy routes against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSealPublicKeyProxy`, `handleSealRotateKeyProxy`, `handleSealRetireKeyProxy`, `handleRetireSecretsKeyProxy`, `forwardGlobalAdminRoute`)"
+      ],
+      "otherTestCoverage": "`ApiServerSealTest` (plaintext proxy round-trip) and `ApiServerSealAuthzTest` (real mTLS/RBAC, including the deliberate no-auth public-key route) cover this in full."
+    },
+    {
+      "id": "GIMLE-600",
+      "module": "gimle-cli",
+      "feature": "`gimle seal` command, `secret retire-key`, `secretmap seal` verbs",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises the `seal`, `secret retire-key`, or `secretmap seal` CLI verbs against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/SealCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`retireKey`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`seal`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)"
+      ],
+      "otherTestCoverage": "Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent."
     }
   ]
 }

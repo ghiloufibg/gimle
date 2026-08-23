@@ -94,4 +94,43 @@ public class GimleSecretsException extends RuntimeException {
     return new GimleSecretsException(
         "secret metadata for " + tenantId + "/" + key + " is malformed", cause);
   }
+
+  /**
+   * A {@code retire} call named the ring's own {@code activeKeyId} -- retiring the key currently
+   * used for new writes would break all future encryption/sealing, so the caller must rotate to a
+   * new active key first, then retire the one being stepped away from.
+   */
+  public static GimleSecretsException cannotRetireActiveKey(String keyKind, int keyId) {
+    return new GimleSecretsException(
+        "cannot retire "
+            + keyKind
+            + " key id "
+            + keyId
+            + ": it is the active key -- rotate to a new active key first");
+  }
+
+  /**
+   * A {@code retire} call (or, for a sealing key, an {@code unseal} lookup) named a key id this
+   * ring has never held or has already retired -- thrown rather than silently no-oping, since a
+   * caller retiring a key expects to know whether anything actually happened.
+   */
+  public static GimleSecretsException unknownKeyId(String keyKind, int keyId) {
+    return new GimleSecretsException("no " + keyKind + " key with id " + keyId);
+  }
+
+  /**
+   * A {@code retire} call named key id 0 -- structurally special in {@code KeyFileManager}/{@code
+   * SealingKeyFileManager}'s file layout, since {@code loadAllOrCreate} always regenerates a fresh
+   * id-0 key if its file is absent (the "first run" case every other id relies on that behavior
+   * never triggering for it). Deleting id 0's file would silently resurrect a *different* key under
+   * the same id on the next load rather than actually closing it off, so retiring id 0 is rejected
+   * outright rather than producing that surprising, non-obvious corruption.
+   */
+  public static GimleSecretsException cannotRetireBaseKey(String keyKind) {
+    return new GimleSecretsException(
+        "cannot retire "
+            + keyKind
+            + " key id 0: it is this file layout's base identity, always recreated if its file"
+            + " is absent -- rotate away from it, but it can never be retired");
+  }
 }
