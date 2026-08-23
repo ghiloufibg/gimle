@@ -95,6 +95,10 @@ class ApiServerConsoleContractTest {
     assertTrue(status.containsKey("instances"));
     assertTrue(status.containsKey("unplacedCount"));
     assertTrue(status.containsKey("quotaViolating"));
+    assertTrue(status.containsKey("limitRangeViolating"));
+    // limitRangeViolationReason is only present once the reconciler actually flags a violation --
+    // see limitrange_violating_deployment_status_includes_the_violation_reason below for that
+    // shape.
 
     Map<String, Object> spec = Json.asObject(status.get("spec"));
     assertTrue(spec.containsKey("name"));
@@ -110,6 +114,38 @@ class ApiServerConsoleContractTest {
     List<Map<String, Object>> all = Json.asObjectList(Json.parse(list.body()));
     assertEquals(1, all.size());
     assertTrue(all.get(0).containsKey("spec"));
+  }
+
+  @Test
+  void limitrange_violating_deployment_status_includes_the_violation_reason() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    kind: Deployment
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.0.0
+                    artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+                    replicas: 2
+                    """))
+            .build());
+    // A direct store backdoor, the same shortcut InProcessStore's own javadoc documents -- this
+    // contract test only needs the field to be present once violating, not a real reconciler tick.
+    inProcessStore
+        .store()
+        .putLimitRangeViolation("orders-service", "request memory 16Mi below minimum 32Mi");
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    assertEquals(Boolean.TRUE, status.get("limitRangeViolating"));
+    assertEquals("request memory 16Mi below minimum 32Mi", status.get("limitRangeViolationReason"));
   }
 
   @Test

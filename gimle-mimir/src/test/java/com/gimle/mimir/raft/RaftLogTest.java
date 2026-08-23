@@ -58,7 +58,7 @@ class RaftLogTest {
         List.of(), // networkPolicies
         List.of(), // controllerRevisions
         List.of(), // limitRanges
-        Set.of()); // limitRangeViolatingDeployments
+        Map.of()); // limitRangeViolations
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -98,7 +98,7 @@ class RaftLogTest {
         base.networkPolicies(),
         base.controllerRevisions(),
         base.limitRanges(),
-        base.limitRangeViolatingDeployments());
+        base.limitRangeViolations());
   }
 
   @Test

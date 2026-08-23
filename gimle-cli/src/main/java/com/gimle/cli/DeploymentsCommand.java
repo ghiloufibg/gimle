@@ -129,7 +129,11 @@ public final class DeploymentsCommand {
         status.get("instances") instanceof List<?> instances ? instances.size() : 0;
     row.put("replicas", placedInstances + "/" + desiredReplicas);
     row.put(
-        "health", healthOf(intValue(status.get("unplacedCount")), status.get("quotaViolating")));
+        "health",
+        healthOf(
+            intValue(status.get("unplacedCount")),
+            status.get("quotaViolating"),
+            status.get("limitRangeViolating")));
     return row;
   }
 
@@ -140,13 +144,17 @@ public final class DeploymentsCommand {
     return "-";
   }
 
-  private static String healthOf(int unplacedCount, Object quotaViolating) {
+  private static String healthOf(
+      int unplacedCount, Object quotaViolating, Object limitRangeViolating) {
     List<String> issues = new ArrayList<>();
     if (unplacedCount > 0) {
       issues.add("UNPLACED(" + unplacedCount + ")");
     }
     if (Boolean.TRUE.equals(quotaViolating)) {
       issues.add("QUOTA");
+    }
+    if (Boolean.TRUE.equals(limitRangeViolating)) {
+      issues.add("LIMITRANGE");
     }
     return issues.isEmpty() ? "HEALTHY" : String.join(",", issues);
   }

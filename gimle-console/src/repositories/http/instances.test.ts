@@ -33,6 +33,7 @@ const RAW_DEPLOYMENTS = [
     ],
     unplacedCount: 0,
     quotaViolating: false,
+    limitRangeViolating: false,
   },
 ];
 

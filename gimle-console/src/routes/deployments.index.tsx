@@ -85,7 +85,12 @@ function DeploymentsList() {
                       <StatusBadge variant="bad">unplaced {d.unplacedCount}</StatusBadge>
                     )}
                     {d.quotaViolating && <StatusBadge variant="bad">quota</StatusBadge>}
-                    {d.unplacedCount === 0 && !d.quotaViolating && (
+                    {d.limitRangeViolating && (
+                      <StatusBadge variant="bad" title={d.limitRangeViolationReason}>
+                        limit range
+                      </StatusBadge>
+                    )}
+                    {d.unplacedCount === 0 && !d.quotaViolating && !d.limitRangeViolating && (
                       <StatusBadge variant="ok">healthy</StatusBadge>
                     )}
                   </div>

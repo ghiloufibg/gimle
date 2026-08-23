@@ -61,7 +61,7 @@ public record StateSnapshot(
     List<NetworkPolicySpec> networkPolicies,
     List<ControllerRevision> controllerRevisions,
     List<LimitRangeSpec> limitRanges,
-    Set<String> limitRangeViolatingDeployments) {
+    Map<String, String> limitRangeViolations) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -110,6 +110,6 @@ public record StateSnapshot(
     networkPolicies = List.copyOf(networkPolicies);
     controllerRevisions = List.copyOf(controllerRevisions);
     limitRanges = List.copyOf(limitRanges);
-    limitRangeViolatingDeployments = Set.copyOf(limitRangeViolatingDeployments);
+    limitRangeViolations = Map.copyOf(limitRangeViolations);
   }
 }

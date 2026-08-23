@@ -2333,7 +2333,9 @@ public final class ApiServer implements AutoCloseable {
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.name()));
-    status.put("limitRangeViolating", storeClient.isLimitRangeViolating(spec.name()));
+    Optional<String> limitRangeViolationReason = storeClient.limitRangeViolationReason(spec.name());
+    status.put("limitRangeViolating", limitRangeViolationReason.isPresent());
+    limitRangeViolationReason.ifPresent(reason -> status.put("limitRangeViolationReason", reason));
     return status;
   }
 

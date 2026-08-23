@@ -155,4 +155,9 @@ public interface StoreReader {
   List<LimitRangeSpec> listLimitRanges();
 
   boolean isLimitRangeViolating(String deploymentName);
+
+  /**
+   * Empty when not violating; present with {@link LimitRangeSpec#violation}'s own text otherwise.
+   */
+  Optional<String> limitRangeViolationReason(String deploymentName);
 }

@@ -1,7 +1,6 @@
 package com.gimle.controlplane.admission;
 
 import com.gimle.core.module.ModuleDescriptor;
-import com.gimle.core.module.ResourceSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import java.util.Optional;
@@ -12,7 +11,8 @@ import java.util.Optional;
  * deployment admission chain since it's the cheaper single-artifact comparison, with no
  * cross-deployment summation to compute. Absent {@code tenantId} or an absent LimitRange for the
  * tenant are both a no-op allow -- a LimitRange is opt-in per tenant, not a default every
- * deployment must satisfy.
+ * deployment must satisfy. The bound check itself is {@link LimitRangeSpec#violation}, shared with
+ * {@code LimitRangeReconciler} so the two never drift on what counts as a violation.
  */
 public final class LimitRangePlugin implements AdmissionPlugin<DeploymentSpec> {
 
@@ -32,14 +32,8 @@ public final class LimitRangePlugin implements AdmissionPlugin<DeploymentSpec> {
           "cannot verify limit range: artifact unreadable at " + spec.artifactPath());
     }
     ModuleDescriptor descriptor = request.artifact().get().descriptor();
-    LimitRangeSpec range = limitRange.get();
     Optional<String> violation =
-        boundViolation(
-                "request", descriptor.resourceRequest(), range.minRequest(), range.maxRequest())
-            .or(
-                () ->
-                    boundViolation(
-                        "limit", descriptor.resourceLimit(), range.minLimit(), range.maxLimit()));
+        limitRange.get().violation(descriptor.resourceRequest(), descriptor.resourceLimit());
     return violation
         .<AdmissionDecision<DeploymentSpec>>map(
             reason ->
@@ -51,28 +45,5 @@ public final class LimitRangePlugin implements AdmissionPlugin<DeploymentSpec> {
                         + "'s limit range: "
                         + reason))
         .orElseGet(() -> AdmissionDecision.allow(spec));
-  }
-
-  /** Inclusive at both ends -- a value exactly at min or max satisfies the bound. */
-  private static Optional<String> boundViolation(
-      String pairName,
-      ResourceSpec actual,
-      Optional<ResourceSpec> min,
-      Optional<ResourceSpec> max) {
-    if (min.isPresent() && actual.memoryBytes() < min.get().memoryBytes()) {
-      return Optional.of(
-          pairName + " memory " + actual.memory() + " below minimum " + min.get().memory());
-    }
-    if (min.isPresent() && actual.cpuMillicores() < min.get().cpuMillicores()) {
-      return Optional.of(pairName + " cpu " + actual.cpu() + " below minimum " + min.get().cpu());
-    }
-    if (max.isPresent() && actual.memoryBytes() > max.get().memoryBytes()) {
-      return Optional.of(
-          pairName + " memory " + actual.memory() + " above maximum " + max.get().memory());
-    }
-    if (max.isPresent() && actual.cpuMillicores() > max.get().cpuMillicores()) {
-      return Optional.of(pairName + " cpu " + actual.cpu() + " above maximum " + max.get().cpu());
-    }
-    return Optional.empty();
   }
 }

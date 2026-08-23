@@ -81,6 +81,8 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.BoolResult(store.isQuotaViolating(r.deploymentName()));
       case StoreRpc.IsLimitRangeViolating r ->
           new StoreRpc.BoolResult(store.isLimitRangeViolating(r.deploymentName()));
+      case StoreRpc.GetLimitRangeViolationReason r ->
+          stringResult(store.limitRangeViolationReason(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
       case StoreRpc.GetJobSpec r -> jobSpecResult(store.getJobSpec(r.name()));

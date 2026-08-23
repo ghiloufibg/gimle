@@ -395,10 +395,14 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record PutLimitRangeViolation(String deploymentName, boolean violating) implements StateMutation {
+  /**
+   * A blank {@code reason} clears the violation; a non-blank one sets it -- same convention {@link
+   * com.gimle.mimir.store.StateStore#putLimitRangeViolation} documents on its own.
+   */
+  record PutLimitRangeViolation(String deploymentName, String reason) implements StateMutation {
     @Override
     public void applyTo(StateStore store) {
-      store.putLimitRangeViolation(deploymentName, violating);
+      store.putLimitRangeViolation(deploymentName, reason);
     }
   }
 

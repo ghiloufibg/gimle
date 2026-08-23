@@ -58,6 +58,9 @@ export interface Deployment {
   instances: DeploymentInstance[];
   unplacedCount: number;
   quotaViolating: boolean;
+  limitRangeViolating: boolean;
+  /** Set only when limitRangeViolating -- which bound (min/max, request/limit) is failing. */
+  limitRangeViolationReason?: string;
 }
 
 /* ---------------------------------------------------------------------------

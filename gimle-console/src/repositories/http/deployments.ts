@@ -39,6 +39,8 @@ interface RawDeployment {
   instances: RawDeploymentInstance[];
   unplacedCount: number;
   quotaViolating: boolean;
+  limitRangeViolating: boolean;
+  limitRangeViolationReason?: string;
 }
 
 const UNOBSERVED: DeploymentInstance["observation"] = {
@@ -61,6 +63,8 @@ function mapDeployment(raw: RawDeployment): Deployment {
     })),
     unplacedCount: raw.unplacedCount,
     quotaViolating: raw.quotaViolating,
+    limitRangeViolating: raw.limitRangeViolating,
+    limitRangeViolationReason: raw.limitRangeViolationReason,
   };
 }
 

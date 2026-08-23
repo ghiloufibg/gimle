@@ -1,5 +1,6 @@
 package com.gimle.controlplane.reconcile;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,6 +76,9 @@ class LimitRangeReconcilerTest {
     new LimitRangeReconciler(store).reconcileOnce();
 
     assertTrue(store.isLimitRangeViolating("orders"));
+    assertEquals(
+        "request memory 16Mi below minimum 32Mi",
+        store.limitRangeViolationReason("orders").orElseThrow());
   }
 
   @Test
@@ -138,7 +142,7 @@ class LimitRangeReconcilerTest {
     // Simulate a violation already recorded from a previous tick, before this reconciler instance
     // ever ran -- a fresh LimitRangeReconciler must still converge correctly from this pre-set
     // state, matching QuotaReconciler's own identical convergence test.
-    store.putLimitRangeViolation("orders", true);
+    store.putLimitRangeViolation("orders", "request memory 16Mi below minimum 32Mi");
 
     store.putLimitRange(
         new LimitRangeSpec(
@@ -150,6 +154,41 @@ class LimitRangeReconcilerTest {
     new LimitRangeReconciler(store).reconcileOnce();
 
     assertFalse(store.isLimitRangeViolating("orders"));
+    assertTrue(store.limitRangeViolationReason("orders").isEmpty());
+  }
+
+  @Test
+  void updates_the_persisted_reason_when_the_failing_bound_changes_while_still_violating() {
+    StateStore store = new StateStore(tempDir.resolve("store-reason-change"));
+    store.putLimitRange(
+        new LimitRangeSpec(
+            "acme",
+            Optional.of(new ResourceSpec("32Mi", "20m")), // fixture request memory 16Mi is below
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", jar, "acme"));
+    new LimitRangeReconciler(store).reconcileOnce();
+    assertEquals(
+        "request memory 16Mi below minimum 32Mi",
+        store.limitRangeViolationReason("orders").orElseThrow());
+
+    // Relax the memory floor but tighten the limit ceiling below the fixture's 32Mi limit instead
+    // -- still violating, but for a different reason entirely.
+    store.putLimitRange(
+        new LimitRangeSpec(
+            "acme",
+            Optional.of(new ResourceSpec("1Mi", "1m")),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(new ResourceSpec("16Mi", "20m"))));
+    new LimitRangeReconciler(store).reconcileOnce();
+
+    assertTrue(store.isLimitRangeViolating("orders"));
+    assertEquals(
+        "limit memory 32Mi above maximum 16Mi",
+        store.limitRangeViolationReason("orders").orElseThrow());
   }
 
   @Test

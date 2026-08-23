@@ -412,7 +412,7 @@ public final class RaftCodec {
       case StateMutation.PutLimitRangeViolation m -> {
         out.writeByte(MUT_PUT_LIMIT_RANGE_VIOLATION);
         out.writeUTF(m.deploymentName());
-        out.writeBoolean(m.violating());
+        out.writeUTF(m.reason());
       }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
@@ -640,7 +640,7 @@ public final class RaftCodec {
           new StateMutation.PutLimitRange(DomainCodec.readLimitRangeSpec(in));
       case MUT_REMOVE_LIMIT_RANGE -> new StateMutation.RemoveLimitRange(in.readUTF());
       case MUT_PUT_LIMIT_RANGE_VIOLATION ->
-          new StateMutation.PutLimitRangeViolation(in.readUTF(), in.readBoolean());
+          new StateMutation.PutLimitRangeViolation(in.readUTF(), in.readUTF());
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
@@ -878,9 +878,10 @@ public final class RaftCodec {
       for (LimitRangeSpec spec : snapshot.limitRanges()) {
         DomainCodec.writeLimitRangeSpec(out, spec);
       }
-      out.writeInt(snapshot.limitRangeViolatingDeployments().size());
-      for (String name : snapshot.limitRangeViolatingDeployments()) {
-        out.writeUTF(name);
+      out.writeInt(snapshot.limitRangeViolations().size());
+      for (Map.Entry<String, String> entry : snapshot.limitRangeViolations().entrySet()) {
+        out.writeUTF(entry.getKey());
+        out.writeUTF(entry.getValue());
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -1073,10 +1074,12 @@ public final class RaftCodec {
       for (int i = 0; i < limitRangeCount; i++) {
         limitRanges.add(DomainCodec.readLimitRangeSpec(in));
       }
-      Set<String> limitRangeViolatingDeployments = new LinkedHashSet<>();
+      Map<String, String> limitRangeViolations = new LinkedHashMap<>();
       int limitRangeViolatingCount = in.readInt();
       for (int i = 0; i < limitRangeViolatingCount; i++) {
-        limitRangeViolatingDeployments.add(in.readUTF());
+        String deploymentName = in.readUTF();
+        String reason = in.readUTF();
+        limitRangeViolations.put(deploymentName, reason);
       }
       return new StateSnapshot(
           deployments,
@@ -1111,7 +1114,7 @@ public final class RaftCodec {
           networkPolicies,
           controllerRevisions,
           limitRanges,
-          limitRangeViolatingDeployments);
+          limitRangeViolations);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

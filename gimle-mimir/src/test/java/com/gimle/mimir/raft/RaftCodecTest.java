@@ -331,7 +331,7 @@ class RaftCodecTest {
                 new ControllerRevision(
                     "Deployment", "greeter", 1, deploymentSpec(), 1_000L, OptionalInt.empty())),
             List.of(),
-            Set.of());
+            Map.of());
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);

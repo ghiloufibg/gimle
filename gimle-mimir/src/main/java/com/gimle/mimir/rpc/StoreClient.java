@@ -203,6 +203,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .value();
   }
 
+  public Optional<String> limitRangeViolationReason(String deploymentName) {
+    StoreRpc.StringResult r =
+        (StoreRpc.StringResult) sendRead(new StoreRpc.GetLimitRangeViolationReason(deploymentName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
   public boolean isNodeCordoned(String nodeId) {
     return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsNodeCordoned(nodeId))).value();
   }

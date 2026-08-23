@@ -6487,7 +6487,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Deployment resource management (get/apply/delete)\".",
-      "otherTestCoverage": "`GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`",
+      "otherTestCoverage": "`GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`; `DeploymentsCommandTest.the_health_column_reports_limitrange_once_the_reconciler_flags_a_violation`",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`",
         "`GimleCli.java`",
@@ -10457,7 +10457,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`)"
       ],
-      "otherTestCoverage": "`LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`)."
+      "otherTestCoverage": "`LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest`, `ApiServerConsoleContractTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`)."
     },
     {
       "id": "GIMLE-605",

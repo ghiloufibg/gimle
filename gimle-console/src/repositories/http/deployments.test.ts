@@ -30,6 +30,7 @@ const RAW_DEPLOYMENT = {
   ],
   unplacedCount: 1,
   quotaViolating: false,
+  limitRangeViolating: false,
 };
 
 describe("HttpDeploymentsRepository", () => {
@@ -53,6 +54,23 @@ describe("HttpDeploymentsRepository", () => {
       cpuMillicoresUsed: 0,
       memoryBytesUsed: 0,
     });
+  });
+
+  it("maps limitRangeViolating and its reason through unchanged", async () => {
+    const violating = {
+      ...RAW_DEPLOYMENT,
+      limitRangeViolating: true,
+      limitRangeViolationReason: "request memory 512Mi above maximum 256Mi",
+    };
+    stubFetchSequence([() => jsonResponse([violating])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].limitRangeViolating).toBe(true);
+    expect(all[0].limitRangeViolationReason).toBe(
+      "request memory 512Mi above maximum 256Mi",
+    );
   });
 
   it("fetchOne GETs /deployments/{name} and maps the result", async () => {

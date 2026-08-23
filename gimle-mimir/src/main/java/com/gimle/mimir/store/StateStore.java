@@ -138,7 +138,9 @@ public final class StateStore implements StoreReader {
   private final Map<String, ReconcilerInstanceState> reconcilerInstanceStates =
       new ConcurrentHashMap<>();
   private final Map<String, LimitRangeSpec> limitRanges = new ConcurrentHashMap<>();
-  private final Map<String, Boolean> limitRangeViolations = new ConcurrentHashMap<>();
+
+  /** Keyed by deployment name; absence means not violating. The value is the violation reason. */
+  private final Map<String, String> limitRangeViolations = new ConcurrentHashMap<>();
 
   /**
    * The store's first many-per-key resource: every other map here holds at most one current value
@@ -1157,20 +1159,28 @@ public final class StateStore implements StoreReader {
    * Set by {@code LimitRangeReconciler} every tick, read by the API server's deployment status
    * surface -- same level-triggered, remove-the-file-when-false shape as {@link
    * #putQuotaViolation}, but a separate flag: "violates this tenant's LimitRange" and "over the
-   * tenant's aggregate quota" are independently-true-or-false failure modes.
+   * tenant's aggregate quota" are independently-true-or-false failure modes. Unlike the quota flag,
+   * this one also carries {@code reason} -- {@link LimitRangeSpec#violation}'s own description of
+   * which bound is failing -- so an operator reading deployment status doesn't have to re-derive
+   * why from the tenant's current range and the deployment's own manifest. A blank {@code reason}
+   * clears the violation, matching {@code putQuotaViolation(name, false)}'s own convention.
    */
-  public void putLimitRangeViolation(String deploymentName, boolean violating) {
-    if (!violating) {
+  public void putLimitRangeViolation(String deploymentName, String reason) {
+    if (reason == null || reason.isBlank()) {
       deleteQuietly(limitRangeViolationFile(deploymentName));
       limitRangeViolations.remove(deploymentName);
       return;
     }
-    writeAtomically(limitRangeViolationFile(deploymentName), "violating: true\n");
-    limitRangeViolations.put(deploymentName, Boolean.TRUE);
+    writeAtomically(limitRangeViolationFile(deploymentName), limitRangeViolationToYaml(reason));
+    limitRangeViolations.put(deploymentName, reason);
   }
 
   public boolean isLimitRangeViolating(String deploymentName) {
-    return limitRangeViolations.getOrDefault(deploymentName, Boolean.FALSE);
+    return limitRangeViolations.containsKey(deploymentName);
+  }
+
+  public Optional<String> limitRangeViolationReason(String deploymentName) {
+    return Optional.ofNullable(limitRangeViolations.get(deploymentName));
   }
 
   // ---- full-state snapshot ----
@@ -1222,10 +1232,7 @@ public final class StateStore implements StoreReader {
         List.copyOf(networkPolicies.values()),
         controllerRevisions.values().stream().flatMap(List::stream).toList(),
         List.copyOf(limitRanges.values()),
-        limitRangeViolations.entrySet().stream()
-            .filter(Map.Entry::getValue)
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toUnmodifiableSet()));
+        Map.copyOf(limitRangeViolations));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1257,7 +1264,7 @@ public final class StateStore implements StoreReader {
     List.copyOf(services.keySet()).forEach(this::removeService);
     List.copyOf(networkPolicies.keySet()).forEach(this::removeNetworkPolicy);
     List.copyOf(limitRanges.keySet()).forEach(this::removeLimitRange);
-    List.copyOf(limitRangeViolations.keySet()).forEach(name -> putLimitRangeViolation(name, false));
+    List.copyOf(limitRangeViolations.keySet()).forEach(name -> putLimitRangeViolation(name, null));
     List.copyOf(assignments.values())
         .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
     List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
@@ -1350,7 +1357,7 @@ public final class StateStore implements StoreReader {
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
     snapshot.limitRanges().forEach(this::putLimitRange);
-    snapshot.limitRangeViolatingDeployments().forEach(name -> putLimitRangeViolation(name, true));
+    snapshot.limitRangeViolations().forEach(this::putLimitRangeViolation);
   }
 
   /**
@@ -1741,7 +1748,8 @@ public final class StateStore implements StoreReader {
         "*.yaml",
         file -> {
           String deploymentName = fileNameWithoutYamlSuffix(file);
-          limitRangeViolations.put(deploymentName, Boolean.TRUE);
+          Object rawReason = loadMap(file).get("reason");
+          limitRangeViolations.put(deploymentName, rawReason instanceof String s ? s : "");
         });
     loadEach(
         assignmentsDir(),
@@ -2586,6 +2594,16 @@ public final class StateStore implements StoreReader {
     spec.maxRequest().ifPresent(r -> root.put("maxRequest", resourceSpecToMap(r)));
     spec.minLimit().ifPresent(r -> root.put("minLimit", resourceSpecToMap(r)));
     spec.maxLimit().ifPresent(r -> root.put("maxLimit", resourceSpecToMap(r)));
+    return new Yaml().dump(root);
+  }
+
+  // A proper Yaml dumper, not hand-concatenated strings, because -- unlike the fixed "violating:
+  // true" literal this replaced -- reason is free text and may itself contain YAML-significant
+  // characters (colons, quotes) that need real escaping.
+  private static String limitRangeViolationToYaml(String reason) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("violating", true);
+    root.put("reason", reason);
     return new Yaml().dump(root);
   }
 

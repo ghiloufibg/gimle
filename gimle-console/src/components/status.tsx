@@ -25,10 +25,13 @@ export function StatusBadge({
   variant,
   children,
   className,
+  title,
 }: {
   variant: "ok" | "warn" | "bad" | "info" | "muted";
   children: React.ReactNode;
   className?: string;
+  /** Native tooltip on hover -- e.g. a violation's own reason text, too long for the badge itself. */
+  title?: string;
 }) {
   const map = {
     ok: "bg-status-ok-bg text-status-ok border-status-ok/30",
@@ -39,6 +42,7 @@ export function StatusBadge({
   } as const;
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
         map[variant],

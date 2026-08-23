@@ -165,6 +165,7 @@ public final class StoreCodec {
   private static final byte TAG_LIMIT_RANGE_RESULT = 108;
   private static final byte TAG_LIMIT_RANGE_LIST_RESULT = 109;
   private static final byte TAG_IS_LIMIT_RANGE_VIOLATING = 110;
+  private static final byte TAG_GET_LIMIT_RANGE_VIOLATION_REASON = 111;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -255,6 +256,10 @@ public final class StoreCodec {
         }
         case StoreRpc.IsLimitRangeViolating v -> {
           out.writeByte(TAG_IS_LIMIT_RANGE_VIOLATING);
+          out.writeUTF(v.deploymentName());
+        }
+        case StoreRpc.GetLimitRangeViolationReason v -> {
+          out.writeByte(TAG_GET_LIMIT_RANGE_VIOLATION_REASON);
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.IsNodeCordoned v -> {
@@ -771,6 +776,8 @@ public final class StoreCodec {
         case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
         case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
         case TAG_IS_LIMIT_RANGE_VIOLATING -> new StoreRpc.IsLimitRangeViolating(in.readUTF());
+        case TAG_GET_LIMIT_RANGE_VIOLATION_REASON ->
+            new StoreRpc.GetLimitRangeViolationReason(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
         case TAG_GET_JOB_SPEC -> new StoreRpc.GetJobSpec(in.readUTF());

@@ -75,11 +75,15 @@ equivalent of Kubernetes' `LimitRange`: an optional, per-tenant min/max bound (`
 `maxRequest`/`minLimit`/`maxLimit`, each an independently optional memory/cpu pair) on a single
 Deployment's own `resources.request`/`resources.limit`. There is deliberately no `default` bound —
 `resources.request`/`resources.limit` are always-required on a module's own manifest, so there's no
-omitted-value case for a default to inject. Scope is Deployment-only today, matching
-`TenantQuotaPlugin`'s own accepted Job/DaemonSet/StatefulSet/CronJob gap (above) — extending
-LimitRange further while quota itself doesn't would be an inconsistent asymmetry.
+omitted-value case for a default to inject. Its constructor also rejects a `minRequest` above
+`maxLimit`: since `ModuleDescriptor` already forces `resourceRequest <= resourceLimit` on every
+manifest, that combination is one no manifest could ever satisfy, and would otherwise silently lock
+a tenant out of deploying anything. Scope is Deployment-only today, matching `TenantQuotaPlugin`'s
+own accepted Job/DaemonSet/StatefulSet/CronJob gap (above) — extending LimitRange further while
+quota itself doesn't would be an inconsistent asymmetry.
 
-Checked the same twice-over way quota is:
+Checked the same twice-over way quota is, both against the one shared `LimitRangeSpec.violation`
+method so admission and reconciliation can never drift on what counts as a violation:
 
 - **At admission** — `LimitRangePlugin`, run first in the deployment admission chain (before
   `TenantQuotaPlugin`) since it's the cheaper single-artifact comparison, with no cross-deployment
@@ -88,10 +92,11 @@ Checked the same twice-over way quota is:
 - **Continuously** — `LimitRangeReconciler`, level-triggered like `QuotaReconciler`, but single-pass:
   a workload's own bound violation needs no cross-deployment accumulation to evaluate, only its own
   resource declaration against the tenant's current range. Deliberately does not evict instances to
-  force compliance either — it marks the offending deployment's status as limit-range-violating
-  (`StateStore.putLimitRangeViolation`, read by the API server's deployment status surface, a
-  separate flag from `quotaViolating` since the two are independently-true-or-false failure modes)
-  and logs a warning, the same "surface it, don't act on it" posture `QuotaReconciler` establishes.
+  force compliance either — it marks the offending deployment's status as limit-range-violating,
+  together with the reason (`StateStore.putLimitRangeViolation`, read by the API server's deployment
+  status surface as `limitRangeViolating`/`limitRangeViolationReason`, a separate flag from
+  `quotaViolating` since the two are independently-true-or-false failure modes) and logs a warning,
+  the same "surface it, don't act on it" posture `QuotaReconciler` establishes.
 
 Managed as its own top-level resource, `PUT`/`GET`/`DELETE /limitranges/{tenantId}` (keyed by
 `tenantId` directly, like `Tenant` itself rather than `NetworkPolicySpec`'s separate-`name` shape,

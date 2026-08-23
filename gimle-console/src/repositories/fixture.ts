@@ -164,8 +164,23 @@ export const deployments: Deployment[] = Array.from({ length: 42 }, (_, i) => {
     instances,
     unplacedCount: replicas - placed,
     quotaViolating: rand() < 0.12,
+    ...limitRangeViolationFixture(),
   };
 });
+
+/** A single draw decides both fields together, so they can never disagree. */
+function limitRangeViolationFixture(): Pick<
+  Deployment,
+  "limitRangeViolating" | "limitRangeViolationReason"
+> {
+  const violating = rand() < 0.08;
+  return {
+    limitRangeViolating: violating,
+    limitRangeViolationReason: violating
+      ? "request memory 512Mi above maximum 256Mi"
+      : undefined,
+  };
+}
 
 // ---------- Jobs ----------
 const JOB_PHASE_WEIGHTS: [Job["phase"], number][] = [

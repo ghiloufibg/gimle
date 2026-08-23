@@ -36,10 +36,12 @@ public record LimitRangeSpec(
     }
     requireMinNotAboveMax(minRequest, maxRequest, "request");
     requireMinNotAboveMax(minLimit, maxLimit, "limit");
+    requireRequestFloorNotAboveLimitCeiling(minRequest, maxLimit);
   }
 
-  // Each of the two pairs (request, limit) is checked independently -- there is no meaningful
-  // relationship between e.g. minRequest and maxLimit worth enforcing here.
+  // Each of the two pairs (request, limit) is checked independently here -- see
+  // requireRequestFloorNotAboveLimitCeiling below for the one cross-pair relationship that *is*
+  // meaningful.
   private static void requireMinNotAboveMax(
       Optional<ResourceSpec> min, Optional<ResourceSpec> max, String pairName) {
     if (min.isEmpty() || max.isEmpty()) {
@@ -69,5 +71,68 @@ public record LimitRangeSpec(
               + " > "
               + maxSpec.cpu());
     }
+  }
+
+  // ModuleDescriptor's own compact constructor already requires resourceRequest <= resourceLimit
+  // on every manifest, unconditionally -- so a minRequest above maxLimit isn't just a stricter
+  // range, it's one no manifest could ever satisfy (its request would have to be >= minRequest >
+  // maxLimit >= its own limit, contradicting that invariant). Unlike the two same-pair checks
+  // above, this is the one cross-pair relationship worth rejecting at construction time, before it
+  // silently locks a tenant out of ever deploying anything.
+  private static void requireRequestFloorNotAboveLimitCeiling(
+      Optional<ResourceSpec> minRequest, Optional<ResourceSpec> maxLimit) {
+    if (minRequest.isEmpty() || maxLimit.isEmpty()) {
+      return;
+    }
+    ResourceSpec min = minRequest.get();
+    ResourceSpec max = maxLimit.get();
+    if (min.memoryBytes() > max.memoryBytes()) {
+      throw new IllegalArgumentException(
+          "min request memory exceeds max limit memory, so no manifest could ever comply: "
+              + min.memory()
+              + " > "
+              + max.memory());
+    }
+    if (min.cpuMillicores() > max.cpuMillicores()) {
+      throw new IllegalArgumentException(
+          "min request cpu exceeds max limit cpu, so no manifest could ever comply: "
+              + min.cpu()
+              + " > "
+              + max.cpu());
+    }
+  }
+
+  /**
+   * The single per-workload compliance check shared by the admission plugin ({@code
+   * LimitRangePlugin}) and the continuous reconciler ({@code LimitRangeReconciler}): a description
+   * of the first bound {@code request}/{@code limit} violates, or empty if both satisfy every bound
+   * this range declares. Inclusive at both ends -- a value exactly at min or max satisfies the
+   * bound.
+   */
+  public Optional<String> violation(ResourceSpec request, ResourceSpec limit) {
+    return boundViolation("request", request, minRequest, maxRequest)
+        .or(() -> boundViolation("limit", limit, minLimit, maxLimit));
+  }
+
+  private static Optional<String> boundViolation(
+      String pairName,
+      ResourceSpec actual,
+      Optional<ResourceSpec> min,
+      Optional<ResourceSpec> max) {
+    if (min.isPresent() && actual.memoryBytes() < min.get().memoryBytes()) {
+      return Optional.of(
+          pairName + " memory " + actual.memory() + " below minimum " + min.get().memory());
+    }
+    if (min.isPresent() && actual.cpuMillicores() < min.get().cpuMillicores()) {
+      return Optional.of(pairName + " cpu " + actual.cpu() + " below minimum " + min.get().cpu());
+    }
+    if (max.isPresent() && actual.memoryBytes() > max.get().memoryBytes()) {
+      return Optional.of(
+          pairName + " memory " + actual.memory() + " above maximum " + max.get().memory());
+    }
+    if (max.isPresent() && actual.cpuMillicores() > max.get().cpuMillicores()) {
+      return Optional.of(pairName + " cpu " + actual.cpu() + " above maximum " + max.get().cpu());
+    }
+    return Optional.empty();
   }
 }

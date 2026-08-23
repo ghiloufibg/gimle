@@ -117,6 +117,7 @@ public sealed interface StoreRpc {
           GetLimitRange,
           ListLimitRanges,
           IsLimitRangeViolating,
+          GetLimitRangeViolationReason,
           Status {}
 
   sealed interface Response extends StoreRpc
@@ -242,6 +243,9 @@ public sealed interface StoreRpc {
   record IsQuotaViolating(String deploymentName) implements Request {}
 
   record IsLimitRangeViolating(String deploymentName) implements Request {}
+
+  /** Response reuses {@link StringResult} -- same shape as {@link GetStatefulSetIndexNode}'s. */
+  record GetLimitRangeViolationReason(String deploymentName) implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
 
