@@ -3,6 +3,9 @@ package com.gimle.worker;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.logging.InstanceMdcKeys;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.CompletionStatus;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleController;
@@ -13,6 +16,7 @@ import com.gimle.worker.testsupport.RecordingJobHooks;
 import com.gimle.worker.testsupport.WiredWorkerRuntime;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,6 +113,40 @@ class JobHooksExecutionTest {
 
     assertTrue(RecordingJobHooks.RAN.get());
     assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+  }
+
+  @Test
+  void a_succeeding_jobs_own_logging_is_mdc_tagged_for_the_application_log() {
+    // WorkerRuntime#runJobHooks dispatches JobHooks#run onto a brand-new virtual thread, unlike
+    // WorkerMain#runCommand's synchronous lifecycle hooks (onInstall/onStart/onStop/onUninstall),
+    // which inherit the calling control-channel thread's already-tagged MDC for free. Without its
+    // own explicit tagging, a Job's own run() logging (and the RecordingJobHooks.MDC_SNAPSHOT this
+    // asserts against) would see an empty MDC and land in the worker's shared PLATFORM log instead
+    // of this instance's own APPLICATION log.
+    String name = "com.gimle.fixture.job.mdc";
+    // buildFixtureJar's own uniqueName is name + (counter++) -- read counter's value before that
+    // call to predict the exact ModuleId the fixture jar will register under, so an identity for
+    // it can be registered before WiredWorkerRuntime.start dispatches onActive.
+    ModuleId id = new ModuleId(name + counter, Version.parse("1.0.0"));
+    Path jar = buildFixtureJar(name);
+
+    InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();
+    identityRegistry.register(
+        id, new InstanceIdentity("mdc-test-deployment", 3, Optional.of("mdc-test-tenant")));
+
+    WiredWorkerRuntime.Result f =
+        WiredWorkerRuntime.start(
+            jar, 99, Optional.empty(), exhaustedId -> {}, identityRegistry, identity -> {});
+
+    Await.until(
+        () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.Completed),
+        Duration.ofSeconds(2));
+
+    Map<String, String> mdc = RecordingJobHooks.MDC_SNAPSHOT.get();
+    assertEquals("mdc-test-deployment", mdc.get(InstanceMdcKeys.DEPLOYMENT_NAME));
+    assertEquals("3", mdc.get(InstanceMdcKeys.INSTANCE_INDEX));
+    assertEquals("mdc-test-tenant", mdc.get(InstanceMdcKeys.TENANT_ID));
+    assertTrue(InstanceMdcKeys.isApplicationCategory(mdc));
   }
 
   @Test
