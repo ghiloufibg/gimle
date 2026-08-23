@@ -1854,11 +1854,41 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.DAEMONSET,
         "missing daemonset name",
         "daemonset",
-        ex -> Optional.of(pathSegmentAfter(ex, "/daemonsets/")),
+        this::resolveDaemonSetNameOrHandleSubRoute,
         name -> storeClient.getDaemonSetSpec(name).map(DaemonSetSpec::tenantId),
         this::handlePutDaemonSet,
         this::handleGetDaemonSet,
         this::handleDeleteDaemonSet);
+  }
+
+  /** Mirrors {@link #resolveDeploymentNameOrHandleSubRoute}'s shape exactly. */
+  private Optional<String> resolveDaemonSetNameOrHandleSubRoute(HttpExchange exchange)
+      throws IOException {
+    String tail = pathSegmentAfter(exchange, "/daemonsets/");
+    int slash = tail.indexOf('/');
+    String name = slash < 0 ? tail : tail.substring(0, slash);
+    if (name.isBlank() || slash < 0) {
+      return Optional.of(name);
+    }
+    String action = tail.substring(slash + 1);
+    Optional<String> tenant =
+        storeClient.getDaemonSetSpec(name).map(DaemonSetSpec::tenantId).orElse(Optional.empty());
+    switch (action) {
+      case "revisions" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.DAEMONSET, Verb.READ, tenant, Optional.of(name))) {
+          handleListControllerRevisions(exchange, "DaemonSet", name);
+        }
+      }
+      case "rollback" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))) {
+          handleRollbackDaemonSet(exchange, name);
+        }
+      }
+      default -> respond(exchange, 404, "unknown daemonset endpoint: " + action);
+    }
+    return Optional.empty();
   }
 
   private void handlePutDaemonSet(HttpExchange exchange, String name, WorkloadSpec parsed)
@@ -1891,8 +1921,67 @@ public final class ApiServer implements AutoCloseable {
     // No tenant-quota check here, same documented gap handlePutJob's own identical comment
     // explains -- TenantUsage's accounting model is replica-count-shaped and has no per-node
     // equivalent yet.
+    Optional<DaemonSetSpec> previous = storeClient.getDaemonSetSpec(name);
+    if (previous.isEmpty() || daemonSetContentChanged(previous.get(), spec)) {
+      storeClient.propose(
+          new StateMutation.AppendControllerRevision(
+              nextRevisionFor("DaemonSet", spec, OptionalInt.empty())));
+    }
     storeClient.propose(new StateMutation.PutDaemonSetSpec(spec));
     respond(exchange, 200, "ok");
+  }
+
+  /** Same three-field trigger {@link #deploymentContentChanged} uses -- see its own javadoc. */
+  private static boolean daemonSetContentChanged(DaemonSetSpec previous, DaemonSetSpec next) {
+    return !previous.moduleId().equals(next.moduleId())
+        || !previous.artifactPath().equals(next.artifactPath())
+        || !previous.artifactSha256().equals(next.artifactSha256());
+  }
+
+  /**
+   * {@code POST /daemonsets/{name}/rollback} -- mirrors {@link #handleRollbackDeployment} exactly,
+   * except there is no {@code AdmissionChain} for DaemonSet to re-run (see {@link
+   * #handlePutDaemonSet}'s own "No tenant-quota check here" comment): re-validation is artifact
+   * resolution only.
+   */
+  private void handleRollbackDaemonSet(HttpExchange exchange, String name) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    List<ControllerRevision> revisions = storeClient.listControllerRevisions("DaemonSet", name);
+    if (revisions.isEmpty()) {
+      respond(exchange, 404, "no revision history for daemonset: " + name);
+      return;
+    }
+    OptionalInt targetRevision =
+        resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
+    Optional<ControllerRevision> target =
+        targetRevision.isEmpty()
+            ? Optional.empty()
+            : revisions.stream().filter(r -> r.revision() == targetRevision.getAsInt()).findFirst();
+    if (target.isEmpty()) {
+      respond(
+          exchange,
+          404,
+          targetRevision.isEmpty()
+              ? "daemonset " + name + " has no earlier revision to roll back to"
+              : "no such revision of daemonset " + name + ": " + targetRevision.getAsInt());
+      return;
+    }
+    DaemonSetSpec restored = (DaemonSetSpec) target.get().spec();
+    AdmissionArtifact admitted =
+        admissionArtifact(
+            restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 409, admitted.rejection().get());
+      return;
+    }
+    DaemonSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
+    ControllerRevision newRevision = nextRevisionFor("DaemonSet", resolved, targetRevision);
+    storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
+    storeClient.propose(new StateMutation.PutDaemonSetSpec(resolved));
+    respondJson(exchange, 200, controllerRevisionToJson(newRevision));
   }
 
   private static DaemonSetSpec withArtifactSha256(DaemonSetSpec spec, Optional<String> sha256) {
@@ -1986,11 +2075,44 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.STATEFULSET,
         "missing statefulset name",
         "statefulset",
-        ex -> Optional.of(pathSegmentAfter(ex, "/statefulsets/")),
+        this::resolveStatefulSetNameOrHandleSubRoute,
         name -> storeClient.getStatefulSetSpec(name).map(StatefulSetSpec::tenantId),
         this::handlePutStatefulSet,
         this::handleGetStatefulSet,
         this::handleDeleteStatefulSet);
+  }
+
+  /** Mirrors {@link #resolveDeploymentNameOrHandleSubRoute}'s shape exactly. */
+  private Optional<String> resolveStatefulSetNameOrHandleSubRoute(HttpExchange exchange)
+      throws IOException {
+    String tail = pathSegmentAfter(exchange, "/statefulsets/");
+    int slash = tail.indexOf('/');
+    String name = slash < 0 ? tail : tail.substring(0, slash);
+    if (name.isBlank() || slash < 0) {
+      return Optional.of(name);
+    }
+    String action = tail.substring(slash + 1);
+    Optional<String> tenant =
+        storeClient
+            .getStatefulSetSpec(name)
+            .map(StatefulSetSpec::tenantId)
+            .orElse(Optional.empty());
+    switch (action) {
+      case "revisions" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.STATEFULSET, Verb.READ, tenant, Optional.of(name))) {
+          handleListControllerRevisions(exchange, "StatefulSet", name);
+        }
+      }
+      case "rollback" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))) {
+          handleRollbackStatefulSet(exchange, name);
+        }
+      }
+      default -> respond(exchange, 404, "unknown statefulset endpoint: " + action);
+    }
+    return Optional.empty();
   }
 
   private void handlePutStatefulSet(HttpExchange exchange, String name, WorkloadSpec parsed)
@@ -2025,8 +2147,67 @@ public final class ApiServer implements AutoCloseable {
     // TenantUsage's existing replica-count-shaped accounting cleanly, but wiring only this one
     // kind in would still leave Job under-counted; making TenantUsage genuinely multi-kind-aware
     // is real, separate scope, not a StatefulSet-specific fix.
+    Optional<StatefulSetSpec> previous = storeClient.getStatefulSetSpec(name);
+    if (previous.isEmpty() || statefulSetContentChanged(previous.get(), spec)) {
+      storeClient.propose(
+          new StateMutation.AppendControllerRevision(
+              nextRevisionFor("StatefulSet", spec, OptionalInt.empty())));
+    }
     storeClient.propose(new StateMutation.PutStatefulSetSpec(spec));
     respond(exchange, 200, "ok");
+  }
+
+  /** Same three-field trigger {@link #deploymentContentChanged} uses -- see its own javadoc. */
+  private static boolean statefulSetContentChanged(StatefulSetSpec previous, StatefulSetSpec next) {
+    return !previous.moduleId().equals(next.moduleId())
+        || !previous.artifactPath().equals(next.artifactPath())
+        || !previous.artifactSha256().equals(next.artifactSha256());
+  }
+
+  /**
+   * {@code POST /statefulsets/{name}/rollback} -- mirrors {@link #handleRollbackDeployment}
+   * exactly, except there is no {@code AdmissionChain} for StatefulSet to re-run (see {@link
+   * #handlePutStatefulSet}'s own "No tenant-quota check here" comment): re-validation is artifact
+   * resolution only.
+   */
+  private void handleRollbackStatefulSet(HttpExchange exchange, String name) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    List<ControllerRevision> revisions = storeClient.listControllerRevisions("StatefulSet", name);
+    if (revisions.isEmpty()) {
+      respond(exchange, 404, "no revision history for statefulset: " + name);
+      return;
+    }
+    OptionalInt targetRevision =
+        resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
+    Optional<ControllerRevision> target =
+        targetRevision.isEmpty()
+            ? Optional.empty()
+            : revisions.stream().filter(r -> r.revision() == targetRevision.getAsInt()).findFirst();
+    if (target.isEmpty()) {
+      respond(
+          exchange,
+          404,
+          targetRevision.isEmpty()
+              ? "statefulset " + name + " has no earlier revision to roll back to"
+              : "no such revision of statefulset " + name + ": " + targetRevision.getAsInt());
+      return;
+    }
+    StatefulSetSpec restored = (StatefulSetSpec) target.get().spec();
+    AdmissionArtifact admitted =
+        admissionArtifact(
+            restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 409, admitted.rejection().get());
+      return;
+    }
+    StatefulSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
+    ControllerRevision newRevision = nextRevisionFor("StatefulSet", resolved, targetRevision);
+    storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
+    storeClient.propose(new StateMutation.PutStatefulSetSpec(resolved));
+    respondJson(exchange, 200, controllerRevisionToJson(newRevision));
   }
 
   private static StatefulSetSpec withArtifactSha256(StatefulSetSpec spec, Optional<String> sha256) {
