@@ -142,7 +142,9 @@ class FabricServerTlsWatcherTest {
   private static String callPing(InetSocketAddress address, String arg) throws IOException {
     FabricFrame response = FabricClient.call(address, invokePing(arg));
     FabricFrame.InvokeResponse invokeResponse = (FabricFrame.InvokeResponse) response;
-    return (String) ObjectMarshalling.deserialize(invokeResponse.serializedReturn());
+    return (String)
+        ObjectMarshalling.deserialize(
+            invokeResponse.serializedReturn(), FabricServerTlsWatcherTest.class.getClassLoader());
   }
 
   private static FabricFrame.InvokeRequest invokePing(String arg) {

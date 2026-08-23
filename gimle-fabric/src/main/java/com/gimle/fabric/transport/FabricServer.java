@@ -516,14 +516,20 @@ public final class FabricServer implements AutoCloseable {
     checkTenantPermitted(owned.owner(), request);
     checkNetworkPolicyPermitted(owned.owner(), request);
 
+    // The target instance's own classloader, not the fixed worker-wide interfaceLoader: an
+    // argument type is just as likely to be private to the provider module's own layer as the
+    // interface itself is (see the class-level rationale on ObjectMarshalling.deserialize) -- the
+    // instance is already resolved here, so its loader is the one guaranteed to see whatever its
+    // own method signature declares.
+    ClassLoader ownerLoader = owned.instance().getClass().getClassLoader();
     Class<?>[] paramTypes =
-        ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), interfaceLoader);
+        ReflectiveDispatch.resolveParamTypes(request.paramTypeNames(), ownerLoader);
     // The Method must come from the public interface Class, not owned.instance().getClass()
     // directly -- see ReflectiveDispatch.findInterface's own javadoc for why.
     Class<?> iface =
         ReflectiveDispatch.findInterface(owned.instance().getClass(), request.interfaceName());
     Method method = iface.getMethod(request.methodName(), paramTypes);
-    Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs());
+    Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs(), ownerLoader);
 
     ModuleId owner = owned.owner();
     Optional<ModuleContext> ctx = contextLookup.apply(owner);

@@ -376,7 +376,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       return Optional.empty();
     }
     return Optional.ofNullable(
-        invokeOverWire(interfaceName, chosen, methodName, paramTypeNames, args));
+        invokeOverWire(interfaceName, chosen, methodName, paramTypeNames, args, interfaceLoader));
   }
 
   private List<ServiceEndpoint> endpointsForNameAndVersion(String interfaceName, int majorVersion) {
@@ -585,7 +585,13 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       Class<?> iface, ServiceEndpoint endpoint, Method method, Object[] args) throws Throwable {
     String[] paramTypeNames =
         Arrays.stream(method.getParameterTypes()).map(Class::getName).toArray(String[]::new);
-    return invokeOverWire(iface.getName(), endpoint, method.getName(), paramTypeNames, args);
+    // iface's own classloader, the same one createProxy already trusts to see iface itself: a
+    // return value or a thrown exception is just as likely to be a type private to the provider
+    // module's own layer as the interface is (see ObjectMarshalling.deserialize's own rationale),
+    // and iface's loader -- not the fixed worker-wide interfaceLoader -- is the one guaranteed to
+    // resolve it, since the caller module bundles its own literal copy of that contract's types.
+    return invokeOverWire(
+        iface.getName(), endpoint, method.getName(), paramTypeNames, args, iface.getClassLoader());
   }
 
   /**
@@ -593,14 +599,19 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * reduced to these same plain strings) and {@link #invokeByName}'s own same-machine/remote tiers
    * (which never had a {@link Method} to begin with) -- builds and sends one {@code
    * FabricFrame.InvokeRequest}, then applies the identical breaker-scoring and error-unwrapping
-   * rules to whatever comes back, regardless of which caller shape produced the request.
+   * rules to whatever comes back, regardless of which caller shape produced the request. {@code
+   * returnClassLoader} resolves the response payload's classes: {@link #invokeRemote} passes the
+   * calling interface's own loader (the one guaranteed to see its contract's types); {@link
+   * #invokeByName} has no {@link Class} to draw one from, so it falls back to the fixed worker-wide
+   * {@code interfaceLoader}.
    */
   private Object invokeOverWire(
       String interfaceName,
       ServiceEndpoint endpoint,
       String methodName,
       String[] paramTypeNames,
-      Object[] args)
+      Object[] args,
+      ClassLoader returnClassLoader)
       throws Throwable {
     CircuitBreaker breaker = breakerFor(endpoint);
     selector.begin(endpoint);
@@ -628,7 +639,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       return switch (response) {
         case FabricFrame.InvokeResponse resp -> {
           breaker.recordSuccess();
-          yield ObjectMarshalling.deserialize(resp.serializedReturn());
+          yield ObjectMarshalling.deserialize(resp.serializedReturn(), returnClassLoader);
         }
         case FabricFrame.InvokeError err -> {
           // The remote method itself threw -- proof the endpoint was reachable and answered, not a
@@ -636,7 +647,8 @@ public final class FabricServiceRegistry implements ServiceRegistry {
           // exception exactly as readily as on a dead socket; only the IOException branch above
           // (a genuine dispatch failure) should count against it.
           breaker.recordSuccess();
-          Object deserialized = ObjectMarshalling.deserialize(err.serializedThrowable());
+          Object deserialized =
+              ObjectMarshalling.deserialize(err.serializedThrowable(), returnClassLoader);
           if (deserialized instanceof Throwable throwable) {
             throw throwable;
           }
