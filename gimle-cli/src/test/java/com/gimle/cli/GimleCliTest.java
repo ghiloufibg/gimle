@@ -301,6 +301,45 @@ class GimleCliTest {
   }
 
   @Test
+  void set_limitrange_then_get_limitranges_round_trips() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "limitrange",
+            "acme",
+            "--min-request-memory",
+            "64Mi",
+            "--min-request-cpu",
+            "50m",
+            "--max-limit-memory",
+            "512Mi",
+            "--max-limit-cpu",
+            "500m");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int getExit = run("get", "limitranges");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("acme"));
+
+    outBuffer.reset();
+    int getSingleExit = run("-o", "json", "get", "limitrange", "acme");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"tenantId\":\"acme\""));
+    assertTrue(stdout().contains("\"memory\":\"64Mi\""));
+    assertTrue(stdout().contains("\"memory\":\"512Mi\""));
+
+    outBuffer.reset();
+    int deleteExit = run("delete", "limitrange", "acme");
+    assertEquals(0, deleteExit);
+
+    outBuffer.reset();
+    int getAfterDeleteExit = run("get", "limitrange", "acme");
+    assertEquals(1, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
   void set_and_get_config_round_trips() throws Exception {
     run(
         "set",

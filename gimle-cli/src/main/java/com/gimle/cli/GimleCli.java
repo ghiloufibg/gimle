@@ -51,6 +51,12 @@ import java.util.List;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
  *   gimle delete tenant &lt;id&gt;
+ *   gimle get limitranges [tenantId]
+ *   gimle set limitrange &lt;tenantId&gt; [--min-request-memory M --min-request-cpu M]
+ *                                    [--max-request-memory M --max-request-cpu M]
+ *                                    [--min-limit-memory M --min-limit-cpu M]
+ *                                    [--max-limit-memory M --max-limit-cpu M]
+ *   gimle delete limitrange &lt;tenantId&gt;
  *   gimle get config &lt;tenantId&gt;
  *   gimle set config &lt;tenantId&gt; &lt;key&gt; &lt;value&gt; [--encrypted]
  *   gimle delete config &lt;tenantId&gt; &lt;key&gt;
@@ -347,6 +353,7 @@ public final class GimleCli {
       case "networkpolicy", "networkpolicies" ->
           new NetworkPolicyCommand(client, output, out).get(rest);
       case "tenant", "tenants" -> new TenantsCommand(client, output, out).get(rest);
+      case "limitrange", "limitranges" -> new LimitRangeCommand(client, output, out).get(rest);
       case "config" -> new ConfigCommand(client, output, out).list(requireOne(rest, "config"));
       case "role", "roles" -> new RolesCommand(client, output, out).get(rest);
       case "rolebinding", "rolebindings" -> new RoleBindingsCommand(client, output, out).get(rest);
@@ -366,6 +373,7 @@ public final class GimleCli {
       case "service" -> new ServicesCommand(client, output, out).set(rest);
       case "networkpolicy" -> new NetworkPolicyCommand(client, output, out).set(rest);
       case "tenant" -> new TenantsCommand(client, output, out).set(rest);
+      case "limitrange" -> new LimitRangeCommand(client, output, out).set(rest);
       case "config" -> new ConfigCommand(client, output, out).set(rest);
       case "role" -> new RolesCommand(client, output, out).set(rest);
       case "rolebinding" -> new RoleBindingsCommand(client, output, out).set(rest);
@@ -397,6 +405,8 @@ public final class GimleCli {
           new NetworkPolicyCommand(client, output, out).delete(requireOne(rest, "networkpolicy"));
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
+      case "limitrange", "limitranges" ->
+          new LimitRangeCommand(client, output, out).delete(requireOne(rest, "limitrange"));
       case "config" -> new ConfigCommand(client, output, out).delete(rest);
       case "role", "roles" ->
           new RolesCommand(client, output, out).delete(requireOne(rest, "role"));
@@ -471,6 +481,12 @@ public final class GimleCli {
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
           delete tenant <id>
+          get limitranges [tenantId]
+          set limitrange <tenantId> [--min-request-memory M --min-request-cpu M]
+                                     [--max-request-memory M --max-request-cpu M]
+                                     [--min-limit-memory M --min-limit-cpu M]
+                                     [--max-limit-memory M --max-limit-cpu M]
+          delete limitrange <tenantId>
           get config <tenantId>
           set config <tenantId> <key> <value> [--encrypted]
           delete config <tenantId> <key>
