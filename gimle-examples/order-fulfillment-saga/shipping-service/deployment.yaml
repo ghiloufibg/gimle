@@ -9,3 +9,5 @@ module:
 tenantId: order-fulfillment-saga
 artifactPath: gimle-examples/order-fulfillment-saga/shipping-service/target/shipping-service.jar
 replicas: 2
+placement:
+  antiAffinity: true

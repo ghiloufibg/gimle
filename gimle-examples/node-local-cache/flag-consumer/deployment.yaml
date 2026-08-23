@@ -1,6 +1,9 @@
 # Three replicas so, on a real multi-node cluster, more than one node's own consumer instance is
 # observable at once -- each should settle on its own node's local-flag-cache replicaId, not all
-# three converging on the same one.
+# three converging on the same one. placement.antiAffinity is what actually makes that true: the
+# scheduler is otherwise free to bin-pack every TIER_2 replica onto whichever single node has the
+# most free capacity, since anti-affinity against other replicas of this deployment is opt-in, not
+# the scheduler's default.
 kind: Deployment
 name: flag-consumer-deployment
 module:
@@ -8,3 +11,5 @@ module:
   version: 1.0.0
 artifactPath: gimle-examples/node-local-cache/flag-consumer/target/flag-consumer.jar
 replicas: 3
+placement:
+  antiAffinity: true
