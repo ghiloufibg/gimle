@@ -82,6 +82,7 @@ import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
@@ -660,11 +661,47 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.DEPLOYMENT,
         "missing deployment name",
         "deployment",
-        ex -> Optional.of(pathSegmentAfter(ex, "/deployments/")),
+        this::resolveDeploymentNameOrHandleSubRoute,
         name -> storeClient.getDeployment(name).map(DeploymentSpec::tenantId),
         this::handlePutDeployment,
         this::handleGetDeployment,
         this::handleDeleteDeployment);
+  }
+
+  /**
+   * {@code /deployments/{name}} name resolution is one segment, except a path may carry a second
+   * segment -- {@code /deployments/{name}/revisions} (GET, revision history) or {@code
+   * /deployments/{name}/rollback} (POST, restore an earlier revision) -- neither of which is a
+   * plain PUT/GET/DELETE-by-name. Mirrors {@link #resolveCronJobNameOrHandleSubRoute}'s own shape
+   * exactly, generalized to two reserved actions instead of one.
+   */
+  private Optional<String> resolveDeploymentNameOrHandleSubRoute(HttpExchange exchange)
+      throws IOException {
+    String tail = pathSegmentAfter(exchange, "/deployments/");
+    int slash = tail.indexOf('/');
+    String name = slash < 0 ? tail : tail.substring(0, slash);
+    if (name.isBlank() || slash < 0) {
+      return Optional.of(name);
+    }
+    String action = tail.substring(slash + 1);
+    Optional<String> tenant =
+        storeClient.getDeployment(name).map(DeploymentSpec::tenantId).orElse(Optional.empty());
+    switch (action) {
+      case "revisions" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant, Optional.of(name))) {
+          handleListControllerRevisions(exchange, "Deployment", name);
+        }
+      }
+      case "rollback" -> {
+        if (requireAuthorized(
+            exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))) {
+          handleRollbackDeployment(exchange, name);
+        }
+      }
+      default -> respond(exchange, 404, "unknown deployment endpoint: " + action);
+    }
+    return Optional.empty();
   }
 
   /** A {@code (HttpExchange, String name)} action that may itself throw {@link IOException}. */
@@ -830,10 +867,30 @@ public final class ApiServer implements AutoCloseable {
       case AdmissionDecision.Reject<DeploymentSpec> reject ->
           respond(exchange, 409, reject.reason());
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
+        Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
+        if (previous.isEmpty() || deploymentContentChanged(previous.get(), allow.spec())) {
+          storeClient.propose(
+              new StateMutation.AppendControllerRevision(
+                  nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
+        }
         storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
         respond(exchange, 200, "ok");
       }
     }
+  }
+
+  /**
+   * "Meaningfully changed" for revision-history purposes is narrower than "any field differs": only
+   * {@code moduleId}/{@code artifactPath}/{@code artifactSha256} -- the same three fields {@link
+   * com.gimle.controlplane.reconcile.DeploymentReconciler#validateArtifact} and {@code
+   * mismatchedAssignments} already treat as "this instance is running the wrong thing." A
+   * replica-count/placement/autoscale-only PUT mints no new revision, matching Kubernetes' own
+   * template-hash-triggered {@code ControllerRevision} creation.
+   */
+  private static boolean deploymentContentChanged(DeploymentSpec previous, DeploymentSpec next) {
+    return !previous.moduleId().equals(next.moduleId())
+        || !previous.artifactPath().equals(next.artifactPath())
+        || !previous.artifactSha256().equals(next.artifactSha256());
   }
 
   private static Optional<ModuleArtifact> readArtifactIfPossible(
@@ -971,6 +1028,173 @@ public final class ApiServer implements AutoCloseable {
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
     storeClient.propose(new StateMutation.RemoveDeployment(name));
     respond(exchange, 200, "ok");
+  }
+
+  // ---- controller revision history / rollback (Deployment/StatefulSet/DaemonSet) ----
+
+  /**
+   * {@code GET /{deployments,statefulsets,daemonsets}/{name}/revisions} -- newest-first, matching
+   * {@link com.gimle.mimir.store.StateStore#listControllerRevisions}'s own read order. Job/CronJob
+   * have no revision history at all: run-to-completion workloads have no "roll back to an earlier
+   * desired state" concept, so this route only ever reaches Deployment/StatefulSet/DaemonSet.
+   */
+  private void handleListControllerRevisions(
+      HttpExchange exchange, String workloadKind, String name) throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    List<ControllerRevision> revisions = storeClient.listControllerRevisions(workloadKind, name);
+    respondJson(
+        exchange,
+        200,
+        Map.of("revisions", revisions.stream().map(this::controllerRevisionToJson).toList()));
+  }
+
+  /**
+   * {@code POST /deployments/{name}/rollback}: restores an earlier revision's content as a
+   * brand-new revision -- forward-only, the same "restore = new revision, never rewrite history"
+   * semantics {@code SecretMapStore#rollback} and {@code gimle-hilmir}'s own release rollback
+   * already establish. Re-validates the restored content through the identical admission chain a
+   * fresh PUT runs (artifact resolution, tenant quota): a rollback is not a bypass of checks that
+   * may have tightened since this content last ran successfully.
+   */
+  private void handleRollbackDeployment(HttpExchange exchange, String name) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    List<ControllerRevision> revisions = storeClient.listControllerRevisions("Deployment", name);
+    if (revisions.isEmpty()) {
+      respond(exchange, 404, "no revision history for deployment: " + name);
+      return;
+    }
+    OptionalInt targetRevision =
+        resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
+    Optional<ControllerRevision> target =
+        targetRevision.isEmpty()
+            ? Optional.empty()
+            : revisions.stream().filter(r -> r.revision() == targetRevision.getAsInt()).findFirst();
+    if (target.isEmpty()) {
+      respond(
+          exchange,
+          404,
+          targetRevision.isEmpty()
+              ? "deployment " + name + " has no earlier revision to roll back to"
+              : "no such revision of deployment " + name + ": " + targetRevision.getAsInt());
+      return;
+    }
+    DeploymentSpec restored = (DeploymentSpec) target.get().spec();
+    AdmissionArtifact admitted =
+        admissionArtifact(
+            restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
+    if (admitted.rejection().isPresent()) {
+      respond(exchange, 409, admitted.rejection().get());
+      return;
+    }
+    DeploymentSpec resolved = withArtifactSha256(restored, admitted.sha256());
+    AdmissionDecision<DeploymentSpec> decision =
+        deploymentAdmissionChain.admit(
+            ResourceKind.DEPLOYMENT, Verb.WRITE, resolved, storeClient, admitted.artifact());
+    switch (decision) {
+      case AdmissionDecision.Reject<DeploymentSpec> reject ->
+          respond(exchange, 409, reject.reason());
+      case AdmissionDecision.Allow<DeploymentSpec> allow -> {
+        ControllerRevision newRevision =
+            nextRevisionFor("Deployment", allow.spec(), targetRevision);
+        storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
+        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
+        respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+      }
+    }
+  }
+
+  /**
+   * Builds the next revision to record for {@code workloadKind}/{@code spec.name()} -- {@code
+   * rollbackOfRevision} is {@link OptionalInt#empty()} for an ordinary content-changed apply,
+   * present only when this revision restores an earlier one via rollback. Shared by every kind's
+   * PUT handler and rollback handler alike: purely a function of the current revision count plus
+   * the caller's own rollback intent, nothing kind-specific.
+   */
+  private ControllerRevision nextRevisionFor(
+      String workloadKind, WorkloadSpec spec, OptionalInt rollbackOfRevision) {
+    List<ControllerRevision> existing =
+        storeClient.listControllerRevisions(workloadKind, spec.name());
+    int nextRevision = existing.isEmpty() ? 1 : existing.get(0).revision() + 1;
+    return new ControllerRevision(
+        workloadKind,
+        spec.name(),
+        nextRevision,
+        spec,
+        System.currentTimeMillis(),
+        rollbackOfRevision);
+  }
+
+  /**
+   * Resolves which revision a rollback targets: the caller's explicit {@code toRevision}, or --
+   * when omitted, matching {@code gimle-hilmir}'s own {@code RollbackCommand.resolveTargetRevision}
+   * default -- the revision immediately before the current (newest) one. Empty means there is no
+   * earlier revision to roll back to. Pure and kind-agnostic, the one piece of rollback logic
+   * genuinely worth sharing across Deployment/StatefulSet/DaemonSet rather than tripling.
+   */
+  private static OptionalInt resolveRollbackTarget(
+      List<ControllerRevision> newestFirst, OptionalInt explicitTarget) {
+    if (explicitTarget.isPresent()) {
+      return explicitTarget;
+    }
+    return newestFirst.size() > 1
+        ? OptionalInt.of(newestFirst.get(1).revision())
+        : OptionalInt.empty();
+  }
+
+  private static OptionalInt parseToRevision(String body) {
+    if (body.isBlank()) {
+      return OptionalInt.empty();
+    }
+    Object raw = Json.asObject(Json.parse(body)).get("toRevision");
+    if (raw == null) {
+      return OptionalInt.empty();
+    }
+    if (!(raw instanceof Number number)) {
+      throw new IllegalArgumentException("'toRevision' must be an integer");
+    }
+    return OptionalInt.of(number.intValue());
+  }
+
+  /**
+   * Shared response shape for every {@code .../revisions} and {@code .../rollback} route -- {@code
+   * moduleId}/{@code artifactPath}/{@code artifactSha256} exist identically-named on {@link
+   * DeploymentSpec}/{@link StatefulSetSpec}/{@link DaemonSetSpec} but aren't on the shared {@link
+   * WorkloadSpec} interface itself (deliberately minimal -- see its own javadoc), so this switches
+   * on the concrete type the same way {@link ControllerRevision}'s own compact constructor already
+   * does.
+   */
+  private Map<String, Object> controllerRevisionToJson(ControllerRevision revision) {
+    Map<String, Object> json = new LinkedHashMap<>();
+    json.put("revision", revision.revision());
+    json.put("createdAtEpochMilli", revision.createdAtEpochMilli());
+    revision.rollbackOfRevision().ifPresent(r -> json.put("rollbackOfRevision", r));
+    switch (revision.spec()) {
+      case DeploymentSpec s -> {
+        json.put("moduleId", moduleIdToJson(s.moduleId()));
+        json.put("artifactPath", s.artifactPath());
+        s.artifactSha256().ifPresent(sha -> json.put("artifactSha256", sha));
+      }
+      case StatefulSetSpec s -> {
+        json.put("moduleId", moduleIdToJson(s.moduleId()));
+        json.put("artifactPath", s.artifactPath());
+        s.artifactSha256().ifPresent(sha -> json.put("artifactSha256", sha));
+      }
+      case DaemonSetSpec s -> {
+        json.put("moduleId", moduleIdToJson(s.moduleId()));
+        json.put("artifactPath", s.artifactPath());
+        s.artifactSha256().ifPresent(sha -> json.put("artifactSha256", sha));
+      }
+      default ->
+          throw new IllegalStateException(
+              "ControllerRevision cannot embed a " + revision.spec().getClass());
+    }
+    return json;
   }
 
   /** Every deployment, in the same shape {@link #handleGetDeployment} returns for one. */

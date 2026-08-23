@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -758,5 +759,164 @@ class StateStoreTest {
     store.releaseLease("reconciler-leader", "node-b:8081");
 
     assertEquals(Optional.of("node-a:8080"), store.getLeaseHolder("reconciler-leader"));
+  }
+
+  @Test
+  void a_controller_revision_round_trips_through_a_fresh_store_instance() {
+    Path root = tempDir.resolve("controller-revision-roundtrip");
+    StateStore store = new StateStore(root);
+    ControllerRevision revision =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 3),
+            1_000L,
+            OptionalInt.empty());
+
+    store.putControllerRevision(revision);
+    assertEquals(
+        Optional.of(revision), store.getControllerRevision("Deployment", "orders-service", 1));
+    assertEquals(List.of(revision), store.listControllerRevisions("Deployment", "orders-service"));
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(
+        Optional.of(revision), reloaded.getControllerRevision("Deployment", "orders-service", 1));
+    assertEquals(
+        List.of(revision), reloaded.listControllerRevisions("Deployment", "orders-service"));
+  }
+
+  @Test
+  void controller_revisions_are_listed_newest_first() {
+    Path root = tempDir.resolve("controller-revision-order");
+    StateStore store = new StateStore(root);
+    ControllerRevision first =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 1),
+            1_000L,
+            OptionalInt.empty());
+    ControllerRevision second =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            2,
+            sampleDeployment("orders-service", 2),
+            2_000L,
+            OptionalInt.empty());
+
+    store.putControllerRevision(first);
+    store.putControllerRevision(second);
+
+    assertEquals(
+        List.of(second, first), store.listControllerRevisions("Deployment", "orders-service"));
+  }
+
+  @Test
+  void a_rollback_revision_records_which_revision_it_restored() {
+    Path root = tempDir.resolve("controller-revision-rollback");
+    StateStore store = new StateStore(root);
+    store.putControllerRevision(
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 1),
+            1_000L,
+            OptionalInt.empty()));
+    ControllerRevision rollback =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            2,
+            sampleDeployment("orders-service", 1),
+            2_000L,
+            OptionalInt.of(1));
+
+    store.putControllerRevision(rollback);
+
+    assertEquals(
+        OptionalInt.of(1),
+        store
+            .getControllerRevision("Deployment", "orders-service", 2)
+            .orElseThrow()
+            .rollbackOfRevision());
+  }
+
+  @Test
+  void controller_revisions_beyond_the_retention_cap_prune_the_oldest_first() {
+    Path root = tempDir.resolve("controller-revision-retention");
+    StateStore store = new StateStore(root);
+    // 11 revisions, one over the 10-per-workload retention cap.
+    for (int i = 1; i <= 11; i++) {
+      store.putControllerRevision(
+          new ControllerRevision(
+              "Deployment",
+              "orders-service",
+              i,
+              sampleDeployment("orders-service", i),
+              1_000L + i,
+              OptionalInt.empty()));
+    }
+
+    List<ControllerRevision> revisions =
+        store.listControllerRevisions("Deployment", "orders-service");
+    assertEquals(10, revisions.size());
+    // Newest-first: revision 1 was pruned, revision 11 is now first.
+    assertEquals(11, revisions.get(0).revision());
+    assertEquals(2, revisions.get(revisions.size() - 1).revision());
+
+    StateStore reloaded = new StateStore(root);
+    assertEquals(10, reloaded.listControllerRevisions("Deployment", "orders-service").size());
+  }
+
+  @Test
+  void deployment_and_statefulset_revision_history_do_not_collide_on_a_shared_name() {
+    Path root = tempDir.resolve("controller-revision-kind-separation");
+    StateStore store = new StateStore(root);
+    store.putControllerRevision(
+        new ControllerRevision(
+            "Deployment",
+            "shared-name",
+            1,
+            sampleDeployment("shared-name", 1),
+            1_000L,
+            OptionalInt.empty()));
+
+    assertTrue(store.listControllerRevisions("StatefulSet", "shared-name").isEmpty());
+    assertEquals(1, store.listControllerRevisions("Deployment", "shared-name").size());
+  }
+
+  @Test
+  void an_unknown_workload_has_no_revision_history() {
+    StateStore store = new StateStore(tempDir.resolve("controller-revision-unknown"));
+
+    assertTrue(store.listControllerRevisions("Deployment", "never-deployed").isEmpty());
+    assertTrue(store.getControllerRevision("Deployment", "never-deployed", 1).isEmpty());
+  }
+
+  @Test
+  void a_snapshot_carries_controller_revisions_and_restores_them() {
+    Path root = tempDir.resolve("snapshot-controller-revisions");
+    StateStore store = new StateStore(root);
+    ControllerRevision revision =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 1),
+            1_000L,
+            OptionalInt.empty());
+    store.putControllerRevision(revision);
+
+    StateSnapshot snapshot = store.snapshot();
+    assertEquals(List.of(revision), snapshot.controllerRevisions());
+
+    StateStore target = new StateStore(tempDir.resolve("snapshot-controller-revisions-target"));
+    target.restoreFromSnapshot(snapshot);
+
+    assertEquals(List.of(revision), target.listControllerRevisions("Deployment", "orders-service"));
   }
 }

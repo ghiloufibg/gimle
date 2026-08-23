@@ -142,4 +142,10 @@ public interface StoreReader {
       Optional<String> resourceKind,
       Optional<String> tenantId,
       Optional<Long> since);
+
+  /** Newest-first -- see {@code StateStore#listControllerRevisions}'s own javadoc. */
+  List<ControllerRevision> listControllerRevisions(String workloadKind, String name);
+
+  Optional<ControllerRevision> getControllerRevision(
+      String workloadKind, String name, int revision);
 }

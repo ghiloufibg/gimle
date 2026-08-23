@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
@@ -144,6 +145,12 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListAuditEvents r ->
           new StoreRpc.AuditEventListResult(
               store.listAuditEvents(r.principal(), r.resourceKind(), r.tenantId(), r.since()));
+      case StoreRpc.ListControllerRevisions r ->
+          new StoreRpc.ControllerRevisionListResult(
+              store.listControllerRevisions(r.workloadKind(), r.name()));
+      case StoreRpc.GetControllerRevision r ->
+          controllerRevisionResult(
+              store.getControllerRevision(r.workloadKind(), r.name(), r.revision()));
       case StoreRpc.Status r ->
           new StoreRpc.StatusResult(
               raftNode.selfId(),
@@ -371,5 +378,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.ReconcilerInstanceStateResult(true, v))
         .orElseGet(() -> new StoreRpc.ReconcilerInstanceStateResult(false, null));
+  }
+
+  private static StoreRpc.ControllerRevisionResult controllerRevisionResult(
+      Optional<ControllerRevision> value) {
+    return value
+        .map(v -> new StoreRpc.ControllerRevisionResult(true, v))
+        .orElseGet(() -> new StoreRpc.ControllerRevisionResult(false, null));
   }
 }

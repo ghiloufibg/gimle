@@ -55,7 +55,8 @@ class RaftLogTest {
         List.of(), // instanceEvents
         List.of(), // auditEvents
         List.of(), // services
-        List.of()); // networkPolicies
+        List.of(), // networkPolicies
+        List.of()); // controllerRevisions
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -92,7 +93,8 @@ class RaftLogTest {
         base.instanceEvents(),
         base.auditEvents(),
         base.services(),
-        base.networkPolicies());
+        base.networkPolicies(),
+        base.controllerRevisions());
   }
 
   @Test

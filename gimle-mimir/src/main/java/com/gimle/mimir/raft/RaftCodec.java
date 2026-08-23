@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
@@ -116,6 +117,7 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_SERVICE = 49;
   private static final byte MUT_PUT_NETWORK_POLICY = 50;
   private static final byte MUT_REMOVE_NETWORK_POLICY = 51;
+  private static final byte MUT_APPEND_CONTROLLER_REVISION = 52;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -391,6 +393,10 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_NETWORK_POLICY);
         out.writeUTF(m.name());
       }
+      case StateMutation.AppendControllerRevision m -> {
+        out.writeByte(MUT_APPEND_CONTROLLER_REVISION);
+        DomainCodec.writeControllerRevision(out, m.revision());
+      }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
         DomainCodec.writeInstanceAssignment(out, m.assignment());
@@ -611,6 +617,8 @@ public final class RaftCodec {
       case MUT_PUT_NETWORK_POLICY ->
           new StateMutation.PutNetworkPolicy(DomainCodec.readNetworkPolicySpec(in));
       case MUT_REMOVE_NETWORK_POLICY -> new StateMutation.RemoveNetworkPolicy(in.readUTF());
+      case MUT_APPEND_CONTROLLER_REVISION ->
+          new StateMutation.AppendControllerRevision(DomainCodec.readControllerRevision(in));
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
@@ -840,6 +848,10 @@ public final class RaftCodec {
       for (NetworkPolicySpec spec : snapshot.networkPolicies()) {
         DomainCodec.writeNetworkPolicySpec(out, spec);
       }
+      out.writeInt(snapshot.controllerRevisions().size());
+      for (ControllerRevision revision : snapshot.controllerRevisions()) {
+        DomainCodec.writeControllerRevision(out, revision);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1021,6 +1033,11 @@ public final class RaftCodec {
       for (int i = 0; i < networkPolicyCount; i++) {
         networkPolicies.add(DomainCodec.readNetworkPolicySpec(in));
       }
+      List<ControllerRevision> controllerRevisions = new ArrayList<>();
+      int controllerRevisionCount = in.readInt();
+      for (int i = 0; i < controllerRevisionCount; i++) {
+        controllerRevisions.add(DomainCodec.readControllerRevision(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -1051,7 +1068,8 @@ public final class RaftCodec {
           instanceEvents,
           auditEvents,
           services,
-          networkPolicies);
+          networkPolicies,
+          controllerRevisions);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

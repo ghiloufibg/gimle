@@ -38,6 +38,8 @@ import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
@@ -677,6 +679,55 @@ public final class DomainCodec {
 
   public static Optional<String> readOptionalString(DataInputStream in) throws IOException {
     return in.readBoolean() ? Optional.of(in.readUTF()) : Optional.empty();
+  }
+
+  /**
+   * The embedded {@code spec} is written by dispatching on its concrete type to whichever of {@link
+   * #writeDeploymentSpec}/{@link #writeStatefulSetSpec}/{@link #writeDaemonSetSpec} already exists
+   * for that kind -- a leading tag byte records which one so {@link #readControllerRevision} knows
+   * which reader to call.
+   */
+  public static void writeControllerRevision(DataOutputStream out, ControllerRevision revision)
+      throws IOException {
+    out.writeUTF(revision.workloadKind());
+    out.writeUTF(revision.name());
+    out.writeInt(revision.revision());
+    switch (revision.spec()) {
+      case DeploymentSpec s -> {
+        out.writeByte(0);
+        writeDeploymentSpec(out, s);
+      }
+      case StatefulSetSpec s -> {
+        out.writeByte(1);
+        writeStatefulSetSpec(out, s);
+      }
+      case DaemonSetSpec s -> {
+        out.writeByte(2);
+        writeDaemonSetSpec(out, s);
+      }
+      default ->
+          throw new IllegalStateException(
+              "ControllerRevision cannot embed a " + revision.spec().getClass());
+    }
+    out.writeLong(revision.createdAtEpochMilli());
+    writeOptionalInt(out, revision.rollbackOfRevision());
+  }
+
+  public static ControllerRevision readControllerRevision(DataInputStream in) throws IOException {
+    String workloadKind = in.readUTF();
+    String name = in.readUTF();
+    int revision = in.readInt();
+    WorkloadSpec spec =
+        switch (in.readByte()) {
+          case 0 -> readDeploymentSpec(in);
+          case 1 -> readStatefulSetSpec(in);
+          case 2 -> readDaemonSetSpec(in);
+          default -> throw new IllegalStateException("unknown ControllerRevision spec tag");
+        };
+    long createdAtEpochMilli = in.readLong();
+    OptionalInt rollbackOfRevision = readOptionalInt(in);
+    return new ControllerRevision(
+        workloadKind, name, revision, spec, createdAtEpochMilli, rollbackOfRevision);
   }
 
   public static void writeInstanceAssignment(DataOutputStream out, InstanceAssignment assignment)

@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
@@ -110,6 +111,8 @@ public sealed interface StoreRpc {
           ListReconcilerInstanceStates,
           ListInstanceEvents,
           ListAuditEvents,
+          ListControllerRevisions,
+          GetControllerRevision,
           Status {}
 
   sealed interface Response extends StoreRpc
@@ -158,6 +161,8 @@ public sealed interface StoreRpc {
           ReconcilerInstanceStateListResult,
           InstanceEventListResult,
           AuditEventListResult,
+          ControllerRevisionListResult,
+          ControllerRevisionResult,
           StatusResult {}
 
   // ---- leader-only requests (writes, plus the one leader-local read) ----
@@ -323,6 +328,10 @@ public sealed interface StoreRpc {
       Optional<Long> since)
       implements Request {}
 
+  record ListControllerRevisions(String workloadKind, String name) implements Request {}
+
+  record GetControllerRevision(String workloadKind, String name, int revision) implements Request {}
+
   // ---- responses ----
 
   /** Shared "the write succeeded, no payload" response for Propose/PutHeartbeat/ReleaseLease. */
@@ -456,6 +465,10 @@ public sealed interface StoreRpc {
   record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
 
   record AuditEventListResult(List<AuditEvent> values) implements Response {}
+
+  record ControllerRevisionListResult(List<ControllerRevision> values) implements Response {}
+
+  record ControllerRevisionResult(boolean present, ControllerRevision value) implements Response {}
 
   /**
    * {@code leaderId} is {@code ""} when the answering node has no current leader hint (a

@@ -11,8 +11,11 @@ import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
 import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.ControllerRevision;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -125,6 +128,96 @@ class DomainCodecTest {
 
     assertEquals(List.of("app-config", "feature-flags"), roundTripped.configMapRefs());
     assertEquals(spec, roundTripped);
+  }
+
+  @Test
+  void a_controller_revision_embedding_a_deployment_spec_round_trips() throws Exception {
+    DeploymentSpec spec =
+        new DeploymentSpec(
+            "orders-service",
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders-1.0.0.jar",
+            3,
+            PlacementConstraints.NONE);
+    ControllerRevision revision =
+        new ControllerRevision(
+            "Deployment", "orders-service", 1, spec, 1_000L, OptionalInt.empty());
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeControllerRevision(new DataOutputStream(buffer), revision);
+    ControllerRevision roundTripped =
+        DomainCodec.readControllerRevision(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(revision, roundTripped);
+  }
+
+  @Test
+  void a_controller_revision_embedding_a_statefulset_spec_round_trips() throws Exception {
+    StatefulSetSpec spec =
+        new StatefulSetSpec(
+            "orders-service",
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders-1.0.0.jar",
+            3,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty());
+    ControllerRevision revision =
+        new ControllerRevision(
+            "StatefulSet", "orders-service", 1, spec, 1_000L, OptionalInt.empty());
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeControllerRevision(new DataOutputStream(buffer), revision);
+    ControllerRevision roundTripped =
+        DomainCodec.readControllerRevision(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(revision, roundTripped);
+  }
+
+  @Test
+  void a_controller_revision_embedding_a_daemonset_spec_round_trips() throws Exception {
+    DaemonSetSpec spec =
+        new DaemonSetSpec(
+            "orders-agent",
+            new ModuleId("com.gimle.example.orders-agent", Version.parse("1.0.0")),
+            "/artifacts/orders-agent-1.0.0.jar",
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty());
+    ControllerRevision revision =
+        new ControllerRevision("DaemonSet", "orders-agent", 1, spec, 1_000L, OptionalInt.empty());
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeControllerRevision(new DataOutputStream(buffer), revision);
+    ControllerRevision roundTripped =
+        DomainCodec.readControllerRevision(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(revision, roundTripped);
+  }
+
+  @Test
+  void a_controller_revision_records_which_revision_it_rolled_back_to() throws Exception {
+    DeploymentSpec spec =
+        new DeploymentSpec(
+            "orders-service",
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders-1.0.0.jar",
+            3,
+            PlacementConstraints.NONE);
+    ControllerRevision revision =
+        new ControllerRevision("Deployment", "orders-service", 2, spec, 2_000L, OptionalInt.of(1));
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeControllerRevision(new DataOutputStream(buffer), revision);
+    ControllerRevision roundTripped =
+        DomainCodec.readControllerRevision(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(OptionalInt.of(1), roundTripped.rollbackOfRevision());
+    assertEquals(revision, roundTripped);
   }
 
   @Test

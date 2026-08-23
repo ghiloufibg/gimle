@@ -57,7 +57,8 @@ public record StateSnapshot(
     List<InstanceEvent> instanceEvents,
     List<AuditEvent> auditEvents,
     List<ServiceSpec> services,
-    List<NetworkPolicySpec> networkPolicies) {
+    List<NetworkPolicySpec> networkPolicies,
+    List<ControllerRevision> controllerRevisions) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -104,5 +105,6 @@ public record StateSnapshot(
     auditEvents = List.copyOf(auditEvents);
     services = List.copyOf(services);
     networkPolicies = List.copyOf(networkPolicies);
+    controllerRevisions = List.copyOf(controllerRevisions);
   }
 }

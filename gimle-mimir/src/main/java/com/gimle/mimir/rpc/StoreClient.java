@@ -20,6 +20,7 @@ import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
@@ -416,6 +417,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.AuditEventListResult)
             sendRead(new StoreRpc.ListAuditEvents(principal, resourceKind, tenantId, since)))
         .values();
+  }
+
+  public List<ControllerRevision> listControllerRevisions(String workloadKind, String name) {
+    return ((StoreRpc.ControllerRevisionListResult)
+            sendRead(new StoreRpc.ListControllerRevisions(workloadKind, name)))
+        .values();
+  }
+
+  public Optional<ControllerRevision> getControllerRevision(
+      String workloadKind, String name, int revision) {
+    StoreRpc.ControllerRevisionResult r =
+        (StoreRpc.ControllerRevisionResult)
+            sendRead(new StoreRpc.GetControllerRevision(workloadKind, name, revision));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   // ---- transport ----

@@ -27,6 +27,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
@@ -325,7 +326,10 @@ class RaftCodecTest {
                     "greeter-policy",
                     "tenant-1",
                     Optional.of(Set.of("greeter")),
-                    Set.of("tenant-2"))));
+                    Set.of("tenant-2"))),
+            List.of(
+                new ControllerRevision(
+                    "Deployment", "greeter", 1, deploymentSpec(), 1_000L, OptionalInt.empty())));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -356,6 +360,7 @@ class RaftCodecTest {
     assertEquals(snapshot.auditEvents(), decoded.auditEvents());
     assertEquals(snapshot.services(), decoded.services());
     assertEquals(snapshot.networkPolicies(), decoded.networkPolicies());
+    assertEquals(snapshot.controllerRevisions(), decoded.controllerRevisions());
   }
 
   @Test

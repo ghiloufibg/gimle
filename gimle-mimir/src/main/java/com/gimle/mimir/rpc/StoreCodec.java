@@ -19,6 +19,7 @@ import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.RaftCodec;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
@@ -154,6 +155,10 @@ public final class StoreCodec {
   private static final byte TAG_LIST_NETWORK_POLICIES = 99;
   private static final byte TAG_NETWORK_POLICY_RESULT = 100;
   private static final byte TAG_NETWORK_POLICY_LIST_RESULT = 101;
+  private static final byte TAG_LIST_CONTROLLER_REVISIONS = 102;
+  private static final byte TAG_GET_CONTROLLER_REVISION = 103;
+  private static final byte TAG_CONTROLLER_REVISION_LIST_RESULT = 104;
+  private static final byte TAG_CONTROLLER_REVISION_RESULT = 105;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -361,6 +366,17 @@ public final class StoreCodec {
           DomainCodec.writeOptionalString(out, v.resourceKind());
           DomainCodec.writeOptionalString(out, v.tenantId());
           DomainCodec.writeOptionalLong(out, v.since());
+        }
+        case StoreRpc.ListControllerRevisions v -> {
+          out.writeByte(TAG_LIST_CONTROLLER_REVISIONS);
+          out.writeUTF(v.workloadKind());
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.GetControllerRevision v -> {
+          out.writeByte(TAG_GET_CONTROLLER_REVISION);
+          out.writeUTF(v.workloadKind());
+          out.writeUTF(v.name());
+          out.writeInt(v.revision());
         }
         case StoreRpc.Status v -> out.writeByte(TAG_STATUS);
         case StoreRpc.AddServer v -> {
@@ -681,6 +697,20 @@ public final class StoreCodec {
             DomainCodec.writeAuditEvent(out, e);
           }
         }
+        case StoreRpc.ControllerRevisionListResult v -> {
+          out.writeByte(TAG_CONTROLLER_REVISION_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (ControllerRevision r : v.values()) {
+            DomainCodec.writeControllerRevision(out, r);
+          }
+        }
+        case StoreRpc.ControllerRevisionResult v -> {
+          out.writeByte(TAG_CONTROLLER_REVISION_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeControllerRevision(out, v.value());
+          }
+        }
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -764,6 +794,10 @@ public final class StoreCodec {
                 DomainCodec.readOptionalString(in),
                 DomainCodec.readOptionalString(in),
                 DomainCodec.readOptionalLong(in));
+        case TAG_LIST_CONTROLLER_REVISIONS ->
+            new StoreRpc.ListControllerRevisions(in.readUTF(), in.readUTF());
+        case TAG_GET_CONTROLLER_REVISION ->
+            new StoreRpc.GetControllerRevision(in.readUTF(), in.readUTF(), in.readInt());
         case TAG_STATUS -> new StoreRpc.Status();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
@@ -1040,6 +1074,19 @@ public final class StoreCodec {
             values.add(DomainCodec.readAuditEvent(in));
           }
           yield new StoreRpc.AuditEventListResult(values);
+        }
+        case TAG_CONTROLLER_REVISION_LIST_RESULT -> {
+          int count = in.readInt();
+          List<ControllerRevision> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readControllerRevision(in));
+          }
+          yield new StoreRpc.ControllerRevisionListResult(values);
+        }
+        case TAG_CONTROLLER_REVISION_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.ControllerRevisionResult(
+              present, present ? DomainCodec.readControllerRevision(in) : null);
         }
         default -> throw new IllegalArgumentException("unknown StoreRpc tag: " + tag);
       };

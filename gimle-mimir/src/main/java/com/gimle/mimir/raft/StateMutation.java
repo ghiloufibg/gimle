@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
@@ -363,6 +364,19 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putAuditEvent(event);
+    }
+  }
+
+  /**
+   * No corresponding {@code RemoveControllerRevision} for the same reason {@code
+   * AppendInstanceEvent}/{@code AppendAuditEvent} have none -- retention-cap pruning is internal to
+   * {@link StateStore#putControllerRevision}, applied identically on every replica as this mutation
+   * replays.
+   */
+  record AppendControllerRevision(ControllerRevision revision) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putControllerRevision(revision);
     }
   }
 

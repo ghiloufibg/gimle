@@ -32,6 +32,7 @@ import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetManifestParser;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -170,6 +171,22 @@ public final class StateStore implements StoreReader {
    */
   static final int MAX_AUDIT_EVENTS = 50_000;
 
+  /**
+   * A Deployment/StatefulSet/DaemonSet's revision history, keyed by {@link
+   * ControllerRevision#revisionKey} -- the second many-per-key resource this store holds, same
+   * shape as {@link #instanceEvents}: bounded by {@link #MAX_REVISIONS_PER_WORKLOAD}, not a single
+   * current value.
+   */
+  private final Map<String, List<ControllerRevision>> controllerRevisions =
+      new ConcurrentHashMap<>();
+
+  /**
+   * Oldest revisions beyond this count (per workload) are pruned on the next {@link
+   * #putControllerRevision} -- matches Kubernetes' own default {@code revisionHistoryLimit} for
+   * {@code StatefulSet}/{@code DaemonSet}.
+   */
+  private static final int MAX_REVISIONS_PER_WORKLOAD = 10;
+
   public StateStore(Path root) {
     this(root, Clock.systemUTC());
   }
@@ -215,6 +232,7 @@ public final class StateStore implements StoreReader {
       Files.createDirectories(reconcilerStateDir());
       Files.createDirectories(instanceEventsDir());
       Files.createDirectories(auditEventsDir());
+      Files.createDirectories(controllerRevisionsDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1061,6 +1079,52 @@ public final class StateStore implements StoreReader {
         .toList();
   }
 
+  // ---- controller revision history ----
+
+  /**
+   * Appends one revision to {@code (revision.workloadKind(), revision.name())}'s history, pruning
+   * the oldest revision(s) once {@link #MAX_REVISIONS_PER_WORKLOAD} is exceeded -- the same
+   * deterministic-under-replay oldest-first pruning {@link #putInstanceEvent} already establishes.
+   * Pruning by append order is always safe here: a rollback never rewrites history in place, it
+   * always appends a brand-new latest revision (see {@code ApiServer}'s own rollback handlers), so
+   * the currently-live revision is by construction never the oldest one being pruned.
+   */
+  public void putControllerRevision(ControllerRevision revision) {
+    writeAtomically(controllerRevisionFile(revision), controllerRevisionToYaml(revision));
+    String key = ControllerRevision.revisionKey(revision.workloadKind(), revision.name());
+    controllerRevisions.compute(
+        key,
+        (k, existing) -> {
+          List<ControllerRevision> updated =
+              new ArrayList<>(existing == null ? List.of() : existing);
+          updated.add(revision);
+          while (updated.size() > MAX_REVISIONS_PER_WORKLOAD) {
+            ControllerRevision oldest = updated.remove(0);
+            deleteQuietly(controllerRevisionFile(oldest));
+          }
+          return List.copyOf(updated);
+        });
+  }
+
+  /** Newest-first, matching {@link #listInstanceEvents}'s own timeline read order. */
+  public List<ControllerRevision> listControllerRevisions(String workloadKind, String name) {
+    List<ControllerRevision> revisions =
+        controllerRevisions.getOrDefault(
+            ControllerRevision.revisionKey(workloadKind, name), List.of());
+    List<ControllerRevision> reversed = new ArrayList<>(revisions);
+    Collections.reverse(reversed);
+    return List.copyOf(reversed);
+  }
+
+  public Optional<ControllerRevision> getControllerRevision(
+      String workloadKind, String name, int revision) {
+    return controllerRevisions
+        .getOrDefault(ControllerRevision.revisionKey(workloadKind, name), List.of())
+        .stream()
+        .filter(r -> r.revision() == revision)
+        .findFirst();
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -1107,7 +1171,8 @@ public final class StateStore implements StoreReader {
         instanceEvents.values().stream().flatMap(List::stream).toList(),
         auditEventsSnapshotOrder(),
         List.copyOf(services.values()),
-        List.copyOf(networkPolicies.values()));
+        List.copyOf(networkPolicies.values()),
+        controllerRevisions.values().stream().flatMap(List::stream).toList());
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1168,6 +1233,7 @@ public final class StateStore implements StoreReader {
         .forEach(s -> removeReconcilerInstanceState(s.deploymentName(), s.instanceIndex()));
     clearAllInstanceEvents();
     clearAllAuditEvents();
+    clearAllControllerRevisions();
 
     snapshot.deployments().forEach(this::putDeployment);
     snapshot.assignments().forEach(this::putAssignment);
@@ -1225,6 +1291,9 @@ public final class StateStore implements StoreReader {
     snapshot.auditEvents().forEach(this::putAuditEvent);
     snapshot.services().forEach(this::putService);
     snapshot.networkPolicies().forEach(this::putNetworkPolicy);
+    // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
+    // reasoning as the instanceEvents/auditEvents replay just above.
+    snapshot.controllerRevisions().forEach(this::putControllerRevision);
   }
 
   /**
@@ -1245,6 +1314,14 @@ public final class StateStore implements StoreReader {
       auditEvents.forEach(e -> deleteQuietly(auditEventFile(e)));
       auditEvents.clear();
     }
+  }
+
+  /** Same rationale as {@link #clearAllInstanceEvents}, for revision history. */
+  private void clearAllControllerRevisions() {
+    for (List<ControllerRevision> revisions : controllerRevisions.values()) {
+      revisions.forEach(r -> deleteQuietly(controllerRevisionFile(r)));
+    }
+    controllerRevisions.clear();
   }
 
   // ---- disk layout ----
@@ -1510,6 +1587,21 @@ public final class StateStore implements StoreReader {
 
   private static String instanceEventsKey(String deploymentName, int instanceIndex) {
     return deploymentName + "#" + instanceIndex;
+  }
+
+  private Path controllerRevisionsDir() {
+    return root.resolve("controller-revisions");
+  }
+
+  /**
+   * One file per revision, named by its own revision number -- unique and orderable by construction
+   * within {@code (workloadKind, name)}, unlike {@link #instanceEventFile}'s generated-id naming.
+   */
+  private Path controllerRevisionFile(ControllerRevision revision) {
+    return controllerRevisionsDir()
+        .resolve(revision.workloadKind())
+        .resolve(revision.name())
+        .resolve(revision.revision() + ".yaml");
   }
 
   private Path auditEventsDir() {
@@ -1809,6 +1901,29 @@ public final class StateStore implements StoreReader {
     synchronized (auditEventsLock) {
       auditEvents.sort(
           Comparator.comparingLong(AuditEvent::occurredAtEpochMilli).thenComparing(AuditEvent::id));
+    }
+    loadEach(
+        controllerRevisionsDir(),
+        "*/*/*.yaml",
+        file -> {
+          ControllerRevision revision = controllerRevisionFromMap(loadMap(file));
+          String key = ControllerRevision.revisionKey(revision.workloadKind(), revision.name());
+          controllerRevisions.compute(
+              key,
+              (k, existing) -> {
+                List<ControllerRevision> updated =
+                    new ArrayList<>(existing == null ? List.of() : existing);
+                updated.add(revision);
+                return updated;
+              });
+        });
+    // Sort each workload's loaded revisions by revision number -- loadEach's directory-stream
+    // order isn't guaranteed to match append order, but putControllerRevision's own pruning
+    // assumes the in-memory list is oldest-first (it prunes from the front).
+    for (Map.Entry<String, List<ControllerRevision>> entry : controllerRevisions.entrySet()) {
+      List<ControllerRevision> sorted = new ArrayList<>(entry.getValue());
+      sorted.sort(Comparator.comparingInt(ControllerRevision::revision));
+      entry.setValue(List.copyOf(sorted));
     }
   }
 
@@ -2471,6 +2586,60 @@ public final class StateStore implements StoreReader {
         (Boolean) root.get("pendingRetry"),
         (Boolean) root.get("permanentlyFailed"),
         ((Number) root.get("firstSeenMissingAtEpochMilli")).longValue());
+  }
+
+  /**
+   * The embedded {@code spec} is written by delegating to whichever per-kind manifest-shaped writer
+   * already exists ({@link #deploymentToYaml}/{@link #statefulSetSpecToYaml}/{@link
+   * #daemonSetSpecToYaml}) rather than inventing a second (de)serialization scheme for the same
+   * three record types -- its own full YAML text is embedded as a single string field, round-
+   * tripped back through the matching manifest parser in {@link #controllerRevisionFromMap}.
+   */
+  private static String controllerRevisionToYaml(ControllerRevision revision) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    root.put("workloadKind", revision.workloadKind());
+    root.put("name", revision.name());
+    root.put("revision", revision.revision());
+    root.put(
+        "specYaml",
+        switch (revision.spec()) {
+          case DeploymentSpec s -> deploymentToYaml(s);
+          case StatefulSetSpec s -> statefulSetSpecToYaml(s);
+          case DaemonSetSpec s -> daemonSetSpecToYaml(s);
+          default ->
+              throw new IllegalStateException(
+                  "ControllerRevision cannot embed a " + revision.spec().getClass());
+        });
+    root.put("createdAtEpochMilli", revision.createdAtEpochMilli());
+    revision.rollbackOfRevision().ifPresent(r -> root.put("rollbackOfRevision", r));
+    return new Yaml().dump(root);
+  }
+
+  private static ControllerRevision controllerRevisionFromMap(Map<?, ?> root) {
+    String workloadKind = (String) root.get("workloadKind");
+    String name = (String) root.get("name");
+    int revision = ((Number) root.get("revision")).intValue();
+    String specYaml = (String) root.get("specYaml");
+    WorkloadSpec spec =
+        switch (workloadKind) {
+          case "Deployment" ->
+              DeploymentManifestParser.parse(
+                  new ByteArrayInputStream(specYaml.getBytes(StandardCharsets.UTF_8)));
+          case "StatefulSet" ->
+              StatefulSetManifestParser.parse(
+                  new ByteArrayInputStream(specYaml.getBytes(StandardCharsets.UTF_8)));
+          case "DaemonSet" ->
+              DaemonSetManifestParser.parse(
+                  new ByteArrayInputStream(specYaml.getBytes(StandardCharsets.UTF_8)));
+          default -> throw new IllegalStateException("unknown workloadKind: " + workloadKind);
+        };
+    long createdAtEpochMilli = ((Number) root.get("createdAtEpochMilli")).longValue();
+    OptionalInt rollbackOfRevision =
+        root.containsKey("rollbackOfRevision")
+            ? OptionalInt.of(((Number) root.get("rollbackOfRevision")).intValue())
+            : OptionalInt.empty();
+    return new ControllerRevision(
+        workloadKind, name, revision, spec, createdAtEpochMilli, rollbackOfRevision);
   }
 
   private static String instanceEventToYaml(InstanceEvent event) {
