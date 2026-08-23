@@ -279,13 +279,26 @@ public final class AgentMain {
     // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
     // defaulting alongside it rather than under it, matching the same
     // "own top-level directory, own property" convention gimle.log.root itself established.
-    VolumeManager volumeManager =
-        new LocalDiskVolumeManager(Path.of(System.getProperty("gimle.data.root", "gimle-data")));
+    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+    VolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     // Registry-pulled jars land beside the volume roots under the same gimle.data.root -- one
     // node-local data directory, not a second property.
-    ArtifactPullCache artifactCache =
-        new ArtifactPullCache(
-            Path.of(System.getProperty("gimle.data.root", "gimle-data")).resolve("artifact-cache"));
+    ArtifactPullCache artifactCache = new ArtifactPullCache(dataRoot.resolve("artifact-cache"));
+    // Same one-node-local-data-directory convention as artifactCache above. SleipnirCache owns key
+    // computation/file state/sweep; SleipnirTrainer owns only the training subprocess orchestration
+    // and calls into SleipnirCache to commit -- kept as two classes because their concurrency
+    // shapes genuinely differ (cacheFor is fast/synchronous/hot-path, training is slow/background/
+    // one-shot), unlike ArtifactPullCache's own single-class precedent where both operations are
+    // fast and synchronous. supervised is passed by reference (not copied) since sweep() needs the
+    // live view of which cache keys are still referenced by a currently-running worker.
+    SleipnirCache sleipnirCache =
+        new SleipnirCache(dataRoot.resolve("aot-cache"), supervised, javaExecutable);
+    // commandTail is already known at this point (a CLI argument parsed at the very top of main),
+    // so training can start immediately -- off a background thread, non-blocking -- the same
+    // "construct, then start()" shape as NetworkPolicyRelay below. Every worker spawn from here on
+    // checks SleipnirCache.cacheFor and benefits once training completes; nothing blocks on it.
+    SleipnirTrainer sleipnirTrainer = new SleipnirTrainer(javaExecutable, sleipnirCache);
+    sleipnirTrainer.start(commandTail);
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
@@ -363,6 +376,7 @@ public final class AgentMain {
             fafnirBaseUrl,
             andvariBaseUrls,
             artifactCache,
+            sleipnirCache,
             muninnEndpoint,
             nodeId,
             supervised,
@@ -1062,6 +1076,7 @@ public final class AgentMain {
       URI fafnirBaseUrl,
       List<URI> andvariBaseUrls,
       ArtifactPullCache artifactCache,
+      SleipnirCache sleipnirCache,
       String muninnEndpoint,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
@@ -1199,6 +1214,7 @@ public final class AgentMain {
                   javaExecutable,
                   commandTail,
                   resourceLimiter,
+                  sleipnirCache,
                   capacityTracker,
                   gossipMember,
                   catalog,
@@ -1710,6 +1726,7 @@ public final class AgentMain {
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
+      SleipnirCache sleipnirCache,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
       ServiceCatalog catalog,
@@ -1726,9 +1743,21 @@ public final class AgentMain {
     ControlChannelServer server = new ControlChannelServer(socketPath);
     ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
+    // Sleipnir: a populated cache for this exact worker classpath/flag set, if training has
+    // completed by now -- absent, this spawns exactly like it always has (AOTMode=auto means a
+    // worker is never blocked on, or broken by, whether Sleipnir has finished training yet).
+    Optional<String> aotCacheKey = sleipnirCache.keyFor(commandTail);
+    Optional<Path> aotCachePath = sleipnirCache.cacheFor(commandTail);
     List<String> baseCommand =
         buildWorkerCommand(
-            javaExecutable, commandTail, resourceLimiter, handle, workerLogRoot, nodeId, assigned);
+            javaExecutable,
+            commandTail,
+            resourceLimiter,
+            handle,
+            workerLogRoot,
+            nodeId,
+            assigned,
+            aotCachePath);
 
     RestartTracker restartTracker =
         new RestartTracker(
@@ -1768,6 +1797,7 @@ public final class AgentMain {
 
     SupervisedInstance instance =
         new SupervisedInstance(assigned, supervisor, server, descriptor, key);
+    instance.aotCacheKey = aotCacheKey;
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());
@@ -1972,6 +2002,43 @@ public final class AgentMain {
    * WorkerProcessSupervisor} always appends the control-socket path last, so tenantId must be
    * appended here, right after {@code nodeId}.
    */
+  /**
+   * The subset of every worker's flags that never vary with which worker it is -- excludes {@code
+   * -Dgimle.log.root}/{@code -XX:ErrorFile} (both derived from {@code workerLogRoot}, unique per
+   * worker) and {@code resourceLimiter.jvmFlags(handle)} (unique per worker's resource limit).
+   * {@link SleipnirCache}'s cache key is computed from exactly this list plus the classpath --
+   * extracted here rather than duplicated there so the key and the real command can never silently
+   * drift apart.
+   */
+  static List<String> stableWorkerFlags() {
+    return List.of(
+        LEAK_DETECTION_JFR_FLAG,
+        // Makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather than
+        // indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
+        // classification depends on this being set on every worker, unconditionally.
+        "-XX:+ExitOnOutOfMemoryError",
+        // Forwarded unconditionally (defaulting to this agent's own unset-property "false") rather
+        // than only when explicitly set, so every worker this agent spawns gets an explicit,
+        // consistent value instead of silently inheriting whatever WorkerMain's own default happens
+        // to be.
+        "-Dgimle.fabric.defaultDenyCrossTenant="
+            + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"),
+        // A worker starts once per module instance, not once per node/replica lifecycle like every
+        // other process role -- printing GimleBanner's ASCII-art banner on every one of those
+        // spawns
+        // would just be log noise at scale, so this agent unconditionally suppresses it for every
+        // worker it spawns. WorkerMain still prints when run directly (its own default stays
+        // enabled).
+        "-Dgimle.banner.enabled=false",
+        // ConsoleLogEncoder defaults to colored text now (see its own javadoc), which is exactly
+        // wrong for a piped subprocess: WorkerProcessSupervisor.drainOutput JSON-sniffs this
+        // worker's raw stdout to tell a structured line (already captured by its own
+        // PlatformFileAppender, so safe to skip) apart from unstructured output worth capturing
+        // separately. Forced explicitly here rather than left to a tty-detection guess, so the
+        // sniffing stays correct by construction.
+        "-Dgimle.log.console=json");
+  }
+
   static List<String> buildWorkerCommand(
       String javaExecutable,
       List<String> commandTail,
@@ -1979,35 +2046,24 @@ public final class AgentMain {
       ResourceLimitHandle handle,
       Path workerLogRoot,
       String nodeId,
-      AssignedInstance assigned) {
+      AssignedInstance assigned,
+      Optional<Path> aotCachePath) {
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
-    baseCommand.add(LEAK_DETECTION_JFR_FLAG);
-    // Makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather than
-    // indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
-    // classification depends on this being set on every worker, unconditionally.
-    baseCommand.add("-XX:+ExitOnOutOfMemoryError");
+    baseCommand.addAll(stableWorkerFlags());
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
-    // Forwarded unconditionally (defaulting to this agent's own unset-property "false") rather
-    // than only when explicitly set, so every worker this agent spawns gets an explicit,
-    // consistent value instead of silently inheriting whatever WorkerMain's own default happens
-    // to be.
-    baseCommand.add(
-        "-Dgimle.fabric.defaultDenyCrossTenant="
-            + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"));
-    // A worker starts once per module instance, not once per node/replica lifecycle like every
-    // other process role -- printing GimleBanner's ASCII-art banner on every one of those spawns
-    // would just be log noise at scale, so this agent unconditionally suppresses it for every
-    // worker it spawns. WorkerMain still prints when run directly (its own default stays enabled).
-    baseCommand.add("-Dgimle.banner.enabled=false");
-    // ConsoleLogEncoder defaults to colored text now (see its own javadoc), which is exactly wrong
-    // for a piped subprocess: WorkerProcessSupervisor.drainOutput JSON-sniffs this worker's raw
-    // stdout to tell a structured line (already captured by its own PlatformFileAppender, so safe
-    // to skip) apart from unstructured output worth capturing separately. Forced explicitly here
-    // rather than left to a tty-detection guess, so the sniffing stays correct by construction.
-    baseCommand.add("-Dgimle.log.console=json");
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));
+    // AOTMode=auto: a mismatched or corrupt cache degrades to a normal start -- a worker must
+    // never fail to spawn because of Sleipnir. -Xlog:aot=warning is silent when healthy; on
+    // fallback the warning line lands in this worker's own captured stdout, observable through the
+    // existing Logs surface with zero new plumbing.
+    aotCachePath.ifPresent(
+        path -> {
+          baseCommand.add("-XX:AOTCache=" + path);
+          baseCommand.add("-XX:AOTMode=auto");
+          baseCommand.add("-Xlog:aot=warning");
+        });
     baseCommand.addAll(commandTail);
     baseCommand.add(nodeId);
     baseCommand.add(assigned.tenantId().orElse(""));

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 602
-- **Covered by automated (Holmgang Cucumber) test**: 119
+- **Total requirements**: 603
+- **Covered by automated (Holmgang Cucumber) test**: 120
 - **Not covered by automated test**: 483
-- **Release-readiness (automated coverage)**: 19.8%
+- **Release-readiness (automated coverage)**: 19.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 39 | 5 | 34 | 12.8% |
+| gimle-agent | 40 | 6 | 34 | 15.0% |
 | gimle-mimir | 50 | 32 | 18 | 64.0% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 69 | 14 | 55 | 20.3% |
@@ -530,6 +530,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-110 | Tier 1 density — shared-worker reuse for multiple module instances | Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's representative instance for reuse Given the worker is at the density cap, already hosts the same moduleId, hosts a non-TIER_1 instance, or has no established connection yet Then it is never reused | No |
 | [ ] | GIMLE-111 | Instance rename-in-place (no restart) | Given an assignment carries a renamedFromInstanceIndex pointing at an already-supervised, matching-module instance When findRenameSource finds it and renameInPlace runs Then supervised/instanceShippers/capacityTracker are re-keyed and instance.assigned is updated in place And if the worker is already connected, ControlMessage.RenameInstance is sent so its own identity registry follows Given no matching source exists (already renamed, or gone) Then it falls through to the ordinary start path | No |
 | [ ] | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Given an assignment carries a VesselSpec When reconcileVesselAssignment runs (entirely separate from the module path) Then startVesselInstance spawns `java <ResourceLimiter flags> <vessel.jvmFlags> -jar <jar> <vessel.args>` via VesselProcessSupervisor And stdout/stderr is captured unconditionally as this instance's own APPLICATION log (no JSON-sniffing, unlike a real worker) And a crash restarts via the same RestartTracker-driven backoff/give-up policy as WorkerProcessSupervisor | No |
+| [ ] | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files. | Yes |
 
 #### Worker Supervision / Config
 

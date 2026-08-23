@@ -292,7 +292,7 @@ costs — this is why the tiered self-healing model exists, not an accident of i
 | Failure | Recovery action | Typical cost |
 |---|---|---|
 | Module | Dispose its `ModuleLayer`, re-instantiate | Milliseconds |
-| Worker | `destroyForcibly`, respawn (AppCDS-accelerated) | Sub-second |
+| Worker | `destroyForcibly`, respawn (AOT-cache-accelerated) | Sub-second |
 | Machine/node | Reschedule its modules onto other machines | Seconds |
 
 Repeated module restarts escalate to a worker restart; repeated worker restarts escalate to

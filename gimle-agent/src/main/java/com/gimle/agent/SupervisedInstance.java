@@ -94,6 +94,14 @@ final class SupervisedInstance {
    */
   volatile Optional<VolumeHandle> volumeHandle = Optional.empty();
 
+  /**
+   * The Sleipnir AOT cache key this instance's worker was spawned against, if any -- {@code empty}
+   * when the worker started uncached (no eligible cache existed yet, or its classpath was
+   * ineligible). {@code SleipnirCache#sweep} reads this across every live instance to decide which
+   * on-disk cache entries are still referenced by a running worker and must survive the sweep.
+   */
+  volatile Optional<String> aotCacheKey = Optional.empty();
+
   /** {@code workerKey} defaults to {@code null} -- see that field's own javadoc. */
   SupervisedInstance(
       AssignedInstance assigned,

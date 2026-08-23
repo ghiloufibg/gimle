@@ -41,7 +41,7 @@ Java 25 (LTS). These are architectural dependencies, not incidental choices — 
 - FFM API (`Linker`, `MemorySegment`) — direct libc/syscall access (namespaces, CPU affinity), for the deferred kernel-level resource limiter and Tier 3 namespaces (not built yet, see "Core architecture" below); **no JNI, no native code anywhere**, now or once it lands
 - Virtual threads (unpinned, JEP 491), Scoped values (JEP 506), Structured concurrency
 - JFR event streaming — per-module resource accounting
-- AppCDS / CDS archives — sub-second worker JVM startup
+- AOT cache (JEP 483/514/515) — sub-second worker JVM startup
 - `jlink` / `jpackage` — minimal per-node-role runtime images
 - Sealed interfaces + records for state/event/protocol types
 
@@ -57,7 +57,7 @@ Machine (Node Agent, JVM)
 ```
 
 - **Tier 1** — module in a shared worker JVM. Millisecond deploys, classloader-level isolation, soft JFR-based accounting. Density win.
-- **Tier 2** — module in a dedicated worker JVM. Sub-second deploy (AppCDS), hard `-Xmx`/CPU ceiling, independent crash domain. Kubernetes-equivalent guarantee, available per module.
+- **Tier 2** — module in a dedicated worker JVM. Sub-second deploy (AOT cache), hard `-Xmx`/CPU ceiling, independent crash domain. Kubernetes-equivalent guarantee, available per module.
 - **Tier 3** — worker JVM in a Linux namespace (via FFM `unshare`/`setns`). For hostile-neighbour scenarios.
 
 **Platform independence first, platform-specific enforcement later** (deliberate design revision — see `claudedocs/phase2-worker-runtime-design.md` §1 and §2.4). Tier 1/2 limits are enforced today entirely through the portable `ResourceLimiter` interface (`gimle-os`) and its only current implementation, `PortableJvmFlagsResourceLimiter` — `-Xmx`/`ActiveProcessorCount`, identical on Linux/macOS/Windows, zero OS-specific code. Real kernel-level enforcement (cgroup v2 on Linux via plain `java.nio.file` I/O against `/sys/fs/cgroup` — no containerd/runc equivalent needed) is a deliberately deferred second `ResourceLimiter` implementation, not a parallel path built alongside the portable one. Tier 3 (FFM downcalls to `unshare`/`setns`) is unimplemented on every platform today and rejected outright (`GimleIsolationException`) rather than silently downgraded — "not built yet," not "your platform doesn't support it." Don't add cgroup/FFM code, or platform-detection branching, to satisfy a capability nothing yet consumes — that's exactly the speculative work this revision avoids.

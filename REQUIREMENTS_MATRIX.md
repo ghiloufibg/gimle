@@ -612,6 +612,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Complete | Partial |
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Workload Lifecycle | Complete | Yes |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | Complete | Yes |
+| GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Worker Supervision | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2697,6 +2698,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is.
+  ```
+
+#### GIMLE-603 — Sleipnir: agent-managed JDK AOT startup cache for worker JVMs
+
+- **Category**: Worker Supervision
+- **User story**: As a platform operator, I want every worker JVM this node spawns to benefit automatically from a JDK 25 AOT cache once one exists, without any manifest, API, or process-kind change, so that deploy latency and self-healing MTTR improve for every module on a jars-only classpath and degrade to today's unchanged behavior everywhere else.
+- **Status**: Complete. Phase A (WorkerStartupBenchIT) measured a real 43-46% p50 spawn->Hello reduction on a real jars-only classpath, gating Phase B: SleipnirCache (gimle-agent) computes a sha256 key over the worker javaExecutable's -version output, os.name/arch, each classpath jar's (path, size, sha256), and AgentMain.stableWorkerFlags() -- the same flag-building method buildWorkerCommand itself calls, so the key and the real command can never drift -- returning empty (ineligible) for any non-jar classpath entry (a directory disqualifies the whole cache under JEP 483). SleipnirTrainer spawns one training WorkerMain (gimle.worker.aotTraining, JEP 514's -XX:AOTCacheOutput=) at agent startup, off a background virtual thread, waits for Hello then a clean exit, and commits meta.json before the .aot itself via atomic rename so a reader can never observe an incomplete cache. buildWorkerCommand gained an Optional<Path> aotCachePath parameter that, when present, inserts -XX:AOTCache=<path> -XX:AOTMode=auto -Xlog:aot=warning -- AOTMode=auto means a corrupt or mismatched cache degrades to a normal uncached start, never a failed spawn. sweep() keeps the current key plus any key still referenced by a live worker (SupervisedInstance#aotCacheKey) and unconditionally clears orphaned .tmp files. No per-module/tenant cache, no hosted-module-class caching (JPMS user-defined loaders get no AOT benefit at all), no new process kind, manifest field, API, or store schema.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`isAotTrainingMode`), `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stableWorkerFlags`, `buildWorkerCommand`, `startInstance`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`aotCacheKey`)
+- **Test coverage**: `WorkerStartupBenchIT` (real jars-only classpath, cached-vs-uncached p50/p95 gate, JFR-coexistence assertion, corrupted-cache resilience); `SleipnirCacheTest` (key determinism, ineligible-classpath, cache-hit/miss, meta.json-before-.aot ordering, sweep); `SleipnirTrainerTest` (ineligible classpath, training failure swallowed, cache-hit short-circuits retraining, concurrent calls serialize, start() idempotency) plus `SleipnirTrainerRealRunIT` (a real training run against the real worker classpath); `RedeployLoopFlatMetaspaceTest`'s added `-XX:AOTMode=auto` variant (the leak-sensitive redeploy path is unperturbed); `gimle-holmgang`'s `aot-cache.feature` (a deployment reaches ACTIVE normally under Holmgang's own directory classpath, with the ineligibility line observed in the agent's own log and no cache files written).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files.
   ```
 
 ### gimle-mimir

@@ -617,6 +617,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | New | Not Covered | — |
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | New | Not Covered | — |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | New | Not Covered | — |
+| GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | New | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
 
 ## Detailed Requirements
 
@@ -1999,6 +2000,17 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises secretMapRefs-narrowed secret delivery against a real running cluster -- see GIMLE-578's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#secret_map_refs_narrows_delivery_to_only_the_named_secretmaps_keys` drives a real fake Fafnir + control-plane HTTP server pair and a real Unix-socket `WorkerConnection`, asserting only the named SecretMap's key arrives as `ConfigDelivered` and that the unscoped flat `/secrets/{tenantId}` listing is never even called once `secretMapRefs` is declared.
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchSecretMaps`, `deliverConfig`, `fetchAssignments`)
+
+#### GIMLE-603 — Sleipnir: agent-managed JDK AOT startup cache for worker JVMs
+
+- **Category**: Worker Supervision
+- **Status**: New
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/aot-cache.feature` — Scenario: *the agent logs ineligibility and the deployment still reaches ACTIVE normally*
+  - _Why this counts_: Boots a real Holmgang cluster (whose own worker classpath mixes real jars with target/classes directories, exactly the shape JEP 483 disqualifies) and deploys a real module -- proves Sleipnir's ineligibility path fires exactly once, is observable in the agent's own platform log, and never blocks or breaks the deployment, which still reaches ACTIVE and never writes a cache file.
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
 
 ### gimle-mimir
 
@@ -6394,7 +6406,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**483 of 602 requirements are Not Covered.**
+**483 of 603 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|

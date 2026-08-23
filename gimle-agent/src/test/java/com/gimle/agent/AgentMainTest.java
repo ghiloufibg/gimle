@@ -53,9 +53,11 @@ class AgentMainTest {
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
 
   /**
-   * The seven-arg {@link AgentMain#buildWorkerCommand} call every test below needs, with only the
+   * The eight-arg {@link AgentMain#buildWorkerCommand} call every test below needs, with only the
    * bits that actually vary per test (the limiter, the prepared handle, the assigned instance, and
-   * occasionally the node id) exposed as parameters.
+   * occasionally the node id) exposed as parameters. {@code aotCachePath} is always {@code
+   * Optional.empty()} here -- Sleipnir's own flag-insertion behavior is covered by a dedicated test
+   * below rather than threaded through every other test in this file.
    */
   private static List<String> buildDefaultWorkerCommand(
       PortableJvmFlagsResourceLimiter resourceLimiter,
@@ -69,7 +71,8 @@ class AgentMainTest {
         handle,
         Path.of("gimle-logs", "workers", "hello-deployment#0"),
         nodeId,
-        assigned);
+        assigned,
+        Optional.empty());
   }
 
   private static List<String> buildDefaultWorkerCommand(
@@ -220,6 +223,44 @@ class AgentMainTest {
     assertTrue(
         command.contains("-Dgimle.log.console=json"),
         "expected the worker's console output to be forced to JSON; command=" + command);
+  }
+
+  @Test
+  void a_present_aot_cache_path_inserts_sleipnir_flags_immediately_before_the_command_tail() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    Path cachePath = Path.of("gimle-data", "aot-cache", "worker-abc123.aot");
+
+    List<String> command =
+        AgentMain.buildWorkerCommand(
+            "java",
+            List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+            resourceLimiter,
+            handle,
+            Path.of("gimle-logs", "workers", "hello-deployment#0"),
+            "node-1",
+            assigned,
+            Optional.of(cachePath));
+
+    int cacheFlagIndex = command.indexOf("-XX:AOTCache=" + cachePath);
+    assertTrue(cacheFlagIndex >= 0, "expected -XX:AOTCache=<path>; command=" + command);
+    assertEquals(
+        "-XX:AOTMode=auto",
+        command.get(cacheFlagIndex + 1),
+        "expected -XX:AOTMode=auto right after -XX:AOTCache=; command=" + command);
+    assertEquals(
+        "-Xlog:aot=warning",
+        command.get(cacheFlagIndex + 2),
+        "expected -Xlog:aot=warning right after -XX:AOTMode=auto; command=" + command);
+    assertEquals(
+        "-cp",
+        command.get(cacheFlagIndex + 3),
+        "expected the AOT flags immediately before commandTail's own -cp; command=" + command);
   }
 
   @Test

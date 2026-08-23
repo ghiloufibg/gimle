@@ -18,7 +18,7 @@ graph TD
 | Tier | Placement | Guarantee | Deploy cost |
 |---|---|---|---|
 | **Tier 1** | Module in a shared worker JVM | Classloader-level isolation, soft JFR-based accounting | Millisecond deploys — the density win |
-| **Tier 2** | Module in a dedicated worker JVM | Hard `-Xmx`/CPU ceiling, independent crash domain | Sub-second deploy (AppCDS) — Kubernetes-equivalent guarantee, available per module |
+| **Tier 2** | Module in a dedicated worker JVM | Hard `-Xmx`/CPU ceiling, independent crash domain | Sub-second deploy (AOT cache) — Kubernetes-equivalent guarantee, available per module |
 | **Tier 3** | Worker JVM in a Linux namespace (FFM `unshare`/`setns`) | Kernel-level isolation, for hostile-neighbour scenarios | Not yet implemented |
 
 ## What's actually enforced today

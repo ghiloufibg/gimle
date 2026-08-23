@@ -14,7 +14,6 @@ import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -83,15 +82,14 @@ class WorkerStartupBenchIT {
   @BeforeAll
   void trainCacheAgainstRealJars() throws Exception {
     tempDir = Files.createTempDirectory("gimle-sleipnir-bench-");
-    Path libDir = workerRuntimeImageLibDir();
     assumeTrue(
-        Files.isDirectory(libDir),
+        Files.isDirectory(RealWorkerClasspath.libDir()),
         "gimle-worker's runtime-image profile hasn't been built. Run:\n"
             + "  mvn -pl gimle-worker -am package -P runtime-image\n"
             + "then:\n"
             + "  mvn -pl gimle-agent -am verify -P aotbench");
 
-    realJars = realJarClasspath(libDir);
+    realJars = RealWorkerClasspath.classpath();
     workerLogRoot = tempDir.resolve("worker-logs");
     Files.createDirectories(workerLogRoot);
 
@@ -224,57 +222,6 @@ class WorkerStartupBenchIT {
         "expected a normal worker start even with a corrupted AOT cache file");
   }
 
-  // --- classpath resolution -------------------------------------------------------------------
-
-  private static Path workerRuntimeImageLibDir() {
-    return workerTargetDir().resolve("runtime-image").resolve("lib");
-  }
-
-  /**
-   * {@code gimle-worker}'s own {@code target} directory, resolved sibling-relative to this module's
-   * basedir (Maven's forked-test working directory) since both modules sit directly under the
-   * reactor root. Override with {@code -Dgimle.sleipnir.workerTargetDir=<path>} if that assumption
-   * doesn't hold for a given invocation.
-   */
-  private static Path workerTargetDir() {
-    String override = System.getProperty("gimle.sleipnir.workerTargetDir");
-    if (override != null && !override.isBlank()) {
-      return Path.of(override);
-    }
-    return Path.of("..", "gimle-worker", "target").toAbsolutePath().normalize();
-  }
-
-  private static String realJarClasspath(Path libDir) throws IOException {
-    Path workerJar = resolveWorkerJar(workerTargetDir());
-    List<String> classpathEntries = new ArrayList<>();
-    classpathEntries.add(workerJar.toString());
-    classpathEntries.addAll(jarsIn(libDir));
-    return String.join(File.pathSeparator, classpathEntries);
-  }
-
-  private static Path resolveWorkerJar(Path targetDir) throws IOException {
-    try (Stream<Path> files = Files.list(targetDir)) {
-      return files
-          .filter(p -> p.getFileName().toString().matches("gimle-worker-.*\\.jar"))
-          .filter(p -> !p.getFileName().toString().contains("sources"))
-          .filter(p -> !p.getFileName().toString().contains("javadoc"))
-          .map(p -> p.toAbsolutePath().normalize())
-          .findFirst()
-          .orElseThrow(
-              () -> new IllegalStateException("no gimle-worker-*.jar found under " + targetDir));
-    }
-  }
-
-  private static List<String> jarsIn(Path dir) throws IOException {
-    try (Stream<Path> files = Files.list(dir)) {
-      return files
-          .filter(p -> p.getFileName().toString().endsWith(".jar"))
-          .map(p -> p.toAbsolutePath().normalize().toString())
-          .sorted()
-          .toList();
-    }
-  }
-
   // --- command building -------------------------------------------------------------------------
 
   private List<String> buildCommand(List<String> aotFlags) {
@@ -289,7 +236,8 @@ class WorkerStartupBenchIT {
         limitHandle,
         workerLogRoot,
         "bench-node",
-        assigned);
+        assigned,
+        Optional.empty());
   }
 
   private static String javaExecutable() {

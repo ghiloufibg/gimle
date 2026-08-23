@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 602,
-    "coveredByAutomatedTest": 119,
+    "totalRequirements": 603,
+    "coveredByAutomatedTest": 120,
     "notCoveredByAutomatedTest": 483,
-    "releaseReadinessPercent": 19.8
+    "releaseReadinessPercent": 19.9
   },
   "items": [
     {
@@ -6625,6 +6625,17 @@
       "feature": "`deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs",
       "step": "Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first.",
       "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-603",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Sleipnir: agent-managed JDK AOT startup cache for worker JVMs",
+      "step": "Given a running cluster from topology \"minimal\", And module \"greeter-provider\" version \"1.0.0\" deployed with 1 replica as \"sleipnir-greeter\", Then within 60s deployment \"sleipnir-greeter\" is ACTIVE, And within 30s node \"node-0\" logs \"AOT cache ineligible: directory on worker classpath\", And node \"node-0\" has no AOT cache files.",
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

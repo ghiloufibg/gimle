@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 602,
+  "requirementCount": 603,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10404,6 +10404,30 @@
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleDeploymentVerb`/`handleStatefulSetVerb`/`handleDaemonSetVerb`)"
       ],
       "otherTestCoverage": "`GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path."
+    },
+    {
+      "id": "GIMLE-603",
+      "module": "gimle-agent",
+      "feature": "Sleipnir: agent-managed JDK AOT startup cache for worker JVMs",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/aot-cache.feature",
+          "scenario": "the agent logs ineligibility and the deployment still reaches ACTIVE normally",
+          "whyThisCounts": "Boots a real Holmgang cluster (whose own worker classpath mixes real jars with target/classes directories, exactly the shape JEP 483 disqualifies) and deploys a real module -- proves Sleipnir's ineligibility path fires exactly once, is observable in the agent's own platform log, and never blocks or breaks the deployment, which still reaches ACTIVE and never writes a cache file."
+        }
+      ],
+      "gapNote": "",
+      "otherTestCoverage": "`WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ]
     }
   ]
 }
