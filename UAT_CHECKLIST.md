@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 603
+- **Total requirements**: 605
 - **Covered by automated (Holmgang Cucumber) test**: 120
-- **Not covered by automated test**: 483
-- **Release-readiness (automated coverage)**: 19.9%
+- **Not covered by automated test**: 485
+- **Release-readiness (automated coverage)**: 19.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 40 | 6 | 34 | 15.0% |
-| gimle-mimir | 50 | 32 | 18 | 64.0% |
+| gimle-mimir | 51 | 32 | 19 | 62.7% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 69 | 14 | 55 | 20.3% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 26 | 0 | 26 | 0.0% |
+| gimle-cli | 27 | 0 | 27 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 31 | 0 | 31 | 0.0% |
@@ -593,6 +593,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-178 | Store Process Bootstrap with TLS Rotation Ticker | Given a store process started with a state dir, Raft port, client port; When it starts up; Then it constructs StateStore/RaftLog/RaftNode, binds both transports, and rotates its own cert if due. | No |
 | [ ] | GIMLE-179 | Store/Raft Metrics Instrumentation | Given a client RPC request handled by StoreNode; When it completes; Then StoreMetrics records the kind, duration, and error status exactly once. | No |
 | [ ] | GIMLE-180 | module-info JPMS Boundary for gimle-mimir | Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported. | No |
+
+#### Multi-Tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted. | No |
 
 #### Networking/Security
 
@@ -1248,6 +1254,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version. | No |
 | [ ] | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version. | No |
 | [ ] | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first. | No |
+| [ ] | GIMLE-605 | `limitrange` get/set/delete verbs | Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}. | No |
 
 #### CLI / Build Tooling
 

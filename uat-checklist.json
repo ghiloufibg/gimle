@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 603,
+    "totalRequirements": 605,
     "coveredByAutomatedTest": 120,
-    "notCoveredByAutomatedTest": 483,
-    "releaseReadinessPercent": 19.9
+    "notCoveredByAutomatedTest": 485,
+    "releaseReadinessPercent": 19.8
   },
   "items": [
     {
@@ -6636,6 +6636,28 @@
       "feature": "Sleipnir: agent-managed JDK AOT startup cache for worker JVMs",
       "step": "Given a running cluster from topology \"minimal\", And module \"greeter-provider\" version \"1.0.0\" deployed with 1 replica as \"sleipnir-greeter\", Then within 60s deployment \"sleipnir-greeter\" is ACTIVE, And within 30s node \"node-0\" logs \"AOT cache ineligible: directory on worker classpath\", And node \"node-0\" has no AOT cache files.",
       "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-604",
+      "module": "gimle-mimir",
+      "category": "Multi-Tenancy",
+      "feature": "LimitRange: per-workload resource min/max bound, admission check, and reconciler",
+      "step": "Given a LimitRange for tenant \"acme\" with max request memory \"1Mi\" and cpu \"1m\", When a deployment declaring 32Mi/20m request is submitted for tenant \"acme\", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant \"acme\", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-605",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`limitrange` get/set/delete verbs",
+      "step": "Given no LimitRange for tenant \"acme\" exists, When \"gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m\", Then PUT /limitranges/acme creates it and \"gimle get limitrange acme\" returns minRequest {memory: \"64Mi\", cpu: \"50m\"}.",
+      "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

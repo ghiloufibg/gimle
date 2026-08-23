@@ -618,6 +618,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | New | Not Covered | — |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | New | Not Covered | — |
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | New | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
+| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Not Covered | — |
+| GIMLE-605 | `limitrange` get/set/delete verbs | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2533,6 +2535,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags="@rollback"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.
 - **Other test coverage (non-Holmgang, informational only)**: `ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/ControllerRevision.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AppendControllerRevision`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putControllerRevision`/`listControllerRevisions`/`getControllerRevision`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRollbackDeployment`/`handleRollbackStatefulSet`/`handleRollbackDaemonSet`)
+
+#### GIMLE-604 — LimitRange: per-workload resource min/max bound, admission check, and reconciler
+
+- **Category**: Multi-Tenancy
+- **Status**: New  _(newly added as part of the LimitRange per-workload resource-bound work)_
+- **Coverage**: Not Covered
+- **Gap note**: A `limitrange.feature` Cucumber scenario pair (`gimle-holmgang/src/test/resources/features/limitrange.feature`, tag `@holmgang @limitrange`) and its step definitions (`LimitRangeSteps`, `ClusterApi.putLimitRange`/`tryPutLimitRange`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Pvalidation -Dcucumber.filter.tags="@limitrange"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.
+- **Other test coverage (non-Holmgang, informational only)**: `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`)
 
 ### gimle-fabric
 
@@ -4670,6 +4681,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java` (`revisions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleDeploymentVerb`/`handleStatefulSetVerb`/`handleDaemonSetVerb`)
 
+#### GIMLE-605 — `limitrange` get/set/delete verbs
+
+- **Category**: CLI
+- **Status**: New  _(newly added as part of the LimitRange per-workload resource-bound work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead, the same gap GIMLE-579 (NetworkPolicy CLI) already documents. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for `limitrange get`/`set`/`delete`.
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked).
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`limitrange`/`limitranges` dispatch)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -6406,7 +6426,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**483 of 603 requirements are Not Covered.**
+**485 of 605 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6478,6 +6498,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-595 | gimle-cli | `secretmap versions`/`secretmap rollback` verbs | CLI | Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same). |
 | GIMLE-600 | gimle-cli | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent. |
 | GIMLE-602 | gimle-cli | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path. |
+| GIMLE-605 | gimle-cli | `limitrange` get/set/delete verbs | CLI | `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked). |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -6681,6 +6702,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-006 | gimle-core | Tenant-scoped service export | Module System / Multi-tenancy | `ServiceExportTenantTest` (unrestricted permits any, restricted permits only listed, never permits untenanted caller, empty allow list permits no one) |
 | GIMLE-007 | gimle-core | StatefulSet-shaped persistent volume declaration | Module System / Storage | `ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_and_mount_path, volume_with_missing_mount_path_throws, volume_with_non_positive_size_bytes_throws) |
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
+| GIMLE-604 | gimle-mimir | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |

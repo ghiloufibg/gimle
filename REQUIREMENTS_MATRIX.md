@@ -613,6 +613,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Workload Lifecycle | Complete | Yes |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | Complete | Yes |
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Worker Supervision | Complete | Yes |
+| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | Complete | Yes |
+| GIMLE-605 | `limitrange` get/set/delete verbs | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3366,6 +3368,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given module "greeter-provider" version "1.0.0" deployed with 2 replicas as "rollback-greeter", And it is rolled to a rebuilt provider version "1.1.0", When "rollback-greeter" is rolled back to the previous revision, Then within 180s all 2 instances of "rollback-greeter" are ACTIVE on version "1.0.0".
+  ```
+
+#### GIMLE-604 — LimitRange: per-workload resource min/max bound, admission check, and reconciler
+
+- **Category**: Multi-Tenancy
+- **User story**: As a platform operator, I want to bound what a single Deployment within my tenant may declare for its own resources.request/resources.limit, so one deployment can't consume most of my tenant's aggregate ResourceQuota by itself as long as the sum still fits -- the platform's own equivalent of Kubernetes' LimitRange.
+- **Status**: Complete. A new `LimitRangeSpec` record (`gimle-mimir/manifest`) holds four independently optional `Optional<ResourceSpec>` bounds (`minRequest`/`maxRequest`/`minLimit`/`maxLimit`), keyed one-per-tenant by `tenantId` directly -- the same identity-is-the-tenant-scope shape `Tenant` itself already establishes, not `NetworkPolicySpec`'s separate-`name` shape, since a LimitRange is naturally singular per tenant. No `default` bound: `resources.request`/`resources.limit` are always-required on a module's own manifest, so there's no omitted-value case for a default to inject. Replicated via new `StateMutation.PutLimitRange`/`RemoveLimitRange`/`PutLimitRangeViolation` and full `StoreRpc`/`StoreCodec`/`StoreNode`/`StoreClient` wire plumbing mirroring `NetworkPolicySpec`'s end-to-end shape. `LimitRangePlugin` (`gimle-controlplane/admission`) runs first in `deploymentAdmissionChain` (before `TenantQuotaPlugin`, since it's the cheaper single-artifact check with no cross-deployment summation) and rejects an over-range submission outright; `LimitRangeReconciler` (`gimle-controlplane/reconcile`) continuously re-checks every tenanted deployment against its tenant's current range, single-pass (unlike `QuotaReconciler`'s two-pass accumulation, since a per-workload bound needs no aggregation), and marks a deployment `limitRangeViolating` via `StateStore#putLimitRangeViolation` -- a separate flag from `quotaViolating`, since "over aggregate quota" and "violates this workload's own bound" are independently-true-or-false failure modes -- without ever evicting the running instance, matching `QuotaReconciler`'s own posture. `ApiServer` exposes `PUT`/`GET`/`DELETE /limitranges/{tenantId}` and `GET /limitranges`, RBAC-gated on the new `ResourceKind.LIMIT_RANGE`, with a single `requireAuthorized` call per verb (no two-tier re-tenanting guard -- a LimitRange's identity is always its own tenant scope, so there's no re-parenting case to guard against, unlike NetworkPolicy). `deploymentStatus(...)` gains `limitRangeViolating` alongside the existing `quotaViolating` field.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutLimitRange`/`RemoveLimitRange`/`PutLimitRangeViolation`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putLimitRange`/`getLimitRange`/`listLimitRanges`/`removeLimitRange`, `putLimitRangeViolation`/`isLimitRangeViolating`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`LIMIT_RANGE`)
+- **Test coverage**: `LimitRangeSpecTest` (compact-constructor rejections: blank tenantId, null bound fields, min-above-max within each of the two pairs independently, no cross-pair check); `LimitRangePluginTest` (untenanted allow, no-stored-range allow, unreadable artifact rejects, each of the four boundary violations independently rejects, exactly-at-boundary allows, every bound satisfied allows); `LimitRangeReconcilerTest` (marks violating on a freshly-tightened range, does not mark within range, ignores untenanted deployments, ignores a tenant with no range, clears a violation on relax -- convergence from arbitrary starting state, one deployment's unresolvable artifact does not abort the rest of the tick); `ApiServerLimitRangesTest` (PUT/GET/DELETE round-trip including partial-bounds specs, 404s, list, malformed half-a-bound-pair 400, min-above-max 400, re-PUT replaces); `ApiServerLimitRangesAuthzTest` (write/read/delete denial without a grant, a tenant-scoped grant cannot touch another tenant's LimitRange).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409.
+  Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted.
   ```
 
 ### gimle-fabric
@@ -6499,6 +6515,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first.
+  ```
+
+#### GIMLE-605 — `limitrange` get/set/delete verbs
+
+- **Category**: CLI
+- **User story**: As a platform operator, I want to view, configure, and remove a tenant's LimitRange from the command line, so I don't have to hand-craft a PUT /limitranges/{tenantId} request just to expose an existing control-plane capability.
+- **Status**: Complete. `LimitRangeCommand` mirrors `TenantsCommand`'s per-field-flag shape: `gimle get limitranges [tenantId]`, `gimle set limitrange <tenantId> [--min-request-memory M --min-request-cpu M] [--max-request-memory M --max-request-cpu M] [--min-limit-memory M --min-limit-cpu M] [--max-limit-memory M --max-limit-cpu M]`, `gimle delete limitrange <tenantId>` -- each of the four bound pairs is independently optional and all-or-nothing (setting one flag of a pair without the other lets the server's own compact-constructor validation reject it as a 400, rather than the CLI silently guessing). Registered directly into `GimleCli`'s existing `handleGet`/`handleSet`/`handleDelete` noun dispatch -- pure CRUD-by-id needs no extra action verb the way `cronjob trigger`/`deployment rollback` do, so `limitrange` is not promoted to a top-level verb.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`limitrange`/`limitranges` dispatch)
+- **Test coverage**: `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` (real `ApiServer`, not mocked): set with partial bounds, list, single get round-trips both bound pairs, delete, and get-after-delete surfaces the server's own 404 as a non-zero exit with "not found" on stderr.
+- **Gherkin scenario**:
+  ```gherkin
+  Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}.
   ```
 
 ### gimle-hilmir

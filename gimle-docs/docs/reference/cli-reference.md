@@ -53,6 +53,12 @@ gimle delete networkpolicy <name>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>
+gimle get limitranges [tenantId]
+gimle set limitrange <tenantId> [--min-request-memory M --min-request-cpu M]
+                                 [--max-request-memory M --max-request-cpu M]
+                                 [--min-limit-memory M --min-limit-cpu M]
+                                 [--max-limit-memory M --max-limit-cpu M]
+gimle delete limitrange <tenantId>
 gimle get config <tenantId>
 gimle set config <tenantId> <key> <value> [--encrypted]
 gimle delete config <tenantId> <key>
@@ -204,6 +210,14 @@ Services; `--tenant` is required (a NetworkPolicy always restricts exactly one t
 Services), `--deployment` scopes it to specific workloads instead of the whole tenant when given,
 and `--allowed-caller-tenant` may repeat once per permitted caller tenant.
 
+`limitrange` manages a tenant's [LimitRange](../architecture/multi-tenancy.md#limitrange) — a
+per-workload min/max bound on a single Deployment's own `resources.request`/`resources.limit`,
+distinct from `tenant`'s own aggregate quota. Each of the four bound pairs
+(`--min-request-*`/`--max-request-*`/`--min-limit-*`/`--max-limit-*`) is independently optional and
+all-or-nothing — setting one flag of a pair without the other is rejected as a 400, not silently
+guessed. Unlike `service`/`networkpolicy`, `limitrange` is PUT by `tenantId` directly (like `tenant`
+itself) rather than POSTed to a collection, since a LimitRange is naturally one-per-tenant.
+
 `audit list` reads the cross-resource audit trail (see
 [Authentication and authorization](../architecture/authn-authz.md#audit-logging)) — every
 `WRITE`/`DELETE` authorization decision, allowed and denied, across both the control plane and
@@ -281,6 +295,9 @@ gimle apply -f artifactset.yaml --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10
+
+# Bound what any single deployment in acme may request/limit
+gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m --max-limit-memory 512Mi --max-limit-cpu 500m
 ```
 
 `GIMLE_SERVER=127.0.0.1:8080` in your shell's environment removes the need to repeat `--server` on

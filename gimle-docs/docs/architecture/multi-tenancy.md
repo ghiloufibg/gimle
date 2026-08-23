@@ -66,6 +66,40 @@ adding another key/check to `PolicyConfigPlugin` itself, not a schema change, so
 malformed value, or an entry mistakenly written `--encrypted` (a policy rule is never a secret),
 both reject the submission outright rather than silently skip enforcement.
 
+## LimitRange
+
+`ResourceQuota` bounds the *aggregate* sum of a tenant's deployments; nothing bounds what a
+*single* deployment may declare on its own — one deployment can consume most of a tenant's quota by
+itself as long as the sum still fits. `LimitRangeSpec` closes that gap, the platform's own
+equivalent of Kubernetes' `LimitRange`: an optional, per-tenant min/max bound (`minRequest`/
+`maxRequest`/`minLimit`/`maxLimit`, each an independently optional memory/cpu pair) on a single
+Deployment's own `resources.request`/`resources.limit`. There is deliberately no `default` bound —
+`resources.request`/`resources.limit` are always-required on a module's own manifest, so there's no
+omitted-value case for a default to inject. Scope is Deployment-only today, matching
+`TenantQuotaPlugin`'s own accepted Job/DaemonSet/StatefulSet/CronJob gap (above) — extending
+LimitRange further while quota itself doesn't would be an inconsistent asymmetry.
+
+Checked the same twice-over way quota is:
+
+- **At admission** — `LimitRangePlugin`, run first in the deployment admission chain (before
+  `TenantQuotaPlugin`) since it's the cheaper single-artifact comparison, with no cross-deployment
+  summation to compute. Absent `tenantId`, or an absent LimitRange for the tenant, are both a no-op
+  allow — a LimitRange is opt-in per tenant, not a default every deployment must satisfy.
+- **Continuously** — `LimitRangeReconciler`, level-triggered like `QuotaReconciler`, but single-pass:
+  a workload's own bound violation needs no cross-deployment accumulation to evaluate, only its own
+  resource declaration against the tenant's current range. Deliberately does not evict instances to
+  force compliance either — it marks the offending deployment's status as limit-range-violating
+  (`StateStore.putLimitRangeViolation`, read by the API server's deployment status surface, a
+  separate flag from `quotaViolating` since the two are independently-true-or-false failure modes)
+  and logs a warning, the same "surface it, don't act on it" posture `QuotaReconciler` establishes.
+
+Managed as its own top-level resource, `PUT`/`GET`/`DELETE /limitranges/{tenantId}` (keyed by
+`tenantId` directly, like `Tenant` itself rather than `NetworkPolicySpec`'s separate-`name` shape,
+since a LimitRange is naturally one-per-tenant) plus `GET /limitranges` for the full list, RBAC-gated
+on its own `ResourceKind.LIMIT_RANGE` — a role can be granted "manage this tenant" without also
+getting "constrain what any single deployment within it may request." See [CLI
+reference](../reference/cli-reference.md) for the `gimle limitrange` verbs.
+
 ## Tenant-scoped config
 
 Plain config entries (`gimle set config <tenantId> <key> <value>`, see
