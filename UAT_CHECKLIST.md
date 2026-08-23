@@ -7,9 +7,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 ## Summary
 
 - **Total requirements**: 605
-- **Covered by automated (Holmgang Cucumber) test**: 120
-- **Not covered by automated test**: 485
-- **Release-readiness (automated coverage)**: 19.8%
+- **Covered by automated (Holmgang Cucumber) test**: 121
+- **Not covered by automated test**: 484
+- **Release-readiness (automated coverage)**: 20.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 40 | 6 | 34 | 15.0% |
-| gimle-mimir | 51 | 32 | 19 | 62.7% |
+| gimle-mimir | 51 | 33 | 18 | 64.7% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 69 | 14 | 55 | 20.3% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -598,7 +598,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted. | No |
+| [ ] | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted. | Yes |
 
 #### Networking/Security
 

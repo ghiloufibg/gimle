@@ -2,9 +2,9 @@
   "generatedFrom": "rtm.json",
   "summary": {
     "totalRequirements": 605,
-    "coveredByAutomatedTest": 120,
-    "notCoveredByAutomatedTest": 485,
-    "releaseReadinessPercent": 19.8
+    "coveredByAutomatedTest": 121,
+    "notCoveredByAutomatedTest": 484,
+    "releaseReadinessPercent": 20.0
   },
   "items": [
     {
@@ -6646,7 +6646,7 @@
       "category": "Multi-Tenancy",
       "feature": "LimitRange: per-workload resource min/max bound, admission check, and reconciler",
       "step": "Given a LimitRange for tenant \"acme\" with max request memory \"1Mi\" and cpu \"1m\", When a deployment declaring 32Mi/20m request is submitted for tenant \"acme\", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant \"acme\", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

@@ -10437,9 +10437,20 @@
       "category": "Multi-Tenancy",
       "status": "New",
       "statusNote": "newly added as part of the LimitRange per-workload resource-bound work",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "A `limitrange.feature` Cucumber scenario pair (`gimle-holmgang/src/test/resources/features/limitrange.feature`, tag `@holmgang @limitrange`) and its step definitions (`LimitRangeSteps`, `ClusterApi.putLimitRange`/`tryPutLimitRange`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Pvalidation -Dcucumber.filter.tags=\"@limitrange\"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/limitrange.feature",
+          "scenario": "An over-range deployment is rejected at admission",
+          "whyThisCounts": "Declares a real LimitRange for a tenant (PUT /limitranges/{tenantId}) with a max-request bound far below greeter-provider's real 32Mi/20m declared request, then attempts a real deployment submission for that tenant and asserts the control plane rejects it with 409 -- proving LimitRangePlugin genuinely runs in the deployment admission chain against a real cluster, not just in LimitRangePluginTest's simulated store."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/limitrange.feature",
+          "scenario": "A retroactively tightened LimitRange is flagged but never evicts",
+          "whyThisCounts": "Deploys greeter-provider successfully under a loose LimitRange, then retroactively tightens the same tenant's range below the already-running deployment's request and polls until the deployment reports limitRangeViolating -- while independently asserting the instance stays ACTIVE for 10s, proving LimitRangeReconciler's own reconcile-only-never-evict posture holds against a real cluster, not just in LimitRangeReconcilerTest's simulated store."
+        }
+      ],
+      "gapNote": "",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`",
@@ -10457,7 +10468,7 @@
       "statusNote": "newly added as part of the LimitRange per-workload resource-bound work",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead, the same gap GIMLE-579 (NetworkPolicy CLI) already documents. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for `limitrange get`/`set`/`delete`.",
+      "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead, the same gap GIMLE-579 (NetworkPolicy CLI) already documents; per this file's own coverage rule, a scenario exercising the underlying API the CLI calls does not count as covering the CLI verb itself. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for `limitrange get`/`set`/`delete`.",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`limitrange`/`limitranges` dispatch)"

@@ -618,7 +618,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | New | Not Covered | — |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | New | Not Covered | — |
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | New | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
-| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Not Covered | — |
+| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Covered | `limitrange.feature` — "An over-range deployment is rejected at admission"; `limitrange.feature` — "A retroactively tightened LimitRange is flagged but never evicts" |
 | GIMLE-605 | `limitrange` get/set/delete verbs | New | Not Covered | — |
 
 ## Detailed Requirements
@@ -2540,8 +2540,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Multi-Tenancy
 - **Status**: New  _(newly added as part of the LimitRange per-workload resource-bound work)_
-- **Coverage**: Not Covered
-- **Gap note**: A `limitrange.feature` Cucumber scenario pair (`gimle-holmgang/src/test/resources/features/limitrange.feature`, tag `@holmgang @limitrange`) and its step definitions (`LimitRangeSteps`, `ClusterApi.putLimitRange`/`tryPutLimitRange`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Pvalidation -Dcucumber.filter.tags="@limitrange"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/limitrange.feature` — Scenario: *An over-range deployment is rejected at admission*
+  - _Why this counts_: Declares a real LimitRange for a tenant (PUT /limitranges/{tenantId}) with a max-request bound far below greeter-provider's real 32Mi/20m declared request, then attempts a real deployment submission for that tenant and asserts the control plane rejects it with 409 -- proving LimitRangePlugin genuinely runs in the deployment admission chain against a real cluster, not just in LimitRangePluginTest's simulated store.
+  - `gimle-holmgang/src/test/resources/features/limitrange.feature` — Scenario: *A retroactively tightened LimitRange is flagged but never evicts*
+  - _Why this counts_: Deploys greeter-provider successfully under a loose LimitRange, then retroactively tightens the same tenant's range below the already-running deployment's request and polls until the deployment reports limitRangeViolating -- while independently asserting the instance stays ACTIVE for 10s, proving LimitRangeReconciler's own reconcile-only-never-evict posture holds against a real cluster, not just in LimitRangeReconcilerTest's simulated store.
 - **Other test coverage (non-Holmgang, informational only)**: `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`)
 
@@ -4686,7 +4690,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Category**: CLI
 - **Status**: New  _(newly added as part of the LimitRange per-workload resource-bound work)_
 - **Coverage**: Not Covered
-- **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead, the same gap GIMLE-579 (NetworkPolicy CLI) already documents. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for `limitrange get`/`set`/`delete`.
+- **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead, the same gap GIMLE-579 (NetworkPolicy CLI) already documents; per this file's own coverage rule, a scenario exercising the underlying API the CLI calls does not count as covering the CLI verb itself. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for `limitrange get`/`set`/`delete`.
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked).
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`limitrange`/`limitranges` dispatch)
 
@@ -6426,7 +6430,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**485 of 605 requirements are Not Covered.**
+**484 of 605 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6702,7 +6706,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-006 | gimle-core | Tenant-scoped service export | Module System / Multi-tenancy | `ServiceExportTenantTest` (unrestricted permits any, restricted permits only listed, never permits untenanted caller, empty allow list permits no one) |
 | GIMLE-007 | gimle-core | StatefulSet-shaped persistent volume declaration | Module System / Storage | `ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_and_mount_path, volume_with_missing_mount_path_throws, volume_with_non_positive_size_bytes_throws) |
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
-| GIMLE-604 | gimle-mimir | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
