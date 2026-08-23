@@ -3,6 +3,7 @@ package com.gimle.controlplane.api;
 import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
 import com.gimle.controlplane.admission.ConfigMapRefsPlugin;
+import com.gimle.controlplane.admission.LimitRangePlugin;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.SecretMapRefsPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
@@ -40,6 +41,7 @@ import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.AuditEvent;
@@ -75,6 +77,7 @@ import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
@@ -355,6 +358,7 @@ public final class ApiServer implements AutoCloseable {
     this.deploymentAdmissionChain =
         new AdmissionChain<>(
             List.of(
+                new LimitRangePlugin(),
                 new TenantQuotaPlugin(this.artifactResolver),
                 new PolicyConfigPlugin(),
                 new ConfigMapRefsPlugin(),
@@ -411,6 +415,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/nodes", instrument("nodes", this::handleNodesList));
     target.createContext("/tenants/", instrument("tenants", this::handleTenant));
     target.createContext("/tenants", instrument("tenants", this::handleTenantsList));
+    target.createContext("/limitranges/", instrument("limitranges", this::handleLimitRange));
+    target.createContext("/limitranges", instrument("limitranges", this::handleLimitRangesList));
     target.createContext("/config/", instrument("config", this::handleConfig));
     target.createContext("/logs/", instrument("logs", this::handleLogs));
     target.createContext(
@@ -2327,6 +2333,7 @@ public final class ApiServer implements AutoCloseable {
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.name()));
+    status.put("limitRangeViolating", storeClient.isLimitRangeViolating(spec.name()));
     return status;
   }
 
@@ -3241,6 +3248,120 @@ public final class ApiServer implements AutoCloseable {
   private void handleDeleteTenant(HttpExchange exchange, String id) throws IOException {
     storeClient.propose(new StateMutation.RemoveTenant(id));
     respond(exchange, 200, "ok");
+  }
+
+  // ---- /limitranges and /limitranges/{tenantId} ----
+
+  private void handleLimitRangesList(HttpExchange exchange) {
+    try {
+      if (!requireAuthorized(exchange, ResourceKind.LIMIT_RANGE, Verb.READ, Optional.empty())) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listLimitRanges().stream().map(ApiServer::limitRangeSpecToJson).toList());
+    } catch (IOException | RuntimeException e) {
+      log.warn("limit ranges list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleLimitRange(HttpExchange exchange) {
+    try {
+      String tenantId = pathSegmentAfter(exchange, "/limitranges/");
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenant id");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.LIMIT_RANGE, Verb.WRITE, Optional.of(tenantId))) {
+            handlePutLimitRange(exchange, tenantId);
+          }
+        }
+        case "GET" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.LIMIT_RANGE, Verb.READ, Optional.of(tenantId))) {
+            handleGetLimitRange(exchange, tenantId);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.LIMIT_RANGE, Verb.DELETE, Optional.of(tenantId))) {
+            handleDeleteLimitRange(exchange, tenantId);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("limit range request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handlePutLimitRange(HttpExchange exchange, String tenantId) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    LimitRangeSpec spec =
+        new LimitRangeSpec(
+            tenantId,
+            resourceSpecFromJson((Map<?, ?>) body.get("minRequest")),
+            resourceSpecFromJson((Map<?, ?>) body.get("maxRequest")),
+            resourceSpecFromJson((Map<?, ?>) body.get("minLimit")),
+            resourceSpecFromJson((Map<?, ?>) body.get("maxLimit")));
+    storeClient.propose(new StateMutation.PutLimitRange(spec));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleGetLimitRange(HttpExchange exchange, String tenantId) throws IOException {
+    Optional<LimitRangeSpec> limitRange = storeClient.getLimitRange(tenantId);
+    if (limitRange.isEmpty()) {
+      respond(exchange, 404, "no such limit range: " + tenantId);
+      return;
+    }
+    respondJson(exchange, 200, limitRangeSpecToJson(limitRange.get()));
+  }
+
+  private void handleDeleteLimitRange(HttpExchange exchange, String tenantId) throws IOException {
+    storeClient.propose(new StateMutation.RemoveLimitRange(tenantId));
+    respond(exchange, 200, "ok");
+  }
+
+  private static Map<String, Object> limitRangeSpecToJson(LimitRangeSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("tenantId", spec.tenantId());
+    spec.minRequest().ifPresent(r -> map.put("minRequest", resourceSpecToJson(r)));
+    spec.maxRequest().ifPresent(r -> map.put("maxRequest", resourceSpecToJson(r)));
+    spec.minLimit().ifPresent(r -> map.put("minLimit", resourceSpecToJson(r)));
+    spec.maxLimit().ifPresent(r -> map.put("maxLimit", resourceSpecToJson(r)));
+    return map;
+  }
+
+  private static Map<String, Object> resourceSpecToJson(ResourceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("memory", spec.memory());
+    map.put("cpu", spec.cpu());
+    return map;
+  }
+
+  private static Optional<ResourceSpec> resourceSpecFromJson(Map<?, ?> map) {
+    if (map == null) {
+      return Optional.empty();
+    }
+    return Optional.of(new ResourceSpec((String) map.get("memory"), (String) map.get("cpu")));
   }
 
   private static Map<String, Object> tenantToJson(Tenant tenant) {

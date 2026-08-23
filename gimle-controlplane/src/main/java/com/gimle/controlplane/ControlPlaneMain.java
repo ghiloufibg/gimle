@@ -11,6 +11,7 @@ import com.gimle.controlplane.reconcile.DaemonSetReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
 import com.gimle.controlplane.reconcile.HealthReconciler;
 import com.gimle.controlplane.reconcile.JobReconciler;
+import com.gimle.controlplane.reconcile.LimitRangeReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
 import com.gimle.controlplane.reconcile.ServiceReconciler;
@@ -191,6 +192,8 @@ public final class ControlPlaneMain {
         new AutoscaleReconciler(storeClient, storeClient, artifactResolver);
     QuotaReconciler quotaReconciler =
         new QuotaReconciler(storeClient, storeClient, artifactResolver);
+    LimitRangeReconciler limitRangeReconciler =
+        new LimitRangeReconciler(storeClient, storeClient, artifactResolver);
     // Touches only its own JobSpec/JobRun store types, invisible to
     // the four reconcilers above by construction (they only ever read Deployment-scoped store
     // methods) -- no interaction with, or dependency on, tick order relative to them.
@@ -312,6 +315,7 @@ public final class ControlPlaneMain {
                 healthReconciler,
                 autoscaleReconciler,
                 quotaReconciler,
+                limitRangeReconciler,
                 deploymentReconciler,
                 jobReconciler,
                 cronJobReconciler,
@@ -437,6 +441,7 @@ public final class ControlPlaneMain {
       HealthReconciler healthReconciler,
       AutoscaleReconciler autoscaleReconciler,
       QuotaReconciler quotaReconciler,
+      LimitRangeReconciler limitRangeReconciler,
       DeploymentReconciler deploymentReconciler,
       JobReconciler jobReconciler,
       CronJobReconciler cronJobReconciler,
@@ -447,6 +452,7 @@ public final class ControlPlaneMain {
     runOne("health", healthReconciler::reconcileOnce);
     runOne("autoscale", autoscaleReconciler::reconcileOnce);
     runOne("quota", quotaReconciler::reconcileOnce);
+    runOne("limitRange", limitRangeReconciler::reconcileOnce);
     runOne("deployment", deploymentReconciler::reconcileOnce);
     // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
     // consumer" ordering above -- a firing materialized here is then immediately placeable by
