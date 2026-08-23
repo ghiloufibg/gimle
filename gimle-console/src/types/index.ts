@@ -331,6 +331,22 @@ export interface SecretMapKeyResult {
   error?: string;
 }
 
+/** One stamped group version of a SecretMap -- mirroring
+ * com.gimle.fafnir.secretmap.SecretMapStore.SecretMapGroupVersion. `rollbackOfGroupVersion` is
+ * present only when this group version was itself produced by a rollback. */
+export interface SecretMapGroupVersion {
+  groupVersion: number;
+  keys: SecretMapKeyMetadata[];
+  rollbackOfGroupVersion?: number;
+}
+
+/** The response of a rollback -- per-key results plus the brand-new group version it was
+ * recorded as (rollback never rewrites the target group version or anything after it). */
+export interface SecretMapRollbackResult {
+  results: SecretMapKeyResult[];
+  groupVersion: number;
+}
+
 export interface ModuleInstance {
   deploymentName: string;
   instanceIndex: number;

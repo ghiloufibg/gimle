@@ -1,4 +1,9 @@
-import type { SecretMap, SecretMapKeyResult } from "@/types";
+import type {
+  SecretMap,
+  SecretMapGroupVersion,
+  SecretMapKeyResult,
+  SecretMapRollbackResult,
+} from "@/types";
 import type { SecretMapsRepository } from "@/repositories/secretmaps";
 import { requestJson, requestJsonWithBody, requestOk } from "./apiClient";
 
@@ -15,6 +20,11 @@ interface RawSecretMapKeyMetadata {
  * for the flat surface. {@code set}'s response body carries one {@link SecretMapKeyResult} per
  * key sent, reported independently rather than a single all-or-nothing outcome, since each key
  * keeps its own version ledger with no group-level version to conflict-check against.
+ *
+ * <p>{@link fetchGroupVersions}/{@link rollback} reach the group-level ledger layered on top of
+ * that same per-key store: {@code GET .../versions} returns {@code {groupVersions: [...]}}, and
+ * {@code POST .../rollback} takes {@code {groupVersion}} and returns {@code {results,
+ * groupVersion}} -- the brand-new group version the rollback itself was recorded as.
  */
 export class HttpSecretMapsRepository implements SecretMapsRepository {
   async fetchNames(tenantId: string): Promise<string[]> {
@@ -55,6 +65,26 @@ export class HttpSecretMapsRepository implements SecretMapsRepository {
     await requestOk(
       "DELETE",
       `/secretmaps/${encodeURIComponent(tenantId)}/${encodeURIComponent(name)}${query}`,
+    );
+  }
+
+  async fetchGroupVersions(tenantId: string, name: string): Promise<SecretMapGroupVersion[]> {
+    const raw = await requestJson<{ groupVersions: SecretMapGroupVersion[] }>(
+      "GET",
+      `/secretmaps/${encodeURIComponent(tenantId)}/${encodeURIComponent(name)}/versions`,
+    );
+    return raw.groupVersions;
+  }
+
+  async rollback(
+    tenantId: string,
+    name: string,
+    groupVersion: number,
+  ): Promise<SecretMapRollbackResult> {
+    return requestJsonWithBody<SecretMapRollbackResult>(
+      "POST",
+      `/secretmaps/${encodeURIComponent(tenantId)}/${encodeURIComponent(name)}/rollback`,
+      { groupVersion },
     );
   }
 }

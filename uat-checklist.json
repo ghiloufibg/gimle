@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 593,
+    "totalRequirements": 596,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 474,
-    "releaseReadinessPercent": 20.1
+    "notCoveredByAutomatedTest": 477,
+    "releaseReadinessPercent": 20.0
   },
   "items": [
     {
@@ -6525,6 +6525,39 @@
       "category": "Web Console / Frontend",
       "feature": "SecretMaps screen",
       "step": "Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-594",
+      "module": "gimle-fafnir",
+      "category": "Secrets Management",
+      "feature": "SecretMap group-version ledger and rollback",
+      "step": "Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-595",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`secretmap versions`/`secretmap rollback` verbs",
+      "step": "Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-596",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "SecretMaps screen History panel",
+      "step": "Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks \"Roll back\" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked \"rollback of v1\".",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

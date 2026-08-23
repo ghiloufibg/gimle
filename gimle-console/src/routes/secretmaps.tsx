@@ -45,11 +45,13 @@ function SecretMapsPage() {
     error,
     selected,
     lastSetResults,
+    groupVersions,
     setTenant,
     loadNames,
     select,
     save,
     remove,
+    rollback,
   } = useSecretMapsStore();
   const [nameInput, setNameInput] = useState("");
   const [rows, setRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
@@ -123,6 +125,20 @@ function SecretMapsPage() {
       toast.success("Deleted");
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  }
+
+  async function onRollback(groupVersion: number) {
+    if (
+      !window.confirm(
+        `Roll back "${nameInput}" to group version ${groupVersion}? This restores every key it recorded as a brand-new group version -- it never rewrites history.`,
+      )
+    ) {
+      return;
+    }
+    await rollback(nameInput, groupVersion);
+    if (!useSecretMapsStore.getState().error) {
+      toast.success(`Rolled back to group version ${groupVersion}`);
     }
   }
 
@@ -282,6 +298,49 @@ function SecretMapsPage() {
                   .filter((r) => r.error)
                   .map((r) => `${r.key}: ${r.error}`)
                   .join("; ")}
+              </div>
+            )}
+
+            {selected && groupVersions.length > 0 && (
+              <div className="mt-4">
+                <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  History
+                </div>
+                <div className="overflow-x-auto rounded border border-border">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/50 text-muted-foreground">
+                      <tr className="text-left">
+                        <th className="px-2 py-1 font-medium">Version</th>
+                        <th className="px-2 py-1 font-medium">Keys</th>
+                        <th className="px-2 py-1 font-medium">Rollback of</th>
+                        <th className="px-2 py-1 font-medium w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...groupVersions].reverse().map((v) => (
+                        <tr key={v.groupVersion} className="border-t border-border">
+                          <td className="px-2 py-1 font-mono">v{v.groupVersion}</td>
+                          <td className="px-2 py-1">{v.keys.length}</td>
+                          <td className="px-2 py-1 font-mono text-muted-foreground">
+                            {v.rollbackOfGroupVersion !== undefined
+                              ? `v${v.rollbackOfGroupVersion}`
+                              : "—"}
+                          </td>
+                          <td className="px-2 py-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px]"
+                              onClick={() => onRollback(v.groupVersion)}
+                            >
+                              Roll back
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

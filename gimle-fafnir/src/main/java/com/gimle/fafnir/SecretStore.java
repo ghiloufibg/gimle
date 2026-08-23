@@ -57,8 +57,23 @@ public final class SecretStore {
    * every other secret the tenant owns is unaffected by one entry's corruption.
    */
   public List<SecretMetadata> list(String tenantId) {
+    return decodeAll(tenantId, storeClient.listConfigEntriesFor(tenantId));
+  }
+
+  /**
+   * Same as {@link #list}, but sourced from a linearizable read -- for a caller building a
+   * point-in-time snapshot immediately after its own writes (e.g. {@code
+   * com.gimle.fafnir.secretmap.SecretMapStore}'s group-version stamping), where {@link #list}'s
+   * plain round-robin read could otherwise land on a replica that hasn't yet caught up to those
+   * writes, the same staleness risk {@link #put} already guards its own meta-advance against.
+   */
+  public List<SecretMetadata> listLinearizable(String tenantId) {
+    return decodeAll(tenantId, storeClient.listConfigEntriesForLinearizable(tenantId));
+  }
+
+  private List<SecretMetadata> decodeAll(String tenantId, List<ConfigEntry> entries) {
     List<SecretMetadata> result = new ArrayList<>();
-    for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
+    for (ConfigEntry entry : entries) {
       if (!entry.key().endsWith(META_SUFFIX)) {
         continue;
       }

@@ -1,7 +1,7 @@
 {
   "title": "Giml\u00e9 Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Giml\u00e9 codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository \u2014 main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories \u2014 not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor \u2014 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`\u2026`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test \u2014 direct or indirect \u2014 was found for that specific behavior.",
-  "requirementCount": 593,
+  "requirementCount": 596,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11598,6 +11598,67 @@
       "testCoverageDetail": "`repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection).",
       "gherkinSteps": [
         "Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-594",
+      "module": "gimle-fafnir",
+      "feature": "SecretMap group-version ledger and rollback",
+      "category": "Secrets Management",
+      "userStory": "As an operator, I want a bad multi-key SecretMap write undone as one unit, restoring every key to its recorded state as of an earlier group version, without losing any key's own per-key version history.",
+      "statusDetail": "Complete. The `(tenantId, name)` lease `SecretMapStore.setMany` already held is generalized into a shared `withWriteLease` helper reused by `setMany`, `deleteAll`, and `deleteKey` (both of which previously took no lease at all), so every mutation to a SecretMap is serialized the same way. Each mutation that actually changes something stamps a new group version via `stampGroupVersion`: a plain, unencrypted `ConfigEntry` row (key family `secretmap-group:{name}:{groupVersion}`, deliberately never ending in SecretStore's own `@meta` suffix, so it is structurally invisible to every existing `/secrets/*`/`/secretmaps/*` read path with no reserved-prefix guard needed) recording every current member key's own version and deleted state, read via a new `SecretStore.listLinearizable` (added alongside the existing round-robin `list`, since a plain read immediately after this call's own writes could otherwise land on a lagging replica). `rollback(tenantId, name, targetGroupVersion)` restores every key that snapshot recorded -- a live key's content re-written as a brand-new SecretStore version (never rewriting the old one), a deleted key re-marked deleted -- and stamps the rollback itself as a new, later group version (`rollbackOfGroupVersion` pointing back at the target), the same forward-only \"restore = new revision\" pattern `gimle-hilmir`'s own release rollback uses. A key added after the target group version and never part of it is left untouched. One key's content being unrecoverable (only possible if it was hard-deleted since) is reported as that key's own failure, not a thrown exception. New `GET /secretmaps/{tenantId}/{name}/versions` and `POST /secretmaps/{tenantId}/{name}/rollback` routes reuse the existing `ResourceKind.SECRETMAP` READ/WRITE split; `gimle-controlplane`'s `/secretmaps/*` proxy gained POST-method forwarding (previously only GET/PUT/DELETE) to carry the rollback action's request body through.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapStore.java` (`withWriteLease`, `stampGroupVersion`, `listGroupVersions`, `rollback`, `SecretMapGroupVersion`/`SecretMapKeySnapshot`/`RollbackOutcome`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`listLinearizable`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/versions`, `/rollback` routes and handlers)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy` POST support)"
+      ],
+      "testCoverageDetail": "`SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes).",
+      "gherkinSteps": [
+        "Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-595",
+      "module": "gimle-cli",
+      "feature": "`secretmap versions`/`secretmap rollback` verbs",
+      "category": "CLI",
+      "userStory": "As an operator, I want to list a SecretMap's group-version history and roll it back to an earlier one from the CLI.",
+      "statusDetail": "Complete. `SecretMapCommand` gained `versions <tenantId> <name>` (`GET .../versions`, printed as a list of group versions) and `rollback <tenantId> <name> <groupVersion>` (`POST .../rollback` with `{\"groupVersion\": N}`, printed as the combined `{results, groupVersion}` response object) -- registered in the same verb switch and both usage-text locations (`SecretMapCommand#usage`, `GimleCli`'s own javadoc and runtime usage string) `set`/`get`/`delete` already use.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`versions`, `rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)"
+      ],
+      "testCoverageDetail": "Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same).",
+      "gherkinSteps": [
+        "Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-596",
+      "module": "gimle-console",
+      "feature": "SecretMaps screen History panel",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator, I want to see a SecretMap's group-version history in the console and roll it back to an earlier one without using the CLI.",
+      "statusDetail": "Complete. `SecretMapsRepository` gained `fetchGroupVersions`/`rollback`, implemented against the real `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes (`HttpSecretMapsRepository`) and against an in-memory group-version ledger keyed by `tenantId::name` (`MockSecretMapsRepository`/`fixture.ts`, stamped on every mock `set`). `useSecretMapsStore` gained a `groupVersions` field (loaded alongside `selected` in `select()`, refreshed after `save()`/`rollback()`) and a `rollback(name, groupVersion)` action. The SecretMaps screen's detail panel gained a History table (group version, key count, `rollback of vN` badge, per-row \"Roll back\" button with a confirmation prompt) below the existing per-key metadata table.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/types/index.ts` (`SecretMapGroupVersion`, `SecretMapRollbackResult`)",
+        "`gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `fixture.ts`",
+        "`gimle-console/src/stores/useSecretMapsStore.ts`",
+        "`gimle-console/src/routes/secretmaps.tsx`"
+      ],
+      "testCoverageDetail": "`repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`).",
+      "gherkinSteps": [
+        "Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks \"Roll back\" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked \"rollback of v1\"."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

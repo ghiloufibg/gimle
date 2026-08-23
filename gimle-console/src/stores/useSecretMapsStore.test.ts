@@ -6,6 +6,8 @@ vi.mock("@/repositories", () => ({
     fetchOne: vi.fn(),
     set: vi.fn(),
     remove: vi.fn(),
+    fetchGroupVersions: vi.fn(),
+    rollback: vi.fn(),
   },
 }));
 
@@ -21,7 +23,9 @@ describe("useSecretMapsStore", () => {
       error: null,
       selected: null,
       lastSetResults: null,
+      groupVersions: [],
     });
+    vi.mocked(secretMapsRepo.fetchGroupVersions).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -81,9 +85,7 @@ describe("useSecretMapsStore", () => {
 
     const state = useSecretMapsStore.getState();
     expect(state.error).toBeNull();
-    expect(state.lastSetResults?.find((r) => r.key === "password")?.error).toBe(
-      "write contention",
-    );
+    expect(state.lastSetResults?.find((r) => r.key === "password")?.error).toBe("write contention");
   });
 
   it("save surfaces a repository-level rejection as store.error", async () => {
@@ -106,5 +108,53 @@ describe("useSecretMapsStore", () => {
     const state = useSecretMapsStore.getState();
     expect(state.names).toEqual([]);
     expect(state.selected).toBeNull();
+  });
+
+  it("select loads the group-version history alongside the SecretMap's own metadata", async () => {
+    vi.mocked(secretMapsRepo.fetchOne).mockResolvedValueOnce({
+      tenantId: "acme",
+      name: "db-creds",
+      keys: [{ key: "username", latestVersion: 1, deleted: false }],
+    });
+    vi.mocked(secretMapsRepo.fetchGroupVersions).mockResolvedValueOnce([
+      { groupVersion: 1, keys: [{ key: "username", latestVersion: 1, deleted: false }] },
+    ]);
+
+    await useSecretMapsStore.getState().select("db-creds");
+
+    expect(useSecretMapsStore.getState().groupVersions).toEqual([
+      { groupVersion: 1, keys: [{ key: "username", latestVersion: 1, deleted: false }] },
+    ]);
+  });
+
+  it("rollback calls the repository and refreshes both the SecretMap and its history", async () => {
+    vi.mocked(secretMapsRepo.rollback).mockResolvedValueOnce({
+      results: [{ key: "password", version: 3 }],
+      groupVersion: 3,
+    });
+    vi.mocked(secretMapsRepo.fetchOne).mockResolvedValueOnce({
+      tenantId: "acme",
+      name: "db-creds",
+      keys: [{ key: "password", latestVersion: 3, deleted: false }],
+    });
+    vi.mocked(secretMapsRepo.fetchGroupVersions).mockResolvedValueOnce([
+      { groupVersion: 3, keys: [], rollbackOfGroupVersion: 1 },
+    ]);
+
+    await useSecretMapsStore.getState().rollback("db-creds", 1);
+
+    expect(secretMapsRepo.rollback).toHaveBeenCalledWith("acme", "db-creds", 1);
+    const state = useSecretMapsStore.getState();
+    expect(state.lastSetResults).toEqual([{ key: "password", version: 3 }]);
+    expect(state.selected?.keys).toEqual([{ key: "password", latestVersion: 3, deleted: false }]);
+    expect(state.groupVersions).toEqual([{ groupVersion: 3, keys: [], rollbackOfGroupVersion: 1 }]);
+  });
+
+  it("rollback surfaces a repository-level rejection as store.error", async () => {
+    vi.mocked(secretMapsRepo.rollback).mockRejectedValueOnce(new Error("no such group version"));
+
+    await useSecretMapsStore.getState().rollback("db-creds", 99);
+
+    expect(useSecretMapsStore.getState().error).toBe("no such group version");
   });
 });

@@ -11,7 +11,9 @@ import type {
   LifecycleState,
   Node,
   SecretMap,
+  SecretMapGroupVersion,
   SecretMapKeyResult,
+  SecretMapRollbackResult,
   SecretMetadata,
   StatefulSet,
   StatefulSetInstance,
@@ -443,6 +445,9 @@ export function removeTenant(id: string) {
   delete secretsByTenant[id];
   delete configMapsByTenant[id];
   delete secretMapsByTenant[id];
+  for (const key of Object.keys(secretMapGroupVersionsByTenant)) {
+    if (key.startsWith(`${id}::`)) delete secretMapGroupVersionsByTenant[key];
+  }
 }
 
 export function upsertConfig(entry: ConfigEntry) {
@@ -619,16 +624,19 @@ export function upsertSecretMap(
     secretMap = { tenantId, name, keys: [] };
     list.push(secretMap);
   }
-  return Object.keys(data).map((key) => {
-    const existing = secretMap!.keys.find((k) => k.key === key);
+  const mutableSecretMap = secretMap;
+  const results = Object.keys(data).map((key) => {
+    const existing = mutableSecretMap.keys.find((k) => k.key === key);
     if (existing) {
       existing.latestVersion += 1;
       existing.deleted = false;
     } else {
-      secretMap!.keys.push({ key, latestVersion: 1, deleted: false });
+      mutableSecretMap.keys.push({ key, latestVersion: 1, deleted: false });
     }
     return { key, version: existing ? existing.latestVersion : 1 };
   });
+  stampSecretMapGroupVersion(tenantId, name, mutableSecretMap);
+  return results;
 }
 
 export function removeSecretMap(tenantId: string, name: string) {
@@ -636,4 +644,81 @@ export function removeSecretMap(tenantId: string, name: string) {
   if (!list) return;
   const i = list.findIndex((s) => s.name === name);
   if (i >= 0) list.splice(i, 1);
+}
+
+// Group versions -- one ledger entry per (tenantId, name) recording the full member state at the
+// moment it was stamped, mirroring com.gimle.fafnir.secretmap.SecretMapStore's own group-version
+// ledger. Keyed on a plain "tenantId::name" string rather than a nested map: this fixture already
+// uses flat Record<string, T[]> maps everywhere else, and a SecretMap name never contains "::".
+export const secretMapGroupVersionsByTenant: Record<string, SecretMapGroupVersion[]> = {};
+
+function groupVersionsKey(tenantId: string, name: string): string {
+  return `${tenantId}::${name}`;
+}
+
+function stampSecretMapGroupVersion(
+  tenantId: string,
+  name: string,
+  secretMap: SecretMap,
+  rollbackOfGroupVersion?: number,
+): number {
+  const list = (secretMapGroupVersionsByTenant[groupVersionsKey(tenantId, name)] ??= []);
+  const next = list.length > 0 ? list[list.length - 1].groupVersion + 1 : 1;
+  const entry: SecretMapGroupVersion = {
+    groupVersion: next,
+    keys: secretMap.keys.map((k) => ({ ...k })),
+  };
+  if (rollbackOfGroupVersion !== undefined) entry.rollbackOfGroupVersion = rollbackOfGroupVersion;
+  list.push(entry);
+  return next;
+}
+
+export function listSecretMapGroupVersions(
+  tenantId: string,
+  name: string,
+): SecretMapGroupVersion[] {
+  return secretMapGroupVersionsByTenant[groupVersionsKey(tenantId, name)] ?? [];
+}
+
+/** Restores every key {@code targetGroupVersion} recorded, mirroring
+ * SecretMapStore#rollback: a live key's content is "rewritten" as a new version (mock has no real
+ * content to restore, only the version counter), a deleted key is re-marked deleted, and the
+ * rollback itself is stamped as a brand-new forward-only group version. */
+export function rollbackSecretMap(
+  tenantId: string,
+  name: string,
+  groupVersion: number,
+): SecretMapRollbackResult {
+  const versions = secretMapGroupVersionsByTenant[groupVersionsKey(tenantId, name)] ?? [];
+  const target = versions.find((v) => v.groupVersion === groupVersion);
+  if (!target) throw new Error(`no such group version of ${name}: ${groupVersion}`);
+
+  const list = (secretMapsByTenant[tenantId] ??= []);
+  let secretMap = list.find((s) => s.name === name);
+  if (!secretMap) {
+    secretMap = { tenantId, name, keys: [] };
+    list.push(secretMap);
+  }
+  const mutableSecretMap = secretMap;
+  const results: SecretMapKeyResult[] = target.keys.map((snapshot) => {
+    let current = mutableSecretMap.keys.find((k) => k.key === snapshot.key);
+    if (!current) {
+      current = { key: snapshot.key, latestVersion: 0, deleted: false };
+      mutableSecretMap.keys.push(current);
+    }
+    if (snapshot.deleted) {
+      current.deleted = true;
+    } else {
+      current.latestVersion += 1;
+      current.deleted = false;
+    }
+    return { key: snapshot.key, version: current.latestVersion };
+  });
+  const newGroupVersion = stampSecretMapGroupVersion(
+    tenantId,
+    name,
+    mutableSecretMap,
+    groupVersion,
+  );
+  return { results, groupVersion: newGroupVersion };
 }

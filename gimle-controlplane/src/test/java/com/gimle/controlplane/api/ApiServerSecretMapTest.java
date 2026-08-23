@@ -82,6 +82,13 @@ class ApiServerSecretMapTest {
     return send(HttpRequest.newBuilder(URI.create(baseUrl + path)).DELETE().build());
   }
 
+  private HttpResponse<String> post(String path, String body) throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build());
+  }
+
   private static String encode(String value) {
     return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
   }
@@ -158,5 +165,36 @@ class ApiServerSecretMapTest {
         put("/secrets/acme/secretmap:db-creds:username", Json.write(Map.of("value", encode("x"))));
 
     assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void versions_and_rollback_round_trip_through_the_proxy_to_a_real_fafnir() throws Exception {
+    put(
+        "/secretmaps/acme/db-creds",
+        Json.write(Map.of("data", Map.of("password", encode("hunter2")))));
+    put(
+        "/secretmaps/acme/db-creds",
+        Json.write(Map.of("data", Map.of("password", encode("hunter3")))));
+
+    HttpResponse<String> versionsResponse = get("/secretmaps/acme/db-creds/versions");
+    assertEquals(200, versionsResponse.statusCode());
+    List<Object> groupVersions =
+        Json.asArray(Json.asObject(Json.parse(versionsResponse.body())).get("groupVersions"));
+    assertEquals(2, groupVersions.size());
+
+    HttpResponse<String> rollbackResponse =
+        post("/secretmaps/acme/db-creds/rollback", Json.write(Map.of("groupVersion", 1)));
+    assertEquals(200, rollbackResponse.statusCode());
+    assertEquals(
+        3.0,
+        ((Number) Json.asObject(Json.parse(rollbackResponse.body())).get("groupVersion"))
+            .doubleValue());
+
+    HttpResponse<String> valuesResponse = get("/secretmaps/acme?names=db-creds");
+    Map<String, Object> secretMaps =
+        Json.asObject(Json.asObject(Json.parse(valuesResponse.body())).get("secretMaps"));
+    Map<String, Object> data = Json.asObject(Json.asObject(secretMaps.get("db-creds")).get("data"));
+    assertEquals("hunter2", decode((String) data.get("password")));
   }
 }

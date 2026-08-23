@@ -64,6 +64,8 @@ gimle secretmap list <tenantId>
 gimle secretmap get <tenantId> <name>
 gimle secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
 gimle secretmap delete <tenantId> <name> [--destroy]
+gimle secretmap versions <tenantId> <name>
+gimle secretmap rollback <tenantId> <name> <groupVersion>
 gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
@@ -128,6 +130,14 @@ own outcome (a new version, or a per-key failure) rather than the whole call suc
 as one unit. `--from-literal`/`--from-file` behave exactly like `configmap set`'s own; `delete`
 soft-deletes every key under the name by default, `--destroy` hard-deletes them all irreversibly,
 the same distinction `secret delete` already makes per key.
+
+Every write to a SecretMap — `set`, `delete`, `delete <key>` — also stamps a **group version**:
+a snapshot of every member key's own version and deleted state at that moment, layered on top of
+the per-key ledger above. `versions` lists a SecretMap's full group-version history, oldest first;
+`rollback <groupVersion>` restores every key that group version recorded — a live key's content as
+a brand-new version (never rewriting the old one), a deleted key back to deleted — and records the
+rollback itself as a new, later group version rather than rewriting history. A key added after the
+target group version and never part of it is left untouched, not deleted.
 
 `artifact` is a distinct top-level verb for the same reason `secret` is: `push` has no shape in
 three-verb dispatch. Every call is proxied by the control plane to Andvari, the artifact registry

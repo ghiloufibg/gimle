@@ -517,6 +517,24 @@ public final class FafnirServer implements AutoCloseable {
         return;
       }
       if (parts.length == 3) {
+        // GET /secretmaps/{tenantId}/{name}/versions and POST .../rollback are reserved action
+        // segments, checked before the general "third segment is a member key" fallback below --
+        // a real key literally named "versions"/"rollback" only ever reaches this branch via
+        // DELETE, which these two never intercept.
+        if ("versions".equals(parts[2]) && "GET".equals(exchange.getRequestMethod())) {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.READ, tenantId, Optional.of(name))) {
+            handleListSecretMapGroupVersions(exchange, tenantId, name);
+          }
+          return;
+        }
+        if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.WRITE, tenantId, Optional.of(name))) {
+            handleRollbackSecretMap(exchange, tenantId, name);
+          }
+          return;
+        }
         // DELETE /secretmaps/{tenantId}/{name}/{key}[?destroy=true] -- a single member key.
         String key = parts[2];
         if (!"DELETE".equals(exchange.getRequestMethod())) {
@@ -626,6 +644,60 @@ public final class FafnirServer implements AutoCloseable {
       return;
     }
     respond(exchange, 200, "ok");
+  }
+
+  private void handleListSecretMapGroupVersions(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    List<Map<String, Object>> groupVersions =
+        secretMapStore.listGroupVersions(tenantId, name).stream()
+            .map(FafnirServer::groupVersionToJson)
+            .toList();
+    respondJson(exchange, 200, Map.of("groupVersions", groupVersions));
+  }
+
+  private void handleRollbackSecretMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+    Object raw = body.get("groupVersion");
+    if (!(raw instanceof Number number)) {
+      respond(exchange, 400, "'groupVersion' must be an integer");
+      return;
+    }
+    SecretMapStore.RollbackOutcome outcome =
+        secretMapStore.rollback(tenantId, name, number.intValue());
+    switch (outcome) {
+      case SecretMapStore.RollbackOutcome.TargetNotFound ignored ->
+          respond(
+              exchange,
+              404,
+              "no such group version of SecretMap " + name + ": " + number.intValue());
+      case SecretMapStore.RollbackOutcome.Applied applied -> {
+        List<Map<String, Object>> resultsJson =
+            applied.results().stream().map(FafnirServer::secretMapKeyResultToJson).toList();
+        respondJson(
+            exchange,
+            200,
+            Map.of("results", resultsJson, "groupVersion", applied.newGroupVersion()));
+      }
+    }
+  }
+
+  private static Map<String, Object> groupVersionToJson(
+      SecretMapStore.SecretMapGroupVersion groupVersion) {
+    List<Map<String, Object>> keys =
+        groupVersion.keys().entrySet().stream()
+            .map(
+                entry ->
+                    Map.<String, Object>of(
+                        "key", entry.getKey(),
+                        "version", entry.getValue().version(),
+                        "deleted", entry.getValue().deleted()))
+            .toList();
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("groupVersion", groupVersion.groupVersion());
+    map.put("keys", keys);
+    groupVersion.rollbackOfGroupVersion().ifPresent(v -> map.put("rollbackOfGroupVersion", v));
+    return map;
   }
 
   private static Map<String, Object> secretMapKeyResultToJson(

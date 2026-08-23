@@ -75,4 +75,39 @@ describe("HttpSecretMapsRepository", () => {
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("/secretmaps/acme/db-creds?destroy=true");
   });
+
+  it("fetchGroupVersions GETs /secretmaps/{tenantId}/{name}/versions and unwraps groupVersions", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          groupVersions: [
+            { groupVersion: 1, keys: [{ key: "username", latestVersion: 1, deleted: false }] },
+          ],
+        }),
+    ]);
+    const repo = new HttpSecretMapsRepository();
+
+    const versions = await repo.fetchGroupVersions("acme", "db-creds");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/secretmaps/acme/db-creds/versions");
+    expect(versions).toEqual([
+      { groupVersion: 1, keys: [{ key: "username", latestVersion: 1, deleted: false }] },
+    ]);
+  });
+
+  it("rollback POSTs {groupVersion} to .../rollback and returns the response verbatim", async () => {
+    const fetchMock = stubFetchSequence([
+      () => jsonResponse({ results: [{ key: "password", version: 3 }], groupVersion: 3 }),
+    ]);
+    const repo = new HttpSecretMapsRepository();
+
+    const result = await repo.rollback("acme", "db-creds", 1);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/secretmaps/acme/db-creds/rollback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ groupVersion: 1 });
+    expect(result).toEqual({ results: [{ key: "password", version: 3 }], groupVersion: 3 });
+  });
 });

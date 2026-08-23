@@ -61,6 +61,7 @@ class FafnirServerSecretMapTest {
         switch (method) {
           case "GET" -> builder.GET();
           case "PUT" -> builder.PUT(HttpRequest.BodyPublishers.ofString(body));
+          case "POST" -> builder.POST(HttpRequest.BodyPublishers.ofString(body));
           case "DELETE" -> builder.DELETE();
           default -> throw new IllegalArgumentException(method);
         };
@@ -198,6 +199,71 @@ class FafnirServerSecretMapTest {
     HttpResponse<String> metaResponse = send("GET", "/secretmaps/acme/db-creds", null);
     List<Object> keys = Json.asArray(Json.asObject(Json.parse(metaResponse.body())).get("keys"));
     assertEquals(1, keys.size());
+  }
+
+  @Test
+  @Timeout(10)
+  void versions_lists_every_stamped_group_version_in_ascending_order() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin"));
+    putSecretMap("acme", "db-creds", Map.of("password", "hunter2"));
+
+    HttpResponse<String> response = send("GET", "/secretmaps/acme/db-creds/versions", null);
+
+    assertEquals(200, response.statusCode());
+    List<Object> versions =
+        Json.asArray(Json.asObject(Json.parse(response.body())).get("groupVersions"));
+    assertEquals(2, versions.size());
+    assertEquals(1.0, ((Number) Json.asObject(versions.get(0)).get("groupVersion")).doubleValue());
+    assertEquals(2.0, ((Number) Json.asObject(versions.get(1)).get("groupVersion")).doubleValue());
+    List<Object> secondKeys = Json.asArray(Json.asObject(versions.get(1)).get("keys"));
+    assertEquals(2, secondKeys.size());
+  }
+
+  @Test
+  @Timeout(10)
+  void rollback_restores_a_changed_key_and_returns_a_brand_new_group_version() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("password", "hunter2")); // group version 1
+    putSecretMap("acme", "db-creds", Map.of("password", "hunter3")); // group version 2
+
+    HttpResponse<String> response =
+        send("POST", "/secretmaps/acme/db-creds/rollback", Json.write(Map.of("groupVersion", 1)));
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals(3.0, ((Number) body.get("groupVersion")).doubleValue());
+    List<Object> results = Json.asArray(body.get("results"));
+    assertEquals(1, results.size());
+
+    HttpResponse<String> valuesResponse = send("GET", "/secretmaps/acme?names=db-creds", null);
+    Map<String, Object> secretMaps =
+        Json.asObject(Json.asObject(Json.parse(valuesResponse.body())).get("secretMaps"));
+    Map<String, Object> data = Json.asObject(Json.asObject(secretMaps.get("db-creds")).get("data"));
+    assertEquals("hunter2", decode((String) data.get("password")));
+  }
+
+  @Test
+  @Timeout(10)
+  void rollback_to_an_unknown_group_version_returns_404() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin"));
+
+    HttpResponse<String> response =
+        send("POST", "/secretmaps/acme/db-creds/rollback", Json.write(Map.of("groupVersion", 99)));
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void rollback_with_a_non_integer_group_version_is_rejected() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin"));
+
+    HttpResponse<String> response =
+        send(
+            "POST",
+            "/secretmaps/acme/db-creds/rollback",
+            Json.write(Map.of("groupVersion", "one")));
+
+    assertEquals(400, response.statusCode());
   }
 
   @Test

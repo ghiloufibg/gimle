@@ -30,6 +30,12 @@ import java.util.Set;
  *
  * <p>Values cross the wire as base64, the same {@link SecretCommand} convention: {@code set} takes
  * plaintext, {@code get} prints plaintext, this class is the one place the encoding is visible.
+ *
+ * <p>{@code versions <tenantId> <name>} lists every stamped group version, and {@code rollback
+ * <tenantId> <name> <groupVersion>} restores every key that group version recorded to its recorded
+ * content or deleted state -- as a brand-new group version, never rewriting history, the same
+ * forward-only semantics {@code com.gimle.fafnir.secretmap.SecretMapStore#rollback} itself
+ * documents. A key added after the target group version and never part of it is left untouched.
  */
 public final class SecretMapCommand {
 
@@ -54,6 +60,8 @@ public final class SecretMapCommand {
       case "get" -> get(rest);
       case "set" -> set(rest);
       case "delete" -> delete(rest);
+      case "versions" -> versions(rest);
+      case "rollback" -> rollback(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -132,6 +140,40 @@ public final class SecretMapCommand {
         out);
   }
 
+  private void versions(List<String> args) {
+    if (args.size() < 2) {
+      throw new CliException("secretmap versions requires <tenantId> <name>");
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    Map<String, Object> response =
+        client.getObject("/secretmaps/" + tenantId + "/" + name + "/versions");
+    OutputFormat.printList(output, Json.asObjectList(response.get("groupVersions")), out);
+  }
+
+  private void rollback(List<String> args) {
+    if (args.size() < 3) {
+      throw new CliException("secretmap rollback requires <tenantId> <name> <groupVersion>");
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    int groupVersion = parseGroupVersion(args.get(2));
+    String response =
+        client.expectSuccess(
+            client.post(
+                "/secretmaps/" + tenantId + "/" + name + "/rollback",
+                Json.write(Map.of("groupVersion", groupVersion))));
+    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+  }
+
+  private static int parseGroupVersion(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("groupVersion must be an integer, got: " + raw);
+    }
+  }
+
   /**
    * {@code path} alone: the key is the file's own base name. {@code key=path}: an explicit key --
    * the identical kubectl-style convention {@link ConfigMapCommand#addFromFile} already
@@ -188,6 +230,8 @@ public final class SecretMapCommand {
           get <tenantId> <name>
           set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           delete <tenantId> <name> [--destroy]
+          versions <tenantId> <name>
+          rollback <tenantId> <name> <groupVersion>
         """;
   }
 }

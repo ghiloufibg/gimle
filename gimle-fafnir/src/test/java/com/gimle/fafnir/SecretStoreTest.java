@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,6 +101,14 @@ class SecretStoreTest {
     List<SecretMetadata> listed = secrets.list("acme");
 
     assertEquals("db-password", listed.get(0).key());
+  }
+
+  @Test
+  void list_linearizable_returns_the_same_metadata_as_the_plain_list() {
+    secrets.put("acme", "db-password", bytes("hunter2"));
+    secrets.put("acme", "api-key", bytes("v1"));
+
+    assertEquals(Set.copyOf(secrets.list("acme")), Set.copyOf(secrets.listLinearizable("acme")));
   }
 
   @Test

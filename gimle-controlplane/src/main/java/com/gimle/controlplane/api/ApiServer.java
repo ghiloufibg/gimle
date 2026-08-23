@@ -3540,7 +3540,7 @@ public final class ApiServer implements AutoCloseable {
       Verb verb =
           switch (exchange.getRequestMethod()) {
             case "GET" -> Verb.READ;
-            case "PUT" -> Verb.WRITE;
+            case "PUT", "POST" -> Verb.WRITE;
             case "DELETE" -> Verb.DELETE;
             default -> null;
           };
@@ -3559,8 +3559,10 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
+      // POST is only ever the /rollback action route (see FafnirServer#handleSecretMaps), whose
+      // body -- a JSON {"groupVersion": N} -- must be forwarded on exactly like PUT's already is.
       byte[] body =
-          "PUT".equals(exchange.getRequestMethod())
+          "PUT".equals(exchange.getRequestMethod()) || "POST".equals(exchange.getRequestMethod())
               ? readBody(exchange).getBytes(StandardCharsets.UTF_8)
               : null;
       String query = exchange.getRequestURI().getRawQuery();

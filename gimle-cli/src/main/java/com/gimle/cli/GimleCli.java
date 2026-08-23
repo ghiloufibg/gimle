@@ -64,6 +64,8 @@ import java.util.List;
  *   gimle secretmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
  *                                          path|key=path ...]
  *   gimle secretmap delete &lt;tenantId&gt; &lt;name&gt; [--destroy]
+ *   gimle secretmap versions &lt;tenantId&gt; &lt;name&gt;
+ *   gimle secretmap rollback &lt;tenantId&gt; &lt;name&gt; &lt;groupVersion&gt;
  *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;]
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
@@ -400,6 +402,8 @@ public final class GimleCli {
           secretmap get <tenantId> <name>
           secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           secretmap delete <tenantId> <name> [--destroy]
+          secretmap versions <tenantId> <name>
+          secretmap rollback <tenantId> <name> <groupVersion>
           artifact push <jar> [--tenant <id>]
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]

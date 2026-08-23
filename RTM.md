@@ -608,6 +608,9 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | New | Not Covered | — |
 | GIMLE-592 | `gimle secretmap` command | New | Not Covered | — |
 | GIMLE-593 | SecretMaps screen | New | Not Covered | — |
+| GIMLE-594 | SecretMap group-version ledger and rollback | New | Not Covered | — |
+| GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | New | Not Covered | — |
+| GIMLE-596 | SecretMaps screen History panel | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3668,6 +3671,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SecretMapCodecTest`, `SecretMapStoreTest` (including a concurrency regression test mirroring `ConfigMapStoreTest`'s own), `FafnirServerSecretMapTest` (HTTP-level CRUD, authz, and reserved-prefix rejection).
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapCodec.java`, `SecretMapStore.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/secretmaps/*` routes, `authorizeSecrets` generalized to accept a `ResourceKind`, reserved-prefix guard), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`SECRETMAP`)
 
+#### GIMLE-594 — SecretMap group-version ledger and rollback
+
+- **Category**: Secrets Management
+- **Status**: New  _(newly added as part of the SecretMap group-level versioning and rollback work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises SecretMap group-version stamping or rollback against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes).
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapStore.java` (`withWriteLease`, `stampGroupVersion`, `listGroupVersions`, `rollback`, `SecretMapGroupVersion`/`SecretMapKeySnapshot`/`RollbackOutcome`), `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`listLinearizable`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/versions`, `/rollback` routes and handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy` POST support)
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -4577,6 +4589,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Exercised end-to-end by `ApiServerSecretMapTest`'s HTTP-level coverage of the same `/secretmaps/*` surface `SecretMapCommand` calls; no dedicated `SecretMapCommandTest` fixture exists, the same gap `ConfigMapCommand` has (GIMLE-584).
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`, `GimleCli.java` (`secretmap` verb dispatch)
 
+#### GIMLE-595 — `secretmap versions`/`secretmap rollback` verbs
+
+- **Category**: CLI
+- **Status**: New  _(newly added as part of the SecretMap group-level versioning and rollback work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the `secretmap versions`/`secretmap rollback` CLI verbs against a real running cluster -- see GIMLE-588's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same).
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`versions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -5284,6 +5305,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the SecretMaps console screen against a real running cluster -- see GIMLE-578's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: `repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection).
 - **Source location(s)**: `gimle-console/src/types/index.ts` (`SecretMap`, `SecretMapKeyMetadata`, `SecretMapKeyResult`), `gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `index.ts`, `gimle-console/src/stores/useSecretMapsStore.ts`, `gimle-console/src/routes/secretmaps.tsx`, `components/app-sidebar.tsx`
+
+#### GIMLE-596 — SecretMaps screen History panel
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(newly added as part of the SecretMap group-level versioning and rollback work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the SecretMaps screen's History panel against a real running cluster -- see GIMLE-578's identical gapNote.
+- **Other test coverage (non-Holmgang, informational only)**: `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`).
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`SecretMapGroupVersion`, `SecretMapRollbackResult`), `gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `fixture.ts`, `gimle-console/src/stores/useSecretMapsStore.ts`, `gimle-console/src/routes/secretmaps.tsx`
 
 ### gimle-fafnir-console
 
@@ -6304,7 +6334,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**474 of 593 requirements are Not Covered.**
+**477 of 596 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6373,6 +6403,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-579 | gimle-cli | NetworkPolicy CRUD | CLI | `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error` |
 | GIMLE-584 | gimle-cli | `gimle configmap` command | CLI | Exercised end-to-end by `ApiServerConfigMapTest`'s HTTP-level coverage of the same `/configmaps/*` surface `ConfigMapCommand` calls; no dedicated `ConfigMapCommandTest` fixture exists (see gapNote in rtm.json). |
 | GIMLE-592 | gimle-cli | `gimle secretmap` command | CLI | Exercised end-to-end by `ApiServerSecretMapTest`'s HTTP-level coverage of the same `/secretmaps/*` surface `SecretMapCommand` calls; no dedicated `SecretMapCommandTest` fixture exists, the same gap `ConfigMapCommand` has (GIMLE-584). |
+| GIMLE-595 | gimle-cli | `secretmap versions`/`secretmap rollback` verbs | CLI | Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same). |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -6689,6 +6720,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-589 | gimle-mimir | Deployment `secretMapRefs` field with admission-time collision rejection | Secrets Management | `SecretMapRefsPluginTest` covers empty refs, no-tenant rejection, unknown-name rejection, cross-SecretMap key collision, SecretMap-vs-ConfigMap collision, SecretMap-vs-flat-config collision, and SecretMap-vs-flat-secret collision. `DomainCodecTest`/`DeploymentManifestParserTest` cover the wire/YAML round trip. |
 | GIMLE-590 | gimle-controlplane | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Secrets Management | `ApiServerSecretMapTest` (plaintext CRUD through the proxy to a real in-process Fafnir), `ApiServerSecretMapAuthzTest` (real mTLS: an operator role may write/read, a no-grant caller gets 403 on both). |
 | GIMLE-591 | gimle-agent | Narrowed secret delivery via `secretMapRefs` | Secrets Management | `AgentMainTest#secret_map_refs_narrows_delivery_to_only_the_named_secretmaps_keys` drives a real fake Fafnir + control-plane HTTP server pair and a real Unix-socket `WorkerConnection`, asserting only the named SecretMap's key arrives as `ConfigDelivered` and that the unscoped flat `/secrets/{tenantId}` listing is never even called once `secretMapRefs` is declared. |
+| GIMLE-594 | gimle-fafnir | SecretMap group-version ledger and rollback | Secrets Management | `SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes). |
 | GIMLE-262 | gimle-controlplane | `/secrets/*` byte-for-byte proxy to Fafnir | Secrets Management / Internal-Infra | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered`, `a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` |
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
@@ -6763,6 +6795,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-586 | gimle-console | Service CRUD and live endpoint lookup (Networking screen) | Web Console / Frontend | `src/repositories/services.test.ts`, `src/repositories/http/services.test.ts` |
 | GIMLE-587 | gimle-console | NetworkPolicy CRUD (Networking screen) | Web Console / Frontend | `src/repositories/networkPolicies.test.ts`, `src/repositories/http/networkPolicies.test.ts` |
 | GIMLE-593 | gimle-console | SecretMaps screen | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection). |
+| GIMLE-596 | gimle-console | SecretMaps screen History panel | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`). |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

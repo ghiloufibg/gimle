@@ -62,4 +62,37 @@ describe("MockSecretMapsRepository", () => {
     await repo.remove(tenantA.id, "vitest-removed-map");
     await expect(repo.fetchOne(tenantA.id, "vitest-removed-map")).rejects.toThrow();
   });
+
+  it("fetchGroupVersions stamps one group version per set(), each recording every member key", async () => {
+    await repo.set(tenantA.id, "vitest-history-map", { a: "1" });
+    await repo.set(tenantA.id, "vitest-history-map", { b: "1" });
+
+    const versions = await repo.fetchGroupVersions(tenantA.id, "vitest-history-map");
+
+    expect(versions.map((v) => v.groupVersion)).toEqual([1, 2]);
+    expect(versions[1].keys.map((k) => k.key).sort()).toEqual(["a", "b"]);
+
+    await repo.remove(tenantA.id, "vitest-history-map");
+  });
+
+  it("rollback restores a changed key's version and records a brand-new group version", async () => {
+    await repo.set(tenantA.id, "vitest-rollback-map", { a: "1" }); // group version 1
+    await repo.set(tenantA.id, "vitest-rollback-map", { a: "2" }); // group version 2
+
+    const result = await repo.rollback(tenantA.id, "vitest-rollback-map", 1);
+
+    expect(result.groupVersion).toBe(3);
+    const versions = await repo.fetchGroupVersions(tenantA.id, "vitest-rollback-map");
+    expect(versions.at(-1)?.rollbackOfGroupVersion).toBe(1);
+
+    await repo.remove(tenantA.id, "vitest-rollback-map");
+  });
+
+  it("rollback to an unknown group version rejects", async () => {
+    await repo.set(tenantA.id, "vitest-rollback-unknown", { a: "1" });
+
+    await expect(repo.rollback(tenantA.id, "vitest-rollback-unknown", 99)).rejects.toThrow();
+
+    await repo.remove(tenantA.id, "vitest-rollback-unknown");
+  });
 });

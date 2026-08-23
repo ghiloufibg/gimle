@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 593
+- **Total requirements**: 596
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 474
-- **Release-readiness (automated coverage)**: 20.1%
+- **Not covered by automated test**: 477
+- **Release-readiness (automated coverage)**: 20.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -22,15 +22,15 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 49 | 32 | 17 | 65.3% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 68 | 14 | 54 | 20.6% |
-| gimle-fafnir | 22 | 11 | 11 | 50.0% |
+| gimle-fafnir | 23 | 11 | 12 | 47.8% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 23 | 0 | 23 | 0.0% |
+| gimle-cli | 24 | 0 | 24 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 30 | 0 | 30 | 0.0% |
+| gimle-console | 31 | 0 | 31 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1007,6 +1007,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-282 | Versioned secret storage layered over ConfigEntry | Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N. | Yes |
 | [ ] | GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed. | Yes |
 | [ ] | GIMLE-588 | SecretMap store and `/secretmaps/*` API | Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path. | No |
+| [ ] | GIMLE-594 | SecretMap group-version ledger and rollback | Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`. | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -1234,6 +1235,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. | No |
 | [ ] | GIMLE-584 | `gimle configmap` command | Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller. | No |
 | [ ] | GIMLE-592 | `gimle secretmap` command | Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed. | No |
+| [ ] | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version. | No |
 
 #### CLI / Build Tooling
 
@@ -1386,6 +1388,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | Given no Service named "orders-web" exists, When an operator submits the Services tab's create form with deployment "orders-service" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080. Given a Service "orders-web" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown. | No |
 | [ ] | GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"]. | No |
 | [ ] | GIMLE-593 | SecretMaps screen | Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing. | No |
+| [ ] | GIMLE-596 | SecretMaps screen History panel | Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1". | No |
 
 #### Web Console / Testing
 

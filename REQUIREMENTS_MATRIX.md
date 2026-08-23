@@ -603,6 +603,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Secrets Management | Complete | Yes |
 | GIMLE-592 | `gimle secretmap` command | CLI | Complete | Partial |
 | GIMLE-593 | SecretMaps screen | Web Console / Frontend | Complete | Yes |
+| GIMLE-594 | SecretMap group-version ledger and rollback | Secrets Management | Complete | Yes |
+| GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | CLI | Complete | Partial |
+| GIMLE-596 | SecretMaps screen History panel | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4930,6 +4933,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path.
   ```
 
+#### GIMLE-594 — SecretMap group-version ledger and rollback
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want a bad multi-key SecretMap write undone as one unit, restoring every key to its recorded state as of an earlier group version, without losing any key's own per-key version history.
+- **Status**: Complete. The `(tenantId, name)` lease `SecretMapStore.setMany` already held is generalized into a shared `withWriteLease` helper reused by `setMany`, `deleteAll`, and `deleteKey` (both of which previously took no lease at all), so every mutation to a SecretMap is serialized the same way. Each mutation that actually changes something stamps a new group version via `stampGroupVersion`: a plain, unencrypted `ConfigEntry` row (key family `secretmap-group:{name}:{groupVersion}`, deliberately never ending in SecretStore's own `@meta` suffix, so it is structurally invisible to every existing `/secrets/*`/`/secretmaps/*` read path with no reserved-prefix guard needed) recording every current member key's own version and deleted state, read via a new `SecretStore.listLinearizable` (added alongside the existing round-robin `list`, since a plain read immediately after this call's own writes could otherwise land on a lagging replica). `rollback(tenantId, name, targetGroupVersion)` restores every key that snapshot recorded -- a live key's content re-written as a brand-new SecretStore version (never rewriting the old one), a deleted key re-marked deleted -- and stamps the rollback itself as a new, later group version (`rollbackOfGroupVersion` pointing back at the target), the same forward-only "restore = new revision" pattern `gimle-hilmir`'s own release rollback uses. A key added after the target group version and never part of it is left untouched. One key's content being unrecoverable (only possible if it was hard-deleted since) is reported as that key's own failure, not a thrown exception. New `GET /secretmaps/{tenantId}/{name}/versions` and `POST /secretmaps/{tenantId}/{name}/rollback` routes reuse the existing `ResourceKind.SECRETMAP` READ/WRITE split; `gimle-controlplane`'s `/secretmaps/*` proxy gained POST-method forwarding (previously only GET/PUT/DELETE) to carry the rollback action's request body through.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapStore.java` (`withWriteLease`, `stampGroupVersion`, `listGroupVersions`, `rollback`, `SecretMapGroupVersion`/`SecretMapKeySnapshot`/`RollbackOutcome`), `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`listLinearizable`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/versions`, `/rollback` routes and handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy` POST support)
+- **Test coverage**: `SecretMapStoreTest` (group-version stamping on set/delete, skip-on-no-change, listGroupVersions ordering, rollback restoring live and deleted keys, leaving newer keys untouched, per-key failure on an unrecoverable hard-deleted key, unknown-target `TargetNotFound`, and a concurrency regression test asserting concurrent `setMany`/`rollback` calls on the same name never corrupt the group-version sequence), `SecretStoreTest` (`listLinearizable` parity with `list`), `FafnirServerSecretMapTest` (HTTP-level `/versions`/`/rollback`, 404 on an unknown group version, 400 on a non-integer body), `ApiServerSecretMapTest` (proxy round-trip for both new routes).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`.
+  ```
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -6374,6 +6390,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed.
   ```
 
+#### GIMLE-595 — `secretmap versions`/`secretmap rollback` verbs
+
+- **Category**: CLI
+- **User story**: As an operator, I want to list a SecretMap's group-version history and roll it back to an earlier one from the CLI.
+- **Status**: Complete. `SecretMapCommand` gained `versions <tenantId> <name>` (`GET .../versions`, printed as a list of group versions) and `rollback <tenantId> <name> <groupVersion>` (`POST .../rollback` with `{"groupVersion": N}`, printed as the combined `{results, groupVersion}` response object) -- registered in the same verb switch and both usage-text locations (`SecretMapCommand#usage`, `GimleCli`'s own javadoc and runtime usage string) `set`/`get`/`delete` already use.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`versions`, `rollback`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (usage text)
+- **Test coverage**: Exercised indirectly through `ApiServerSecretMapTest`/`FafnirServerSecretMapTest`'s coverage of the underlying `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes this command calls; no dedicated `SecretMapCommand` unit test file exists, matching the rest of that class's own untested-at-the-CLI-layer precedent (`ConfigMapCommand`/`SecretCommand` are the same).
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version.
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -7397,6 +7426,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing.
+  ```
+
+#### GIMLE-596 — SecretMaps screen History panel
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator, I want to see a SecretMap's group-version history in the console and roll it back to an earlier one without using the CLI.
+- **Status**: Complete. `SecretMapsRepository` gained `fetchGroupVersions`/`rollback`, implemented against the real `/secretmaps/*/versions` and `/secretmaps/*/rollback` routes (`HttpSecretMapsRepository`) and against an in-memory group-version ledger keyed by `tenantId::name` (`MockSecretMapsRepository`/`fixture.ts`, stamped on every mock `set`). `useSecretMapsStore` gained a `groupVersions` field (loaded alongside `selected` in `select()`, refreshed after `save()`/`rollback()`) and a `rollback(name, groupVersion)` action. The SecretMaps screen's detail panel gained a History table (group version, key count, `rollback of vN` badge, per-row "Roll back" button with a confirmation prompt) below the existing per-key metadata table.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`SecretMapGroupVersion`, `SecretMapRollbackResult`), `gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `fixture.ts`, `gimle-console/src/stores/useSecretMapsStore.ts`, `gimle-console/src/routes/secretmaps.tsx`
+- **Test coverage**: `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1".
   ```
 
 ### gimle-fafnir-console
