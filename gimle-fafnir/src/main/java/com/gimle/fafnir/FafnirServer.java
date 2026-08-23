@@ -17,6 +17,8 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.HttpResponses;
 import com.gimle.core.web.SpaStaticHandler;
+import com.gimle.fafnir.secretmap.SecretMapCodec;
+import com.gimle.fafnir.secretmap.SecretMapStore;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.observability.FafnirMetrics;
@@ -95,6 +97,7 @@ public final class FafnirServer implements AutoCloseable {
 
   private final FafnirCrypto crypto;
   private final SecretStore secretStore;
+  private final SecretMapStore secretMapStore;
   private final Authorizer authorizer;
   private final FafnirMetrics metrics;
   private final Instant startedAt = Instant.now();
@@ -128,6 +131,7 @@ public final class FafnirServer implements AutoCloseable {
   public FafnirServer(FafnirCrypto crypto, int port, FafnirMetrics metrics) throws IOException {
     this.crypto = crypto;
     this.secretStore = new SecretStore(crypto.storeClient(), crypto);
+    this.secretMapStore = new SecretMapStore(crypto.storeClient(), secretStore);
     this.authorizer = new Authorizer(crypto.storeClient());
     this.metrics = metrics;
     this.sessionSigningKey =
@@ -165,6 +169,7 @@ public final class FafnirServer implements AutoCloseable {
     target.createContext("/internal/secrets/decrypt", instrument("decrypt", this::handleDecrypt));
     target.createContext("/secrets/rotate-key", instrument("rotate-key", this::handleRotateKey));
     target.createContext("/secrets/", instrument("secrets", this::handleSecrets));
+    target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMaps));
     target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
@@ -341,7 +346,8 @@ public final class FafnirServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.empty())) {
+        if (authorizeSecrets(
+            exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.empty())) {
           handleListSecrets(exchange, tenantId);
         }
         return;
@@ -361,26 +367,40 @@ public final class FafnirServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.of(key))) {
+        if (authorizeSecrets(
+            exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
           handleSecretVersions(exchange, tenantId, key);
         }
         return;
       }
       // GET/PUT/DELETE /secrets/{tenantId}/{key}[?version=N|destroy=true] -- read, write, or
-      // (soft- or, with ?destroy=true, hard-) delete a single secret.
+      // (soft- or, with ?destroy=true, hard-) delete a single secret. PUT/DELETE reject a
+      // SecretMap-owned key outright -- see #handleSecretMaps's own javadoc for why mutation, but
+      // not read, is blocked on this flat path.
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
-          if (authorizeSecrets(exchange, Verb.READ, tenantId, Optional.of(key))) {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
             handleGetSecret(exchange, tenantId, key);
           }
         }
         case "PUT" -> {
-          if (authorizeSecrets(exchange, Verb.WRITE, tenantId, Optional.of(key))) {
+          if (SecretMapCodec.isSecretMapKey(key)) {
+            respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.WRITE, tenantId, Optional.of(key))) {
             handlePutSecret(exchange, tenantId, key);
           }
         }
         case "DELETE" -> {
-          if (authorizeSecrets(exchange, Verb.DELETE, tenantId, Optional.of(key))) {
+          if (SecretMapCodec.isSecretMapKey(key)) {
+            respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.DELETE, tenantId, Optional.of(key))) {
             handleDeleteSecret(exchange, tenantId, key);
           }
         }
@@ -397,8 +417,14 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   private void handleListSecrets(HttpExchange exchange, String tenantId) throws IOException {
+    // Filters out SecretMap-owned rows, mirroring how ApiServer already filters ConfigMapCodec/
+    // isFafnirManagedSecretKey rows out of a plain /config/* listing -- a SecretMap's members have
+    // their own listing under /secretmaps/{tenantId}, not mixed into the tenant's flat secrets.
     List<Map<String, Object>> secrets =
-        secretStore.list(tenantId).stream().map(FafnirServer::secretMetadataToJson).toList();
+        secretStore.list(tenantId).stream()
+            .filter(meta -> !SecretMapCodec.isSecretMapKey(meta.key()))
+            .map(FafnirServer::secretMetadataToJson)
+            .toList();
     respondJson(exchange, 200, Map.of("secrets", secrets));
   }
 
@@ -447,6 +473,170 @@ public final class FafnirServer implements AutoCloseable {
     respond(exchange, 200, "ok");
   }
 
+  // ---- /secretmaps/{tenantId}[?names=a,b,c], /secretmaps/{tenantId}/{name}[/{key}] ----
+
+  /**
+   * The SecretMap surface, authorized independently under {@link ResourceKind#SECRETMAP} rather
+   * than {@link ResourceKind#SECRET} -- the same split {@code ConfigMap}/{@code Config} already
+   * establishes, so a role can be granted "read flat secrets" without also getting "read named
+   * SecretMaps." {@code GET /secretmaps/{tenantId}} without {@code ?names=} returns metadata-only
+   * names (mirroring {@link #handleListSecrets}'s own posture); with {@code ?names=a,b,c} it
+   * returns decrypted values for exactly those names -- the value-bearing batch fetch {@code
+   * gimle-agent} calls directly to deliver only the SecretMaps a deployment's {@code secretMapRefs}
+   * named, instead of every secret the tenant owns.
+   */
+  private void handleSecretMaps(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/secretmaps/");
+      String[] parts = tail.split("/", 3);
+      String tenantId = parts.length > 0 ? parts[0] : "";
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenantId");
+        return;
+      }
+      if (parts.length == 1) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (!authorizeSecrets(
+            exchange, ResourceKind.SECRETMAP, Verb.READ, tenantId, Optional.empty())) {
+          return;
+        }
+        String namesParam = parseQuery(exchange).get("names");
+        if (namesParam == null || namesParam.isBlank()) {
+          handleListSecretMapNames(exchange, tenantId);
+        } else {
+          handleGetSecretMapValues(exchange, tenantId, List.of(namesParam.split(",")));
+        }
+        return;
+      }
+      String name = parts[1];
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing SecretMap name");
+        return;
+      }
+      if (parts.length == 3) {
+        // DELETE /secretmaps/{tenantId}/{name}/{key}[?destroy=true] -- a single member key.
+        String key = parts[2];
+        if (!"DELETE".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (authorizeSecrets(
+            exchange, ResourceKind.SECRETMAP, Verb.DELETE, tenantId, Optional.of(name))) {
+          handleDeleteSecretMapKey(exchange, tenantId, name, key);
+        }
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.READ, tenantId, Optional.of(name))) {
+            handleGetSecretMapMetadata(exchange, tenantId, name);
+          }
+        }
+        case "PUT" -> {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.WRITE, tenantId, Optional.of(name))) {
+            handlePutSecretMap(exchange, tenantId, name);
+          }
+        }
+        case "DELETE" -> {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.DELETE, tenantId, Optional.of(name))) {
+            handleDeleteSecretMap(exchange, tenantId, name);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("secretmaps request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleListSecretMapNames(HttpExchange exchange, String tenantId) throws IOException {
+    respondJson(exchange, 200, Map.of("names", secretMapStore.listNames(tenantId)));
+  }
+
+  private void handleGetSecretMapValues(HttpExchange exchange, String tenantId, List<String> names)
+      throws IOException {
+    Map<String, Map<String, byte[]>> values = secretMapStore.getValues(tenantId, names);
+    Map<String, Object> secretMaps = new LinkedHashMap<>();
+    for (Map.Entry<String, Map<String, byte[]>> entry : values.entrySet()) {
+      Map<String, String> encoded = new LinkedHashMap<>();
+      for (Map.Entry<String, byte[]> keyValue : entry.getValue().entrySet()) {
+        encoded.put(keyValue.getKey(), encodeBase64(keyValue.getValue()));
+      }
+      secretMaps.put(entry.getKey(), Map.of("data", encoded));
+    }
+    respondJson(exchange, 200, Map.of("secretMaps", secretMaps));
+  }
+
+  private void handleGetSecretMapMetadata(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    List<Map<String, Object>> keys =
+        secretMapStore.getMetadata(tenantId, name).stream()
+            .map(FafnirServer::secretMetadataToJson)
+            .toList();
+    respondJson(exchange, 200, Map.of("name", name, "keys", keys));
+  }
+
+  private void handlePutSecretMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+    Map<String, Object> rawData = Json.asObject(body.get("data"));
+    if (rawData.isEmpty()) {
+      respond(exchange, 400, "'data' must be a non-empty mapping of key to base64 value");
+      return;
+    }
+    Map<String, byte[]> values = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : rawData.entrySet()) {
+      values.put(entry.getKey(), decodeBase64((String) entry.getValue()));
+    }
+    List<SecretMapStore.SecretMapKeyResult> results =
+        secretMapStore.setMany(tenantId, name, values);
+    List<Map<String, Object>> resultsJson =
+        results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
+    respondJson(exchange, 200, Map.of("results", resultsJson));
+  }
+
+  private void handleDeleteSecretMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    boolean destroy = "true".equals(parseQuery(exchange).get("destroy"));
+    boolean existed = secretMapStore.deleteAll(tenantId, name, destroy);
+    if (!existed) {
+      respond(exchange, 404, "no such SecretMap: " + name);
+      return;
+    }
+    respond(exchange, 200, "ok");
+  }
+
+  private void handleDeleteSecretMapKey(
+      HttpExchange exchange, String tenantId, String name, String key) throws IOException {
+    boolean destroy = "true".equals(parseQuery(exchange).get("destroy"));
+    boolean existed = secretMapStore.deleteKey(tenantId, name, key, destroy);
+    if (!existed) {
+      respond(exchange, 404, "no such key in SecretMap " + name + ": " + key);
+      return;
+    }
+    respond(exchange, 200, "ok");
+  }
+
+  private static Map<String, Object> secretMapKeyResultToJson(
+      SecretMapStore.SecretMapKeyResult result) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("key", result.key());
+    result.version().ifPresent(version -> map.put("version", version));
+    result.error().ifPresent(error -> map.put("error", error));
+    return map;
+  }
+
   private static Map<String, Object> secretMetadataToJson(SecretMetadata metadata) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("key", metadata.key());
@@ -476,13 +666,16 @@ public final class FafnirServer implements AutoCloseable {
    * identity to check in the first place, so every request passes -- {@code
    * gimle.transport.protocol=tls} is the one switch that turns this check on, cluster-wide.
    *
-   * <p>Also the single point every {@code /secrets/*} request passes through with its principal,
-   * tenant, key, and verb all in hand -- so this is where rate limiting (a {@link #authzThrottle}
-   * keyed by principal, incrementing on a denial) and the audit log entry both live, rather than
-   * duplicating either concern into every individual handler.
+   * <p>Also the single point every {@code /secrets/*}/{@code /secretmaps/*} request passes through
+   * with its principal, tenant, key, and verb all in hand -- so this is where rate limiting (a
+   * {@link #authzThrottle} keyed by principal, incrementing on a denial) and the audit log entry
+   * both live, rather than duplicating either concern into every individual handler. {@code kind}
+   * is {@link ResourceKind#SECRET} for the flat surface, {@link ResourceKind#SECRETMAP} for the
+   * named, grouped one -- the same split {@code ApiServer}'s own {@code CONFIG}/{@code CONFIGMAP}
+   * check already establishes.
    */
   private boolean authorizeSecrets(
-      HttpExchange exchange, Verb verb, String tenantId, Optional<String> key) {
+      HttpExchange exchange, ResourceKind kind, Verb verb, String tenantId, Optional<String> key) {
     if (!(exchange instanceof HttpsExchange)) {
       return true;
     }
@@ -498,8 +691,8 @@ public final class FafnirServer implements AutoCloseable {
       respondThrottled(exchange, throttledUntil.get());
       return false;
     }
-    boolean allowed = decideAllowed(principal, verb, tenantId);
-    recordAudit(principal, verb, tenantId, key, allowed);
+    boolean allowed = decideAllowed(kind, principal, verb, tenantId);
+    recordAudit(kind, principal, verb, tenantId, key, allowed);
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());
@@ -513,23 +706,30 @@ public final class FafnirServer implements AutoCloseable {
   /**
    * The RBAC decision itself: a {@code gimle:nodes} principal takes the node-scoped self-service
    * path (see {@link #isTenantAssignedToNode}) rather than the ordinary {@link Authorizer} check,
-   * since a node certificate has no {@code Role}/{@code RoleBinding} of its own to look up.
+   * since a node certificate has no {@code Role}/{@code RoleBinding} of its own to look up -- READ
+   * only, regardless of {@code kind}, the same restriction whichever surface a node calls.
    */
-  private boolean decideAllowed(Principal principal, Verb verb, String tenantId) {
+  private boolean decideAllowed(
+      ResourceKind kind, Principal principal, Verb verb, String tenantId) {
     return principal.groups().contains(BuiltinRoles.GROUP_NODES)
         ? verb == Verb.READ && authorizer.isTenantAssignedToNode(principal.name(), tenantId)
-        : authorizer.authorize(
-            principal, ResourceKind.SECRET, verb, Optional.of(tenantId), Optional.empty());
+        : authorizer.authorize(principal, kind, verb, Optional.of(tenantId), Optional.empty());
   }
 
   /**
-   * Dual audit logging for a completed {@code /secrets/*} authorization decision: the SLF4J {@code
-   * auditLog} line (independent value for an operator tailing this process's own log file, no query
-   * needed) plus the durable, queryable {@link AuditEvent} counterpart, giving gimle-observability
-   * a general-purpose audit-event-log mechanism it previously lacked.
+   * Dual audit logging for a completed {@code /secrets/*}/{@code /secretmaps/*} authorization
+   * decision: the SLF4J {@code auditLog} line (independent value for an operator tailing this
+   * process's own log file, no query needed) plus the durable, queryable {@link AuditEvent}
+   * counterpart, giving gimle-observability a general-purpose audit-event-log mechanism it
+   * previously lacked.
    */
   private void recordAudit(
-      Principal principal, Verb verb, String tenantId, Optional<String> key, boolean allowed) {
+      ResourceKind kind,
+      Principal principal,
+      Verb verb,
+      String tenantId,
+      Optional<String> key,
+      boolean allowed) {
     auditLog.info(
         "principal={} tenant={} key={} verb={} allow={}",
         principal.name(),
@@ -545,7 +745,7 @@ public final class FafnirServer implements AutoCloseable {
                     UUID.randomUUID().toString(),
                     principal.name(),
                     principal.groups(),
-                    ResourceKind.SECRET.name(),
+                    kind.name(),
                     verb.name(),
                     Optional.of(tenantId),
                     key,

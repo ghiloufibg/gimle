@@ -10,6 +10,8 @@ import type {
   Job,
   LifecycleState,
   Node,
+  SecretMap,
+  SecretMapKeyResult,
   SecretMetadata,
   StatefulSet,
   StatefulSetInstance,
@@ -440,6 +442,7 @@ export function removeTenant(id: string) {
   delete configByTenant[id];
   delete secretsByTenant[id];
   delete configMapsByTenant[id];
+  delete secretMapsByTenant[id];
 }
 
 export function upsertConfig(entry: ConfigEntry) {
@@ -573,4 +576,64 @@ export class ConfigMapConflict extends Error {
   ) {
     super(`configmap changed since it was loaded (now version ${currentVersion})`);
   }
+}
+
+// ---- SecretMaps ----
+//
+// Unlike ConfigMap, there is no single object-level version here -- each key keeps its own
+// independent version ledger, so the mock shape stores each key's own version/deleted state
+// directly rather than one object-level version counter.
+
+export const secretMapsByTenant: Record<string, SecretMap[]> = Object.fromEntries(
+  tenants.map((t) => [
+    t.id,
+    [
+      {
+        tenantId: t.id,
+        name: "db-creds",
+        keys: [
+          { key: "username", latestVersion: 1, deleted: false },
+          { key: "password", latestVersion: 1, deleted: false },
+        ],
+      },
+    ],
+  ]),
+);
+
+export function findSecretMap(tenantId: string, name: string): SecretMap | undefined {
+  return (secretMapsByTenant[tenantId] ?? []).find((s) => s.name === name);
+}
+
+/** Bulk-sets every key in {@code data} under one SecretMap name, in order -- each key succeeds or
+ * fails independently, mirroring SecretMapStore.setMany's own per-key reporting rather than an
+ * all-or-nothing write. Mock-only: never actually fails a key, since there's no real contention to
+ * simulate here. */
+export function upsertSecretMap(
+  tenantId: string,
+  name: string,
+  data: Record<string, string>,
+): SecretMapKeyResult[] {
+  const list = (secretMapsByTenant[tenantId] ??= []);
+  let secretMap = list.find((s) => s.name === name);
+  if (!secretMap) {
+    secretMap = { tenantId, name, keys: [] };
+    list.push(secretMap);
+  }
+  return Object.keys(data).map((key) => {
+    const existing = secretMap!.keys.find((k) => k.key === key);
+    if (existing) {
+      existing.latestVersion += 1;
+      existing.deleted = false;
+    } else {
+      secretMap!.keys.push({ key, latestVersion: 1, deleted: false });
+    }
+    return { key, version: existing ? existing.latestVersion : 1 };
+  });
+}
+
+export function removeSecretMap(tenantId: string, name: string) {
+  const list = secretMapsByTenant[tenantId];
+  if (!list) return;
+  const i = list.findIndex((s) => s.name === name);
+  if (i >= 0) list.splice(i, 1);
 }

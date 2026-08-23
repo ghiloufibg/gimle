@@ -60,6 +60,10 @@ gimle configmap list <tenantId>
 gimle configmap get <tenantId> <name>
 gimle configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
 gimle configmap delete <tenantId> <name>
+gimle secretmap list <tenantId>
+gimle secretmap get <tenantId> <name>
+gimle secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+gimle secretmap delete <tenantId> <name> [--destroy]
 gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
@@ -113,6 +117,17 @@ version number by hand; a concurrent writer racing that same read is reported ba
 conflict, never silently retried. `--from-literal key=value` may repeat to set several keys in one
 call; `--from-file path` reads a whole file's content as one key named by the file's own base name,
 or `--from-file key=path` names the key explicitly.
+
+`secretmap` is the identical grouping for Fafnir-managed secrets, attached by reference
+(`secretMapRefs` in the manifest — see
+[Manifest schema](./manifest-schema.md#deployment-manifest-secretmaprefs)) instead of receiving a
+tenant's entire secret set. Unlike `configmap`, there is no single object-level version to read
+first: each key keeps its own independent `key@N` version ledger, the same one a flat `secret`
+entry has, so `set` is a single call with no read-before-write — each key in the batch reports its
+own outcome (a new version, or a per-key failure) rather than the whole call succeeding or failing
+as one unit. `--from-literal`/`--from-file` behave exactly like `configmap set`'s own; `delete`
+soft-deletes every key under the name by default, `--destroy` hard-deletes them all irreversibly,
+the same distinction `secret delete` already makes per key.
 
 `artifact` is a distinct top-level verb for the same reason `secret` is: `push` has no shape in
 three-verb dispatch. Every call is proxied by the control plane to Andvari, the artifact registry

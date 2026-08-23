@@ -55,6 +55,7 @@ public final class DeploymentManifestParser {
     Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
     Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
     List<String> configMapRefs = ManifestFields.stringList(root, "configMapRefs", "configMapRefs");
+    List<String> secretMapRefs = ManifestFields.stringList(root, "secretMapRefs", "secretMapRefs");
 
     try {
       return new DeploymentSpec(
@@ -68,7 +69,8 @@ public final class DeploymentManifestParser {
           artifactSha256,
           disruption,
           vessel,
-          configMapRefs);
+          configMapRefs,
+          secretMapRefs);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid deployment manifest for " + name + ": " + e.getMessage(), e);

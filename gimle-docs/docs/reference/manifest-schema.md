@@ -260,6 +260,38 @@ referencing it — referencing one that doesn't exist yet fails the deployment a
 silently at instance start. `configMapRefs` is scoped to Deployment only today; Job/DaemonSet/
 StatefulSet manifests don't accept it yet.
 
+## Deployment manifest: `secretMapRefs`
+
+`secretMapRefs` is the identical narrowing for Fafnir-managed secrets: it names the SecretMaps
+(see `gimle secretmap` in the [CLI reference](./cli-reference.md)) this deployment's instances
+should receive in place of their tenant's entire secret set. Omit the field entirely (the default)
+and nothing changes: instances still receive every secret the tenant owns.
+
+```yaml
+secretMapRefs:
+  - db-creds
+```
+
+Unlike a ConfigMap, a SecretMap has no single object-level version — each key it groups keeps its
+own independent version ledger, the same versioned `key@N` history a flat `gimle secret` entry
+already has. Grouping is purely a naming convention (`secretmap:{name}:{key}` as the underlying
+Fafnir key) with its own reserved key prefix: a flat `gimle secret set`/`delete` against a
+SecretMap-owned key is rejected outright.
+
+Each key is delivered flattened into the same `ctx.config(key)` lookup a flat secret already uses
+— a module never has to know whether a given key came from a SecretMap or the tenant's flat secret
+set. Admission rejects the submission outright, rather than picking a silent winner, if:
+
+- a named SecretMap doesn't exist for this deployment's tenant,
+- two referenced SecretMaps declare the same key, or
+- a referenced key collides with a `configMapRefs` key or one of the tenant's own flat config or
+  secret keys.
+
+Write SecretMap content with `gimle secretmap set <tenantId> <name> --from-literal key=value`
+before referencing it — referencing one that doesn't exist yet fails the deployment at submission,
+not silently at instance start. `secretMapRefs` is scoped to Deployment only today, the same limit
+`configMapRefs` has.
+
 ## Job manifest
 
 `kind: Job` is a genuinely different workload shape from a Deployment: one logical unit of work,

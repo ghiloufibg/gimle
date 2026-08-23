@@ -841,13 +841,132 @@ class AgentMainTest {
           // uncaught -- before the fix that IOException propagated out of deliverConfig, through
           // sendInstallStartSequence, leaving StartModule never sent and the instance stuck at
           // RESOLVED forever.
-          AgentMain.deliverConfig(
-              instance, agentSide, HttpClient.newHttpClient(), baseUrl, null);
+          AgentMain.deliverConfig(instance, agentSide, HttpClient.newHttpClient(), baseUrl, null);
         }
       }
     } finally {
       Files.deleteIfExists(socketPath);
       Files.deleteIfExists(socketPath.getParent());
     }
+  }
+
+  // ---- deliverConfig: secretMapRefs narrows secret delivery to just the named SecretMaps ----
+
+  /**
+   * The one test that proves the actual point of Phase 1's SecretMap work: a deployment declaring
+   * {@code secretMapRefs} must receive only those SecretMaps' keys as {@link
+   * ControlMessage.ConfigDelivered} messages, never the tenant's other secrets -- unlike today's
+   * unscoped behavior (every secret, always), which is what an empty {@code secretMapRefs} still
+   * gets. The fake Fafnir below serves both {@code /secrets/{tenantId}} (the flat, unscoped
+   * listing) and {@code /secretmaps/{tenantId}?names=...} (the narrowed batch fetch); a hit counter
+   * on the flat listing proves {@code deliverConfig} never even calls it once {@code secretMapRefs}
+   * is non-empty, not just that its result happens to be filtered out afterward.
+   */
+  @Test
+  @Timeout(15)
+  void secret_map_refs_narrows_delivery_to_only_the_named_secretmaps_keys() throws Exception {
+    java.util.concurrent.atomic.AtomicInteger flatSecretsListHits =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    HttpServer configServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    configServer.createContext("/config/acme", exchange -> respondJsonArray(exchange, "[]"));
+    configServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    configServer.start();
+
+    HttpServer fafnirServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    fafnirServer.createContext(
+        "/secrets/acme",
+        exchange -> {
+          flatSecretsListHits.incrementAndGet();
+          respondJsonArray(exchange, "{\"secrets\": []}");
+        });
+    fafnirServer.createContext(
+        "/secretmaps/acme",
+        exchange -> {
+          String query = exchange.getRequestURI().getRawQuery();
+          if (query == null || !query.contains("names=db-creds")) {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+            return;
+          }
+          String usernameBase64 =
+              java.util.Base64.getEncoder()
+                  .encodeToString("admin".getBytes(StandardCharsets.UTF_8));
+          respondJsonArray(
+              exchange,
+              "{\"secretMaps\": {\"db-creds\": {\"data\": {\"username\": \""
+                  + usernameBase64
+                  + "\"}}}}");
+        });
+    fafnirServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    fafnirServer.start();
+
+    try {
+      URI baseUrl = URI.create("http://127.0.0.1:" + configServer.getAddress().getPort());
+      URI fafnirBaseUrl = URI.create("http://127.0.0.1:" + fafnirServer.getAddress().getPort());
+
+      ModuleDescriptor descriptor = descriptor("provider", IsolationTier.TIER_2);
+      AssignedInstance assigned =
+          new AssignedInstance(
+              "provider-deployment",
+              0,
+              descriptor.id(),
+              "/does/not/matter.jar",
+              Optional.of("acme"),
+              OptionalInt.empty(),
+              Optional.empty(),
+              List.of(),
+              List.of("db-creds"));
+
+      Path socketPath = Files.createTempDirectory("gimle-deliver-secretmap").resolve("worker.sock");
+      try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+        server.bind(UnixDomainSocketAddress.of(socketPath));
+        try (SocketChannel workerRaw = SocketChannel.open(StandardProtocolFamily.UNIX)) {
+          workerRaw.connect(UnixDomainSocketAddress.of(socketPath));
+          try (SocketChannel agentRaw = server.accept()) {
+            WorkerConnection agentSide = new WorkerConnection(agentRaw);
+            SupervisedInstance instance = supervisedInstance(assigned, descriptor, agentSide);
+
+            AgentMain.deliverConfig(
+                instance, agentSide, HttpClient.newHttpClient(), baseUrl, fafnirBaseUrl);
+
+            WorkerConnection workerSide = new WorkerConnection(workerRaw);
+            ControlMessage.ConfigDelivered delivered =
+                (ControlMessage.ConfigDelivered) workerSide.receive().orElseThrow();
+            assertEquals("username", delivered.key());
+            assertEquals("admin", delivered.value());
+            assertTrue(delivered.wasEncrypted());
+
+            // Nothing else was delivered -- the tenant's unrelated flat secrets never arrived.
+            agentSide.send(new ControlMessage.ConfigDelivered("__sentinel__", "", false));
+            ControlMessage next = workerSide.receive().orElseThrow();
+            assertEquals("__sentinel__", ((ControlMessage.ConfigDelivered) next).key());
+
+            assertEquals(
+                0,
+                flatSecretsListHits.get(),
+                "deliverConfig must never fetch the unscoped flat secret list once secretMapRefs"
+                    + " is declared");
+          }
+        }
+      } finally {
+        Files.deleteIfExists(socketPath);
+        Files.deleteIfExists(socketPath.getParent());
+      }
+    } finally {
+      configServer.stop(0);
+      fafnirServer.stop(0);
+    }
+  }
+
+  private static void respondJsonArray(com.sun.net.httpserver.HttpExchange exchange, String json)
+      throws IOException {
+    try (InputStream in = exchange.getRequestBody()) {
+      in.readAllBytes();
+    }
+    byte[] body = json.getBytes(StandardCharsets.UTF_8);
+    exchange.sendResponseHeaders(200, body.length);
+    exchange.getResponseBody().write(body);
+    exchange.close();
   }
 }

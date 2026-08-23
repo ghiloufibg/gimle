@@ -862,6 +862,11 @@ public final class AgentMain {
           rawConfigMapRefs == null
               ? List.of()
               : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
+      Object rawSecretMapRefs = map.get("secretMapRefs");
+      List<String> secretMapRefs =
+          rawSecretMapRefs == null
+              ? List.of()
+              : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
       result.add(
           new AssignedInstance(
               (String) map.get("deploymentName"),
@@ -873,7 +878,8 @@ public final class AgentMain {
                   ? OptionalInt.empty()
                   : OptionalInt.of(((Number) renamedFrom).intValue()),
               Optional.empty(),
-              configMapRefs));
+              configMapRefs,
+              secretMapRefs));
     }
     return result;
   }
@@ -1003,6 +1009,45 @@ public final class AgentMain {
       Map<String, Object> valueBody = Json.asObject(Json.parse(valueResponse.body()));
       byte[] decoded = Base64.getDecoder().decode((String) valueBody.get("value"));
       result.add(new ConfigValue(key, new String(decoded, StandardCharsets.UTF_8), true));
+    }
+    return result;
+  }
+
+  /**
+   * Fetches only the SecretMaps a Deployment actually {@code secretMapRefs}'d, in one batched round
+   * trip ({@code GET /secretmaps/{tenantId}?names=a,b,c}) straight to Fafnir -- the identical
+   * narrowing {@link #fetchConfigMaps} already gives the plain-config half, but for secrets. Every
+   * returned name's {@code data} map is already decrypted server-side and base64-encoded the same
+   * way a single {@code GET /secrets/{tenantId}/{key}} value is, so decoding here is identical to
+   * {@link #fetchSecretsForTenant}'s own per-value decode.
+   */
+  private static List<ConfigValue> fetchSecretMaps(
+      HttpClient httpClient, URI fafnirBaseUrl, String tenantId, List<String> names)
+      throws IOException, InterruptedException {
+    String namesParam = URLEncoder.encode(String.join(",", names), StandardCharsets.UTF_8);
+    HttpRequest request =
+        HttpRequest.newBuilder(
+                fafnirBaseUrl.resolve("/secretmaps/" + tenantId + "?names=" + namesParam))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      throw GimleClusterException.unexpectedHttpStatus(
+          "secretmap fetch for tenant " + tenantId, response.statusCode(), response.body());
+    }
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    Map<String, Object> secretMaps = Json.asObject(body.get("secretMaps"));
+    List<ConfigValue> result = new ArrayList<>();
+    for (Object secretMapObj : secretMaps.values()) {
+      Map<String, Object> secretMap = Json.asObject(secretMapObj);
+      Map<String, Object> data = Json.asObject(secretMap.get("data"));
+      for (Map.Entry<String, Object> keyValue : data.entrySet()) {
+        byte[] decoded = Base64.getDecoder().decode((String) keyValue.getValue());
+        result.add(
+            new ConfigValue(keyValue.getKey(), new String(decoded, StandardCharsets.UTF_8), true));
+      }
     }
     return result;
   }
@@ -2119,10 +2164,12 @@ public final class AgentMain {
    * way. Secret values, by contrast, are fetched directly from Fafnir, authorized by this agent's
    * own node identity certificate rather than relayed through the control plane, so a compromised
    * or buggy control-plane replica is never in a position to see a decrypted secret value pass
-   * through it -- {@code configMapRefs} never narrows secret delivery, only the plain-config half.
-   * {@code fafnirBaseUrl} is {@code null} when {@code -Dgimle.agent.fafnirEndpoint} was never
-   * configured -- instances still start, simply without any secret values delivered, exactly like a
-   * tenant that never uses secrets.
+   * through it. {@code secretMapRefs} narrows secret delivery the identical way {@code
+   * configMapRefs} narrows the plain-config half: when declared, only those named SecretMaps' keys
+   * are fetched ({@code GET /secretmaps/{tenantId}?names=...}, straight to Fafnir) instead of the
+   * tenant's entire secret set. {@code fafnirBaseUrl} is {@code null} when {@code
+   * -Dgimle.agent.fafnirEndpoint} was never configured -- instances still start, simply without any
+   * secret values delivered, exactly like a tenant that never uses secrets.
    */
   static void deliverConfig(
       SupervisedInstance instance,
@@ -2159,9 +2206,13 @@ public final class AgentMain {
           tenantId.get(),
           e.getMessage());
     }
+    List<String> secretMapRefs = instance.assigned.secretMapRefs();
     if (fafnirBaseUrl != null) {
       try {
-        entries.addAll(fetchSecretsForTenant(httpClient, fafnirBaseUrl, tenantId.get()));
+        entries.addAll(
+            secretMapRefs.isEmpty()
+                ? fetchSecretsForTenant(httpClient, fafnirBaseUrl, tenantId.get())
+                : fetchSecretMaps(httpClient, fafnirBaseUrl, tenantId.get(), secretMapRefs));
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
@@ -2668,7 +2719,8 @@ public final class AgentMain {
         fetched.tenantId(),
         fetched.renamedFromInstanceIndex(),
         fetched.vessel(),
-        fetched.configMapRefs());
+        fetched.configMapRefs(),
+        fetched.secretMapRefs());
   }
 
   /**

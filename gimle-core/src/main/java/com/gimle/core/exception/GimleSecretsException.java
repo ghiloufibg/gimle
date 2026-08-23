@@ -66,6 +66,23 @@ public class GimleSecretsException extends RuntimeException {
   }
 
   /**
+   * {@code gimle-fafnir}'s SecretMap bulk-write lease ({@code secretmap-write:tenantId:name})
+   * stayed contended across every bounded retry attempt -- possible only under sustained,
+   * unrealistic concurrent writers targeting the same SecretMap name.
+   */
+  public static GimleSecretsException secretMapWriteContention(
+      String tenantId, String name, int attempts) {
+    return new GimleSecretsException(
+        "could not acquire the write lease for SecretMap "
+            + tenantId
+            + "/"
+            + name
+            + " after "
+            + attempts
+            + " contended attempts");
+  }
+
+  /**
    * A {@code key@meta} entry's stored JSON doesn't hold the shape {@code SecretStore} expects
    * (missing or non-numeric {@code latestVersion}) -- surfaced as this specific, named type rather
    * than a bare {@code NullPointerException}/{@code ClassCastException} so a caller iterating many

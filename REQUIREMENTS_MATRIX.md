@@ -597,6 +597,12 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-585 | ConfigMaps screen | Web Console / Frontend | Complete | Yes |
 | GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | Web Console / Frontend | Complete | Yes |
 | GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Web Console / Frontend | Complete | Yes |
+| GIMLE-588 | SecretMap store and `/secretmaps/*` API | Secrets Management | Complete | Yes |
+| GIMLE-589 | Deployment `secretMapRefs` field with admission-time collision rejection | Secrets Management | Complete | Yes |
+| GIMLE-590 | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Secrets Management | Complete | Yes |
+| GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Secrets Management | Complete | Yes |
+| GIMLE-592 | `gimle secretmap` command | CLI | Complete | Partial |
+| GIMLE-593 | SecretMaps screen | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2671,6 +2677,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Deployment declares `configMapRefs: [app-config]`, When an instance is assigned and started, Then the agent fetches only `app-config`'s keys via the batch endpoint and delivers them as ConfigDelivered messages, never the tenant's other flat config entries.
   ```
 
+#### GIMLE-591 — Narrowed secret delivery via `secretMapRefs`
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want a deployment declaring `secretMapRefs` to receive only those SecretMaps' keys, not its tenant's entire secret set -- the actual point of the SecretMap kind.
+- **Status**: Complete. `AgentMain.deliverConfig`'s secret-fetch branch now mirrors `configMapRefs`' own branching exactly: `secretMapRefs.isEmpty() ? fetchSecretsForTenant(...) : fetchSecretMaps(...)`. The new `fetchSecretMaps` batches `GET /secretmaps/{tenantId}?names=a,b,c` straight to Fafnir (never through the control plane, matching `fetchSecretsForTenant`'s own direct-to-Fafnir posture), decoding each returned name's base64 values into the same `ConfigValue` shape delivered as `ControlMessage.ConfigDelivered`. Before this, `secretMapRefs` existed on the wire but was never consulted -- every instance still received the tenant's whole secret set regardless.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchSecretMaps`, `deliverConfig`, `fetchAssignments`)
+- **Test coverage**: `AgentMainTest#secret_map_refs_narrows_delivery_to_only_the_named_secretmaps_keys` drives a real fake Fafnir + control-plane HTTP server pair and a real Unix-socket `WorkerConnection`, asserting only the named SecretMap's key arrives as `ConfigDelivered` and that the unscoped flat `/secrets/{tenantId}` listing is never even called once `secretMapRefs` is declared.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is.
+  ```
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -3298,6 +3317,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a tenant's flat config already declares key `shared`, When a Deployment manifest declares `configMapRefs` naming a ConfigMap that also declares `shared`, Then the submission is rejected with a 409 naming both the ConfigMap and the flat-config collision, not silently admitted.
+  ```
+
+#### GIMLE-589 — Deployment `secretMapRefs` field with admission-time collision rejection
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want a Deployment manifest to declare which SecretMaps its instances depend on, the secrets analogue of `configMapRefs`.
+- **Status**: Complete. `DeploymentSpec.secretMapRefs` mirrors `configMapRefs` exactly (compact-constructor null-check + `List.copyOf`, back-compat constructor defaulting to `List.of()`), parsed via `ManifestFields.stringList` and carried over the wire by `DomainCodec`. `SecretMapRefsPlugin` (gimle-controlplane) rejects a submission whose `secretMapRefs` name an unknown SecretMap, declare a key two different SecretMaps also declare, or collide with a `configMapRefs` key or the tenant's own flat config/secret keys -- reading Fafnir's unencrypted `key@meta` rows directly off the admission request's own `StoreReader` rather than calling Fafnir over HTTP, since gimle-controlplane has no compile dependency on gimle-fafnir.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DeploymentSpec.java`, `DeploymentManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/SecretMapRefsPlugin.java`
+- **Test coverage**: `SecretMapRefsPluginTest` covers empty refs, no-tenant rejection, unknown-name rejection, cross-SecretMap key collision, SecretMap-vs-ConfigMap collision, SecretMap-vs-flat-config collision, and SecretMap-vs-flat-secret collision. `DomainCodecTest`/`DeploymentManifestParserTest` cover the wire/YAML round trip.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap `db-creds` declares key `password` and the tenant also has a flat secret named `password`, When a Deployment is submitted with `secretMapRefs: [db-creds]`, Then admission rejects it rather than silently picking a winner at instance-start time.
   ```
 
 ### gimle-fabric
@@ -4597,6 +4629,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote.
   ```
 
+#### GIMLE-590 — `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want the control plane to proxy SecretMap CRUD to Fafnir the same way it already proxies `/secrets/*`, with its own RBAC gate independent of Fafnir's.
+- **Status**: Complete. `ApiServer.handleSecretMapsProxy` mirrors `handleSecretsProxy` byte-for-byte (method-to-`Verb` mapping, forwarded-principal header, `FafnirClient.forward`), gated on the new `ResourceKind.SECRETMAP` rather than `SECRET` -- the same split `CONFIGMAP`/`CONFIG` already establishes, so a role can be granted "read flat secrets" without also getting "read named SecretMaps." `FafnirClient.forward` needed no changes, since it was already method/path-generic.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSecretMapsProxy`, `/secretmaps/` route registration, `deploymentAdmissionChain`)
+- **Test coverage**: `ApiServerSecretMapTest` (plaintext CRUD through the proxy to a real in-process Fafnir), `ApiServerSecretMapAuthzTest` (real mTLS: an operator role may write/read, a no-grant caller gets 403 on both).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a caller certificate with no SECRETMAP grant, When it PUTs or GETs `/secretmaps/{tenant}/{name}`, Then both are rejected with 403, independent of any SECRET grant it might hold.
+  ```
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -4870,6 +4915,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given module-info.java for com.gimle.fafnir; When compiled/linked; Then only com.gimle.fafnir.secret and com.gimle.fafnir are exported.
+  ```
+
+#### GIMLE-588 — SecretMap store and `/secretmaps/*` API
+
+- **Category**: Secrets Management
+- **User story**: As an operator, I want to group related secrets under one named SecretMap, the secrets analogue of ConfigMap, without changing how each individual key is versioned or encrypted.
+- **Status**: Complete. `com.gimle.fafnir.secretmap.SecretMapCodec` layers a `secretmap:{name}:{key}` raw-key naming convention over the existing `SecretStore` with zero changes to that class -- each member key keeps its own independent `key@meta`/`key@N` version ledger. `SecretMapStore` provides `listNames`/`getMetadata`/`getValues`/`setMany`/`deleteAll`/`deleteKey`; `setMany` holds one lease scoped to `(tenantId, name)` across the whole batch (mirroring `ConfigMapStore.write`'s lease shape) and reports one outcome per key rather than an all-or-nothing result. `FafnirServer` exposes `GET /secretmaps/{tenantId}[?names=a,b,c]`, `GET /secretmaps/{tenantId}/{name}`, `PUT /secretmaps/{tenantId}/{name}`, and `DELETE /secretmaps/{tenantId}/{name}[/{key}]`, authorized under the new `ResourceKind.SECRETMAP`. A reserved-prefix guard rejects a flat `/secrets/*` write/delete against a SecretMap-owned key and filters those rows out of the flat listing, mirroring `ConfigMapCodec.isConfigMapKey`'s role for `/config/*`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/secretmap/SecretMapCodec.java`, `SecretMapStore.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`/secretmaps/*` routes, `authorizeSecrets` generalized to accept a `ResourceKind`, reserved-prefix guard), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`SECRETMAP`)
+- **Test coverage**: `SecretMapCodecTest`, `SecretMapStoreTest` (including a concurrency regression test mirroring `ConfigMapStoreTest`'s own), `FafnirServerSecretMapTest` (HTTP-level CRUD, authz, and reserved-prefix rejection).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path.
   ```
 
 ### gimle-andvari
@@ -6303,6 +6361,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller.
   ```
 
+#### GIMLE-592 — `gimle secretmap` command
+
+- **Category**: CLI
+- **User story**: As an operator, I want to list, read metadata for, bulk-set, and delete SecretMaps from the CLI, mirroring `gimle configmap`'s shape.
+- **Status**: Complete. `gimle secretmap list|get|set|delete`, a distinct top-level verb like `configmap`/`secret`. Unlike `configmap set` (which reads the current version first and PATCHes), `secretmap set` is a single `PUT` with no `expectedVersion` -- each key keeps its own independent version ledger, so there is no single SecretMap-level version to guard. `set` reports one outcome per key (a new version or a per-key error) rather than succeeding or failing as a whole. Values cross the wire as base64, matching `secret`'s own convention. `delete` soft-deletes every key by default, `--destroy` hard-deletes them all.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`, `GimleCli.java` (`secretmap` verb dispatch)
+- **Test coverage**: Exercised end-to-end by `ApiServerSecretMapTest`'s HTTP-level coverage of the same `/secretmaps/*` surface `SecretMapCommand` calls; no dedicated `SecretMapCommandTest` fixture exists, the same gap `ConfigMapCommand` has (see `rtm.json`'s gapNote).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed.
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -7313,6 +7384,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"].
+  ```
+
+#### GIMLE-593 — SecretMaps screen
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator, I want to browse SecretMap names, see each member key's own version/deleted status, and bulk-add or update keys in the console, mirroring the ConfigMaps screen's layering.
+- **Status**: Complete. Mirrors the ConfigMaps screen's layering (types, repository interface + Mock, Http implementation, composition root, Zustand store, route, sidebar entry), simplified for Phase 1: no `expectedVersion`/conflict banner, since there is no group-level version yet (deferred to a later phase alongside group rollback). The edit panel shows each existing key's own `{latestVersion, deleted}` and a write-only key/value form (masked input, matching the Secrets screen's own posture of never re-displaying an entered value) for adding or updating keys; a failed key in the bulk `set` response is surfaced inline rather than silently dropped.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`SecretMap`, `SecretMapKeyMetadata`, `SecretMapKeyResult`), `gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `index.ts`, `gimle-console/src/stores/useSecretMapsStore.ts`, `gimle-console/src/routes/secretmaps.tsx`, `components/app-sidebar.tsx`
+- **Test coverage**: `repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection).
+- **Gherkin scenario**:
+  ```gherkin
+  Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing.
   ```
 
 ### gimle-fafnir-console

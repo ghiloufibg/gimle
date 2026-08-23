@@ -59,6 +59,11 @@ import java.util.List;
  *   gimle configmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
  *                                          path|key=path ...]
  *   gimle configmap delete &lt;tenantId&gt; &lt;name&gt;
+ *   gimle secretmap list &lt;tenantId&gt;
+ *   gimle secretmap get &lt;tenantId&gt; &lt;name&gt;
+ *   gimle secretmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
+ *                                          path|key=path ...]
+ *   gimle secretmap delete &lt;tenantId&gt; &lt;name&gt; [--destroy]
  *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;]
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
@@ -161,6 +166,7 @@ public final class GimleCli {
       case "events" -> handleEvents(rest, client, output, out);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
+      case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
@@ -390,6 +396,10 @@ public final class GimleCli {
           configmap get <tenantId> <name>
           configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           configmap delete <tenantId> <name>
+          secretmap list <tenantId>
+          secretmap get <tenantId> <name>
+          secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+          secretmap delete <tenantId> <name> [--destroy]
           artifact push <jar> [--tenant <id>]
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]

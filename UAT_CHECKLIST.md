@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 587
+- **Total requirements**: 593
 - **Covered by automated (Holmgang Cucumber) test**: 119
-- **Not covered by automated test**: 468
-- **Release-readiness (automated coverage)**: 20.3%
+- **Not covered by automated test**: 474
+- **Release-readiness (automated coverage)**: 20.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,19 +18,19 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 6 | 0 | 6 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 38 | 5 | 33 | 13.2% |
-| gimle-mimir | 48 | 32 | 16 | 66.7% |
+| gimle-agent | 39 | 5 | 34 | 12.8% |
+| gimle-mimir | 49 | 32 | 17 | 65.3% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 67 | 14 | 53 | 20.9% |
-| gimle-fafnir | 21 | 11 | 10 | 52.4% |
+| gimle-controlplane | 68 | 14 | 54 | 20.6% |
+| gimle-fafnir | 22 | 11 | 11 | 50.0% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 22 | 0 | 22 | 0.0% |
+| gimle-cli | 23 | 0 | 23 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 29 | 0 | 29 | 0.0% |
+| gimle-console | 30 | 0 | 30 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -502,6 +502,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-132 | Node capacity/instance-observation heartbeat reporting | Given supervised instances/vessels and a capacity snapshot When sendHeartbeat POSTs to /nodes/{nodeId}/heartbeat Then alive is derived as an EXCLUSION check (not "FAILED"), so a COMPLETED job still reports alive=true And ready is true only when lifecycleState is exactly ACTIVE Given a vessel instance Then it reports zero for every in-JVM-only metrics field but real allocatedPorts | No |
 
+#### Secrets Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is. | No |
+
 #### Self-Healing
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -617,6 +623,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round. Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget. Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed. | No |
+
+#### Secrets Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-589 | Deployment `secretMapRefs` field with admission-time collision rejection | Given a SecretMap `db-creds` declares key `password` and the tenant also has a flat secret named `password`, When a Deployment is submitted with `secretMapRefs: [db-creds]`, Then admission rejects it rather than silently picking a winner at instance-start time. | No |
 
 #### State Store
 
@@ -926,6 +938,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-263 | Secrets key rotation trigger (proxied) | Given several encrypted entries exist; When POST /secrets/rotate-key; Then Fafnir generates a new key, re-encrypts every entry, and every previously-encrypted secret still decrypts. | Yes |
+| [ ] | GIMLE-590 | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Given a caller certificate with no SECRETMAP grant, When it PUTs or GETs `/secretmaps/{tenant}/{name}`, Then both are rejected with 403, independent of any SECRET grant it might hold. | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -993,6 +1006,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-281 | Full-key-rotation re-encryption sweep | Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key. | Yes |
 | [ ] | GIMLE-282 | Versioned secret storage layered over ConfigEntry | Given a secret key written 3 times; When GET /secrets/{tenant}/{key}/versions; Then versions 1,2,3 are all listed and independently retrievable via ?version=N. | Yes |
 | [ ] | GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed. | Yes |
+| [ ] | GIMLE-588 | SecretMap store and `/secretmaps/*` API | Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path. | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -1219,6 +1233,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-578 | Service CRUD and live endpoint lookup | Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080. Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set. | No |
 | [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. | No |
 | [ ] | GIMLE-584 | `gimle configmap` command | Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller. | No |
+| [ ] | GIMLE-592 | `gimle secretmap` command | Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed. | No |
 
 #### CLI / Build Tooling
 
@@ -1370,6 +1385,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-585 | ConfigMaps screen | Given the edit panel has a ConfigMap open at version 2, When another caller saves version 3 before this panel saves, Then this panel's save returns a conflict banner naming the new current version, rather than silently overwriting it. | No |
 | [ ] | GIMLE-586 | Service CRUD and live endpoint lookup (Networking screen) | Given no Service named "orders-web" exists, When an operator submits the Services tab's create form with deployment "orders-service" and port 8080, Then POST /services creates it and it appears in the table with targetPort defaulted to 8080. Given a Service "orders-web" exists, When an operator expands its row, Then GET /services/orders-web/endpoints is read live (never from the cached list) and its current backing endpoints are shown. | No |
 | [ ] | GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"]. | No |
+| [ ] | GIMLE-593 | SecretMaps screen | Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing. | No |
 
 #### Web Console / Testing
 

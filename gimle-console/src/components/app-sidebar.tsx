@@ -20,6 +20,7 @@ import {
   Database,
   Package,
   FileJson,
+  KeySquare,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -56,6 +57,7 @@ const items = [
   { title: "Config", url: "/config", icon: Settings },
   { title: "ConfigMaps", url: "/configmaps", icon: FileJson },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
+  { title: "SecretMaps", url: "/secretmaps", icon: KeySquare },
   { title: "Artifacts", url: "/artifacts", icon: Package },
   { title: "Access Control", url: "/access-control", icon: ShieldCheck },
   { title: "Audit", url: "/audit", icon: ScrollText },

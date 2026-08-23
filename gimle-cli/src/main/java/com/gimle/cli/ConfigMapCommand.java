@@ -150,12 +150,24 @@ public final class ConfigMapCommand {
 
   /**
    * {@code path} alone: the key is the file's own base name. {@code key=path}: an explicit key,
-   * kubectl's own {@code --from-file} convention for both forms.
+   * kubectl's own {@code --from-file} convention for both forms. A bare path with no file-name
+   * component (e.g. {@code /}) has no implicit key to derive, so that case is rejected outright
+   * rather than risking a {@code NullPointerException} on {@link Path#getFileName()}'s own
+   * documented {@code null} return.
    */
   private static void addFromFile(Map<String, String> data, String fromFile) {
     int eq = fromFile.indexOf('=');
-    String key = eq < 0 ? Path.of(fromFile).getFileName().toString() : fromFile.substring(0, eq);
     String pathText = eq < 0 ? fromFile : fromFile.substring(eq + 1);
+    String key;
+    if (eq < 0) {
+      Path fileName = Path.of(pathText).getFileName();
+      if (fileName == null) {
+        throw new CliException("--from-file path has no file name to use as a key: " + pathText);
+      }
+      key = fileName.toString();
+    } else {
+      key = fromFile.substring(0, eq);
+    }
     try {
       data.put(key, Files.readString(Path.of(pathText), StandardCharsets.UTF_8));
     } catch (IOException e) {

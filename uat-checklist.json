@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 587,
+    "totalRequirements": 593,
     "coveredByAutomatedTest": 119,
-    "notCoveredByAutomatedTest": 468,
-    "releaseReadinessPercent": 20.3
+    "notCoveredByAutomatedTest": 474,
+    "releaseReadinessPercent": 20.1
   },
   "items": [
     {
@@ -6459,6 +6459,72 @@
       "category": "Web Console / Frontend",
       "feature": "NetworkPolicy CRUD (Networking screen)",
       "step": "Given no NetworkPolicy named \"acme-billing-policy\" exists, When an operator submits the NetworkPolicies tab's create form with tenant \"acme\" and allowed caller tenant \"partner\", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds [\"partner\"].",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-588",
+      "module": "gimle-fafnir",
+      "category": "Secrets Management",
+      "feature": "SecretMap store and `/secretmaps/*` API",
+      "step": "Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-589",
+      "module": "gimle-mimir",
+      "category": "Secrets Management",
+      "feature": "Deployment `secretMapRefs` field with admission-time collision rejection",
+      "step": "Given a SecretMap `db-creds` declares key `password` and the tenant also has a flat secret named `password`, When a Deployment is submitted with `secretMapRefs: [db-creds]`, Then admission rejects it rather than silently picking a winner at instance-start time.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-590",
+      "module": "gimle-controlplane",
+      "category": "Secrets Management",
+      "feature": "`/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC",
+      "step": "Given a caller certificate with no SECRETMAP grant, When it PUTs or GETs `/secretmaps/{tenant}/{name}`, Then both are rejected with 403, independent of any SECRET grant it might hold.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-591",
+      "module": "gimle-agent",
+      "category": "Secrets Management",
+      "feature": "Narrowed secret delivery via `secretMapRefs`",
+      "step": "Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-592",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "`gimle secretmap` command",
+      "step": "Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-593",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "SecretMaps screen",
+      "step": "Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

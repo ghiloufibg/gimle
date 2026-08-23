@@ -34,6 +34,12 @@ import java.util.OptionalInt;
  * Deployment's own {@code configMapRefs()} field. Empty (the default, and the only value every
  * other workload kind ever passes) means "unscoped": the agent fetches and delivers every plain
  * config entry the tenant owns, exactly as it did before this field existed.
+ *
+ * <p>{@code secretMapRefs} is the identical narrowing for Fafnir-managed secrets: when non-empty,
+ * names the SecretMaps whose keys this instance should receive in place of its tenant's entire
+ * secret set -- copied straight from the owning Deployment's own {@code secretMapRefs()} field.
+ * Empty means "unscoped": the agent fetches and delivers every secret the tenant owns, exactly as
+ * it did before this field existed.
  */
 public record AssignedInstance(
     String deploymentName,
@@ -43,7 +49,8 @@ public record AssignedInstance(
     Optional<String> tenantId,
     OptionalInt renamedFromInstanceIndex,
     Optional<VesselSpec> vessel,
-    List<String> configMapRefs) {
+    List<String> configMapRefs,
+    List<String> secretMapRefs) {
 
   public AssignedInstance {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -69,10 +76,36 @@ public record AssignedInstance(
     if (configMapRefs == null) {
       throw new IllegalArgumentException("configMapRefs must be List.of(), not null");
     }
+    if (secretMapRefs == null) {
+      throw new IllegalArgumentException("secretMapRefs must be List.of(), not null");
+    }
     configMapRefs = List.copyOf(configMapRefs);
+    secretMapRefs = List.copyOf(secretMapRefs);
   }
 
-  /** Back-compat: defaults {@code configMapRefs} to {@code List.of()}. */
+  /** Back-compat: defaults {@code secretMapRefs} to {@code List.of()}. */
+  public AssignedInstance(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String artifactPath,
+      Optional<String> tenantId,
+      OptionalInt renamedFromInstanceIndex,
+      Optional<VesselSpec> vessel,
+      List<String> configMapRefs) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        artifactPath,
+        tenantId,
+        renamedFromInstanceIndex,
+        vessel,
+        configMapRefs,
+        List.of());
+  }
+
+  /** Back-compat: defaults {@code configMapRefs} and {@code secretMapRefs} to {@code List.of()}. */
   public AssignedInstance(
       String deploymentName,
       int instanceIndex,
@@ -93,8 +126,8 @@ public record AssignedInstance(
   }
 
   /**
-   * Back-compat: defaults {@code renamedFromInstanceIndex}, {@code vessel} and {@code
-   * configMapRefs} to empty.
+   * Back-compat: defaults {@code renamedFromInstanceIndex}, {@code vessel}, {@code configMapRefs},
+   * and {@code secretMapRefs} to empty.
    */
   public AssignedInstance(
       String deploymentName,

@@ -306,6 +306,31 @@ export interface ConfigMap {
   data: Record<string, string>;
 }
 
+// The secrets analogue of ConfigMap: a named grouping over Fafnir's existing per-key versioned
+// secrets, attached by `secretMapRefs`. Unlike ConfigMap, there is no single object-level
+// `version` -- each key keeps its own independent version ledger (see
+// com.gimle.fafnir.secretmap.SecretMapStore), so `keys` below is a list of per-key metadata, the
+// same shape SecretMetadata already uses, never a value alongside it.
+export interface SecretMapKeyMetadata {
+  key: string;
+  latestVersion: number;
+  deleted: boolean;
+}
+
+export interface SecretMap {
+  tenantId: string;
+  name: string;
+  keys: SecretMapKeyMetadata[];
+}
+
+/** One key's outcome from a SecretMap bulk `set` -- exactly one of `version`/`error` is present,
+ * mirroring com.gimle.fafnir.secretmap.SecretMapStore.SecretMapKeyResult. */
+export interface SecretMapKeyResult {
+  key: string;
+  version?: number;
+  error?: string;
+}
+
 export interface ModuleInstance {
   deploymentName: string;
   instanceIndex: number;

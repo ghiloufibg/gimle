@@ -55,5 +55,9 @@ public enum ResourceKind {
   // same tenant's loose flat keys) so a role can be granted "read flat config keys" without also
   // getting "read named ConfigMaps," the same split CONFIG/SECRET already establishes for
   // encrypted-vs-plaintext.
-  CONFIGMAP
+  CONFIGMAP,
+  // Guards a tenant's named, multi-key SecretMap objects -- distinct from SECRET (which guards the
+  // same tenant's loose flat secret keys) for the identical reason CONFIGMAP is split from CONFIG:
+  // a role can be granted "read flat secrets" without also getting "read named SecretMaps."
+  SECRETMAP
 }

@@ -4,6 +4,7 @@ import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
 import com.gimle.controlplane.admission.ConfigMapRefsPlugin;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
+import com.gimle.controlplane.admission.SecretMapRefsPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
@@ -355,7 +356,8 @@ public final class ApiServer implements AutoCloseable {
             List.of(
                 new TenantQuotaPlugin(this.artifactResolver),
                 new PolicyConfigPlugin(),
-                new ConfigMapRefsPlugin()));
+                new ConfigMapRefsPlugin(),
+                new SecretMapRefsPlugin()));
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();
@@ -423,6 +425,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext(
         "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
     target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
+    target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMapsProxy));
     // One bare-prefix context with an in-handler path check rather than "/artifacts/" +
     // "/artifacts" pair: the catalog listing lives at the bare path, and the JDK server's
     // prefix matching would otherwise let "/artifactsX" through -- same defense AndvariServer's
@@ -944,7 +947,8 @@ public final class ApiServer implements AutoCloseable {
         sha256,
         spec.disruption(),
         spec.vessel(),
-        spec.configMapRefs());
+        spec.configMapRefs(),
+        spec.secretMapRefs());
   }
 
   private void handleGetDeployment(HttpExchange exchange, String name) throws IOException {
@@ -2349,7 +2353,8 @@ public final class ApiServer implements AutoCloseable {
               spec.get().tenantId(),
               assignment.renamedFromInstanceIndex(),
               spec.get().vessel(),
-              spec.get().configMapRefs());
+              spec.get().configMapRefs(),
+              spec.get().secretMapRefs());
       assigned.add(assignedInstanceToJson(instance));
     }
     // Job runs reuse this exact same AssignedInstance wire shape --
@@ -2732,6 +2737,9 @@ public final class ApiServer implements AutoCloseable {
     }
     if (!instance.configMapRefs().isEmpty()) {
       map.put("configMapRefs", instance.configMapRefs());
+    }
+    if (!instance.secretMapRefs().isEmpty()) {
+      map.put("secretMapRefs", instance.secretMapRefs());
     }
     return map;
   }
@@ -3504,6 +3512,70 @@ public final class ApiServer implements AutoCloseable {
       respondStoreUnavailable(exchange);
     } catch (IOException | RuntimeException e) {
       log.warn("secrets proxy request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- /secretmaps/{tenantId}/... -- a byte-for-byte proxy to Fafnir ----
+
+  /**
+   * Mirrors {@link #handleSecretsProxy} exactly, but gated on {@link ResourceKind#SECRETMAP} rather
+   * than {@link ResourceKind#SECRET} -- the same split {@code CONFIGMAP}/{@code CONFIG} already
+   * establishes, so a role can be granted "read flat secrets" without also getting "read named
+   * SecretMaps." This process's own gate is not a substitute for Fafnir's own independent re-check
+   * on the forwarded request, for the identical reason {@link #handleSecretsProxy}'s own javadoc
+   * gives.
+   */
+  private void handleSecretMapsProxy(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/secretmaps/");
+      int slash = tail.indexOf('/');
+      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      if (tenantId.isBlank()) {
+        respond(exchange, 400, "missing tenantId");
+        return;
+      }
+      Verb verb =
+          switch (exchange.getRequestMethod()) {
+            case "GET" -> Verb.READ;
+            case "PUT" -> Verb.WRITE;
+            case "DELETE" -> Verb.DELETE;
+            default -> null;
+          };
+      if (verb == null) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.SECRETMAP, verb, Optional.of(tenantId))) {
+        return;
+      }
+      Map<String, String> forwardHeaders = new LinkedHashMap<>();
+      resolvePrincipal(exchange)
+          .ifPresent(
+              principal -> {
+                forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+                forwardHeaders.put(
+                    "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+              });
+      byte[] body =
+          "PUT".equals(exchange.getRequestMethod())
+              ? readBody(exchange).getBytes(StandardCharsets.UTF_8)
+              : null;
+      String query = exchange.getRequestURI().getRawQuery();
+      String path = "/secretmaps/" + tail + (query != null ? "?" + query : "");
+      FafnirClient.RawResponse response =
+          fafnirClient.forward(exchange.getRequestMethod(), path, body, forwardHeaders);
+      exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+      exchange.sendResponseHeaders(response.statusCode(), response.body().length);
+      try (OutputStream out = exchange.getResponseBody()) {
+        out.write(response.body());
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("secretmaps proxy request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();

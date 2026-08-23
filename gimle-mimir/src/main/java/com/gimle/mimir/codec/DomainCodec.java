@@ -103,6 +103,10 @@ public final class DomainCodec {
     for (String name : spec.configMapRefs()) {
       out.writeUTF(name);
     }
+    out.writeInt(spec.secretMapRefs().size());
+    for (String name : spec.secretMapRefs()) {
+      out.writeUTF(name);
+    }
   }
 
   public static DeploymentSpec readDeploymentSpec(DataInputStream in) throws IOException {
@@ -121,6 +125,11 @@ public final class DomainCodec {
     for (int i = 0; i < configMapRefCount; i++) {
       configMapRefs.add(in.readUTF());
     }
+    int secretMapRefCount = in.readInt();
+    List<String> secretMapRefs = new ArrayList<>();
+    for (int i = 0; i < secretMapRefCount; i++) {
+      secretMapRefs.add(in.readUTF());
+    }
     return new DeploymentSpec(
         name,
         moduleId,
@@ -132,7 +141,8 @@ public final class DomainCodec {
         artifactSha256,
         disruption,
         vessel,
-        configMapRefs);
+        configMapRefs,
+        secretMapRefs);
   }
 
   public static void writeServiceSpec(DataOutputStream out, ServiceSpec spec) throws IOException {

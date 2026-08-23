@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TracesRouteImport } from './routes/traces'
 import { Route as TopologyRouteImport } from './routes/topology'
 import { Route as SecretsRouteImport } from './routes/secrets'
+import { Route as SecretmapsRouteImport } from './routes/secretmaps'
 import { Route as NetworkingRouteImport } from './routes/networking'
 import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
@@ -54,6 +55,11 @@ const TopologyRoute = TopologyRouteImport.update({
 const SecretsRoute = SecretsRouteImport.update({
   id: '/secrets',
   path: '/secrets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SecretmapsRoute = SecretmapsRouteImport.update({
+  id: '/secretmaps',
+  path: '/secretmaps',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NetworkingRoute = NetworkingRouteImport.update({
@@ -209,6 +215,7 @@ export interface FileRoutesByFullPath {
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
@@ -242,6 +249,7 @@ export interface FileRoutesByTo {
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
@@ -276,6 +284,7 @@ export interface FileRoutesById {
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
@@ -311,6 +320,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
@@ -344,6 +354,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
@@ -377,6 +388,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
@@ -411,6 +423,7 @@ export interface RootRouteChildren {
   LogsRoute: typeof LogsRoute
   MetricsRoute: typeof MetricsRoute
   NetworkingRoute: typeof NetworkingRoute
+  SecretmapsRoute: typeof SecretmapsRoute
   SecretsRoute: typeof SecretsRoute
   TopologyRoute: typeof TopologyRoute
   TracesRoute: typeof TracesRoute
@@ -454,6 +467,13 @@ declare module '@tanstack/react-router' {
       path: '/secrets'
       fullPath: '/secrets'
       preLoaderRoute: typeof SecretsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/secretmaps': {
+      id: '/secretmaps'
+      path: '/secretmaps'
+      fullPath: '/secretmaps'
+      preLoaderRoute: typeof SecretmapsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/networking': {
@@ -667,6 +687,7 @@ const rootRouteChildren: RootRouteChildren = {
   LogsRoute: LogsRoute,
   MetricsRoute: MetricsRoute,
   NetworkingRoute: NetworkingRoute,
+  SecretmapsRoute: SecretmapsRoute,
   SecretsRoute: SecretsRoute,
   TopologyRoute: TopologyRoute,
   TracesRoute: TracesRoute,

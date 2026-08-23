@@ -53,6 +53,13 @@ import java.util.Optional;
  * behavior: every instance still receives the whole tenant's flat config. Admission rejects a
  * submission whose referenced ConfigMaps don't exist, or whose keys collide with each other or with
  * the tenant's own flat config keys -- see {@code ConfigMapRefsPlugin}.
+ *
+ * <p>{@code secretMapRefs} is the identical narrowing for Fafnir-managed secrets: names the
+ * SecretMaps this deployment's instances should receive in place of their tenant's entire secret
+ * set. Empty (the default) keeps today's behavior: every instance still receives every secret the
+ * tenant owns. Admission rejects a submission whose referenced SecretMaps don't exist, or whose
+ * keys collide with each other, with {@code configMapRefs}, or with the tenant's own flat config or
+ * secret keys -- see {@code SecretMapRefsPlugin}.
  */
 public record DeploymentSpec(
     String name,
@@ -65,7 +72,8 @@ public record DeploymentSpec(
     Optional<String> artifactSha256,
     Optional<DisruptionBudget> disruption,
     Optional<VesselSpec> vessel,
-    List<String> configMapRefs)
+    List<String> configMapRefs,
+    List<String> secretMapRefs)
     implements WorkloadSpec {
 
   public DeploymentSpec {
@@ -100,10 +108,42 @@ public record DeploymentSpec(
     if (configMapRefs == null) {
       throw new IllegalArgumentException("configMapRefs must be List.of(), not null");
     }
+    if (secretMapRefs == null) {
+      throw new IllegalArgumentException("secretMapRefs must be List.of(), not null");
+    }
     configMapRefs = List.copyOf(configMapRefs);
+    secretMapRefs = List.copyOf(secretMapRefs);
   }
 
-  /** Back-compat: defaults {@code configMapRefs} to {@code List.of()}. */
+  /** Back-compat: defaults {@code secretMapRefs} to {@code List.of()}. */
+  public DeploymentSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      int replicas,
+      PlacementConstraints placement,
+      Optional<AutoscalePolicy> autoscale,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256,
+      Optional<DisruptionBudget> disruption,
+      Optional<VesselSpec> vessel,
+      List<String> configMapRefs) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel,
+        configMapRefs,
+        List.of());
+  }
+
+  /** Back-compat: defaults {@code configMapRefs} and {@code secretMapRefs} to {@code List.of()}. */
   public DeploymentSpec(
       String name,
       ModuleId moduleId,
