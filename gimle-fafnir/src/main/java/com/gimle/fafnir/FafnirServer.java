@@ -939,6 +939,12 @@ public final class FafnirServer implements AutoCloseable {
   private boolean authorizeSecrets(
       HttpExchange exchange, ResourceKind kind, Verb verb, String tenantId, Optional<String> key) {
     if (!(exchange instanceof HttpsExchange)) {
+      // Plaintext mode has no identity to check -- fully open, matching the documented design --
+      // but the audit trail must still say a secret operation happened rather than showing
+      // nothing at all for every request this process ever received in this mode. Attributed to
+      // the same synthetic "anonymous" principal the console's own session endpoint already
+      // reports for this mode (see handleAuthSession above).
+      recordAudit(kind, new Principal("anonymous", Set.of()), verb, tenantId, key, true);
       return true;
     }
     Optional<Principal> resolved = resolvePrincipal(exchange);

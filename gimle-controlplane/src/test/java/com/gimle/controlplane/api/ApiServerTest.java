@@ -9,6 +9,7 @@ import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -29,6 +30,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -1333,6 +1335,34 @@ class ApiServerTest {
     HttpResponse<String> getAfterDelete =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).GET().build());
     assertEquals(404, getAfterDelete.statusCode());
+  }
+
+  /**
+   * QA end-user-QA finding: {@code requireAuthorized}'s plaintext short-circuit used to return
+   * {@code true} immediately, before the WRITE/DELETE audit-recording branch a few lines later ever
+   * ran -- so a plaintext cluster (the default, and what most local/dev clusters run) audited
+   * nothing at all, for any resource kind, ever. This class's own {@code @BeforeEach} already runs
+   * in plaintext mode (see its own comment), so the PUT above already exercised the fix; this test
+   * just makes the durable side effect explicit.
+   */
+  @Test
+  void a_plaintext_write_is_still_recorded_in_the_durable_audit_trail() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audited-acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    List<AuditEvent> events =
+        store.listAuditEvents(
+            Optional.of("anonymous"), Optional.of("TENANT"), Optional.empty(), Optional.empty());
+    assertTrue(
+        events.stream()
+            .anyMatch(
+                e -> "WRITE".equals(e.verb()) && Optional.of("audited-acme").equals(e.tenantId())),
+        "a plaintext WRITE must be recorded under the synthetic anonymous principal, not silently"
+            + " dropped");
   }
 
   @Test

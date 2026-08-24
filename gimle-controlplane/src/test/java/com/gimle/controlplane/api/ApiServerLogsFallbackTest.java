@@ -6,9 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.mimir.store.DaemonSetAssignment;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -19,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -216,5 +222,87 @@ class ApiServerLogsFallbackTest {
     assertEquals(1, muninnReceivedPaths.size());
     // follow is stripped from the forwarded query, not passed through to Muninn's read surface.
     assertTrue(!muninnReceivedPaths.get(0).contains("follow"));
+  }
+
+  /**
+   * QA end-user-QA finding: {@code /logs/instances/{name}/{index}} used to resolve placement
+   * exclusively via {@code storeClient.listAssignmentsFor}, which only Deployment-kind bookkeeping
+   * ever populates -- a StatefulSet/DaemonSet/Job-owned instance 404'd forever, even genuinely
+   * {@code ACTIVE} on a live, reachable agent. These three prove each of the non-Deployment kinds
+   * now resolves through the same live-agent path {@code
+   * a_live_reachable_agent_is_still_served_...} above already proves for Deployment.
+   */
+  @Test
+  void a_statefulset_owned_instance_resolves_to_its_real_placement() throws Exception {
+    List<String> agentReceivedPaths = new CopyOnWriteArrayList<>();
+    agentStub = startStub("/logs", agentReceivedPaths, 200);
+    startApiServer(null);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a",
+            new NodeCapabilities(Set.of()),
+            Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+    store.putStatefulSetAssignment(
+        new StatefulSetAssignment(
+            "orders-statefulset",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders.jar"));
+
+    HttpResponse<String> response = send("/logs/instances/orders-statefulset/0");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, agentReceivedPaths.size());
+  }
+
+  @Test
+  void a_daemonset_owned_instance_resolves_to_its_real_placement() throws Exception {
+    List<String> agentReceivedPaths = new CopyOnWriteArrayList<>();
+    agentStub = startStub("/logs", agentReceivedPaths, 200);
+    startApiServer(null);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a",
+            new NodeCapabilities(Set.of()),
+            Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment(
+            "flag-cache-daemonset",
+            "node-a",
+            new ModuleId("com.example.flagcache", Version.parse("1.0.0")),
+            "/artifacts/flag-cache.jar"));
+
+    // A DaemonSet instance's own index is always 0 -- see DaemonSetAssignment's own javadoc.
+    HttpResponse<String> response = send("/logs/instances/flag-cache-daemonset/0");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, agentReceivedPaths.size());
+  }
+
+  @Test
+  void a_job_owned_instance_resolves_to_its_real_placement() throws Exception {
+    List<String> agentReceivedPaths = new CopyOnWriteArrayList<>();
+    agentStub = startStub("/logs", agentReceivedPaths, 200);
+    startApiServer(null);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a",
+            new NodeCapabilities(Set.of()),
+            Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+    store.putJobRun(
+        new JobRun(
+            "orders-report-job",
+            0,
+            "node-a",
+            new ModuleId("com.example.reporting", Version.parse("1.0.0")),
+            "/artifacts/reporting.jar",
+            Instant.now()));
+
+    // A Job run's own "index" is its attempt number.
+    HttpResponse<String> response = send("/logs/instances/orders-report-job/0");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, agentReceivedPaths.size());
   }
 }

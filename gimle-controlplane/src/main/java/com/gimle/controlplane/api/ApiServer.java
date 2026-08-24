@@ -4721,12 +4721,7 @@ public final class ApiServer implements AutoCloseable {
         subPath != null || muninnClient == null
             ? null
             : muninnInstanceLogsPath(deploymentName, instanceIndex, exchange);
-    String nodeId =
-        storeClient.listAssignmentsFor(deploymentName).stream()
-            .filter(a -> a.instanceIndex() == instanceIndex)
-            .map(InstanceAssignment::nodeId)
-            .findFirst()
-            .orElse(null);
+    String nodeId = resolveInstanceNodeId(deploymentName, instanceIndex);
     if (nodeId == null) {
       if (muninnFallbackPath != null) {
         proxyToMuninn(exchange, muninnFallbackPath);
@@ -4738,6 +4733,54 @@ public final class ApiServer implements AutoCloseable {
     // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
     // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
     proxyToAgent(exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath);
+  }
+
+  /**
+   * Resolves {@code deploymentName}/{@code instanceIndex} to the node currently hosting it,
+   * regardless of which of the five workload kinds actually placed it -- {@code
+   * storeClient.listAssignmentsFor} only ever holds Deployment-kind placements (it's populated
+   * exclusively by {@code DeploymentReconciler}'s own bookkeeping, the same lookup {@code
+   * ServiceEndpointResolver}/{@code AutoscaleReconciler} use), so a StatefulSet/DaemonSet/Job
+   * instance's log request 404'd here forever even while genuinely {@code ACTIVE} elsewhere. Tries
+   * each kind's own assignment list in turn, the same shape {@link #handleEndpoints} already uses
+   * to resolve a workload name across kinds -- first match wins, since a name is unique across all
+   * five kinds.
+   */
+  private String resolveInstanceNodeId(String deploymentName, int instanceIndex) {
+    Optional<String> deployment =
+        storeClient.listAssignmentsFor(deploymentName).stream()
+            .filter(a -> a.instanceIndex() == instanceIndex)
+            .map(InstanceAssignment::nodeId)
+            .findFirst();
+    if (deployment.isPresent()) {
+      return deployment.get();
+    }
+    Optional<String> statefulSet =
+        storeClient.listStatefulSetAssignmentsFor(deploymentName).stream()
+            .filter(a -> a.instanceIndex() == instanceIndex)
+            .map(StatefulSetAssignment::nodeId)
+            .findFirst();
+    if (statefulSet.isPresent()) {
+      return statefulSet.get();
+    }
+    // A DaemonSet instance's own "index" is always 0 (one instance per node, see
+    // DaemonSetAssignment's own javadoc) -- instanceIndex must match that convention to resolve,
+    // the same way a Job's own attempt number must match below.
+    if (instanceIndex == 0) {
+      Optional<String> daemonSet =
+          storeClient.listDaemonSetAssignments().stream()
+              .filter(a -> a.daemonSetName().equals(deploymentName))
+              .map(DaemonSetAssignment::nodeId)
+              .findFirst();
+      if (daemonSet.isPresent()) {
+        return daemonSet.get();
+      }
+    }
+    return storeClient.listJobRuns().stream()
+        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+        .map(JobRun::nodeId)
+        .findFirst()
+        .orElse(null);
   }
 
   /**
@@ -5265,6 +5308,17 @@ public final class ApiServer implements AutoCloseable {
       Optional<String> tenant,
       Optional<String> targetId) {
     if (!(exchange instanceof HttpsExchange)) {
+      // Plaintext mode has no identity to check -- fully open, matching the documented design --
+      // but a mutation still happened, and the audit trail must say so rather than showing
+      // nothing at all for every write/delete this process ever received in this mode. Attributed
+      // to the same synthetic "anonymous" principal the console's own session endpoint already
+      // reports for this mode (see handleAuthSession above).
+      if (verb == Verb.WRITE
+          || verb == Verb.DELETE
+          || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
+        recordAuditEvent(
+            new Principal("anonymous", Set.of()), resource, verb, tenant, targetId, true);
+      }
       return true;
     }
     Optional<Principal> principal = resolvePrincipal(exchange);
