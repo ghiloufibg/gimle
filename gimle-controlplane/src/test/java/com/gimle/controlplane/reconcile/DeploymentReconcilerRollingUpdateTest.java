@@ -187,22 +187,21 @@ class DeploymentReconcilerRollingUpdateTest {
     assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
 
-    // Simulate a control-plane restart: fresh StateStore/DeploymentReconciler instances reloading
-    // from the same on-disk directory, with no in-memory history at all.
-    StateStore restarted = new StateStore();
-    DeploymentReconciler restartedReconciler = new DeploymentReconciler(restarted, scheduler);
+    // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
+    // all, against the same store -- the store (gimle-mimir) is its own process and doesn't
+    // restart with a control-plane replica.
+    DeploymentReconciler restartedReconciler = new DeploymentReconciler(store, scheduler);
 
-    assertEquals(Set.of(0), restarted.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
     restartedReconciler.reconcileOnce();
-    // Still not ready (heartbeat state is also reloaded from disk, unresolved): index 1 must
-    // remain untouched even after the restart.
-    assertEquals(v1.moduleId(), assignmentAt(restarted, "orders-service", 1).moduleId());
-    assertEquals(Set.of(0), restarted.getRollingIndices("orders-service"));
+    // Index 0 still hasn't turned ready: index 1 must remain untouched even after the restart.
+    assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
+    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
 
-    markReady(restarted, "node-a", "orders-service", 0, v2.moduleId());
+    markReady(store, "node-a", "orders-service", 0, v2.moduleId());
     restartedReconciler.reconcileOnce(); // clears index 0, immediately tops up with index 1
-    assertEquals(Set.of(1), restarted.getRollingIndices("orders-service"));
-    assertEquals(v2.moduleId(), assignmentAt(restarted, "orders-service", 1).moduleId());
+    assertEquals(Set.of(1), store.getRollingIndices("orders-service"));
+    assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
   }
 
   @Test
