@@ -1254,9 +1254,21 @@ actual multi-entry-artifact fix is real feature work, deliberately out of scope 
   fetch on either screen with no change to what renders.
 - Hard-killing the node agent leaves its child worker JVMs running as orphans, invisible to
   `hilmir`'s own run ledger (`hilmir down` correctly detects the agent is gone but has no way to find
-  workers it didn't spawn directly) — they had to be found and killed manually. Not fixed this
-  pass — a worker self-terminating on prolonged loss of its parent agent's control-channel
-  connection is a real design change, deliberately deferred rather than rushed.
+  workers it didn't spawn directly) — they had to be found and killed manually. **Fixed**:
+  `WorkerMain`'s own control-channel receive loop already detected the agent disappearing (`SIGKILL`,
+  OOM-kill, crash, or a graceful exit — all indistinguishable EOF on the same socket) and logged
+  "control channel closed by agent; shutting down", but only ever returned from `main()` afterward,
+  trusting the JVM to exit on its own once every remaining thread was daemon. That trust was
+  misplaced: any hosted module is free to leave its own non-daemon thread running (a thread pool, an
+  embedded server) as completely ordinary application behavior, which silently kept the JVM alive
+  forever — the actual root cause, confirmed by reproducing it with a real hosted module whose
+  `onStart` hook starts a plain non-daemon thread and never returns. The fix is one explicit
+  `System.exit(0)` right after that log line, forcing termination regardless of what a hosted module
+  left running (shutdown hooks, including the AOT-cache-assembly-at-clean-exit path, still run). A
+  new regression test (`WorkerSelfTerminatesOnAgentDisconnectTest`) spawns a real worker subprocess,
+  installs a module with exactly that non-daemon-thread hook, closes the agent-side control channel,
+  and asserts the worker process exits within 10s — verified to genuinely hang past that timeout
+  without the fix and exit in ~1.4s with it.
 
 ### New positives
 

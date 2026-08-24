@@ -210,6 +210,17 @@ public final class WorkerMain {
           fabricBinding.server());
     }
     log.info("control channel closed by agent; shutting down");
+    // The control channel closing is the only signal this process gets that its agent is gone --
+    // gracefully, killed outright, OOM-killed, or its host crashed, all indistinguishable from here
+    // and all producing the identical EOF on this socket. Returning from main() and hoping the JVM
+    // exits on its own is not reliable enough to depend on: any hosted module is free to have
+    // started its own non-daemon thread (a thread pool, an embedded server) as completely ordinary
+    // application behavior, which would silently keep this JVM alive forever as an orphan --
+    // exactly
+    // the failure a real hard-kill of the node agent surfaced. An explicit exit forces termination
+    // regardless of what a hosted module left running, while still running shutdown hooks (needed
+    // for the AOT-cache-assembly-at-clean-exit path above).
+    System.exit(0);
   }
 
   /**
