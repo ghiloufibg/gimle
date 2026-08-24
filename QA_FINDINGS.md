@@ -1017,6 +1017,12 @@ the "real cluster, real distribution artifact" scenario where it bites hardest. 
 coordinate-only `artifactPath: ""` + artifact-registry push flow sidesteps this entirely and is
 almost certainly the right steady-state answer — worth calling out more prominently in the example
 manifests and the getting-started docs as the recommended path outside a single-machine dev loop.)
+**Improvement (1) is now Fixed** as a side effect of Bug 4/5's own fix pass: `validateArtifact`'s
+unreadable-artifact branch now calls `recordArtifactFailure`, so this exact WARN produces a durable
+`TRANSITION_FAILED` event `gimle events` surfaces, deduplicated so a persistently-broken path records
+it once, not every 2s. **Improvement (2) is still open** — a real cwd-independent resolution is
+invasive (real placement/dev-loop tradeoffs), and a docs-only note was judged lower value than what's
+already fixed here (see the "What can be easily fixed" follow-up pass above).
 
 ### Friction: a stale `JAVA_HOME` produces a bare, unhelpful `UnsupportedClassVersionError`
 
