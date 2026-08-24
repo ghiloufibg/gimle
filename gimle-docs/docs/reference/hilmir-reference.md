@@ -92,6 +92,8 @@ runtime:
   useBundledJre: true
 ```
 
+A given process's own logging is split across two separate paths under `dataRoot`, not one: `<dataRoot>/<id>.log` is that process's raw launch stdout/stderr (a startup banner plus anything not routed through SLF4J), while `<dataRoot>/<id>-logs/<role>-platform.log` is its real structured JSON-lines platform log (everything logged through SLF4J — the file `-Dgimle.log.root` above actually points at). Diagnosing anything beyond "is the process alive" means checking both, for every process a topology spawns.
+
 #### `useBundledJre`
 
 Setting `useBundledJre: true` tells `hilmir up`/`hilmir pki init` to resolve

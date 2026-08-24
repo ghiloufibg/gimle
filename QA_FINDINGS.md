@@ -1029,7 +1029,16 @@ message says "Gimlé requires JDK 25+", names the actual JDK found, or hints at 
 specifically (as opposed to `PATH`, which was in fact already correct). A one-line class-file-version
 sanity check in each wrapper script before dispatching to `java` — or even just echoing the resolved
 `java_bin`'s own `-version` output on this specific failure — would turn a genuinely confusing first
-five minutes into an immediately obvious fix.
+five minutes into an immediately obvious fix. **Fixed**: `bin/gimle`/`bin/hilmir` (and their `.cmd`
+counterparts) now check, before dispatching, both that an explicit `JAVA_HOME`'s `bin/java` actually
+exists and is executable, and that it reports major version 25+ — printing a one-line explanation
+naming `JAVA_HOME`'s value and the resolved `java`'s own reported version, and exiting immediately,
+instead of launching into a bare classfile-version error. The version check is scoped to the explicit
+`JAVA_HOME` branch only (the bundled-JRE and `PATH` fallbacks are either guaranteed correct by the
+archive's own build or already covered by this friction item's own narrower repro), and parses past
+any `JAVA_TOOL_OPTIONS`/`_JAVA_OPTIONS` "Picked up ..." diagnostic noise the JVM may print ahead of
+its actual version line — a real edge case caught while testing this fix (this very session's own
+proxy environment sets `JAVA_TOOL_OPTIONS`, exposing it immediately rather than latently).
 
 ### Friction: a process's stdout launch log and its own structured platform log live at two different paths
 
@@ -1038,7 +1047,10 @@ five minutes into an immediately obvious fix.
 `-Dgimle.log.root` points at a sibling `gimle-data/<role>-<id>-logs/<role>-platform.log` (JSON-lines,
 everything real). Diagnosing anything beyond "is the process alive" means knowing to check both, in
 two different formats, for every one of the four+ processes a cluster comprises — not fatal, but a
-real speed bump the first time.
+real speed bump the first time. **Documented**: `hilmir-reference.md`'s `dataRoot` section now
+spells out both paths explicitly, right next to the existing `dataRoot`/`-logs` table row — a
+docs-only fix; consolidating the two into one location/format would be a real behavioral change
+outside this pass's scope.
 
 ### Positive: `orders-platform` — a real Spring-DI multi-service app — now verified end to end for the first time
 
@@ -1158,23 +1170,24 @@ actual multi-entry-artifact fix is real feature work, deliberately out of scope 
   coordinate-pull crash loop above, and (more consequentially) Bug 5's stuck rolling migration,
   which stays `HEALTHY` forever with no CLI/API surface, not even `gimle events`, ever revealing the
   wedge. Confirms this is a systemic blind spot, not tied to vessels or to round 1's own trigger.
-  **Partially fixed**: `healthOf` now flags `UNHEALTHY(n)` for an instance whose own observation
-  explicitly says `alive: false` — deliberately conservative, since a `lifecycleState`-based
-  heuristic risks false-flagging a legitimately-still-starting instance without real timing
-  plumbing this pass didn't add. Bug 5's own stuck-instance scenario specifically (an agent-reported
-  `FAILED` lifecycleState with `alive: true`) is not yet caught by this column — Bug 5's own fix
-  above addresses the underlying wedge regardless, but the health column itself still has a gap for
-  that specific shape of failure.
+  **Fixed**: `unhealthyInstanceCount` now also flags `UNHEALTHY(n)` for an instance whose own
+  observation reports `lifecycleState: "FAILED"`, mirroring the exact definition
+  `HealthReconciler#isHealthy` already uses server-side (`FAILED` is treated as an unconditional
+  failure there too, not a transient starting state, so reusing that definition client-side carries
+  no new false-positive risk). Bug 5's own stuck-instance scenario specifically (an agent-reported
+  `FAILED` lifecycleState with `alive: true`) is now caught by this column, closing the gap left
+  after the first pass. A new regression test covers it
+  (`DeploymentsCommandTest#the_health_column_reports_unhealthy_for_a_failed_but_still_alive_instance`).
 - **Bug 3** (`gimle logs` can't resolve a StatefulSet/DaemonSet/Job instance's placement) was
   independently reproduced for a real CronJob-triggered `Job` run this time, confirming the gap
   spans all three non-Deployment workload kinds it was already suspected to. **Fixed**:
   `handleInstanceLogsProxy` now tries each workload kind's own assignment list in turn (the same
   shape `/endpoints/{name}` already used), covering Deployment, StatefulSet, DaemonSet, and Job.
   Three new regression tests cover it (`ApiServerLogsFallbackTest`).
-- The relative-`artifactPath` and stale-`JAVA_HOME` friction items, and the split stdout/platform
-  log locations, were not independently re-hit (every new session used absolute paths and the
-  correct `JAVA_HOME` from the start, per its own briefing) — they stand as previously reported, not
-  newly confirmed.
+- The relative-`artifactPath` friction item was not independently re-hit (every new session used
+  absolute paths, per its own briefing) — it stands as previously reported, not newly confirmed, and
+  remains open (a real fix is invasive; see below). The stale-`JAVA_HOME` error and the split
+  stdout/platform log locations are both **Fixed**, see the "Friction" entries above/below for detail.
 - `orders-platform` continued to verify cleanly under two more sessions, now including its CronJob
   path (manually triggered, real fabric-call numbers in the report) and its secret-gated web UI
   redeployed under a fresh tenant.
@@ -1264,7 +1277,16 @@ in a single follow-up pass immediately after, split into four parallel, file-dis
 `gimle-cli`, and `gimle-console`) plus a docs-only batch — see each finding's own **Fixed**/
 **Documented** note above for what changed and where. Every fix has its own regression test; every
 touched module compiles clean, passes its own relevant test suite (targeted, not a full `mvn
-verify`), and passes `checkstyle:check`/`fmt-maven-plugin:check`. Left open, deliberately: Bug 6's
-real fix (Andvari multi-file artifact support — a genuine new feature, not a bug fix), the health
-column's remaining `lifecycleState`-based gap (a riskier heuristic than this pass wanted to guess
-at), and the orphaned-worker-JVM cleanup (a real self-healing design change).
+verify`), and passes `checkstyle:check`/`fmt-maven-plugin:check`.
+
+A second, smaller follow-up pass closed three more of the previously-deliberately-open items: the
+health column's `lifecycleState`-based gap (reusing `HealthReconciler#isHealthy`'s own
+already-proven definition removed the false-positive risk that held this one back the first time),
+the stale/too-old-`JAVA_HOME` friction item (`bin/gimle`/`bin/hilmir` and their `.cmd` counterparts
+now fail fast with a real explanation instead of a bare classfile-version error), and the split
+stdout/platform-log-location friction item (documented in `hilmir-reference.md`, not consolidated —
+a real behavioral fix there is a separate, larger change). Left open, deliberately: Bug 6's real fix
+(Andvari multi-file artifact support — a genuine new feature, not a bug fix), the orphaned-worker-JVM
+cleanup (a real self-healing design change), and the relative-`artifactPath`-resolves-against-the-
+control-plane's-own-cwd friction item (a real fix is invasive; see its own entry above for why this
+pass left it as-is).
