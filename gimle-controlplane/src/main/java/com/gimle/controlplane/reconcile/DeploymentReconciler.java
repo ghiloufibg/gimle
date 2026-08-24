@@ -6,6 +6,8 @@ import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -13,6 +15,7 @@ import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
@@ -27,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -158,7 +162,7 @@ public final class DeploymentReconciler {
       return;
     }
 
-    Optional<ModuleDescriptor> descriptor = validateArtifact(spec);
+    Optional<ModuleDescriptor> descriptor = validateArtifact(spec, toPlace);
     if (descriptor.isEmpty()) {
       return;
     }
@@ -195,8 +199,16 @@ public final class DeploymentReconciler {
    * just at admission -- an artifact silently swapped out from under a running deployment name is
    * exactly what this guards against. Either failure is already logged by the time this returns
    * Optional.empty() -- the caller's only job from there is to skip placement this tick.
+   *
+   * <p>{@code blockedIndices} is exactly {@link #reconcileDeployment}'s own {@code toPlace} for
+   * this tick -- every index left unplaced because of this failure gets a durable {@code
+   * TRANSITION_FAILED} event via {@link #recordArtifactFailure}, not just the platform log line
+   * above. Without this, an unreadable/tampered artifact left a deployment silently stuck at {@code
+   * UNPLACED} forever with nothing in {@code gimle events} ever explaining why -- the only trace
+   * was this WARN, re-logged every tick, in the control plane's own platform log file.
    */
-  private Optional<ModuleDescriptor> validateArtifact(DeploymentSpec spec) {
+  private Optional<ModuleDescriptor> validateArtifact(
+      DeploymentSpec spec, List<Integer> blockedIndices) {
     ModuleArtifact artifact;
     try {
       artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
@@ -206,6 +218,11 @@ public final class DeploymentReconciler {
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
+      recordArtifactFailure(
+          spec,
+          blockedIndices,
+          "artifact unreadable: " + spec.artifactPath(),
+          String.valueOf(e.getMessage()));
       return Optional.empty();
     }
     if (spec.artifactSha256().isPresent()
@@ -218,9 +235,42 @@ public final class DeploymentReconciler {
           spec.artifactPath(),
           spec.artifactSha256().get(),
           artifact.sha256());
+      recordArtifactFailure(
+          spec,
+          blockedIndices,
+          "artifact hash no longer matches the one recorded at admission: " + spec.artifactPath(),
+          "expected " + spec.artifactSha256().get() + ", found " + artifact.sha256());
       return Optional.empty();
     }
     return Optional.of(artifact.descriptor());
+  }
+
+  /**
+   * One {@code TRANSITION_FAILED} event per blocked index, deduplicated against each index's own
+   * most recent event so a persistently-unreadable artifact records this once, not every 2s the
+   * reconcile loop retries -- {@link StateStore}'s own per-instance retention cap bounds the
+   * timeline, but there is no reason to spend any of it on the exact same message repeated forever.
+   */
+  private void recordArtifactFailure(
+      DeploymentSpec spec, List<Integer> blockedIndices, String message, String cause) {
+    for (int index : blockedIndices) {
+      List<InstanceEvent> existing = store.listInstanceEvents(spec.name(), index);
+      if (!existing.isEmpty()
+          && existing.get(0).kind() == InstanceEventKind.TRANSITION_FAILED
+          && existing.get(0).message().equals(message)) {
+        continue;
+      }
+      mutations.propose(
+          new StateMutation.AppendInstanceEvent(
+              new InstanceEvent(
+                  UUID.randomUUID().toString(),
+                  spec.name(),
+                  index,
+                  InstanceEventKind.TRANSITION_FAILED,
+                  message,
+                  Optional.of(cause),
+                  clock.millis())));
+    }
   }
 
   private void placeInstances(
@@ -307,6 +357,25 @@ public final class DeploymentReconciler {
         // ready.
         mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
         inFlight.remove(index);
+      } else if (store
+          .getReconcilerInstanceState(spec.name(), index)
+          .map(ReconcilerInstanceState::permanentlyFailed)
+          .orElse(false)) {
+        // HealthReconciler exhausted this index's restart budget and will never touch it again
+        // (its own permanentlyFailed early-return). Without this, the in-flight marker above never
+        // clears on its own -- current.isPresent()-but-never-ready and current.isEmpty()-but-
+        // index<replicas both fall through every other branch here forever, permanently consuming
+        // this deployment's whole maxUnavailable budget and blocking every future rollout AND
+        // rollback for it, no matter how many ticks pass. Clearing it doesn't touch the
+        // instance itself (still whatever HealthReconciler left it as) -- it just stops one broken
+        // index from wedging the entire deployment.
+        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        inFlight.remove(index);
+        log.warn(
+            "deployment {} instance {} gave up retrying after exhausting its restart budget;"
+                + " freeing the rolling-update budget it was holding",
+            spec.name(),
+            index);
       }
       // Otherwise: still waiting for the replacement to land, or already removed and awaiting
       // re-placement below -- either way, this index keeps consuming budget until it clears.
@@ -337,23 +406,36 @@ public final class DeploymentReconciler {
   }
 
   /**
-   * Every assignment of {@code spec} whose {@code moduleId} no longer matches the spec's own,
-   * sorted by index, excluding whichever indices {@code excludedIndices} already claims -- the
-   * shared "find migration candidates" scan both {@link #handleRollingUpdate}'s {@code
-   * maxUnavailable} budget and {@link #handleSurge}'s {@code maxSurge} budget run, differing only
-   * in which in-flight/claimed indices each passes in to keep the other budget's own claims out of
-   * reach. UNSPECIFIED_MODULE (the three-argument {@link InstanceAssignment} constructor's
-   * placeholder) means "don't care which version this is" -- treating it as a real mismatch would
-   * spuriously trigger a rollout for every assignment that simply never specified one.
+   * Every assignment of {@code spec} whose {@code moduleId} or {@code artifactPath} no longer
+   * matches the spec's own, sorted by index, excluding whichever indices {@code excludedIndices}
+   * already claims -- the shared "find migration candidates" scan both {@link
+   * #handleRollingUpdate}'s {@code maxUnavailable} budget and {@link #handleSurge}'s {@code
+   * maxSurge} budget run, differing only in which in-flight/claimed indices each passes in to keep
+   * the other budget's own claims out of reach. UNSPECIFIED_MODULE (the three-argument {@link
+   * InstanceAssignment} constructor's placeholder) means "don't care which version this is" --
+   * treating it as a real mismatch would spuriously trigger a rollout for every assignment that
+   * simply never specified one. Comparing {@code artifactPath} alongside {@code moduleId} matters
+   * for the same reason the admission layer's own "meaningfully changed" check (which decides
+   * whether a re-applied manifest mints a new {@code ControllerRevision}) already treats an
+   * artifact-only change as real: a re-applied manifest with the same {@code moduleId} but a
+   * patched jar at a new path must actually roll out, not just look like it did in {@code
+   * deployment revisions}. {@code artifactSha256} is deliberately not compared here too -- {@link
+   * InstanceAssignment} doesn't carry it, and a same-path artifact silently swapped out from under
+   * a running instance is {@link #validateArtifact}'s own, separate concern.
    */
   private List<InstanceAssignment> mismatchedAssignments(
       DeploymentSpec spec, Set<Integer> excludedIndices) {
     return store.listAssignmentsFor(spec.name()).stream()
         .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
-        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
+        .filter(assignment -> isStale(assignment, spec))
         .filter(assignment -> !excludedIndices.contains(assignment.instanceIndex()))
         .sorted(Comparator.comparingInt(InstanceAssignment::instanceIndex))
         .toList();
+  }
+
+  private static boolean isStale(InstanceAssignment assignment, DeploymentSpec spec) {
+    return !assignment.moduleId().equals(spec.moduleId())
+        || !assignment.artifactPath().equals(spec.artifactPath());
   }
 
   /**
@@ -387,6 +469,24 @@ public final class DeploymentReconciler {
         // once it's no longer excluded from it.
         mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
+        continue;
+      }
+      if (store
+          .getReconcilerInstanceState(spec.name(), surgeIndex)
+          .map(ReconcilerInstanceState::permanentlyFailed)
+          .orElse(false)) {
+        // The surge instance itself exhausted its restart budget and HealthReconciler will never
+        // touch it again -- same reasoning as handleRollingUpdate's own equivalent check: without
+        // this, a broken surge candidate holds its maxSurge slot forever, since it can never become
+        // ready and promote, and nothing else here ever reconsiders it.
+        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        inFlight.remove(surgeIndex);
+        log.warn(
+            "deployment {} surge candidate at index {} (target {}) gave up retrying; freeing the"
+                + " surge budget it was holding",
+            spec.name(),
+            surgeIndex,
+            targetIndex);
         continue;
       }
       Optional<InstanceAssignment> surgeAssignment =

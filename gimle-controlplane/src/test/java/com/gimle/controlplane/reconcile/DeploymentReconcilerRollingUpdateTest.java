@@ -16,6 +16,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
@@ -411,5 +412,145 @@ class DeploymentReconcilerRollingUpdateTest {
             .allMatch(a -> a.moduleId().equals(v2.moduleId())),
         "the rollout must fully converge to v2 across every index");
     assertEquals(Set.of(), store.getRollingIndices("orders-service"));
+  }
+
+  /**
+   * QA end-user-QA-round-2 finding: a re-applied manifest with the same {@code moduleId} but a
+   * different {@code artifactPath} (a patched jar re-pushed without bumping semver) used to be
+   * invisible to {@link DeploymentReconciler#handleRollingUpdate} entirely -- the mismatch scan
+   * only ever compared {@code moduleId}, so the running instance kept executing the old jar's bytes
+   * forever while {@code deployment revisions}/{@code get deployments} both showed the new path as
+   * current.
+   */
+  @Test
+  void a_same_module_id_artifact_path_change_also_triggers_a_rollout() {
+    StateStore store = new StateStore(tempDir.resolve("store-artifact-swap"));
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    registerNode(store, "node-a");
+
+    Path jarV1 = buildFixtureJar();
+    ModuleId moduleId =
+        new ModuleId(jarV1.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0"));
+    DeploymentSpec v1 =
+        new DeploymentSpec(
+            "orders-service",
+            moduleId,
+            jarV1.toAbsolutePath().toString(),
+            1,
+            PlacementConstraints.NONE);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, moduleId);
+    reconciler.reconcileOnce(); // no-op: already matches v1
+
+    // A second, differently-located jar declaring the exact same module name/version as v1's own
+    // -- simulating a patched artifact re-pushed to a new path without bumping semver.
+    Path jarV2 =
+        TestModuleBuilder.module("module " + moduleId.name() + " {\n}\n")
+            .withDescriptor(TestModuleBuilder.minimalDescriptor(moduleId.name(), "1.0.0"))
+            .build(tempDir, moduleId.name() + "-patched.jar");
+    DeploymentSpec v2 =
+        new DeploymentSpec(
+            "orders-service",
+            moduleId,
+            jarV2.toAbsolutePath().toString(),
+            1,
+            PlacementConstraints.NONE);
+    store.putDeployment(v2);
+
+    reconciler.reconcileOnce();
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices("orders-service"),
+        "a same-moduleId, different-artifactPath re-apply must still trigger a rollout");
+
+    markReady(store, "node-a", "orders-service", 0, moduleId);
+    reconciler.reconcileOnce();
+    assertEquals(Set.of(), store.getRollingIndices("orders-service"));
+    assertEquals(
+        jarV2.toAbsolutePath().toString(),
+        assignmentAt(store, "orders-service", 0).artifactPath(),
+        "the running instance must actually end up assigned to the new artifact path");
+  }
+
+  /**
+   * QA end-user-QA-round-2 finding: once {@code HealthReconciler} exhausts an in-flight migration
+   * index's restart budget and marks it {@code permanentlyFailed} (see {@code
+   * ReconcilerInstanceState}), {@code handleRollingUpdate}'s own in-flight loop used to have no
+   * clear condition for that outcome at all -- ready, or scaled-down-below-replicas, were the only
+   * two ways an index's rolling marker ever cleared. A permanently-failed index consumed the whole
+   * {@code maxUnavailable} budget forever, blocking every future rollout AND {@code deployment
+   * rollback} for that deployment indefinitely, while {@code gimle get deployments} kept reporting
+   * it fully healthy throughout. This test injects the give-up state directly (the state {@code
+   * HealthReconciler} itself would persist once its own restart budget is exhausted -- see {@code
+   * HealthReconcilerTest} for that reconciler's own give-up mechanics) rather than driving a full
+   * backoff cycle here, since this test's own job is only to prove {@code DeploymentReconciler}
+   * reacts to that state correctly.
+   */
+  @Test
+  void a_permanently_failed_in_flight_index_frees_the_rolling_budget_instead_of_wedging_forever() {
+    StateStore store = new StateStore(tempDir.resolve("store-gave-up"));
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    registerNode(store, "node-a");
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 1, jarV1);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 1, jarV2);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward; it will never become ready
+    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+
+    // A rollback to the known-good v1 is submitted while the broken migration is still in flight
+    // -- exactly what an operator would try in this situation.
+    store.putDeployment(v1);
+
+    // Several ticks pass with index 0 never turning ready: before the fix, the rolling index stays
+    // claimed forever and the rollback above never gets a chance to run.
+    for (int i = 0; i < 5; i++) {
+      reconciler.reconcileOnce();
+    }
+    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
+
+    // HealthReconciler has now exhausted index 0's restart budget and given up on it.
+    store.putReconcilerInstanceState(
+        new ReconcilerInstanceState(
+            "orders-service",
+            0,
+            0,
+            ReconcilerInstanceState.ABSENT,
+            ReconcilerInstanceState.ABSENT,
+            false,
+            true,
+            ReconcilerInstanceState.ABSENT));
+
+    // Freeing the budget and topping it back up both happen in this same tick (continuous
+    // top-up, the same behavior every other budget-freeing path in this class already has): the
+    // gave-up index 0 clears, and the pending rollback to v1 -- now the only mismatch left -- is
+    // picked up immediately rather than waiting for a further tick.
+    reconciler.reconcileOnce();
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices("orders-service"),
+        "freeing the budget must let the pending rollback to v1 start in the same tick, not stay"
+            + " wedged");
+    assertEquals(
+        v1.moduleId(),
+        assignmentAt(store, "orders-service", 0).moduleId(),
+        "the freed budget must already be spent placing v1 at index 0");
+
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    reconciler.reconcileOnce();
+    assertEquals(
+        Set.of(),
+        store.getRollingIndices("orders-service"),
+        "the rollback must complete cleanly once its own replacement confirms ready");
   }
 }

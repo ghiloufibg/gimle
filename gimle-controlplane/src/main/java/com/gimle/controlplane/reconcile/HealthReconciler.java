@@ -1,5 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.restart.RestartTracker;
@@ -14,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -185,6 +188,20 @@ public final class HealthReconciler {
             "deployment {} instance {} exhausted its restart budget; giving up on rescheduling it",
             assignment.deploymentName(),
             assignment.instanceIndex());
+        // A durable timeline entry, not only this platform-log line -- "gave up" is otherwise
+        // invisible to gimle events, and DeploymentReconciler's own rolling/surge budget tracking
+        // reads this same permanentlyFailed flag to stop this index from wedging a whole
+        // deployment's future rollouts forever.
+        mutations.propose(
+            new StateMutation.AppendInstanceEvent(
+                new InstanceEvent(
+                    UUID.randomUUID().toString(),
+                    assignment.deploymentName(),
+                    assignment.instanceIndex(),
+                    InstanceEventKind.TRANSITION_FAILED,
+                    "exhausted its restart budget; giving up on rescheduling it",
+                    Optional.empty(),
+                    clock.millis())));
         persistTracker(assignment, persisted, tracker, false, true);
         return;
       }

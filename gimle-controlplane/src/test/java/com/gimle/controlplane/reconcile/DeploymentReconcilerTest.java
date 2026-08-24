@@ -8,6 +8,7 @@ import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -296,5 +297,36 @@ class DeploymentReconcilerTest {
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
     assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+  }
+
+  /**
+   * QA end-user-QA finding: an unplaceable deployment blocked by a bad artifact used to leave
+   * nothing behind but a platform-log WARN, re-logged every tick -- {@code gimle events} showed
+   * nothing at all, forever, with no way for an operator to discover why the deployment was stuck.
+   * The durable event must exist, and must not be re-appended every tick for the exact same
+   * still-ongoing failure.
+   */
+  @Test
+  void an_unreadable_artifact_records_exactly_one_durable_event_despite_repeated_ticks() {
+    StateStore store = new StateStore(tempDir.resolve("store-unreadable-artifact-event"));
+    Scheduler scheduler = new Scheduler();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    Path missingJar = tempDir.resolve("does-not-exist.jar");
+    store.putDeployment(deployment("orders-service", 1, missingJar, PlacementConstraints.NONE));
+
+    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    for (int i = 0; i < 5; i++) {
+      reconciler.reconcileOnce();
+    }
+
+    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertEquals(
+        1,
+        store.listInstanceEvents("orders-service", 0).size(),
+        "five ticks of the exact same ongoing failure must record exactly one durable event, not"
+            + " one per tick");
+    assertEquals(
+        InstanceEventKind.TRANSITION_FAILED,
+        store.listInstanceEvents("orders-service", 0).get(0).kind());
   }
 }
