@@ -1083,7 +1083,7 @@ un-fixed, the same way round 1 recorded its own un-fixed bugs. Full narrative de
 transcripts for all 29 deduplicated findings (plus four annotated console screenshots) went to a
 published report artifact for this session; what follows is the durable written record.
 
-### Bug 4 (HIGH, confirmed, not fixed): the rolling-update reconciler ignores `artifactPath`/`artifactSha256` — a same-version artifact swap is silently never rolled out
+### Bug 4 (HIGH, FIXED): the rolling-update reconciler ignores `artifactPath`/`artifactSha256` — a same-version artifact swap is silently never rolled out
 
 `DeploymentReconciler`'s rolling-migration logic decides which running instances need replacing
 using only `!assignment.moduleId().equals(spec.moduleId())` — it never compares `artifactPath` or
@@ -1094,11 +1094,13 @@ realistic dev-iteration workflow, patching a jar without bumping semver — is a
 revision is minted, and `gimle get deployments`/`deployment revisions` both show the new path as
 current, but the running instances keep executing the old jar bytes indefinitely. Nothing in the
 CLI reveals the mismatch short of manually diffing `artifactPath` between `get deployments` and
-`get node-assignments`. Fix: widen the rolling-migration comparison to match `deploymentContentChanged`'s
-own definition of "changed" (`moduleId` OR `artifactPath` OR `artifactSha256`), or stop minting a
-new revision for an artifact-only change so the CLI never implies a rollout happened when none did.
+`get node-assignments`. **Fixed**: `mismatchedAssignments` now also compares `assignment.artifactPath()` against
+`spec.artifactPath()` (not `artifactSha256` — `InstanceAssignment` doesn't carry it, and a same-path
+swap stays `validateArtifact`'s own separate concern), matching admission's own definition of
+"changed." Two new regression tests cover it (`DeploymentReconcilerRollingUpdateTest`,
+`DeploymentReconcilerTest`).
 
-### Bug 5 (HIGH, confirmed, not fixed): a stuck rolling-migration index permanently exhausts `maxUnavailable` and wedges the deployment forever, immune even to rollback
+### Bug 5 (HIGH, FIXED): a stuck rolling-migration index permanently exhausts `maxUnavailable` and wedges the deployment forever, immune even to rollback
 
 When a rolling migration's replacement instance genuinely fails to install (reproduced with a real
 module-version mismatch between the manifest's declared version and the artifact's own bundled
@@ -1113,12 +1115,18 @@ N` to a known-good earlier revision, which is recorded as a new revision but nev
 on; the stuck instance sits untouched. Directly compounded by Bug 2 (see round 1 above): the
 deployment reports fully `HEALTHY` throughout, and the give-up event itself is never durably
 recorded (`gimle events` shows the earlier RESOLVED/STARTING/ACTIVE transitions, never the give-up).
-Fix: clear the rolling/surge in-flight bookkeeping for an index when `HealthReconciler` gives up on
-it, so `DeploymentReconciler` reconsiders it on the next tick the same way every other reconciler
-here is required to converge from an arbitrary starting state; separately, surface a stuck/given-up
-instance in deployment health status.
+**Fixed**: `handleRollingUpdate`'s (and `handleSurge`'s, the mirror-image surge budget) in-flight
+loop now also clears an index whose `ReconcilerInstanceState` is `permanentlyFailed`, freeing the
+budget in the same tick a pending rollback/rollforward can pick it up — the same continuous-top-up
+behavior every other budget-freeing path in that class already has. `HealthReconciler`'s own
+give-up branch now also posts a durable `TRANSITION_FAILED` event, closing the other half of this
+finding (previously invisible in `gimle events`). A new regression test drives both reconcilers
+together (`a_permanently_failed_in_flight_index_frees_the_rolling_budget_instead_of_wedging_forever`).
+The deeper ask — surface a stuck/given-up instance in `gimle get deployments`'s own health column —
+is the separate, still partially-open item below (health column now flags an explicit `alive: false`
+instance, not yet a `permanentlyFailed` one specifically).
 
-### Bug 6 (HIGH, confirmed, not fixed): a coordinate-only (Andvari-pulled) vessel deployment of a real Quarkus fast-jar crash-loops forever — Andvari's one-file-per-coordinate model has no way to carry a multi-file artifact
+### Bug 6 (HIGH, confirmed, not fixed — documented): a coordinate-only (Andvari-pulled) vessel deployment of a real Quarkus fast-jar crash-loops forever — Andvari's one-file-per-coordinate model has no way to carry a multi-file artifact
 
 A vessel deployment's `artifactPath`, left blank, resolves through Andvari exactly the way a
 module deployment's does: `ArtifactPullCache` downloads and caches exactly one file per coordinate.
@@ -1140,7 +1148,8 @@ launcher jar — so the only way to even get the jar into the registry for this 
 own MEDIUM finding below. Fix: either document plainly that coordinate-only vessel deployment only
 supports single-jar-shaped artifacts, or extend Andvari's artifact model to support a multi-entry
 artifact (e.g. push/pull the whole `quarkus-app/` directory as one tar/zip unit, unpacked atomically
-on resolve).
+on resolve). **Documented** (the first option) in `manifest-schema.md`'s own vessel section — the
+actual multi-entry-artifact fix is real feature work, deliberately out of scope for this pass.
 
 ### Round 1 findings re-confirmed, with new detail
 
@@ -1149,9 +1158,19 @@ on resolve).
   coordinate-pull crash loop above, and (more consequentially) Bug 5's stuck rolling migration,
   which stays `HEALTHY` forever with no CLI/API surface, not even `gimle events`, ever revealing the
   wedge. Confirms this is a systemic blind spot, not tied to vessels or to round 1's own trigger.
+  **Partially fixed**: `healthOf` now flags `UNHEALTHY(n)` for an instance whose own observation
+  explicitly says `alive: false` — deliberately conservative, since a `lifecycleState`-based
+  heuristic risks false-flagging a legitimately-still-starting instance without real timing
+  plumbing this pass didn't add. Bug 5's own stuck-instance scenario specifically (an agent-reported
+  `FAILED` lifecycleState with `alive: true`) is not yet caught by this column — Bug 5's own fix
+  above addresses the underlying wedge regardless, but the health column itself still has a gap for
+  that specific shape of failure.
 - **Bug 3** (`gimle logs` can't resolve a StatefulSet/DaemonSet/Job instance's placement) was
   independently reproduced for a real CronJob-triggered `Job` run this time, confirming the gap
-  spans all three non-Deployment workload kinds it was already suspected to.
+  spans all three non-Deployment workload kinds it was already suspected to. **Fixed**:
+  `handleInstanceLogsProxy` now tries each workload kind's own assignment list in turn (the same
+  shape `/endpoints/{name}` already used), covering Deployment, StatefulSet, DaemonSet, and Job.
+  Three new regression tests cover it (`ApiServerLogsFallbackTest`).
 - The relative-`artifactPath` and stale-`JAVA_HOME` friction items, and the split stdout/platform
   log locations, were not independently re-hit (every new session used absolute paths and the
   correct `JAVA_HOME` from the start, per its own briefing) — they stand as previously reported, not
@@ -1169,8 +1188,8 @@ on resolve).
   This matches documented design (`authn-authz.md`: plaintext is "fully open, no identity, no
   enforcement"), so it is not a bug — but nothing in the CLI, a log line, or help text tells an
   operator who just configured a restrictive role in a plaintext cluster that it is decorative.
-  Suggested: have the RBAC `set` commands (or `hilmir up` itself) print a one-line warning when the
-  target control plane is running in plaintext mode.
+  **Fixed**: `set role`/`set account`/`set rolebinding` now print a one-line
+  `note: RBAC has no effect in plaintext mode` after a successful write, in plaintext mode only.
 - **The audit log is completely empty in plaintext mode.** `gimle audit list`/`GET /audit` returned
   zero entries after a full session of real mutations (tenant create/delete, secret set/delete/
   `--destroy`, config/configmap set, RBAC object creation, two real deployments). Root cause: both
@@ -1180,33 +1199,45 @@ on resolve).
   natural reading of the docs' description of Fafnir's own secret audit as firing "unconditionally
   for every verb" (true only with respect to verb, silently false with respect to transport mode;
   the plaintext carve-out is documented only in a separate RBAC section, not cross-referenced from
-  the audit-logging section). Suggested: either audit plaintext-mode requests too (attributing to a
-  synthetic anonymous principal, the way the console's own session endpoint already does), or
-  cross-reference the limitation directly from the audit-logging doc section.
+  the audit-logging section). **Fixed**: both `requireAuthorized` and `authorizeSecrets` now audit a
+  plaintext WRITE/DELETE (and opted-in READ) under a synthetic `anonymous` principal, the same one
+  the console's own session endpoint already reports for this mode. A new regression test covers it
+  (`ApiServerTest#a_plaintext_write_is_still_recorded_in_the_durable_audit_trail`).
 - **`gimle artifact push` has no way to push a plain vessel/launcher jar** — see Bug 6 above.
-  Suggested: a `--vessel` flag on `push` mirroring `hilmir doctor --vessel`'s own posture, or explicit
-  documentation that vessel-hosted artifacts need another push path.
+  **Fixed**: `artifact push --vessel --name <moduleId> --version <version>` pushes a jar with no
+  `gimle-module.yaml` under an explicitly given coordinate, skipping the module-descriptor read
+  entirely.
 
 ### New LOW/INFO findings
 
 - `gimle <resource> --help` fails with "no control-plane server configured" instead of printing
   usage, since `--server`/`GIMLE_SERVER` is required before help-flag handling runs — an operator
   can't get in-CLI help for a command group without already having a cluster address in hand.
+  **Fixed**: `-h`/`--help` anywhere on the command line now prints usage before the server check.
 - `gimle set limitrange <tenant> --max-limit-memory 32Mi` (one side of a memory/cpu pair only) fails
   with the misleadingly generic `invalid request: cpu must not be blank` rather than explaining the
-  pairing requirement or naming the missing flag.
+  pairing requirement or naming the missing flag. **Fixed**: `putBoundIfPresent` now validates the
+  pairing client-side, naming both the missing flag and the one given, before ever sending the
+  request.
 - A default `Deployment` manifest (no `placement:` block) does **not** spread replicas across nodes
   even with a healthy second node available — `PlacementConstraints.NONE`'s `antiAffinityAcrossNodes`
   defaults to `false`, and only `placement: {antiAffinity: true}` turns on cross-node spreading. This
   is real, working, opt-in behavior, but reads as contradicting a literal reading of this file's own
   architecture summary ("replicas of one module must not share a worker JVM") — worth tightening
-  that phrasing or reconsidering the default.
+  that phrasing or reconsidering the default. **Documented**: `CLAUDE.md`'s own architecture summary
+  now states cross-node anti-affinity is opt-in; the default itself is left unchanged (a behavior
+  change here has real density/placement tradeoffs beyond this pass's scope).
 - The console's Metrics/Traces screens each fire one `console.error` for the expected 404 when
   Muninn isn't configured, even though the page already shows a clear inline message — harmless, but
-  will flag on automated console-error monitoring for a common, supported configuration.
+  will flag on automated console-error monitoring for a common, supported configuration. **Fixed**:
+  the first 404 either screen's history fetch sees is now remembered for the session (a shared
+  `historyAvailability` helper both HTTP repositories go through), short-circuiting every later
+  fetch on either screen with no change to what renders.
 - Hard-killing the node agent leaves its child worker JVMs running as orphans, invisible to
   `hilmir`'s own run ledger (`hilmir down` correctly detects the agent is gone but has no way to find
-  workers it didn't spawn directly) — they had to be found and killed manually.
+  workers it didn't spawn directly) — they had to be found and killed manually. Not fixed this
+  pass — a worker self-terminating on prolonged loss of its parent agent's control-channel
+  connection is a real design change, deliberately deferred rather than rushed.
 
 ### New positives
 
@@ -1223,3 +1254,17 @@ quota/limitrange enforcement is correctly dual-mode — a fresh over-quota/over-
 rejected outright at admission (contrary to a literal reading of this file's own "flag, never evict"
 phrasing, which correctly describes only the narrower case of a quota retroactively tightened below
 an already-running deployment's consumption).
+
+### Follow-up fix pass: everything fixable landed the same session
+
+Unlike round 1, the five parallel sessions above deliberately made no source changes themselves (to
+avoid five agents concurrently editing the same files). All nine fixable findings above were fixed
+in a single follow-up pass immediately after, split into four parallel, file-disjoint batches
+(`gimle-controlplane`'s reconciler package, `gimle-controlplane`+`gimle-fafnir`'s API-server package,
+`gimle-cli`, and `gimle-console`) plus a docs-only batch — see each finding's own **Fixed**/
+**Documented** note above for what changed and where. Every fix has its own regression test; every
+touched module compiles clean, passes its own relevant test suite (targeted, not a full `mvn
+verify`), and passes `checkstyle:check`/`fmt-maven-plugin:check`. Left open, deliberately: Bug 6's
+real fix (Andvari multi-file artifact support — a genuine new feature, not a bug fix), the health
+column's remaining `lifecycleState`-based gap (a riskier heuristic than this pass wanted to guess
+at), and the orphaned-worker-JVM cleanup (a real self-healing design change).
