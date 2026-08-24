@@ -10491,7 +10491,9 @@
       "sourceLocations": [
         "`com.gimle.mimir.raft.StateMutation.Batch`",
         "`com.gimle.mimir.raft.MutationSink#proposeAll`",
-        "`com.gimle.controlplane.reconcile.DeploymentReconciler`"
+        "`com.gimle.controlplane.reconcile.DeploymentReconciler`",
+        "`com.gimle.controlplane.reconcile.StatefulSetReconciler`",
+        "`com.gimle.controlplane.reconcile.DaemonSetReconciler`"
       ]
     }
   ]

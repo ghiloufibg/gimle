@@ -2557,7 +2557,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Coverage**: Not Covered
 - **Gap note**: Internal replication-efficiency mechanism -- not independently observable as a black-box cluster assertion. Every existing Holmgang scenario that deploys or rolls a workload already exercises batched proposals indirectly through DeploymentReconciler, but a scenario could not verify the one-entry-per-burst property the way gimle-mimir's own unit tests do.
 - **Other test coverage (non-Holmgang, informational only)**: `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`
-- **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`
+- **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`, `com.gimle.controlplane.reconcile.StatefulSetReconciler`, `com.gimle.controlplane.reconcile.DaemonSetReconciler`
 
 ### gimle-fabric
 

@@ -11865,12 +11865,14 @@
       "feature": "Group commit via batched mutations (StateMutation.Batch / proposeAll)",
       "category": "State Store",
       "userStory": "As a reconciler emitting a burst of independent mutations in one tick, I want them replicated as a single Raft log entry so the burst pays one consensus round and one WAL fsync instead of one per mutation.",
-      "statusDetail": "Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. DeploymentReconciler batches its burst sites -- the stale-deployment sweep, per-deployment scale-down reclaim, multi-replica placement, rolling-update bookkeeping, and surge settlement/start groups -- with flush points placed before each store read-back so per-tick visibility is unchanged. Other reconcilers' proposals are per-instance failure-path events, deliberately left unbatched.",
+      "statusDetail": "Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. DeploymentReconciler, StatefulSetReconciler, and DaemonSetReconciler batch their burst sites -- stale-workload sweeps, scale-down reclaims/evictions, multi-replica and multi-node placement, rolling-update bookkeeping, surge settlement/starts, and the StatefulSet assignment-plus-sticky-binding pairs -- with flush points placed before each store read-back so per-tick visibility is unchanged. The remaining reconcilers' proposals are per-instance failure-path events, deliberately left unbatched.",
       "confidence": "High",
       "sourceLocations": [
         "`com.gimle.mimir.raft.StateMutation.Batch`",
         "`com.gimle.mimir.raft.MutationSink#proposeAll`",
-        "`com.gimle.controlplane.reconcile.DeploymentReconciler`"
+        "`com.gimle.controlplane.reconcile.DeploymentReconciler`",
+        "`com.gimle.controlplane.reconcile.StatefulSetReconciler`",
+        "`com.gimle.controlplane.reconcile.DaemonSetReconciler`"
       ],
       "testCoverageDetail": "`MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`",
       "gherkinSteps": [

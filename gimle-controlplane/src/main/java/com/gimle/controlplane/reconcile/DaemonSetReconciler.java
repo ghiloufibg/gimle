@@ -139,14 +139,18 @@ public final class DaemonSetReconciler {
       daemonSetNames.add(spec.name());
     }
 
-    // A daemonset no longer in desired state: every one of its assignments is stale.
+    // A daemonset no longer in desired state: every one of its assignments is stale. One batch
+    // for the whole sweep -- nothing below reads these removals back before the per-daemonset
+    // passes run.
+    List<StateMutation> staleRemovals = new ArrayList<>();
     for (DaemonSetAssignment assignment : store.listDaemonSetAssignments()) {
       if (!daemonSetNames.contains(assignment.daemonSetName())) {
-        mutations.propose(
+        staleRemovals.add(
             new StateMutation.RemoveDaemonSetAssignment(
                 assignment.daemonSetName(), assignment.nodeId()));
       }
     }
+    mutations.proposeAll(staleRemovals);
 
     for (DaemonSetSpec spec : store.listDaemonSetSpecs()) {
       try {
@@ -207,6 +211,7 @@ public final class DaemonSetReconciler {
     // eligibility purely because it's dark: see isMerelyDarkWithinGracePeriod and the class
     // javadoc's own "Placement safety" note for why that case waits instead.
     Instant now = clock.instant();
+    List<StateMutation> evictions = new ArrayList<>();
     for (DaemonSetAssignment assignment : store.listDaemonSetAssignmentsFor(spec.name())) {
       if (eligibleNodeIds.contains(assignment.nodeId())) {
         continue;
@@ -214,9 +219,10 @@ public final class DaemonSetReconciler {
       if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
         continue;
       }
-      mutations.propose(
-          new StateMutation.RemoveDaemonSetAssignment(spec.name(), assignment.nodeId()));
+      evictions.add(new StateMutation.RemoveDaemonSetAssignment(spec.name(), assignment.nodeId()));
     }
+    // Flushed before handleRollingUpdate runs -- its own assignment scans must see these.
+    mutations.proposeAll(evictions);
 
     handleRollingUpdate(spec, descriptor, eligibleNodeIds);
 
@@ -226,14 +232,18 @@ public final class DaemonSetReconciler {
       assignedNodeIds.add(assignment.nodeId());
     }
 
+    // One batch for the whole burst: a fresh daemonset landing on N eligible nodes pays one
+    // consensus round and one WAL fsync instead of one per node.
+    List<StateMutation> placements = new ArrayList<>();
     for (String nodeId : eligibleNodeIds) {
       if (assignedNodeIds.contains(nodeId)) {
         continue;
       }
-      mutations.propose(
+      placements.add(
           new StateMutation.PutDaemonSetAssignment(
               new DaemonSetAssignment(spec.name(), nodeId, spec.moduleId(), spec.artifactPath())));
     }
+    mutations.proposeAll(placements);
   }
 
   /**
@@ -251,6 +261,9 @@ public final class DaemonSetReconciler {
       DaemonSetSpec spec, ModuleDescriptor descriptor, Set<String> eligibleNodeIds) {
     int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
     Set<String> inFlight = new HashSet<>(store.getRollingDaemonSetNodes(spec.name()));
+    // Accumulated for one flush at method end: the in-flight set is tracked locally, nothing here
+    // reads its own proposals back, and the caller's re-read runs only after this returns.
+    List<StateMutation> changes = new ArrayList<>();
 
     for (String nodeId : Set.copyOf(inFlight)) {
       Optional<DaemonSetAssignment> current =
@@ -258,18 +271,19 @@ public final class DaemonSetReconciler {
               .filter(a -> a.nodeId().equals(nodeId))
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        mutations.propose(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
+        changes.add(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
         inFlight.remove(nodeId);
       } else if (current.isEmpty() && !eligibleNodeIds.contains(nodeId)) {
         // The scale-down race, node-keyed equivalent of DeploymentReconciler's own: the node fell
         // out of eligibility (cordoned, removed, relabeled) while its old assignment was already
         // removed for migration, so a replacement will now never come.
-        mutations.propose(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
+        changes.add(new StateMutation.RemoveRollingDaemonSetNode(spec.name(), nodeId));
         inFlight.remove(nodeId);
       }
     }
 
     if (inFlight.size() >= maxUnavailable) {
+      mutations.proposeAll(changes);
       return;
     }
 
@@ -280,15 +294,16 @@ public final class DaemonSetReconciler {
         .limit(maxUnavailable - inFlight.size())
         .forEach(
             mismatched -> {
-              mutations.propose(
+              changes.add(
                   new StateMutation.RemoveDaemonSetAssignment(spec.name(), mismatched.nodeId()));
-              mutations.propose(
+              changes.add(
                   new StateMutation.AddRollingDaemonSetNode(spec.name(), mismatched.nodeId()));
               log.info(
                   "daemonset {} node {} is on an old module version; rolling it forward",
                   spec.name(),
                   mismatched.nodeId());
             });
+    mutations.proposeAll(changes);
   }
 
   /**
