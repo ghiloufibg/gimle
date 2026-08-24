@@ -615,6 +615,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Worker Supervision | Complete | Yes |
 | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | Complete | Yes |
 | GIMLE-605 | `limitrange` get/set/delete verbs | CLI | Complete | Yes |
+| GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3383,6 +3384,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409.
   Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted.
+  ```
+
+#### GIMLE-606 — Group commit via batched mutations (StateMutation.Batch / proposeAll)
+
+- **Category**: State Store
+- **User story**: As a reconciler emitting a burst of independent mutations in one tick, I want them replicated as a single Raft log entry so the burst pays one consensus round and one WAL fsync instead of one per mutation.
+- **Status**: Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. DeploymentReconciler batches its burst sites -- the stale-deployment sweep, per-deployment scale-down reclaim, multi-replica placement, rolling-update bookkeeping, and surge settlement/start groups -- with flush points placed before each store read-back so per-tick visibility is unchanged. Other reconcilers' proposals are per-instance failure-path events, deliberately left unbatched.
+- **Confidence**: High
+- **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`
+- **Test coverage**: `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order.
+  Given an empty or nested batch; When constructed; Then it is rejected outright.
   ```
 
 ### gimle-fabric

@@ -620,6 +620,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | New | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
 | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Covered | `limitrange.feature` — "An over-range deployment is rejected at admission"; `limitrange.feature` — "A retroactively tightened LimitRange is flagged but never evicts" |
 | GIMLE-605 | `limitrange` get/set/delete verbs | New | Not Covered | — |
+| GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2548,6 +2549,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: Deploys greeter-provider successfully under a loose LimitRange, then retroactively tightens the same tenant's range below the already-running deployment's request and polls until the deployment reports limitRangeViolating -- while independently asserting the instance stays ACTIVE for 10s, proving LimitRangeReconciler's own reconcile-only-never-evict posture holds against a real cluster, not just in LimitRangeReconcilerTest's simulated store.
 - **Other test coverage (non-Holmgang, informational only)**: `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest`, `ApiServerConsoleContractTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`)
+
+#### GIMLE-606 — Group commit via batched mutations (StateMutation.Batch / proposeAll)
+
+- **Category**: State Store
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: Internal replication-efficiency mechanism -- not independently observable as a black-box cluster assertion. Every existing Holmgang scenario that deploys or rolls a workload already exercises batched proposals indirectly through DeploymentReconciler, but a scenario could not verify the one-entry-per-burst property the way gimle-mimir's own unit tests do.
+- **Other test coverage (non-Holmgang, informational only)**: `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`
+- **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`
 
 ### gimle-fabric
 
@@ -6430,7 +6440,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**484 of 605 requirements are Not Covered.**
+**485 of 606 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6839,6 +6849,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-196 | gimle-fabric | Fabric Transport over Mutual TLS with Hot Cert Reload | Service Fabric | `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls`, `#cross_machine_call_is_rejected_when_client_trusts_a_different_ca` |
 | GIMLE-568 | gimle-agent | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | `BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest` |
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
+| GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-498 | gimle-testkit | Heimdall event-driven cluster condition harness | Test Infrastructure | NONE recorded in the baseline |

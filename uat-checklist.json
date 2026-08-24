@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 605,
+    "totalRequirements": 606,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 484,
+    "notCoveredByAutomatedTest": 485,
     "releaseReadinessPercent": 20.0
   },
   "items": [
@@ -6657,6 +6657,17 @@
       "category": "CLI",
       "feature": "`limitrange` get/set/delete verbs",
       "step": "Given no LimitRange for tenant \"acme\" exists, When \"gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m\", Then PUT /limitranges/acme creates it and \"gimle get limitrange acme\" returns minRequest {memory: \"64Mi\", cpu: \"50m\"}.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-606",
+      "module": "gimle-mimir",
+      "category": "State Store",
+      "feature": "Group commit via batched mutations (StateMutation.Batch / proposeAll)",
+      "step": "Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

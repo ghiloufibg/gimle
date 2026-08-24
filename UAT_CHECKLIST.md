@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 605
+- **Total requirements**: 606
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 484
+- **Not covered by automated test**: 485
 - **Release-readiness (automated coverage)**: 20.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 40 | 6 | 34 | 15.0% |
-| gimle-mimir | 51 | 33 | 18 | 64.7% |
+| gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 69 | 14 | 55 | 20.3% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -653,6 +653,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-162 | Tenant Quota-Violation Flag Tracking | Given a deployment marked quota-violating; When putQuotaViolation is called again with violating=false; Then isQuotaViolating reports false and the file is deleted. | Yes |
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
+| [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
 
 #### Workload Lifecycle
 

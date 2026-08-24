@@ -1,7 +1,7 @@
 {
   "title": "Giml\u00e9 Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Giml\u00e9 codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository \u2014 main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories \u2014 not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor \u2014 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`\u2026`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test \u2014 direct or indirect \u2014 was found for that specific behavior.",
-  "requirementCount": 605,
+  "requirementCount": 606,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11855,6 +11855,27 @@
       "testCoverageDetail": "`GimleCliTest.set_limitrange_then_get_limitranges_round_trips` (real `ApiServer`, not mocked): set with partial bounds, list, single get round-trips both bound pairs, delete, and get-after-delete surfaces the server's own 404 as a non-zero exit with \"not found\" on stderr.",
       "gherkinSteps": [
         "Given no LimitRange for tenant \"acme\" exists, When \"gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m\", Then PUT /limitranges/acme creates it and \"gimle get limitrange acme\" returns minRequest {memory: \"64Mi\", cpu: \"50m\"}."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-606",
+      "module": "gimle-mimir",
+      "feature": "Group commit via batched mutations (StateMutation.Batch / proposeAll)",
+      "category": "State Store",
+      "userStory": "As a reconciler emitting a burst of independent mutations in one tick, I want them replicated as a single Raft log entry so the burst pays one consensus round and one WAL fsync instead of one per mutation.",
+      "statusDetail": "Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. DeploymentReconciler batches its burst sites -- the stale-deployment sweep, per-deployment scale-down reclaim, multi-replica placement, rolling-update bookkeeping, and surge settlement/start groups -- with flush points placed before each store read-back so per-tick visibility is unchanged. Other reconcilers' proposals are per-instance failure-path events, deliberately left unbatched.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`com.gimle.mimir.raft.StateMutation.Batch`",
+        "`com.gimle.mimir.raft.MutationSink#proposeAll`",
+        "`com.gimle.controlplane.reconcile.DeploymentReconciler`"
+      ],
+      "testCoverageDetail": "`MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`",
+      "gherkinSteps": [
+        "Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order.",
+        "Given an empty or nested batch; When constructed; Then it is rejected outright."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

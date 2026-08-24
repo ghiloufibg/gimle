@@ -122,6 +122,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_LIMIT_RANGE = 53;
   private static final byte MUT_REMOVE_LIMIT_RANGE = 54;
   private static final byte MUT_PUT_LIMIT_RANGE_VIOLATION = 55;
+  private static final byte MUT_BATCH = 56;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -417,6 +418,13 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeUTF(m.reason());
       }
+      case StateMutation.Batch m -> {
+        out.writeByte(MUT_BATCH);
+        out.writeInt(m.mutations().size());
+        for (StateMutation nested : m.mutations()) {
+          writeStateMutation(out, nested);
+        }
+      }
       case StateMutation.PutAssignment m -> {
         out.writeByte(MUT_PUT_ASSIGNMENT);
         DomainCodec.writeInstanceAssignment(out, m.assignment());
@@ -644,6 +652,14 @@ public final class RaftCodec {
       case MUT_REMOVE_LIMIT_RANGE -> new StateMutation.RemoveLimitRange(in.readUTF());
       case MUT_PUT_LIMIT_RANGE_VIOLATION ->
           new StateMutation.PutLimitRangeViolation(in.readUTF(), in.readUTF());
+      case MUT_BATCH -> {
+        int count = in.readInt();
+        List<StateMutation> nested = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+          nested.add(readStateMutation(in));
+        }
+        yield new StateMutation.Batch(nested);
+      }
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
       case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());

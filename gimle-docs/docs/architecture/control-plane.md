@@ -119,6 +119,12 @@ write. **A restarted `gimle-mimir` process picks up exactly where it left off** 
 directly (`RaftLogTest`'s reopen tests and `RaftNodeRecoveryTest`'s full restart-with-an-empty-
 state-machine round trips).
 
+Writes group-commit: a burst of independent mutations — a reconciler tick placing several
+replicas, sweeping stale assignments, or settling a surge — rides one Raft log entry as a
+`StateMutation.Batch` (via `MutationSink.proposeAll`), paying one consensus round and one WAL
+fsync for the whole burst instead of one per mutation. A batch applies in order and is never
+nested; a single mutation is still proposed bare.
+
 Multi-node clustering itself is real and tested, not just scaffolded. `gimle-mimir`'s own
 `RaftClusterTest` covers leader election converging to exactly one leader, a write becoming
 visible on every replica, killing the leader triggers re-election and the new leader keeps serving
