@@ -85,7 +85,7 @@ import java.util.List;
  *                     [--out &lt;path&gt;]
  *   gimle seal rotate-key
  *   gimle seal retire-key &lt;keyId&gt;
- *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;]
+ *   gimle artifact push &lt;jar&gt; [--tenant &lt;id&gt;] [--vessel --name &lt;moduleId&gt; --version &lt;version&gt;]
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
  *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
@@ -151,6 +151,10 @@ public final class GimleCli {
       }
     }
 
+    if (positional.contains("-h") || positional.contains("--help")) {
+      out.println(usage());
+      return;
+    }
     if (positional.isEmpty()) {
       throw new CliException(usage());
     }
@@ -512,7 +516,7 @@ public final class GimleCli {
           seal value <plaintext> --public-key <path> --tenant <id> --name <name> --key <key> [--out <path>]
           seal rotate-key
           seal retire-key <keyId>
-          artifact push <jar> [--tenant <id>]
+          artifact push <jar> [--tenant <id>] [--vessel --name <moduleId> --version <version>]
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]
           artifact delete <moduleId> <version>

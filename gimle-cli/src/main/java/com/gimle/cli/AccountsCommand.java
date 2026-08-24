@@ -49,6 +49,7 @@ public final class AccountsCommand {
     client.expectSuccess(client.put("/accounts/" + username, Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", username), "account/" + username + " configured", out);
+    RbacWarnings.warnIfPlaintext(out);
   }
 
   public void delete(String username) {

@@ -22,7 +22,11 @@ import java.util.Set;
  * <p>{@code push} derives the registry coordinate from the jar's own bundled {@code
  * gimle-module.yaml} rather than taking name/version flags -- the coordinate a jar is stored under
  * and the identity it declares for itself can never drift apart, which is what makes a
- * coordinate-only deployment manifest's {@code module: {name, version}} reference trustworthy.
+ * coordinate-only deployment manifest's {@code module: {name, version}} reference trustworthy. A
+ * vessel jar has no {@code gimle-module.yaml} of its own to read a coordinate from, so {@code
+ * --vessel --name <moduleId> --version <version>} pushes it under an explicitly given coordinate
+ * instead, with no attempt to validate the jar's contents (there is no descriptor to validate
+ * against).
  */
 public final class ArtifactCommand {
 
@@ -56,16 +60,24 @@ public final class ArtifactCommand {
       throw new CliException("artifact push requires the path to a module jar");
     }
     Path jar = Path.of(args.get(0));
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of("--vessel"));
     Optional<String> tenantId = Optional.ofNullable(flags.getOrDefault("--tenant", null));
-    ModuleArtifact artifact;
-    try {
-      artifact = ModuleArtifactReader.read(jar);
-    } catch (RuntimeException e) {
-      throw new CliException("not a pushable module artifact: " + e.getMessage(), e);
+
+    String moduleId;
+    String version;
+    if (flags.isSet("--vessel")) {
+      moduleId = flags.get("--name");
+      version = flags.get("--version");
+    } else {
+      ModuleArtifact artifact;
+      try {
+        artifact = ModuleArtifactReader.read(jar);
+      } catch (RuntimeException e) {
+        throw new CliException("not a pushable module artifact: " + e.getMessage(), e);
+      }
+      moduleId = artifact.id().name();
+      version = artifact.id().version().toString();
     }
-    String moduleId = artifact.id().name();
-    String version = artifact.id().version().toString();
 
     Map<String, String> headers =
         tenantId.map(id -> Map.of("X-Gimle-Artifact-Tenant", id)).orElse(Map.of());
@@ -153,6 +165,8 @@ public final class ArtifactCommand {
 
         verbs:
           push <jar> [--tenant <id>]       (coordinate read from the jar's own gimle-module.yaml)
+          push <jar> [--tenant <id>] --vessel --name <moduleId> --version <version>
+                                            (vessel jars have no gimle-module.yaml to read)
           list [moduleId]
           get <moduleId> <version> [--to <path>]
           delete <moduleId> <version>

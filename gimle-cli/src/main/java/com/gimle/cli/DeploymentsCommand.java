@@ -133,7 +133,8 @@ public final class DeploymentsCommand {
         healthOf(
             intValue(status.get("unplacedCount")),
             status.get("quotaViolating"),
-            status.get("limitRangeViolating")));
+            status.get("limitRangeViolating"),
+            status.get("instances")));
     return row;
   }
 
@@ -145,7 +146,7 @@ public final class DeploymentsCommand {
   }
 
   private static String healthOf(
-      int unplacedCount, Object quotaViolating, Object limitRangeViolating) {
+      int unplacedCount, Object quotaViolating, Object limitRangeViolating, Object instances) {
     List<String> issues = new ArrayList<>();
     if (unplacedCount > 0) {
       issues.add("UNPLACED(" + unplacedCount + ")");
@@ -156,7 +157,34 @@ public final class DeploymentsCommand {
     if (Boolean.TRUE.equals(limitRangeViolating)) {
       issues.add("LIMITRANGE");
     }
+    int unhealthyCount = unhealthyInstanceCount(instances);
+    if (unhealthyCount > 0) {
+      issues.add("UNHEALTHY(" + unhealthyCount + ")");
+    }
     return issues.isEmpty() ? "HEALTHY" : String.join(",", issues);
+  }
+
+  /**
+   * Counts placed instances whose own agent-reported observation explicitly says {@code "alive":
+   * false} -- an unambiguous "this instance is down" signal, unlike an unrecognized or transient
+   * {@code lifecycleState} (e.g. still {@code STARTING} right after a deploy), which this
+   * deliberately does not flag to avoid false positives on a freshly-deploying instance.
+   */
+  private static int unhealthyInstanceCount(Object instances) {
+    if (!(instances instanceof List<?> list)) {
+      return 0;
+    }
+    int count = 0;
+    for (Object entry : list) {
+      if (!(entry instanceof Map<?, ?> instance)) {
+        continue;
+      }
+      if (instance.get("observation") instanceof Map<?, ?> observation
+          && Boolean.FALSE.equals(observation.get("alive"))) {
+        count++;
+      }
+    }
+    return count;
   }
 
   private static int intValue(Object value) {

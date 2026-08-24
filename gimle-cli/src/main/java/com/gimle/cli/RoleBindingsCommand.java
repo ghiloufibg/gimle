@@ -48,6 +48,7 @@ public final class RoleBindingsCommand {
     client.expectSuccess(client.put("/rolebindings/" + id, Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", id), "rolebinding/" + id + " configured", out);
+    RbacWarnings.warnIfPlaintext(out);
   }
 
   public void delete(String id) {

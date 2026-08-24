@@ -69,6 +69,20 @@ public final class LimitRangeCommand {
     if (memory == null && cpu == null) {
       return;
     }
+    if (memory == null) {
+      throw new CliException(
+          memoryFlag
+              + " is required alongside "
+              + cpuFlag
+              + " (each limitrange bound is memory+cpu together)");
+    }
+    if (cpu == null) {
+      throw new CliException(
+          cpuFlag
+              + " is required alongside "
+              + memoryFlag
+              + " (each limitrange bound is memory+cpu together)");
+    }
     Map<String, Object> bound = new LinkedHashMap<>();
     bound.put("memory", memory);
     bound.put("cpu", cpu);

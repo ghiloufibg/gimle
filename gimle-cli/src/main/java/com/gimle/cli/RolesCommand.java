@@ -61,6 +61,7 @@ public final class RolesCommand {
     client.expectSuccess(client.put("/roles/" + name, Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", name), "role/" + name + " configured", out);
+    RbacWarnings.warnIfPlaintext(out);
   }
 
   public void delete(String name) {
