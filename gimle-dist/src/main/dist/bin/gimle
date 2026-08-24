@@ -28,6 +28,22 @@ fi
 # plain "java" on PATH, exactly as before this archive ever bundled a JRE of its own.
 if [ -n "${JAVA_HOME:-}" ]; then
   java_bin="$JAVA_HOME/bin/java"
+  if [ ! -x "$java_bin" ]; then
+    echo "gimle: JAVA_HOME is set to '$JAVA_HOME' but $java_bin is not an executable file -- fix or unset JAVA_HOME" >&2
+    exit 1
+  fi
+  # An explicit JAVA_HOME overriding a machine's other, correct JDK is exactly the case most likely
+  # to point at a too-old one -- caught here, up front, rather than surfacing later as a bare "class
+  # file version 69.0, this version of the Java Runtime only recognizes ... up to 65.0" from deep
+  # inside whatever this script launches. Grep for the "... version "N..." line rather than blindly
+  # taking -version's first output line: a JAVA_TOOL_OPTIONS/_JAVA_OPTIONS set in the environment
+  # makes the JVM print a "Picked up ..." diagnostic line ahead of the real one.
+  java_version_line=$("$java_bin" -version 2>&1 | grep 'version "' | head -n 1)
+  java_major=$(printf '%s\n' "$java_version_line" | sed -n 's/.*version "\([0-9]*\).*/\1/p')
+  if [ -z "$java_major" ] || [ "$java_major" -lt 25 ] 2>/dev/null; then
+    echo "gimle: JAVA_HOME is set to '$JAVA_HOME', but $java_bin reports '$java_version_line' -- Gimlé requires JDK 25+; point JAVA_HOME at a JDK 25+ install or unset it" >&2
+    exit 1
+  fi
 elif [ -x "$script_dir/../jre/cli/bin/java" ]; then
   java_bin="$script_dir/../jre/cli/bin/java"
 else

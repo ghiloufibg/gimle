@@ -52,6 +52,30 @@ rem always quotes a real path, with no special-casing needed for a bareword comm
 rem on its own separate PATH-search behavior at invocation time.
 if defined JAVA_HOME (
   set "java_bin=%JAVA_HOME%\bin\java.exe"
+  if not exist "!java_bin!" (
+    echo hilmir: JAVA_HOME is set to "%JAVA_HOME%" but !java_bin! does not exist -- fix or unset JAVA_HOME 1>&2
+    exit /b 1
+  )
+  rem An explicit JAVA_HOME overriding another, correct JDK on the machine is exactly the case most
+  rem likely to point at a too-old one -- caught here, up front, rather than surfacing later as a
+  rem bare "class file version 69.0, this version of the Java Runtime only recognizes ... up to
+  rem 65.0" from deep inside whatever this script launches. Filtered through findstr for a line
+  rem containing "version" rather than blindly taking -version's first output line: a
+  rem JAVA_TOOL_OPTIONS/_JAVA_OPTIONS set in the environment makes the JVM print a "Picked up ..."
+  rem diagnostic line ahead of the real one, e.g. openjdk version "25" 2025-09-16 -- swapping the
+  rem quotes for spaces then turns the quoted version number into its own whitespace-delimited token.
+  set "version_line="
+  for /f "usebackq delims=" %%v in (`"!java_bin!" -version 2^>^&1 ^| findstr /i "version"`) do if not defined version_line set "version_line=%%v"
+  set "version_line=!version_line:"= !"
+  set "java_version="
+  for /f "tokens=3" %%v in ("!version_line!") do set "java_version=%%v"
+  set "java_major="
+  for /f "tokens=1 delims=." %%m in ("!java_version!") do set "java_major=%%m"
+  if not defined java_major set "java_major=0"
+  if !java_major! lss 25 (
+    echo hilmir: JAVA_HOME is set to "%JAVA_HOME%", but !java_bin! reports "!version_line!" -- Gimle requires JDK 25+; point JAVA_HOME at a JDK 25+ install or unset it 1>&2
+    exit /b 1
+  )
 ) else if exist "%script_dir%..\jre\hilmir\bin\java.exe" (
   set "java_bin=%script_dir%..\jre\hilmir\bin\java.exe"
 ) else (
