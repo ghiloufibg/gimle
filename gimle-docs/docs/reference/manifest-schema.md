@@ -91,6 +91,15 @@ that jar; a vessel is any runnable jar. `module`/`artifactPath` are read exactly
 module-hosted spec — a vessel's jar coordinate is identified and resolved (local path, or blank to
 pull from Andvari) the same way, nothing new needed there.
 
+Andvari's own artifact store is one whole file per coordinate, so the blank-`artifactPath`/pull-from-
+registry path only ever fetches a single jar — correct for a genuinely self-contained launcher (a
+Spring Boot fat jar, for example) but not for a multi-file launcher layout like Quarkus's default
+fast-jar output (`quarkus-run.jar` plus sibling `lib/`/`app/`/`quarkus/` directories its own manifest
+`Class-Path` depends on): those siblings are never pushed or pulled, so a coordinate-only vessel
+deployment of one crash-loops indefinitely even though the identical jar runs correctly with a local
+`artifactPath` pointing at the original build output with its siblings intact. Use a local
+`artifactPath` for a multi-file launcher until Andvari supports a multi-entry artifact.
+
 A vessel is always dedicated-process hosting, the same isolation guarantee `isolation.tier: TIER_2`
 gives a module — there is no `isolation:` field on a vessel block, since there is no weaker option to
 choose between and no `gimle-module.yaml` to read one from anyway.
