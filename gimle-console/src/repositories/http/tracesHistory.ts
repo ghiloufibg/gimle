@@ -1,6 +1,6 @@
 import type { HistoryEnvelope, ProcessTarget, TraceSpanLine } from "@/types";
 import type { TracesHistoryRepository, TracesPageArgs, TracesSinceArgs } from "../tracesHistory";
-import { ApiError } from "./apiClient";
+import { fetchHistoryEnvelope } from "./historyAvailability";
 
 function pathFor(target: ProcessTarget): string {
   return `/traces-history/${encodeURIComponent(target.processKind)}/${encodeURIComponent(target.processId)}`;
@@ -8,7 +8,9 @@ function pathFor(target: ProcessTarget): string {
 
 /**
  * Structurally identical to HttpMetricsHistoryRepository: same envelope,
- * same since XOR cursor+limit rule, same "no live stream, poll instead" posture.
+ * same since XOR cursor+limit rule, same "no live stream, poll instead" posture, and the same
+ * fetchHistoryEnvelope() routing so a 404 discovered on either screen is remembered session-wide
+ * -- see historyAvailability.ts.
  */
 export class HttpTracesHistoryRepository implements TracesHistoryRepository {
   async fetchPage({
@@ -18,16 +20,12 @@ export class HttpTracesHistoryRepository implements TracesHistoryRepository {
   }: TracesPageArgs): Promise<HistoryEnvelope<TraceSpanLine>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cursor !== null) params.set("cursor", cursor);
-    const res = await fetch(`${pathFor(target)}?${params.toString()}`);
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return (await res.json()) as HistoryEnvelope<TraceSpanLine>;
+    return fetchHistoryEnvelope(`${pathFor(target)}?${params.toString()}`);
   }
 
   async fetchSince({ target, since }: TracesSinceArgs): Promise<HistoryEnvelope<TraceSpanLine>> {
     const params = new URLSearchParams({ since });
-    const res = await fetch(`${pathFor(target)}?${params.toString()}`);
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return (await res.json()) as HistoryEnvelope<TraceSpanLine>;
+    return fetchHistoryEnvelope(`${pathFor(target)}?${params.toString()}`);
   }
 
   openPoll(

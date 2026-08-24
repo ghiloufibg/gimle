@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpTracesHistoryRepository } from "./tracesHistory";
 import { ApiError } from "./apiClient";
+import { resetHistoryBackendAvailability } from "./historyAvailability";
 import { jsonResponse, stubFetchSequence, textResponse } from "./testUtil";
 import type { ProcessTarget } from "@/types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // See the matching comment in metricsHistory.test.ts -- historyAvailability.ts's 404 memory is
+  // module-level and shared with HttpMetricsHistoryRepository by design, so it must be reset
+  // between tests here too.
+  resetHistoryBackendAvailability();
 });
 
 const TARGET: ProcessTarget = { processKind: "STORE", processId: "store-1" };
@@ -61,6 +66,24 @@ describe("HttpTracesHistoryRepository.fetchSince", () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("/traces-history/STORE/store-1?since=2026-08-01T00%3A00%3A00Z");
+  });
+});
+
+describe("HttpTracesHistoryRepository session-wide 404 memory", () => {
+  it("does not re-fetch once a 404 has been seen, and reuses that error for a later call", async () => {
+    const fetchMock = stubFetchSequence([() => textResponse("no muninn endpoint configured", 404)]);
+    const repo = new HttpTracesHistoryRepository();
+
+    await expect(repo.fetchPage({ target: TARGET, cursor: null, limit: 60 })).rejects.toMatchObject(
+      new ApiError(404, "no muninn endpoint configured"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      repo.fetchSince({ target: TARGET, since: "2026-08-01T00:00:00Z" }),
+    ).rejects.toMatchObject(new ApiError(404, "no muninn endpoint configured"));
+    // Still 1 -- the second call never hit the network.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

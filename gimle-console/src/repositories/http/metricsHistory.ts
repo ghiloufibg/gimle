@@ -4,14 +4,16 @@ import type {
   HistorySinceArgs,
   MetricsHistoryRepository,
 } from "../metricsHistory";
-import { ApiError } from "./apiClient";
+import { fetchHistoryEnvelope } from "./historyAvailability";
 
 function pathFor(target: ProcessTarget): string {
   return `/metrics-history/${encodeURIComponent(target.processKind)}/${encodeURIComponent(target.processId)}`;
 }
 
 /**
- * fetchPage()/fetchSince() are plain GETs against /metrics-history/*.
+ * fetchPage()/fetchSince() are plain GETs against /metrics-history/*, routed through
+ * fetchHistoryEnvelope() so a 404 (Muninn not configured on this cluster) is remembered
+ * session-wide instead of re-fetched by every screen visit -- see historyAvailability.ts.
  * openPoll() polls fetchSince on an interval rather than a live stream: the backend explicitly
  * rejects follow=true (Muninn only ever serves shipped history), the same reasoning
  * HttpLogsRepository.openFollow documents for /logs/*, which this class otherwise mirrors closely.
@@ -24,9 +26,7 @@ export class HttpMetricsHistoryRepository implements MetricsHistoryRepository {
   }: HistoryPageArgs): Promise<HistoryEnvelope<MetricsHistoryLine>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cursor !== null) params.set("cursor", cursor);
-    const res = await fetch(`${pathFor(target)}?${params.toString()}`);
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return (await res.json()) as HistoryEnvelope<MetricsHistoryLine>;
+    return fetchHistoryEnvelope(`${pathFor(target)}?${params.toString()}`);
   }
 
   async fetchSince({
@@ -34,9 +34,7 @@ export class HttpMetricsHistoryRepository implements MetricsHistoryRepository {
     since,
   }: HistorySinceArgs): Promise<HistoryEnvelope<MetricsHistoryLine>> {
     const params = new URLSearchParams({ since });
-    const res = await fetch(`${pathFor(target)}?${params.toString()}`);
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return (await res.json()) as HistoryEnvelope<MetricsHistoryLine>;
+    return fetchHistoryEnvelope(`${pathFor(target)}?${params.toString()}`);
   }
 
   openPoll(
