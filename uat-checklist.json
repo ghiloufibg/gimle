@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 606,
+    "totalRequirements": 607,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 485,
-    "releaseReadinessPercent": 20.0
+    "notCoveredByAutomatedTest": 486,
+    "releaseReadinessPercent": 19.9
   },
   "items": [
     {
@@ -6668,6 +6668,17 @@
       "category": "State Store",
       "feature": "Group commit via batched mutations (StateMutation.Batch / proposeAll)",
       "step": "Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-607",
+      "module": "gimle-controlplane",
+      "category": "Admission Control",
+      "feature": "Admission-time rejection of a manifest/artifact module-identity mismatch",
+      "step": "Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity. Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected. Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction. Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

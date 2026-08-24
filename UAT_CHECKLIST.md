@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 606
+- **Total requirements**: 607
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 485
-- **Release-readiness (automated coverage)**: 20.0%
+- **Not covered by automated test**: 486
+- **Release-readiness (automated coverage)**: 19.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 40 | 6 | 34 | 15.0% |
 | gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 69 | 14 | 55 | 20.3% |
+| gimle-controlplane | 70 | 14 | 56 | 20.0% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -779,6 +779,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-246 | Tenant resource quota admission check | Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409. | Yes |
+
+#### Admission Control
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity. Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected. Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction. Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check. | No |
 
 #### Artifact Registry / Internal-Infra
 

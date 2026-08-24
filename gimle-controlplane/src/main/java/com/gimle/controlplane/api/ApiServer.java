@@ -942,6 +942,10 @@ public final class ApiServer implements AutoCloseable {
       Optional<String> deployingTenantId) {
     if (ArtifactReference.isLocalPath(artifactPath)) {
       Optional<ModuleArtifact> artifact = readArtifactIfPossible(artifactPath, moduleId, vessel);
+      Optional<String> mismatch = moduleVersionMismatchRejection(moduleId, artifact);
+      if (mismatch.isPresent()) {
+        return AdmissionArtifact.rejection(mismatch.get());
+      }
       return new AdmissionArtifact(
           Optional.empty(), artifact, artifact.map(ModuleArtifact::sha256));
     }
@@ -987,12 +991,46 @@ public final class ApiServer implements AutoCloseable {
                   + deployingTenantId.get()
                   + "'");
         }
-        yield new AdmissionArtifact(
-            Optional.empty(),
-            artifactResolver.resolveIfPossible(artifactPath, moduleId, vessel),
-            Optional.of(found.sha256()));
+        Optional<ModuleArtifact> resolved =
+            artifactResolver.resolveIfPossible(artifactPath, moduleId, vessel);
+        Optional<String> mismatch = moduleVersionMismatchRejection(moduleId, resolved);
+        if (mismatch.isPresent()) {
+          yield AdmissionArtifact.rejection(mismatch.get());
+        }
+        yield new AdmissionArtifact(Optional.empty(), resolved, Optional.of(found.sha256()));
       }
     };
+  }
+
+  /**
+   * Rejects outright once the artifact is actually readable and its own identity disagrees with
+   * what the manifest declares -- most commonly a manifest's {@code module.version} bumped without
+   * rebuilding the jar, so the artifact still bundles the old one. A vessel-hosted spec can never
+   * trigger this: {@link VesselArtifacts#syntheticDescriptor} builds its descriptor directly from
+   * the declared {@code moduleId}, so {@code artifact.id()} is that same value by construction, not
+   * read back from anything a jar could disagree with. Unreadable stays {@code Optional.empty()}
+   * (no verdict either way) so the existing tolerant "admit with no recorded digest, the reconciler
+   * catches it every tick" posture for a transiently-unreadable artifact is untouched -- this only
+   * fires once the artifact resolved cleanly and is definitively wrong, the same "fail loudly at
+   * submit time, don't sit unplaceable forever" reasoning the registry's own {@code NotFound}
+   * rejection above already applies. Without this, the mismatch used to surface only once a worker
+   * actually tried to install the module and nacked it -- correctly landing the instance in {@code
+   * FAILED}, but only after a real placement attempt, not at submission.
+   */
+  private static Optional<String> moduleVersionMismatchRejection(
+      ModuleId declared, Optional<ModuleArtifact> resolved) {
+    return resolved
+        .filter(artifact -> !artifact.id().equals(declared))
+        .map(
+            artifact ->
+                "manifest declares module "
+                    + declared.name()
+                    + ":"
+                    + declared.version()
+                    + ", but the resolved artifact actually bundles "
+                    + artifact.id().name()
+                    + ":"
+                    + artifact.id().version());
   }
 
   /**

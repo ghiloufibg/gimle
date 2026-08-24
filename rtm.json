@@ -10499,6 +10499,25 @@
         "`com.gimle.controlplane.reconcile.HealthReconciler`",
         "`com.gimle.controlplane.reconcile.ReplicaCountReconciler`"
       ]
+    },
+    {
+      "id": "GIMLE-607",
+      "module": "gimle-controlplane",
+      "feature": "Admission-time rejection of a manifest/artifact module-identity mismatch",
+      "category": "Admission Control",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario submits a manifest whose declared module identity deliberately disagrees with its artifact's own embedded gimle-module.yaml and asserts the 400 rejection; existing gimle-controlplane unit/integration tests (ApiServerTest, ApiServerAuthzTest) cover the admission-server-level behavior but do not count toward Holmgang coverage.",
+      "otherTestCoverage": "`ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name.",
+      "sourceLocations": [
+        "`com.gimle.controlplane.api.ApiServer#admissionArtifact`",
+        "`com.gimle.controlplane.api.ApiServer#moduleVersionMismatchRejection`",
+        "`com.gimle.module.artifact.ModuleArtifactReader#read`",
+        "`com.gimle.controlplane.andvari.ArtifactResolver#resolve`",
+        "`com.gimle.core.vessel.VesselArtifacts#syntheticDescriptor`"
+      ]
     }
   ]
 }

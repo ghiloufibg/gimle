@@ -616,6 +616,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | Complete | Yes |
 | GIMLE-605 | `limitrange` get/set/delete verbs | CLI | Complete | Yes |
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | Complete | Yes |
+| GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4721,6 +4722,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an operator's mTLS identity holds a `SECRET`/`WRITE` grant, When they call `POST /seal/rotate-key` through the control plane, Then the request is proxied through to Fafnir and a new active sealing key id is returned; a caller with no such grant instead receives 403.
+  ```
+
+#### GIMLE-607 — Admission-time rejection of a manifest/artifact module-identity mismatch
+
+- **Category**: Admission Control
+- **User story**: As an operator submitting a Deployment/Job/StatefulSet/DaemonSet manifest, I want submission rejected immediately when the resolved artifact's own embedded module identity disagrees with the manifest's declared module.name/module.version, instead of the mismatch surfacing later only when a worker actually tries to install it and nacks.
+- **Status**: Complete. ApiServer#admissionArtifact is the single shared artifact-resolution choke point for Deployment, Job, StatefulSet, and DaemonSet (plus their rollback handlers) -- both its local-path and Andvari-registry-coordinate branches now run the resolved ModuleArtifact through a new moduleVersionMismatchRejection check before admitting. ModuleArtifactReader#read (and, for a registry coordinate, ArtifactResolver#resolve) always derives a jar's identity from its own bundled gimle-module.yaml, ignoring whatever the manifest declared; a manifest bumped without rebuilding the jar -- or a jar ever pushed to Andvari under a coordinate its embedded descriptor disagrees with, since Andvari itself does no gimle-module.yaml parsing -- previously sailed through admission and only failed once a worker's install attempt nacked it, landing the instance in FAILED after a real placement attempt. A vessel-hosted spec can never trigger the check: VesselArtifacts#syntheticDescriptor builds its descriptor directly from the declared moduleId, so its artifact identity is that same value by construction. An artifact that fails to resolve at all is untouched -- admitted with no recorded digest, the existing reconciler-catches-it-every-tick posture for a transiently unreadable artifact. CronJob's own handlePutCronJob does not call admissionArtifact at all and has no admission-time artifact validation of any kind, a separate, wider, deliberately out-of-scope gap this change does not touch.
+- **Confidence**: High
+- **Source location(s)**: `com.gimle.controlplane.api.ApiServer#admissionArtifact`, `com.gimle.controlplane.api.ApiServer#moduleVersionMismatchRejection`, `com.gimle.module.artifact.ModuleArtifactReader#read`, `com.gimle.controlplane.andvari.ArtifactResolver#resolve`, `com.gimle.core.vessel.VesselArtifacts#syntheticDescriptor`
+- **Test coverage**: `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest, and `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name (previously reusing the deployment's own resource name, a latent test bug the new check exposed), keeping every existing admission test passing under the new mismatch check rather than weakening it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity.
+  Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected.
+  Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction.
+  Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check.
   ```
 
 ### gimle-fafnir

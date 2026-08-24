@@ -621,6 +621,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Covered | `limitrange.feature` — "An over-range deployment is rejected at admission"; `limitrange.feature` — "A retroactively tightened LimitRange is flagged but never evicts" |
 | GIMLE-605 | `limitrange` get/set/delete verbs | New | Not Covered | — |
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | New | Not Covered | — |
+| GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3505,6 +3506,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Playwright/Cucumber scenario exercises the control plane's `/seal/*` proxy routes against a real running cluster -- see GIMLE-588's identical gapNote.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerSealTest` (plaintext proxy round-trip) and `ApiServerSealAuthzTest` (real mTLS/RBAC, including the deliberate no-auth public-key route) cover this in full.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleSealPublicKeyProxy`, `handleSealRotateKeyProxy`, `handleSealRetireKeyProxy`, `handleRetireSecretsKeyProxy`, `forwardGlobalAdminRoute`)
+
+#### GIMLE-607 — Admission-time rejection of a manifest/artifact module-identity mismatch
+
+- **Category**: Admission Control
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario submits a manifest whose declared module identity deliberately disagrees with its artifact's own embedded gimle-module.yaml and asserts the 400 rejection; existing gimle-controlplane unit/integration tests (ApiServerTest, ApiServerAuthzTest) cover the admission-server-level behavior but do not count toward Holmgang coverage.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name.
+- **Source location(s)**: `com.gimle.controlplane.api.ApiServer#admissionArtifact`, `com.gimle.controlplane.api.ApiServer#moduleVersionMismatchRejection`, `com.gimle.module.artifact.ModuleArtifactReader#read`, `com.gimle.controlplane.andvari.ArtifactResolver#resolve`, `com.gimle.core.vessel.VesselArtifacts#syntheticDescriptor`
 
 ### gimle-fafnir
 
@@ -6440,7 +6450,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**485 of 606 requirements are Not Covered.**
+**486 of 607 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6452,6 +6462,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-275 | gimle-controlplane | Per-deployment and per-instance metrics rollup | API Server / Observability | Covered within `ApiServerConsoleContractTest`/`ApiServerTest` |
 | GIMLE-247 | gimle-controlplane | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Admission / Config | `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` |
 | GIMLE-245 | gimle-controlplane | Admission chain extension point | Admission / Internal-Infra | `AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated` |
+| GIMLE-607 | gimle-controlplane | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name. |
 | GIMLE-297 | gimle-andvari | Immutable, content-addressed artifact store | Artifact Registry | `ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent` |
 | GIMLE-299 | gimle-andvari | Size-limited streaming upload rejection | Artifact Registry | Implicit in `ArtifactStoreTest`'s put-path coverage |
 | GIMLE-302 | gimle-andvari | Version retention sweeping (count and age based) | Artifact Registry | `ArtifactRetentionSweeperTest` — `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing` |

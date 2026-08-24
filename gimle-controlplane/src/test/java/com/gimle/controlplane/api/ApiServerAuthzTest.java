@@ -703,11 +703,35 @@ class ApiServerAuthzTest {
 
       Path jar = buildFixtureJar("com.gimle.fixture.authz.acme");
       assertEquals(
-          200, putDeployment(client, baseUrl, cookie, "acme-dep", jar, Optional.of("acme")));
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "acme-dep",
+              "com.gimle.fixture.authz.acme",
+              jar,
+              Optional.of("acme")));
       assertEquals(
-          403, putDeployment(client, baseUrl, cookie, "other-dep", jar, Optional.of("other")));
+          403,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "other-dep",
+              "com.gimle.fixture.authz.acme",
+              jar,
+              Optional.of("other")));
       assertEquals(
-          403, putDeployment(client, baseUrl, cookie, "untenanted-dep", jar, Optional.empty()));
+          403,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "untenanted-dep",
+              "com.gimle.fixture.authz.acme",
+              jar,
+              Optional.empty()));
     }
   }
 
@@ -800,7 +824,16 @@ class ApiServerAuthzTest {
       Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaim");
       // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- resubmitting "shared" under
       // acme must not succeed just because the *new* tenant is one it's authorized for.
-      assertEquals(403, putDeployment(client, baseUrl, cookie, "shared", jar, Optional.of("acme")));
+      assertEquals(
+          403,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "shared",
+              "com.gimle.fixture.authz.reclaim",
+              jar,
+              Optional.of("acme")));
       assertEquals(
           Optional.of("beta"), store.getDeployment("shared").flatMap(DeploymentSpec::tenantId));
     }
@@ -892,7 +925,15 @@ class ApiServerAuthzTest {
       Path jar = buildFixtureJar("com.gimle.fixture.authz.reserved");
 
       assertEquals(
-          403, putDeployment(client, baseUrl, cookie, "sys-dep", jar, Optional.of("gimle-system")));
+          403,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "sys-dep",
+              "com.gimle.fixture.authz.reserved",
+              jar,
+              Optional.of("gimle-system")));
       assertEquals(403, putJob(client, baseUrl, cookie, "sys-job", Optional.of("gimle-system")));
       assertEquals(
           403, putDaemonSet(client, baseUrl, cookie, "sys-ds", Optional.of("gimle-system")));
@@ -928,7 +969,13 @@ class ApiServerAuthzTest {
           "an operator can still rewrite the reserved tenant's own quota");
       assertEquals(
           200,
-          operatorPutDeployment(operatorClient, baseUrl, "sys-dep", jar, "gimle-system"),
+          operatorPutDeployment(
+              operatorClient,
+              baseUrl,
+              "sys-dep",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
           "deployment");
       assertEquals(200, operatorPutJob(operatorClient, baseUrl, "sys-job", "gimle-system"), "job");
       assertEquals(
@@ -1170,7 +1217,12 @@ class ApiServerAuthzTest {
   }
 
   private static int operatorPutDeployment(
-      HttpClient operatorClient, String baseUrl, String name, Path jar, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
     String yaml =
         """
@@ -1183,7 +1235,7 @@ class ApiServerAuthzTest {
         replicas: 1
         tenantId: %s
         """
-            .formatted(name, name, jar.toAbsolutePath(), tenantId);
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
             .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
@@ -1217,6 +1269,7 @@ class ApiServerAuthzTest {
       String baseUrl,
       String cookie,
       String name,
+      String moduleName,
       Path jar,
       Optional<String> tenantId)
       throws IOException, InterruptedException {
@@ -1231,7 +1284,7 @@ class ApiServerAuthzTest {
         artifactPath: %s
         replicas: 1
         %s"""
-            .formatted(name, name, jar.toAbsolutePath(), tenantLine);
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantLine);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name))
             .header("Cookie", cookie)
