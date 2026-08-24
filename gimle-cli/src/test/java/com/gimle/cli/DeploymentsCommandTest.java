@@ -7,6 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.reconcile.LimitRangeReconciler;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceObservation;
+import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
@@ -14,6 +19,7 @@ import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.ByteArrayOutputStream;
@@ -164,5 +170,49 @@ class DeploymentsCommandTest {
     assertEquals(0, run("get", "deployments", "--server", serverAddress));
     String out = outBuffer.toString(StandardCharsets.UTF_8);
     assertTrue(out.contains("LIMITRANGE"), out);
+  }
+
+  /**
+   * Regression coverage for the health column's other blind spot: an instance whose agent-reported
+   * {@code lifecycleState} is {@code FAILED} but whose {@code alive} flag still reads {@code true}
+   * (the same shape {@link com.gimle.controlplane.reconcile.HealthReconciler#isHealthy} already
+   * treats as unhealthy) rendered as {@code HEALTHY} here before {@code unhealthyInstanceCount}
+   * also checked {@code lifecycleState}.
+   */
+  @Test
+  void the_health_column_reports_unhealthy_for_a_failed_but_still_alive_instance()
+      throws Exception {
+    Path jar = buildFixtureJar(tempDir.resolve("jars2"));
+    Path manifest = tempDir.resolve("deployment2.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Deployment
+        name: billing
+        module:
+          name: com.gimle.fixture.limitrange
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        """
+            .formatted(jar.toAbsolutePath()));
+
+    assertEquals(
+        0, run("apply", "-f", manifest.toString(), "--server", serverAddress), errBuffer::toString);
+
+    store.putAssignment(new InstanceAssignment("billing", 0, "node-a"));
+    ModuleId moduleId = new ModuleId("com.gimle.fixture.limitrange", Version.parse("1.0.0"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1000L, 0, 1000, 0),
+            List.of(
+                new InstanceObservation(
+                    "billing", 0, moduleId, "FAILED", true, false, 0.0, 0, 0L, 0L, 0.0))));
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "deployments", "--server", serverAddress));
+    String out = outBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(out.contains("UNHEALTHY(1)"), out);
   }
 }

@@ -165,10 +165,12 @@ public final class DeploymentsCommand {
   }
 
   /**
-   * Counts placed instances whose own agent-reported observation explicitly says {@code "alive":
-   * false} -- an unambiguous "this instance is down" signal, unlike an unrecognized or transient
-   * {@code lifecycleState} (e.g. still {@code STARTING} right after a deploy), which this
-   * deliberately does not flag to avoid false positives on a freshly-deploying instance.
+   * Counts placed instances whose own agent-reported observation is unhealthy: either explicitly
+   * {@code "alive": false}, or {@code lifecycleState == "FAILED"} -- the same definition {@code
+   * HealthReconciler#isHealthy} already uses server-side. An unrecognized or transient {@code
+   * lifecycleState} (e.g. still {@code STARTING} right after a deploy) is deliberately not flagged,
+   * to avoid false positives on a freshly-deploying instance; {@code FAILED} is not transient, so
+   * it's flagged even when {@code alive} still reads {@code true}.
    */
   private static int unhealthyInstanceCount(Object instances) {
     if (!(instances instanceof List<?> list)) {
@@ -180,7 +182,8 @@ public final class DeploymentsCommand {
         continue;
       }
       if (instance.get("observation") instanceof Map<?, ?> observation
-          && Boolean.FALSE.equals(observation.get("alive"))) {
+          && (Boolean.FALSE.equals(observation.get("alive"))
+              || "FAILED".equals(observation.get("lifecycleState")))) {
         count++;
       }
     }
