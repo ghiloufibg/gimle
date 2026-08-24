@@ -1069,3 +1069,157 @@ browser-driven pass was performed. Quarkus was not built or deployed (network/ti
 `lib/`/`app/`/`quarkus/` directories) would almost certainly hit the identical `NOT_LAYER_HOSTABLE`
 module-mode rejection and the identical vessel-mode recommendation Spring Boot's own launcher
 archive did — noted as a reasoned inference, not a result, since it wasn't actually run.
+
+## 2026-08-24 — end-user QA round 2: five parallel real-cluster sessions via Workflow, deduplicated
+
+A different shape from every prior session on this file: the round above ran solo; this one ran
+five independent end-user QA sessions concurrently via the `Workflow` tool, each against its own
+isolated `hilmir`-launched cluster (distinct ports, distinct working directory, same already-built
+`gimle-dist` binaries with the vessel-hosting fix baked in), then a sixth agent deduplicated all six
+sessions' write-ups (the round above plus these five) into one findings set. No source changes were
+made by the five round agents themselves — by design, to avoid five agents concurrently editing the
+same files — but the three real bugs below were confirmed by hand afterward and are recorded here
+un-fixed, the same way round 1 recorded its own un-fixed bugs. Full narrative detail and repro
+transcripts for all 29 deduplicated findings (plus four annotated console screenshots) went to a
+published report artifact for this session; what follows is the durable written record.
+
+### Bug 4 (HIGH, confirmed, not fixed): the rolling-update reconciler ignores `artifactPath`/`artifactSha256` — a same-version artifact swap is silently never rolled out
+
+`DeploymentReconciler`'s rolling-migration logic decides which running instances need replacing
+using only `!assignment.moduleId().equals(spec.moduleId())` — it never compares `artifactPath` or
+`artifactSha256`. Admission's own `deploymentContentChanged` (which decides whether to mint a new
+`ControllerRevision`) does treat a changed `artifactPath`/`artifactSha256` as a real content change.
+So re-applying a `Deployment` with the same `moduleId`+version but a different `artifactPath` — a
+realistic dev-iteration workflow, patching a jar without bumping semver — is admitted, a new
+revision is minted, and `gimle get deployments`/`deployment revisions` both show the new path as
+current, but the running instances keep executing the old jar bytes indefinitely. Nothing in the
+CLI reveals the mismatch short of manually diffing `artifactPath` between `get deployments` and
+`get node-assignments`. Fix: widen the rolling-migration comparison to match `deploymentContentChanged`'s
+own definition of "changed" (`moduleId` OR `artifactPath` OR `artifactSha256`), or stop minting a
+new revision for an artifact-only change so the CLI never implies a rollout happened when none did.
+
+### Bug 5 (HIGH, confirmed, not fixed): a stuck rolling-migration index permanently exhausts `maxUnavailable` and wedges the deployment forever, immune even to rollback
+
+When a rolling migration's replacement instance genuinely fails to install (reproduced with a real
+module-version mismatch between the manifest's declared version and the artifact's own bundled
+`gimle-module.yaml` — never validated at admission, only discovered at worker install time via
+NACK) and `HealthReconciler` exhausts its restart budget and gives up, the persisted rolling-migration
+bookkeeping for that index (`store/rolling/<deployment>/<index>.yaml`) is never cleared — no
+`RemoveRollingIndex` is proposed for a "gave up" outcome, only for the normal success/shrink paths.
+`handleRollingUpdate`'s very first check is `if (inFlight.size() >= maxUnavailable) return;`, so the
+one stuck index permanently consumes the whole budget (default `maxUnavailable: 1`) and every future
+reconcile tick for that deployment exits immediately — including `deployment rollback --to-revision
+N` to a known-good earlier revision, which is recorded as a new revision but never actually acted
+on; the stuck instance sits untouched. Directly compounded by Bug 2 (see round 1 above): the
+deployment reports fully `HEALTHY` throughout, and the give-up event itself is never durably
+recorded (`gimle events` shows the earlier RESOLVED/STARTING/ACTIVE transitions, never the give-up).
+Fix: clear the rolling/surge in-flight bookkeeping for an index when `HealthReconciler` gives up on
+it, so `DeploymentReconciler` reconsiders it on the next tick the same way every other reconciler
+here is required to converge from an arbitrary starting state; separately, surface a stuck/given-up
+instance in deployment health status.
+
+### Bug 6 (HIGH, confirmed, not fixed): a coordinate-only (Andvari-pulled) vessel deployment of a real Quarkus fast-jar crash-loops forever — Andvari's one-file-per-coordinate model has no way to carry a multi-file artifact
+
+A vessel deployment's `artifactPath`, left blank, resolves through Andvari exactly the way a
+module deployment's does: `ArtifactPullCache` downloads and caches exactly one file per coordinate.
+Correct and sufficient for a module-hosted jar or a genuinely self-contained fat jar (confirmed
+working for Spring Boot in round 1). But a real, freshly-built Quarkus 3.15.1 app's default `mvn
+package` output is a fast-jar: `quarkus-run.jar` is a tiny (693-byte) bootstrap stub whose own
+manifest `Class-Path` references sibling `../lib/main/*.jar`, `../lib/boot/*.jar`, `../app/*.jar`,
+and `../quarkus/*.jar` entries that must sit next to it on disk. Andvari's registry has no notion of
+a multi-file artifact, so none of those siblings are ever pushed or pulled — the instance is placed
+and repeatedly respawned (`Could not find or load main class
+io.quarkus.bootstrap.runner.QuarkusEntryPoint`) but can never actually start. The identical app
+deploys and runs correctly via a local `artifactPath` pointing straight at the original build output
+with siblings intact — this is specifically a coordinate-only/registry-pull gap, not a Quarkus/vessel
+incompatibility in general. Compounding discovery: `gimle artifact push` itself refuses to push a
+non-modular jar at all (`module artifact is not a real JPMS module (no module-info.class);
+automatic modules are rejected`) — true for essentially every real-world Spring Boot/Quarkus/plain
+launcher jar — so the only way to even get the jar into the registry for this repro was a raw HTTP
+`PUT` against the control plane's `/artifacts/*` proxy, bypassing the CLI entirely; tracked as its
+own MEDIUM finding below. Fix: either document plainly that coordinate-only vessel deployment only
+supports single-jar-shaped artifacts, or extend Andvari's artifact model to support a multi-entry
+artifact (e.g. push/pull the whole `quarkus-app/` directory as one tar/zip unit, unpacked atomically
+on resolve).
+
+### Round 1 findings re-confirmed, with new detail
+
+- **Bug 2** (`gimle get deployments`'s health column ignores actual instance state) was
+  independently hit by two of the five new sessions through unrelated mechanisms — the Quarkus
+  coordinate-pull crash loop above, and (more consequentially) Bug 5's stuck rolling migration,
+  which stays `HEALTHY` forever with no CLI/API surface, not even `gimle events`, ever revealing the
+  wedge. Confirms this is a systemic blind spot, not tied to vessels or to round 1's own trigger.
+- **Bug 3** (`gimle logs` can't resolve a StatefulSet/DaemonSet/Job instance's placement) was
+  independently reproduced for a real CronJob-triggered `Job` run this time, confirming the gap
+  spans all three non-Deployment workload kinds it was already suspected to.
+- The relative-`artifactPath` and stale-`JAVA_HOME` friction items, and the split stdout/platform
+  log locations, were not independently re-hit (every new session used absolute paths and the
+  correct `JAVA_HOME` from the start, per its own briefing) — they stand as previously reported, not
+  newly confirmed.
+- `orders-platform` continued to verify cleanly under two more sessions, now including its CronJob
+  path (manually triggered, real fabric-call numbers in the report) and its secret-gated web UI
+  redeployed under a fresh tenant.
+
+### New MEDIUM findings
+
+- **Plaintext-mode RBAC is fully creatable but silently inert.** `gimle set role`/`set account`/`set
+  rolebinding` all succeed and are durably stored in plaintext transport (the default), but have no
+  authorization effect: `ApiServer.requireAuthorized` opens with `if (!(exchange instanceof
+  HttpsExchange)) return true;`, short-circuiting before any principal or role is ever consulted.
+  This matches documented design (`authn-authz.md`: plaintext is "fully open, no identity, no
+  enforcement"), so it is not a bug — but nothing in the CLI, a log line, or help text tells an
+  operator who just configured a restrictive role in a plaintext cluster that it is decorative.
+  Suggested: have the RBAC `set` commands (or `hilmir up` itself) print a one-line warning when the
+  target control plane is running in plaintext mode.
+- **The audit log is completely empty in plaintext mode.** `gimle audit list`/`GET /audit` returned
+  zero entries after a full session of real mutations (tenant create/delete, secret set/delete/
+  `--destroy`, config/configmap set, RBAC object creation, two real deployments). Root cause: both
+  `ApiServer.requireAuthorized` and `FafnirServer.authorizeSecrets` gate their `AppendAuditEvent`
+  proposal behind the identical plaintext short-circuit that also disables authorization, so the
+  audit-recording code is never reached for any resource kind in plaintext mode — contradicting a
+  natural reading of the docs' description of Fafnir's own secret audit as firing "unconditionally
+  for every verb" (true only with respect to verb, silently false with respect to transport mode;
+  the plaintext carve-out is documented only in a separate RBAC section, not cross-referenced from
+  the audit-logging section). Suggested: either audit plaintext-mode requests too (attributing to a
+  synthetic anonymous principal, the way the console's own session endpoint already does), or
+  cross-reference the limitation directly from the audit-logging doc section.
+- **`gimle artifact push` has no way to push a plain vessel/launcher jar** — see Bug 6 above.
+  Suggested: a `--vessel` flag on `push` mirroring `hilmir doctor --vessel`'s own posture, or explicit
+  documentation that vessel-hosted artifacts need another push path.
+
+### New LOW/INFO findings
+
+- `gimle <resource> --help` fails with "no control-plane server configured" instead of printing
+  usage, since `--server`/`GIMLE_SERVER` is required before help-flag handling runs — an operator
+  can't get in-CLI help for a command group without already having a cluster address in hand.
+- `gimle set limitrange <tenant> --max-limit-memory 32Mi` (one side of a memory/cpu pair only) fails
+  with the misleadingly generic `invalid request: cpu must not be blank` rather than explaining the
+  pairing requirement or naming the missing flag.
+- A default `Deployment` manifest (no `placement:` block) does **not** spread replicas across nodes
+  even with a healthy second node available — `PlacementConstraints.NONE`'s `antiAffinityAcrossNodes`
+  defaults to `false`, and only `placement: {antiAffinity: true}` turns on cross-node spreading. This
+  is real, working, opt-in behavior, but reads as contradicting a literal reading of this file's own
+  architecture summary ("replicas of one module must not share a worker JVM") — worth tightening
+  that phrasing or reconsidering the default.
+- The console's Metrics/Traces screens each fire one `console.error` for the expected 404 when
+  Muninn isn't configured, even though the page already shows a clear inline message — harmless, but
+  will flag on automated console-error monitoring for a common, supported configuration.
+- Hard-killing the node agent leaves its child worker JVMs running as orphans, invisible to
+  `hilmir`'s own run ledger (`hilmir down` correctly detects the agent is gone but has no way to find
+  workers it didn't spawn directly) — they had to be found and killed manually.
+
+### New positives
+
+Two-agent-per-machine topologies work directly via `hilmir`'s declarative `agents:` list (no manual
+`AgentMain` launch needed); worker-tier self-healing (`kill -9` a `WorkerMain`, agent respawns a
+genuinely new process) verified correctly end-to-end on the real distribution binaries; node
+cordon/uncordon correctly gates new placement without touching already-placed instances; the web
+console renders real, accurate live data matching the CLI on every screen with live per-instance log
+tailing and a working "New deployment" form, submitting real deployments the same way `gimle apply`
+does; the full secrets lifecycle (versioning, soft-delete, `--destroy`, re-set-after-destroy)
+behaves exactly as documented; Muninn's logs/metrics fallback was proven for the first time against
+the real distribution binaries (not just `gimle-smoke-tests`) surviving a hard node-agent kill; and
+quota/limitrange enforcement is correctly dual-mode — a fresh over-quota/over-limit submission is
+rejected outright at admission (contrary to a literal reading of this file's own "flag, never evict"
+phrasing, which correctly describes only the narrower case of a quota retroactively tightened below
+an already-running deployment's consumption).
