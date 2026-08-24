@@ -3157,6 +3157,11 @@ public final class ApiServer implements AutoCloseable {
     if (instance.renamedFromInstanceIndex().isPresent()) {
       map.put("renamedFromInstanceIndex", instance.renamedFromInstanceIndex().getAsInt());
     }
+    // Without this, every vessel-flagged assignment reaches the agent looking exactly like a
+    // module assignment: the agent's own AssignedInstance#vessel() is always empty over the wire,
+    // so it always tries ModuleArtifactReader on the vessel's own non-modular jar and fails
+    // forever, no matter what the manifest actually declared.
+    instance.vessel().ifPresent(v -> map.put("vessel", vesselToJson(v)));
     if (!instance.configMapRefs().isEmpty()) {
       map.put("configMapRefs", instance.configMapRefs());
     }

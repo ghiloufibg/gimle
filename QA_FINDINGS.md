@@ -874,3 +874,198 @@ Not gaps, for contrast: weighted multi-metric autoscaling (`AutoscaleIT`), the T
 (`SurgePromotionIT`, `RollingUpdateIT`) all already have real regression coverage.
 `gimle-holmgang` itself is additive, not redundant with `gimle-smoke-tests` -- it covers
 partition-tolerance and live membership-change scenarios nothing else touches.
+
+## 2026-08-24 — end-user application deployment QA (real distribution artifact, real apps)
+
+A different kind of QA pass from every prior session on this file: not authoring new automated
+tests, but acting as a genuine end user of the platform's own `gimle-dist` distribution tarball —
+`mvn -pl gimle-dist -am install` once, then everything else through `bin/hilmir`/`bin/gimle` off
+the unpacked archive, never `mvn gimle:*` dev-loop goals — and trying to get real, unmodified
+third-party applications running on it, the way someone evaluating the platform actually would.
+Three apps, in increasing order of "not written for Gimlé": `hello-module`/`greeter-provider`/
+`greeter-consumer` (sanity baseline, already proven elsewhere), `gimle-examples/orders-platform`
+(a real Spring-DI multi-service app already checked into this repo as a hand-built manual-QA
+fixture, but — per its own README before this session — never actually built or run against real
+JDK 25 or a real cluster), and the actual upstream Spring PetClinic
+(`spring-projects/spring-petclinic`, cloned and built completely unmodified). No source changes
+were made to any of the three apps themselves; two real, confirmed platform bugs were found and one
+was fixed, described below.
+
+### Bug 1 (HIGH, FIXED): Vessel hosting is completely non-functional over the real HTTP wire
+
+Vessel hosting (`vessel:` block on a Deployment manifest — run an arbitrary runnable jar as its own
+OS process, no `ModuleLayer`, no `gimle-module.yaml`) is the platform's own documented, tooling-
+recommended answer for "I have an existing non-modular jar" — `hilmir doctor <jar>` even says so
+explicitly ("run 'hilmir doctor --vessel' to evaluate it as a vessel instead" when module-hosting
+is rejected). It is fully implemented and unit-tested at the type level
+(`VesselSpec`/`VesselEnvValue`/`VesselProbeSpec`, `DeploymentManifestParserTest`'s own
+`parses_a_full_vessel_block`), but nothing had ever exercised it through a real control-plane ->
+agent HTTP round trip before this session — and it was completely broken there.
+
+**Repro**: built the real upstream Spring PetClinic (`git clone --depth 1
+https://github.com/spring-projects/spring-petclinic`, `./mvnw package`, zero code changes), ran
+`hilmir doctor` against the resulting fat jar:
+
+- Module-hosting mode (default): correctly rejected — `[ERROR] NOT_LAYER_HOSTABLE: artifact looks
+  like a launcher archive ... run 'hilmir doctor --vessel' to evaluate it as a vessel instead`,
+  plus `[ERROR] CALLS_SYSTEM_EXIT` for Spring Boot's own `JarModeRunner`.
+- `--vessel` mode: correctly downgrades both to `WARNING`, plus an `[INFO] NOT_LAYER_HOSTABLE`
+  explaining vessel-hosting is exactly what a launcher archive expects. Genuinely good, actionable
+  UX — this diagnosis is exactly right and exactly what an end user needs to hear.
+
+Followed that advice: deployed it with a real `vessel:` block (`SERVER_PORT: {port: dynamic}`, tcp
+liveness/readiness probes, real resource request/limit) against a real `hilmir`-launched cluster.
+Result: an unconditional crash loop, one failure every ~5 seconds indefinitely (9 in a row observed
+over 45s, zero backoff — see Bug 3 below), every single one identical:
+
+```
+failed to start instance petclinic-vessel#0: module artifact is not a real JPMS module
+(no module-info.class); automatic modules are rejected: .../spring-petclinic-4.0.0-SNAPSHOT.jar
+```
+
+That is the *module*-hosting error path (`ModuleArtifactReader.read`, `AgentMain.java:1186`) firing
+on a manifest that unambiguously declared `vessel:` — and `GET /deployments/petclinic-vessel`
+confirmed the vessel block really did round-trip correctly through the control plane and
+`gimle-mimir` (present, fully populated, in the stored `DeploymentSpec`). The break is exactly one
+hop later: `AgentMain#reconcileAssignments` does branch correctly on `assigned.vessel().isPresent()`
+(`AgentMain.java:1130`) — but the JSON the agent actually receives from `GET
+/nodes/{id}/assignments` never carries a `vessel` key in the first place.
+`ApiServer#assignedInstanceToJson` (`gimle-controlplane/.../api/ApiServer.java:3150`) builds that
+JSON and serializes `deploymentName`/`instanceIndex`/`moduleId`/`artifactPath`/`tenantId`/
+`renamedFromInstanceIndex`/`configMapRefs`/`secretMapRefs` — but never `instance.vessel()`, despite
+a sibling encoder (`vesselToJson`, used by every read-side `GET /deployments` etc. response) already
+existing in the same file. `AgentMain#fetchAssignments` (`gimle-agent/.../AgentMain.java:858`)
+compounds it: it hardcodes `Optional.empty()` for the vessel field of every `AssignedInstance` it
+builds from that response, regardless of what the JSON actually contains. So every vessel-flagged
+assignment reaches the agent looking exactly like a module assignment, forever — this is not a
+timing or ordering bug, it cannot ever succeed. **Vessel hosting has no working end-to-end path
+through the real distribution today**, despite being fully implemented, exposed by the CLI/API, and
+explicitly recommended by `hilmir doctor`'s own output.
+
+**Fixed** in both places: `assignedInstanceToJson` now emits `instance.vessel()` via the existing
+`vesselToJson` encoder; `fetchAssignments` gained the inverse decode (`parseVessel` and its
+`VesselEnvValue`/`VesselProbeSpec` helpers, mirroring `vesselToJson`'s shape exactly). Rebuilt
+`gimle-dist`, tore down and relaunched a fresh cluster, redeployed the identical manifest: real
+vessel process spawned (`VesselProcessSupervisor` — "spawned vessel petclinic-vessel#0 as pid
+..."), real dynamic port allocated, and the real, completely unmodified upstream PetClinic served
+its actual UI (`<title>PetClinic :: a Spring Framework demonstration</title>`) and its real
+DB-backed owners list (`George Franklin` et al.) over HTTP. Re-verified no regression against the
+`orders-platform` app and the `hello-module`/greeter pair on the same rebuilt binaries — all six
+deployments `HEALTHY` together. No manifest, docs, or wire-format change; this is a pure bug fix
+inside two already-existing JSON encode/decode functions.
+
+### Bug 2 (HIGH, confirmed, not yet fixed): `gimle get deployments`'s health column never looks at whether anything is actually running
+
+While Bug 1 was crash-looping every 5 seconds with zero successful starts, `gimle get deployments`
+reported it as `1/1 HEALTHY` the entire time — not once, across the whole repro window. Root cause
+is generic, not vessel-specific: `DeploymentsCommand.healthOf` (`gimle-cli/.../DeploymentsCommand.
+java:146`) computes the `health` column purely from `unplacedCount`/`quotaViolating`/
+`limitRangeViolating` — it never reads any instance's own `lifecycleState`, `alive`, or `ready`
+observation at all. A *placed* instance (the scheduler assigned it a node, so `unplacedCount == 0`)
+that has never once successfully started reads identically to a genuinely healthy one. The same gap
+would just as easily hide a crash-looping *module* (a throwing `onStart` hook, say) — this isn't
+specific to vessels or to Bug 1's own trigger, it is a property of the health column itself. Given
+this repo's own explicit framing of a durable, accurate operator-facing status as core to the
+platform's pitch (see `PRODUCTION_HARDENING_BACKLOG.md`'s own Kubernetes/Nomad events comparisons),
+this is worth prioritizing above most items already tracked there. Not fixed this session — flagged
+here with an exact repro and root cause for a following one; the natural fix folds each instance's
+own worst observed `lifecycleState`/`alive` into `healthOf`, the same way `unplacedCount` already
+does for placement.
+
+### Bug 3 (MEDIUM, confirmed, not yet fixed): `gimle logs` can't find a StatefulSet/DaemonSet/Job instance's placement at all
+
+`gimle logs instance/inventory-service-statefulset/0` against a real, `ACTIVE`, `ready: true`
+StatefulSet instance (confirmed via `gimle get statefulsets`, and its real log file present on disk
+with real reconciliation lines) fails outright: `error: not found: no placement found for
+inventory-service-statefulset#0`. Root cause: `ApiServer#handleInstanceLogsProxy`
+(`ApiServer.java:4691`) resolves the owning node exclusively via `storeClient.listAssignmentsFor
+(deploymentName)` (`ApiServer.java:4720`) — a lookup that is populated only by
+`DeploymentReconciler`'s own bookkeeping (confirmed: every other caller of `listAssignmentsFor` in
+the codebase is Deployment/autoscaler/service-endpoint machinery). StatefulSet, DaemonSet, and Job
+placements live in entirely separate assignment lists (`listStatefulSetAssignments`/
+`listDaemonSetAssignments`/`listJobRuns`, as already used by `handleStatefulSet`/the DaemonSet and
+Job status handlers elsewhere in the same file) that this one proxy path never consults. Net effect:
+`gimle logs`/the console's own Logs screen (same backend) cannot tail an instance's application log
+for 3 of the platform's 5 workload kinds — only Deployment-owned instances work. Not fixed this
+session; the fix is the same shape as the `/endpoints/{name}` handler already a few hundred lines
+away in the same file (try each kind's own assignment list in turn until one resolves a node).
+
+### Friction: relative `artifactPath` silently breaks the moment a cluster isn't launched from the repo root, with zero surfaced diagnostic
+
+Every example manifest in this repo (`hello-module/deployment.yaml`, `greeter-*/deployment.yaml`,
+all of `orders-platform`) declares a repo-root-relative `artifactPath`
+(`gimle-examples/hello-module/target/hello-module-0.1.0-alpha.2.jar`). That only resolves correctly
+because every documented dev-loop path (`mvn gimle:controlplane`, `scripts/run-local-cluster.sh`)
+happens to launch `ControlPlaneMain` with the repo root as its cwd. The real distribution-artifact
+path this session used — `hilmir up`, exactly as an operator or evaluator would actually run it —
+does not: the control plane's cwd is wherever `hilmir up` itself was invoked from (a deploy/ops
+directory, not a source checkout), so every one of these example manifests fails to place, silently,
+the first time. `gimle apply` reports `deployment/hello-deployment applied` regardless — nothing
+about that response hints at trouble. The deployment then sits at `UNPLACED(1)` forever, and
+`gimle events hello-deployment 0` returns `No resources found` — the reconciler's own
+`DeploymentReconciler` WARN (`deployment hello-deployment references an unreadable artifact ...:
+module artifact not found: ...`) fires every 2s but is never recorded as a durable instance/
+deployment event, only a line in the control plane's own structured platform log file
+(`gimle-data/controlplane-0-logs/controlplane-platform.log`), which nothing in the CLI surfaces.
+Switching to an absolute path fixed it immediately. Two independent, cheap improvements worth
+making here: (1) record this specific reconciler WARN as a durable event so `gimle events` actually
+shows it — this repo already treats a durable, queryable event log as a first-class design goal;
+(2) either resolve `artifactPath` against something well-defined regardless of the control plane's
+own cwd, or have every example manifest's own doc comment call out that the path is
+control-plane-process-cwd-relative, since that is genuinely surprising and this session is exactly
+the "real cluster, real distribution artifact" scenario where it bites hardest. (Andvari's own
+coordinate-only `artifactPath: ""` + artifact-registry push flow sidesteps this entirely and is
+almost certainly the right steady-state answer — worth calling out more prominently in the example
+manifests and the getting-started docs as the recommended path outside a single-machine dev loop.)
+
+### Friction: a stale `JAVA_HOME` produces a bare, unhelpful `UnsupportedClassVersionError`
+
+`bin/hilmir`/`bin/gimle`'s own documented Java-selection precedence (an explicit `JAVA_HOME` always
+wins) is reasonable, but on a machine with more than one JDK installed and an already-set
+`JAVA_HOME` pointing at an older one (this sandbox's own default was JDK 21) — a completely
+ordinary real-world situation — the failure is `Error: LinkageError ... class file version 69.0,
+this version of the Java Runtime only recognizes class file versions up to 65.0`. Nothing in that
+message says "Gimlé requires JDK 25+", names the actual JDK found, or hints at checking `JAVA_HOME`
+specifically (as opposed to `PATH`, which was in fact already correct). A one-line class-file-version
+sanity check in each wrapper script before dispatching to `java` — or even just echoing the resolved
+`java_bin`'s own `-version` output on this specific failure — would turn a genuinely confusing first
+five minutes into an immediately obvious fix.
+
+### Friction: a process's stdout launch log and its own structured platform log live at two different paths
+
+`hilmir up` redirects each spawned process's raw stdout/stderr to `gimle-data/<role>-<id>.log`
+(a launch banner plus anything not routed through SLF4J), while that same process's own
+`-Dgimle.log.root` points at a sibling `gimle-data/<role>-<id>-logs/<role>-platform.log` (JSON-lines,
+everything real). Diagnosing anything beyond "is the process alive" means knowing to check both, in
+two different formats, for every one of the four+ processes a cluster comprises — not fatal, but a
+real speed bump the first time.
+
+### Positive: `orders-platform` — a real Spring-DI multi-service app — now verified end to end for the first time
+
+`gimle-examples/orders-platform` (`orders-service`, `inventory-service`, `orders-report-job`,
+`web-ui`; see the module's own README) was, before this session, explicitly documented as never
+having been built against real JDK 25 or run against a real cluster at all (its README's own "What
+was, and wasn't, verified" section said so outright). This session did both, for real: `mvn -f
+gimle-examples/orders-platform/pom.xml package` built cleanly on JDK 25 with zero changes, and all
+four modules — one of each of Deployment, StatefulSet, and Job kinds tried directly (DaemonSet/
+CronJob reuse the same jars under alternate manifests, not separately re-tried) — reached `ACTIVE`/
+`HEALTHY` against a real `hilmir`-launched cluster. Verified working end to end: real Spring
+`AnnotationConfigApplicationContext` DI and bean wiring; a real cross-worker fabric call
+(`inventory-service` -> `orders-service`'s `OrderCatalog`, self-healing past a transient
+"not registered yet" race exactly like `greeter-consumer` already proves); a real tenant-scoped
+Fafnir secret gating `web-ui`'s `POST /api/orders` (`401` with no/wrong `X-Admin-Token`, `200` with
+the real one); a real `Service` + `GET /services/{name}/endpoints` resolution; and a real `Job` run
+producing a correct consolidated report reflecting orders placed through the live web UI. See the
+doc-sync update to `gimle-examples/orders-platform/README.md`'s own verification section made
+alongside this entry.
+
+### Scope not covered this session
+
+The web console (`/console`) was confirmed reachable and serving its built SPA (`200`, real
+`index.html`) — the same read APIs exercised via the CLI above back it — but no interactive,
+browser-driven pass was performed. Quarkus was not built or deployed (network/time budget); given
+`hilmir doctor`'s hazard catalog is generic bytecode/structural analysis (launcher-archive layout,
+`System.exit`, bundled logging bindings), a Quarkus fast-jar (`quarkus-run.jar` plus its sibling
+`lib/`/`app/`/`quarkus/` directories) would almost certainly hit the identical `NOT_LAYER_HOSTABLE`
+module-mode rejection and the identical vessel-mode recommendation Spring Boot's own launcher
+archive did — noted as a reasoned inference, not a result, since it wasn't actually run.

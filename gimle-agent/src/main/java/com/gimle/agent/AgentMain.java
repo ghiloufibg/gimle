@@ -16,6 +16,7 @@ import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.module.VolumeRequest;
@@ -35,6 +36,7 @@ import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
 import com.gimle.fabric.catalog.CatalogDelta;
 import com.gimle.fabric.catalog.ServiceCatalog;
@@ -882,6 +884,7 @@ public final class AgentMain {
           rawSecretMapRefs == null
               ? List.of()
               : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
+      Object rawVessel = map.get("vessel");
       result.add(
           new AssignedInstance(
               (String) map.get("deploymentName"),
@@ -892,11 +895,73 @@ public final class AgentMain {
               renamedFrom == null
                   ? OptionalInt.empty()
                   : OptionalInt.of(((Number) renamedFrom).intValue()),
-              Optional.empty(),
+              rawVessel == null
+                  ? Optional.empty()
+                  : Optional.of(parseVessel(Json.asObject(rawVessel))),
               configMapRefs,
               secretMapRefs));
     }
     return result;
+  }
+
+  /**
+   * The inverse of {@code ApiServer#vesselToJson} -- reconstructs a {@link VesselSpec} from the
+   * wire shape the control plane's own {@code /nodes/{id}/assignments} response emits, since the
+   * agent never resolves a vessel assignment against the manifest YAML directly (only the control
+   * plane parses that).
+   */
+  private static VesselSpec parseVessel(Map<String, Object> map) {
+    List<String> args = Json.asArray(map.get("args")).stream().map(String.class::cast).toList();
+    List<String> jvmFlags =
+        Json.asArray(map.get("jvmFlags")).stream().map(String.class::cast).toList();
+    Map<String, VesselEnvValue> env = new LinkedHashMap<>();
+    for (var e : Json.asObject(map.get("env")).entrySet()) {
+      env.put(e.getKey(), parseVesselEnvValue(Json.asObject(e.getValue())));
+    }
+    List<VesselFileMount> files = new ArrayList<>();
+    for (Map<String, Object> f : Json.asObjectList(map.get("files"))) {
+      files.add(new VesselFileMount((String) f.get("path"), (String) f.get("config")));
+    }
+    Map<String, Object> probesMap = Json.asObject(map.get("probes"));
+    VesselProbes probes =
+        new VesselProbes(
+            probesMap.containsKey("liveness")
+                ? Optional.of(parseVesselProbe(Json.asObject(probesMap.get("liveness"))))
+                : Optional.empty(),
+            probesMap.containsKey("readiness")
+                ? Optional.of(parseVesselProbe(Json.asObject(probesMap.get("readiness"))))
+                : Optional.empty());
+    Map<String, Object> resourcesMap = Json.asObject(map.get("resources"));
+    Map<String, Object> request = Json.asObject(resourcesMap.get("request"));
+    Map<String, Object> limit = Json.asObject(resourcesMap.get("limit"));
+    return new VesselSpec(
+        args,
+        jvmFlags,
+        env,
+        files,
+        probes,
+        new ResourceSpec((String) request.get("memory"), (String) request.get("cpu")),
+        new ResourceSpec((String) limit.get("memory"), (String) limit.get("cpu")));
+  }
+
+  private static VesselEnvValue parseVesselEnvValue(Map<String, Object> map) {
+    if (map.containsKey("value")) {
+      return new VesselEnvValue.Literal((String) map.get("value"));
+    }
+    if (map.containsKey("secret")) {
+      return new VesselEnvValue.SecretRef((String) map.get("secret"));
+    }
+    Object port = map.get("port");
+    return new VesselEnvValue.PortAllocation(
+        "dynamic".equals(port) ? OptionalInt.empty() : OptionalInt.of(((Number) port).intValue()));
+  }
+
+  private static VesselProbeSpec parseVesselProbe(Map<String, Object> map) {
+    int initialDelaySeconds = ((Number) map.getOrDefault("initialDelaySeconds", 0)).intValue();
+    if (map.containsKey("http")) {
+      return new VesselProbeSpec.Http((String) map.get("http"), initialDelaySeconds);
+    }
+    return new VesselProbeSpec.Tcp(initialDelaySeconds);
   }
 
   /**

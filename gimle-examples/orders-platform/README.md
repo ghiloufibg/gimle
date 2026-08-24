@@ -252,10 +252,23 @@ order through.
 
 ## What was, and wasn't, verified building this
 
-This sandbox has no JDK 25 (the platform's own required release) and no running Gimlé cluster, and
-this app is deliberately excluded from CI along with everything else in this directory — so nothing
-here was ever going to be verified by an automated build. What *was* verified, as thoroughly as
-possible without either:
+**Update:** the real end-to-end validation this section originally called out as never having
+happened has since happened, in a session with real JDK 25 and a real distribution-artifact
+cluster: `mvn -f gimle-examples/orders-platform/pom.xml package` builds cleanly against JDK 25 with
+no changes needed, and all four modules (`orders-service` as a Deployment, `inventory-service` as a
+StatefulSet, `orders-report-job` as an on-demand Job, `web-ui` as a tenant-scoped Deployment) reach
+`ACTIVE`/`HEALTHY` against a real `hilmir`-launched cluster. The cross-module fabric lookup this
+section's last paragraph could only reason about in-process (`OrderCatalog`/`InventoryLevels`
+resolved from `inventory-service` and `orders-report-job`) resolves correctly against the real
+cluster; `web-ui`'s tenant-scoped secret gate (`POST /api/orders` needing the real Fafnir-delivered
+`X-Admin-Token`) and its `Service`/`GET /services/{name}/endpoints` resolution both work exactly as
+documented above. See the end-user application-deployment QA entry in `QA_FINDINGS.md` for the full
+session this ran in, alongside a real, unmodified upstream Spring PetClinic deployed the same way.
+
+Before that, this sandbox had no JDK 25 (the platform's own required release) and no running Gimlé
+cluster, and this app is deliberately excluded from CI along with everything else in this
+directory — so nothing here was going to be verified by an automated build. What *was* verified at
+that point, as thoroughly as possible without either:
 
 - The full JPMS-module-plus-shaded-Spring recipe (a real `mvn package`, JDK 21 as a mechanics
   stand-in for 25) — proven to actually compile, shade, and run standalone via `java --module-path`.
