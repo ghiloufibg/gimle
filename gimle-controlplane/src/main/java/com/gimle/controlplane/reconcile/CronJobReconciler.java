@@ -13,6 +13,7 @@ import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -40,7 +41,7 @@ import org.slf4j.LoggerFactory;
  * it, not retroactively.
  *
  * <p>{@link #triggerNow} is the manual-fire path ({@code gimle cronjob trigger <name>}): it shares
- * {@link #materializeFiring} with the scheduled path but deliberately never touches {@code
+ * {@link #planFiring} with the scheduled path but deliberately never touches {@code
  * cronJobLastSchedule} -- a manual trigger is a one-off action independent of the schedule, not a
  * scheduled firing standing in for one (matching {@code kubectl create job --from=cronjob/x}'s own
  * behavior, which never advances the CronJob controller's own state either).
@@ -104,9 +105,13 @@ public final class CronJobReconciler {
     if (due.isEmpty()) {
       return; // nothing new due since the last time this ticked; wait for the next tick
     }
-    // Recorded regardless of whether this firing is honored or logged as missed below -- either
-    // way, this instant (and everything before it) must never be reconsidered on a later tick.
-    mutations.propose(new StateMutation.PutCronJobLastSchedule(spec.name(), due.get()));
+    // The last-schedule advance rides the same batch as the firing it accounts for: recorded
+    // regardless of whether the firing is honored or logged as missed below (this instant, and
+    // everything before it, must never be reconsidered on a later tick), and committed atomically
+    // with the generated JobSpec when there is one -- an advance can no longer land while its
+    // firing is lost to a crash in between.
+    List<StateMutation> firing = new ArrayList<>();
+    firing.add(new StateMutation.PutCronJobLastSchedule(spec.name(), due.get()));
 
     if (spec.startingDeadline().isPresent()
         && Duration.between(due.get(), now).compareTo(spec.startingDeadline().get()) > 0) {
@@ -115,10 +120,12 @@ public final class CronJobReconciler {
           spec.name(),
           due.get(),
           spec.startingDeadline().get());
+      mutations.proposeAll(firing);
       return;
     }
 
-    materializeFiring(spec, due.get());
+    planFiring(spec, due.get()).ifPresent(plan -> firing.addAll(plan.mutations()));
+    mutations.proposeAll(firing);
   }
 
   /**
@@ -132,8 +139,16 @@ public final class CronJobReconciler {
     if (spec.isEmpty()) {
       return Optional.empty();
     }
-    return materializeFiring(spec.get(), clock.instant());
+    return planFiring(spec.get(), clock.instant())
+        .map(
+            plan -> {
+              mutations.proposeAll(plan.mutations());
+              return plan.jobName();
+            });
   }
+
+  /** What one honored firing commits, as a single batch: any REPLACE removals, then the JobSpec. */
+  private record Firing(String jobName, List<StateMutation> mutations) {}
 
   /**
    * Applies {@link CronJobSpec#concurrencyPolicy()} against every non-terminal {@link JobSpec} this
@@ -143,7 +158,8 @@ public final class CronJobReconciler {
    * {@code FORBID} blocked it, materializes a fresh {@link JobSpec} named {@code
    * {cronJobName}-{epochSeconds}}.
    */
-  private Optional<String> materializeFiring(CronJobSpec spec, Instant firingTime) {
+  private Optional<Firing> planFiring(CronJobSpec spec, Instant firingTime) {
+    List<StateMutation> planned = new ArrayList<>();
     List<JobSpec> generated =
         store.listJobSpecs().stream().filter(s -> s.name().startsWith(spec.name() + "-")).toList();
     List<JobSpec> nonTerminal =
@@ -158,7 +174,7 @@ public final class CronJobReconciler {
           return Optional.empty();
         }
         case REPLACE ->
-            nonTerminal.forEach(s -> mutations.propose(new StateMutation.RemoveJobSpec(s.name())));
+            nonTerminal.forEach(s -> planned.add(new StateMutation.RemoveJobSpec(s.name())));
         case ALLOW -> {
           // Nothing extra -- the new firing runs alongside whatever is still non-terminal.
         }
@@ -182,8 +198,8 @@ public final class CronJobReconciler {
             spec.tenantId(),
             artifactSha256,
             spec.jobTemplate().vessel());
-    mutations.propose(new StateMutation.PutJobSpec(job));
-    return Optional.of(jobName);
+    planned.add(new StateMutation.PutJobSpec(job));
+    return Optional.of(new Firing(jobName, List.copyOf(planned)));
   }
 
   /**

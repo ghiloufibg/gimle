@@ -11865,14 +11865,18 @@
       "feature": "Group commit via batched mutations (StateMutation.Batch / proposeAll)",
       "category": "State Store",
       "userStory": "As a reconciler emitting a burst of independent mutations in one tick, I want them replicated as a single Raft log entry so the burst pays one consensus round and one WAL fsync instead of one per mutation.",
-      "statusDetail": "Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. DeploymentReconciler, StatefulSetReconciler, and DaemonSetReconciler batch their burst sites -- stale-workload sweeps, scale-down reclaims/evictions, multi-replica and multi-node placement, rolling-update bookkeeping, surge settlement/starts, and the StatefulSet assignment-plus-sticky-binding pairs -- with flush points placed before each store read-back so per-tick visibility is unchanged. The remaining reconcilers' proposals are per-instance failure-path events, deliberately left unbatched.",
+      "statusDetail": "Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. Every reconciler with a multi-mutation group now batches it: DeploymentReconciler, StatefulSetReconciler, and DaemonSetReconciler batch their burst sites (sweeps, reclaims/evictions, placements, rolling bookkeeping, surge settlement/starts, assignment-plus-sticky-binding pairs), and JobReconciler, CronJobReconciler, HealthReconciler, and ReplicaCountReconciler batch their per-event transition groups (run-plus-phase terminal pairs, retry-placement-plus-removal, cron last-schedule-advance-plus-firing, release-plus-bookkeeping) -- making each transition atomic and closing the crash windows the old two-entry orderings commented around. Flush points sit before each store read-back so per-tick visibility is unchanged. Quota/LimitRange/Service reconcilers emit single mutations and have nothing to batch.",
       "confidence": "High",
       "sourceLocations": [
         "`com.gimle.mimir.raft.StateMutation.Batch`",
         "`com.gimle.mimir.raft.MutationSink#proposeAll`",
         "`com.gimle.controlplane.reconcile.DeploymentReconciler`",
         "`com.gimle.controlplane.reconcile.StatefulSetReconciler`",
-        "`com.gimle.controlplane.reconcile.DaemonSetReconciler`"
+        "`com.gimle.controlplane.reconcile.DaemonSetReconciler`",
+        "`com.gimle.controlplane.reconcile.JobReconciler`",
+        "`com.gimle.controlplane.reconcile.CronJobReconciler`",
+        "`com.gimle.controlplane.reconcile.HealthReconciler`",
+        "`com.gimle.controlplane.reconcile.ReplicaCountReconciler`"
       ],
       "testCoverageDetail": "`MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`",
       "gherkinSteps": [

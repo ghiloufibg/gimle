@@ -123,7 +123,11 @@ Writes group-commit: a burst of independent mutations — a reconciler tick plac
 replicas or daemonset nodes, sweeping stale assignments, or settling a surge — rides one Raft log
 entry as a `StateMutation.Batch` (via `MutationSink.proposeAll`), paying one consensus round and
 one WAL fsync for the whole burst instead of one per mutation. A batch applies in order and is
-never nested; a single mutation is still proposed bare.
+never nested; a single mutation is still proposed bare. The same mechanism makes every
+reconciler's multi-mutation transitions atomic — a Job's terminal run-removal-plus-phase pair, a
+retry placement plus its failed attempt's removal, a CronJob's last-schedule advance plus the
+firing it accounts for, a health reschedule plus its backoff bookkeeping — closing crash windows
+the old one-entry-at-a-time orderings could only comment around.
 
 Multi-node clustering itself is real and tested, not just scaffolded. `gimle-mimir`'s own
 `RaftClusterTest` covers leader election converging to exactly one leader, a write becoming
