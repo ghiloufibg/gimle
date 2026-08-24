@@ -91,7 +91,7 @@ class DeploymentReconcilerTest {
    */
   @Test
   void a_node_whose_heartbeat_has_gone_stale_is_no_longer_a_placement_candidate(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("store-dark-node"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDeployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
@@ -123,7 +123,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void creates_assignments_for_every_missing_index_when_capacity_exists() {
-    StateStore store = new StateStore(tempDir.resolve("store-basic"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     DeploymentSpec spec = deployment("orders-service", 2, jar, PlacementConstraints.NONE);
@@ -141,7 +141,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void leaves_indices_unplaced_without_throwing_when_no_node_has_capacity() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-capacity"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDeployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
@@ -156,7 +156,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void scale_down_removes_assignments_at_or_beyond_the_new_replica_count() {
-    StateStore store = new StateStore(tempDir.resolve("store-scale-down"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -174,7 +174,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void deleting_a_deployment_removes_all_of_its_assignments() {
-    StateStore store = new StateStore(tempDir.resolve("store-delete"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -191,7 +191,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void anti_affinity_spreads_replicas_across_distinct_nodes() {
-    StateStore store = new StateStore(tempDir.resolve("store-anti-affinity"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -217,7 +217,7 @@ class DeploymentReconcilerTest {
     // read from within that same pass. This test reproduces that by collecting proposals and only
     // applying them once reconcileOnce() has fully returned, the same gap placeInstances's own
     // placedThisTick set now closes without relying on the store to reflect a same-tick sibling.
-    StateStore store = new StateStore(tempDir.resolve("store-anti-affinity-deferred"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -247,7 +247,7 @@ class DeploymentReconcilerTest {
     // Mixed bag: index 0 already validly assigned, index 2 stale (>= the current replica count of
     // 2), plus an assignment for a deployment that no longer exists at all -- a from-scratch run
     // starting from this exact snapshot has no history to consult, only what's here right now.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -266,7 +266,7 @@ class DeploymentReconcilerTest {
 
   @Test
   void places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk() {
-    StateStore store = new StateStore(tempDir.resolve("store-hash-match"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -285,7 +285,7 @@ class DeploymentReconcilerTest {
     // Simulates the artifact having been silently swapped out from under a deployment name after
     // admission: the spec still names the recorded hash of the *original* jar, but the file at
     // artifactPath now has different bytes (and therefore a different real hash).
-    StateStore store = new StateStore(tempDir.resolve("store-hash-mismatch"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);

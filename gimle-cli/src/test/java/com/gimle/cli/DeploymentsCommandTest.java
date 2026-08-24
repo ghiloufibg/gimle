@@ -58,7 +58,7 @@ class DeploymentsCommandTest {
 
   @BeforeEach
   void startServer() throws IOException {
-    store = new StateStore(tempDir.resolve("store"));
+    store = new StateStore();
     RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
     storeRaftNode = new RaftNode("self", Map.of(), raftLog, store);
     storeRaftNode.start();

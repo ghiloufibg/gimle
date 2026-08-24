@@ -33,10 +33,10 @@ graph TD
     end
     subgraph Mimir["gimle-mimir (M replicas)"]
         Node["StoreNode<br/>dispatch"]
-        Store["StateStore<br/>in-memory index"]
-        Disk[("Disk<br/>raft/ log+snapshot, deployments/, assignments/,<br/>nodes/, tenants/, config/ -- YAML, atomic writes")]
+        Store["StateStore<br/>in-memory state machine"]
+        Disk[("Disk<br/>raft/ wal/ segment files + snapshot<br/>+ term/vote -- append-only, fsync per record")]
         Node --> Store
-        Store <-->|every write; full reload on startup| Disk
+        Store <-->|apply on commit; snapshot + replay on startup| Disk
     end
     Client <-->|StoreRpc, TCP| Node
     Recon -->|placement directives| Agents["Node Agents"]
@@ -93,23 +93,31 @@ without that agent's own certificate needing an ordinary `RoleBinding` granted t
 
 ## Persistence and restart recovery
 
-`StateStore` is, in its own javadoc's words, "an embedded, single-node, file-backed state store: a
-directory of small YAML files, one per resource" — deployments, instance assignments, node
-registrations/heartbeats, tenants, quotas, and tenant-scoped config each get their own file. Every
-write goes through `AtomicFiles.writeAtomically` (write to a temp file, then atomic rename), so a
-crash mid-write never leaves a torn file a reader could observe. `RaftLog` persists the actual
-consensus log the same way — one immutable file per log entry, plus a compaction snapshot and the
-current term/vote, in a `raft/` directory alongside `StateStore`'s own resource directories. Both
-now live under `gimle-mimir/target/gimle-mimir-state` in local dev (`mvn gimle:store`'s own
-default), separate from `gimle-controlplane/target/gimle-state`, which now holds only the API
-server's own secrets — nothing about `ApiServer`'s own restart or redeployment touches Raft state
-at all anymore, one of the actual points of the split.
+The persistence architecture is etcd's, hand-rolled in Java: **the Raft log is the durable source
+of truth, and the state machine holds nothing on disk of its own.** `StateStore` is purely
+in-memory — concurrent maps, one per resource kind — and only ever changes by a committed log
+entry being applied to it (or a snapshot being installed into it). The log itself (`RaftLog`,
+backed by `WriteAheadLog`) is a set of append-only segment files under `raft/wal/`: every appended
+record — a log entry, or an explicit truncation marker for a discarded conflicting/timed-out
+suffix — is CRC-guarded, fsynced before the caller is answered, and never rewritten in place. The
+current term/vote pair and the compaction snapshot are the two things still written as whole files
+(via `AtomicFiles.writeAtomically`'s temp-file-plus-atomic-rename idiom), since each must be
+replaced atomically as a unit. Everything lives under `gimle-mimir/target/gimle-mimir-state` in
+local dev (`mvn gimle:store`'s own default), separate from
+`gimle-controlplane/target/gimle-state`, which now holds only the API server's own secrets —
+nothing about `ApiServer`'s own restart or redeployment touches Raft state at all anymore, one of
+the actual points of the split.
 
-Both `StateStore` and `RaftLog` reload from disk on construction: `StateStore.loadAll()` rebuilds
-its entire in-memory index from the YAML files present, and `RaftLog` replays its persisted
-term/vote, snapshot metadata, and every log entry. **A restarted `gimle-mimir` process picks up
-exactly where it left off** — exercised directly (`StateStoreTest`'s
-`removed_deployment_is_gone_after_reload`, among others).
+Restart recovery is snapshot plus replay, the same path a live far-behind follower takes: on
+construction a `RaftNode` restores the persisted compaction snapshot into `StateStore`, replays
+the WAL to rebuild the in-memory log (discarding a crash-torn final record, refusing to load on
+any other damage), and lets ordinary commit advancement re-apply whatever committed entries sit
+above the snapshot floor. A freshly elected leader appends a no-op entry at its own term — the
+standard Raft move that lets it commit its predecessors' entries — which is exactly what forces
+that catch-up to happen immediately on a quiet cluster rather than waiting for the next client
+write. **A restarted `gimle-mimir` process picks up exactly where it left off** — exercised
+directly (`RaftLogTest`'s reopen tests and `RaftNodeRecoveryTest`'s full restart-with-an-empty-
+state-machine round trips).
 
 Multi-node clustering itself is real and tested, not just scaffolded. `gimle-mimir`'s own
 `RaftClusterTest` covers leader election converging to exactly one leader, a write becoming

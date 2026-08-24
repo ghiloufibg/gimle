@@ -126,7 +126,7 @@ class DeploymentReconcilerSurgeTest {
 
   @Test
   void a_surge_replacement_is_provisioned_before_the_original_is_removed() {
-    StateStore store = new StateStore(tempDir.resolve("store-provision"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -166,7 +166,7 @@ class DeploymentReconcilerSurgeTest {
 
   @Test
   void promotion_retargets_the_surge_instance_onto_the_target_in_the_same_tick() {
-    StateStore store = new StateStore(tempDir.resolve("store-promote"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -219,7 +219,7 @@ class DeploymentReconcilerSurgeTest {
 
   @Test
   void max_surge_caps_concurrent_surges_and_tops_up_as_each_promotes() {
-    StateStore store = new StateStore(tempDir.resolve("store-budget"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -285,7 +285,7 @@ class DeploymentReconcilerSurgeTest {
 
   @Test
   void max_unavailable_and_max_surge_never_claim_the_same_mismatched_index() {
-    StateStore store = new StateStore(tempDir.resolve("store-independent"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -322,7 +322,7 @@ class DeploymentReconcilerSurgeTest {
 
   @Test
   void a_replica_count_drop_mid_surge_abandons_the_promotion_instead_of_completing_it() {
-    StateStore store = new StateStore(tempDir.resolve("store-scaledown"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -367,7 +367,7 @@ class DeploymentReconcilerSurgeTest {
   @Test
   void mid_surge_state_survives_a_simulated_reconciler_restart() {
     Path storeDir = tempDir.resolve("store-restart");
-    StateStore store = new StateStore(storeDir);
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -389,21 +389,19 @@ class DeploymentReconcilerSurgeTest {
     Map<Integer, Integer> before = store.getSurgeIndices("orders-service");
     assertEquals(1, before.size());
 
-    // Simulate a control-plane restart: fresh StateStore/DeploymentReconciler instances reloading
-    // from the same on-disk directory, with no in-memory history at all.
-    StateStore restarted = new StateStore(storeDir);
-    DeploymentReconciler restartedReconciler = new DeploymentReconciler(restarted, scheduler);
-
-    assertEquals(before, restarted.getSurgeIndices("orders-service"));
+    // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
+    // all, against the same store -- the store (gimle-mimir) is its own process and doesn't
+    // restart with a control-plane replica.
+    DeploymentReconciler restartedReconciler = new DeploymentReconciler(store, scheduler);
 
     restartedReconciler.reconcileOnce(); // must not start a second, duplicate surge
-    assertEquals(before, restarted.getSurgeIndices("orders-service"));
+    assertEquals(before, store.getSurgeIndices("orders-service"));
 
     int surgeIndex = before.keySet().iterator().next();
     int targetIndex = before.get(surgeIndex);
-    markReady(restarted, "node-a", "orders-service", surgeIndex, v2.moduleId());
+    markReady(store, "node-a", "orders-service", surgeIndex, v2.moduleId());
     restartedReconciler.reconcileOnce();
-    assertTrue(restarted.getSurgeIndices("orders-service").isEmpty());
-    assertEquals(v2.moduleId(), assignmentAt(restarted, "orders-service", targetIndex).moduleId());
+    assertTrue(store.getSurgeIndices("orders-service").isEmpty());
+    assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", targetIndex).moduleId());
   }
 }

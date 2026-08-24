@@ -641,7 +641,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-152 | File-Backed State Store Persistence Engine | Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store. | Yes |
+| [ ] | GIMLE-152 | Raft WAL Persistence Engine with Snapshot-Replay Recovery | Given a single-node store with committed writes; When the process restarts against the same directory with an empty in-memory store; Then the snapshot restores at construction and the fresh leader's no-op entry re-applies every committed entry above the floor. Given a crash tears the WAL's final record mid-append; When the log reopens; Then the torn tail is discarded, every acknowledged record survives, and appends continue. | Yes |
 | [ ] | GIMLE-153 | Full-State Snapshot / Restore | Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically. | Yes |
 | [ ] | GIMLE-155 | Leader-Local Node Heartbeat Tracking | Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat. | Yes |
 | [ ] | GIMLE-156 | Distributed Lease Coordination (Grant/Renew/Release) | Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires. | Yes |

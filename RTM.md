@@ -166,7 +166,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS"; `mtls.feature` — "The audit trail records and filters real authorization decisions over mutual TLS" |
 | GIMLE-150 | Raft RPC Wire Codec | Active | Not Covered | — |
 | GIMLE-151 | Atomic Durable File Writes | Active | Not Covered | — |
-| GIMLE-152 | File-Backed State Store Persistence Engine | Active | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
+| GIMLE-152 | Raft WAL Persistence Engine with Snapshot-Replay Recovery | Modified | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
 | GIMLE-153 | Full-State Snapshot / Restore | Active | Covered | `state-store-persistence.feature` — "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included" |
 | GIMLE-154 | Replicated Mutation Catalog (StateMutation) | Active | Not Covered | — |
 | GIMLE-155 | Leader-Local Node Heartbeat Tracking | Active | Covered | `state-store-mechanics.feature` — "Node heartbeats update continuously for a live node" |
@@ -2156,7 +2156,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: Kills store-0 mid-workload under a live write generator and asserts the cluster keeps accepting writes and every previously-acknowledged tenant write remains readable. NOTE: this .feature file is not referenced anywhere in the REQUIREMENTS_MATRIX.md baseline -- it existed at the baseline commit but the original scan missed cataloguing it; see header note.
   - `gimle-holmgang/src/test/resources/features/raft-resilience.feature` — Scenario: *The store leader dies mid-workload and nothing acknowledged is lost*
   - _Why this counts_: Kills the current Raft leader specifically (forcing re-election) mid-workload and asserts the identical no-lost-write property.
-- **Other test coverage (non-Holmgang, informational only)**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_log_entry_file_fails_loudly_at_construction`
+- **Other test coverage (non-Holmgang, informational only)**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`
 - **Source location(s)**: `com.gimle.mimir.raft.RaftLog` (`append`, `setTermAndVote`, `loadState`, `loadEntries`)
 
 #### GIMLE-149 — Raft Transport over Mutual TLS with Hot Cert Reload
@@ -2187,19 +2187,19 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Atomic Durable File Writes" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back`
+- **Other test coverage (non-Holmgang, informational only)**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`
 - **Source location(s)**: `com.gimle.mimir.store.AtomicFiles`
 
-#### GIMLE-152 — File-Backed State Store Persistence Engine
+#### GIMLE-152 — Raft WAL Persistence Engine with Snapshot-Replay Recovery
 
 - **Category**: State Store
-- **Status**: Active
+- **Status**: Modified  _(Reworked to etcd's persistence shape: in-memory StateStore, segment-based WAL as the durable source of truth, snapshot-plus-committed-replay restart recovery, fresh-leader no-op catch-up. The Holmgang restart scenario asserts the same black-box behavior (state survives a real store process kill and respawn) against the new engine.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/state-store-persistence.feature` — Scenario: *Tenants, roles, role bindings, and accounts survive a store restart, snapshot included*
-  - _Why this counts_: Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable from the freshly-opened StateStore instance -- a genuine process restart against the same directory, not an in-process reopen.
-- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
-- **Source location(s)**: `com.gimle.mimir.store.StateStore`
+  - _Why this counts_: Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable -- a genuine process restart recovering purely from the Raft WAL and its compaction snapshot (10,500 entries crosses the snapshot threshold), since the state machine itself persists nothing.
+- **Other test coverage (non-Holmgang, informational only)**: `RaftLogTest#reopening_recovers_every_persisted_entry`, `#a_truncation_with_nothing_reappended_over_it_survives_reopen`, `#an_entry_reappended_after_truncation_supersedes_the_old_suffix_on_reopen`, `#a_torn_tail_from_a_crash_mid_append_is_discarded_and_the_log_stays_usable`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`, `RaftNodeRecoveryTest#committed_writes_recover_into_an_empty_state_machine_after_restart`, `#a_persisted_snapshot_restores_the_state_machine_at_construction`, `#a_second_restart_recovers_writes_from_both_prior_leaderships`
+- **Source location(s)**: `com.gimle.mimir.raft.RaftLog`, `com.gimle.mimir.raft.WriteAheadLog`, `com.gimle.mimir.store.StateStore`
 
 #### GIMLE-153 — Full-State Snapshot / Restore
 
@@ -2251,7 +2251,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/state-store-mechanics.feature` — Scenario: *An instance's event log is capped and returns newest first*
   - _Why this counts_: Relays 55 real InstanceEvents through the same POST /nodes/{nodeId}/events route a real node agent uses, pushing a live instance's event log past StateStore's MAX_EVENTS_PER_INSTANCE cap, then confirms exactly 50 events remain and are strictly newest-first -- proving both the retention prune and the ordering.
-- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
+- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_snapshot_into_a_fresh_store`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
 - **Source location(s)**: `StateStore#putInstanceEvent`, `#listInstanceEvents`, `StateMutation.AppendInstanceEvent`
 
 #### GIMLE-158 — Cluster-Wide Audit Trail with Filtering
@@ -2295,7 +2295,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/scheduling.feature` — Scenario: *A cordoned node blocks placement until uncordoned*
   - _Why this counts_: Cordons the sole node, submits a deployment, asserts it stays unplaced for 10s, then uncordons and asserts it reaches ACTIVE.
-- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#node_cordon_round_trips_through_a_fresh_store_instance`, `#uncordoning_a_node_clears_it_and_is_gone_after_reload`, `#a_snapshot_carries_node_cordons_and_restores_them`
+- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#node_cordon_round_trips_through_a_snapshot_into_a_fresh_store`, `#uncordoning_a_node_clears_it_and_is_gone_after_snapshot_restore`, `#a_snapshot_carries_node_cordons_and_restores_them`
 - **Source location(s)**: `StateStore#putNodeCordon`, `#isNodeCordoned`, `StateMutation.PutNodeCordon`
 
 #### GIMLE-162 — Tenant Quota-Violation Flag Tracking
@@ -2317,7 +2317,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/state-store-persistence.feature` — Scenario: *Tenants, roles, role bindings, and accounts survive a store restart, snapshot included*
   - _Why this counts_: A custom Role, RoleBinding, and Account are each created through the real /roles, /rolebindings, and /accounts HTTP surface, then confirmed readable again after the store process is fully restarted against the same on-disk directory -- all three round-tripping through a real process restart, not merely an in-memory read-back.
-- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
+- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Source location(s)**: `StateStore#putRole`/`#putRoleBinding`/`#putAccount`
 
 #### GIMLE-164 — Client-Facing Store RPC with Leader Redirect & Follow
@@ -3990,7 +3990,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given logs previously ingested for a nodeId/category
-- **Other test coverage (non-Holmgang, informational only)**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_fresh_store_instance`
+- **Other test coverage (non-Holmgang, informational only)**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Source location(s)**: `MuninnServer.java` (`read`, `handleReadNodeLogs`, `handleReadInstanceLogs`), `MuninnDayFileStore.readOlder`/`readAfter`
 
 #### GIMLE-322 — `follow=true` rejection on Muninn reads
@@ -6616,7 +6616,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-028 | gimle-core | Single-write length-prefixed wire framing | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-029 | gimle-core | Hand-rolled JSON parser/writer | Internal/Infra | `JsonTest` (nested objects/arrays, negative/exponent numbers, escaped strings, round trip, escapes special chars, malformed throws) |
 | GIMLE-150 | gimle-mimir | Raft RPC Wire Codec | Internal/Infra | `RaftCodecTest#round_trips_through_streams`, `#rejects_an_oversized_length_prefix_before_allocating`, `#rejects_a_negative_length_prefix_before_allocating`, `#rejects_a_forged_huge_entry_count_without_preallocating`, `#round_trips_a_state_snapshot`, `#round_trips_a_log_entry_carrying_a_membership_change` |
-| GIMLE-151 | gimle-mimir | Atomic Durable File Writes | Internal/Infra | `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back` |
+| GIMLE-151 | gimle-mimir | Atomic Durable File Writes | Internal/Infra | `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns` |
 | GIMLE-154 | gimle-mimir | Replicated Mutation Catalog (StateMutation) | Internal/Infra | `RaftCodecTest#round_trips_role_rolebinding_and_account_mutations_through_a_log_entry`, `#round_trips_an_append_instance_event_mutation_with_and_without_a_cause_summary`, `#round_trips_an_append_audit_event_mutation_allowed_and_denied_with_and_without_scope` |
 | GIMLE-166 | gimle-mimir | Store Node Leader-Only Write Gating | Internal/Infra | `StoreNodeTest#a_non_leader_rejects_a_propose_with_not_leader_and_no_hint_yet`, `#a_non_leader_rejects_a_heartbeat_a_lease_acquire_and_a_lease_release`, `#a_non_leader_rejects_an_add_server_request_with_not_leader` |
 | GIMLE-167 | gimle-mimir | Store Client Connection Timeout Bounds | Internal/Infra | `StoreConnectionTimeoutTest#a_connection_that_accepts_but_never_responds_times_out_instead_of_blocking_forever` |
@@ -6678,7 +6678,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-521 | gimle-smoke-tests | Autoscaling under real request-rate, error-rate, queue-depth, and weighted-blended load | Load Testing / Cluster Validation | `AutoscaleIT.a_deployment_scales_up_under_real_gatling_generated_request_rate_load`, `a_deployment_scales_up_under_real_error_rate_load`, `a_deployment_scales_up_under_real_queue_depth_load`, `a_weighted_policy_blends_request_rate_and_queue_depth_signals_under_real_load` |
 | GIMLE-319 | gimle-muninn | Node platform-log ingest | Logging | `MuninnServerLogsIngestTest#an_ingested_node_log_line_is_readable_back`, `#a_malformed_batch_is_rejected_entirely_and_nothing_from_it_is_readable` |
 | GIMLE-320 | gimle-muninn | Instance-log ingest | Logging | `MuninnServerLogsIngestTest#an_ingested_instance_log_line_is_readable_back` |
-| GIMLE-321 | gimle-muninn | Node/instance log read with cursor paging | Logging | `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_fresh_store_instance` |
+| GIMLE-321 | gimle-muninn | Node/instance log read with cursor paging | Logging | `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store` |
 | GIMLE-322 | gimle-muninn | `follow=true` rejection on Muninn reads | Logging | `MuninnServerLogsIngestTest#follow_true_is_rejected_since_muninn_only_serves_shipped_history` |
 | GIMLE-343 | gimle-observability | Periodic log-file shipping to Muninn | Logging | `MuninnShipperTest#a_successful_tick_ships_new_log_lines_and_advances_the_cursor`, `#a_failed_tick_does_not_advance_the_cursor_and_retries_next_tick` |
 | GIMLE-323 | gimle-muninn | Metrics ingest | Metrics | `MuninnServerMetricsIngestTest#an_ingested_counter_and_timer_batch_round_trips_with_measurements_intact`, `#an_ingested_timer_with_percentiles_round_trips_the_percentiles_map` |

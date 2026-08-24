@@ -136,7 +136,7 @@ class FabricCrossProcessIntegrationTest {
             "com.gimle.agent.FabricGreeterConsumerHooks",
             false);
 
-    StateStore store = new StateStore(tempDir.resolve("cp-state"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler = new DeploymentReconciler(store, scheduler);
     ReplicaCountReconciler replicaCountReconciler =

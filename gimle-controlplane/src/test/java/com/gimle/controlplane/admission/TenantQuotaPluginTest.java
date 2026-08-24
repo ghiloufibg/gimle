@@ -197,6 +197,6 @@ class TenantQuotaPluginTest {
   }
 
   private StateStore store() {
-    return new StateStore(tempDir.resolve("tenant-quota-plugin-store"));
+    return new StateStore();
   }
 }

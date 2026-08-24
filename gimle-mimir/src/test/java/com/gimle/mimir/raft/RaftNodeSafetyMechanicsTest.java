@@ -55,7 +55,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void a_candidate_with_a_stale_log_never_wins_even_when_its_request_vote_arrives_first() {
     Path dir = tempDir.resolve("voter-seeded");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     log.setTermAndVote(2, Optional.empty());
     log.append(new LogEntry(2, 1, new StateMutation.RemoveTenant("t1")));
@@ -77,7 +77,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void a_follower_truncates_a_conflicting_entry_and_everything_after_it_before_appending() {
     Path dir = tempDir.resolve("follower");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     log.setTermAndVote(1, Optional.empty());
     log.append(new LogEntry(1, 1, new StateMutation.RemoveTenant("t1")));
@@ -105,7 +105,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void the_leader_only_commits_an_entry_from_its_own_current_term() {
     Path dir = tempDir.resolve("figure8-leader");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     log.setTermAndVote(4, Optional.empty());
     // An entry replicated to a majority under an EARLIER term (e.g. by a previous leader that
@@ -142,7 +142,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void apply_never_runs_ahead_of_commit_index_and_never_skips_an_entry() {
     Path dir = tempDir.resolve("apply-ordering");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     log.setTermAndVote(1, Optional.empty());
     log.append(
@@ -179,7 +179,7 @@ class RaftNodeSafetyMechanicsTest {
   @Timeout(5)
   void a_timed_out_proposal_is_truncated_so_it_cannot_ghost_commit_once_quorum_returns() {
     Path dir = tempDir.resolve("timeout-truncate");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     raftLog.setTermAndVote(1, Optional.empty());
     // A short injected timeout, not the real 5s production value -- forceLeaderForTest leaves
@@ -211,7 +211,7 @@ class RaftNodeSafetyMechanicsTest {
   @Timeout(5)
   void a_proposal_that_commits_just_before_its_timeout_fires_is_not_truncated() throws Exception {
     Path dir = tempDir.resolve("timeout-race-committed-first");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     raftLog.setTermAndVote(1, Optional.empty());
     RaftNode leader =
@@ -288,7 +288,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void an_install_snapshot_is_applied_only_once_the_final_done_chunk_arrives() {
     Path dir = tempDir.resolve("chunked-install-snapshot");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode follower = new RaftNode("follower", Map.of(), log, store);
 
@@ -317,7 +317,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void a_chunk_arriving_at_an_unexpected_offset_is_acknowledged_but_not_buffered() {
     Path dir = tempDir.resolve("chunked-install-snapshot-bad-offset");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode follower = new RaftNode("follower", Map.of(), log, store);
 
@@ -337,7 +337,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void an_offset_zero_chunk_discards_a_stale_in_progress_transfer_and_starts_a_fresh_one() {
     Path dir = tempDir.resolve("chunked-install-snapshot-restart");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode follower = new RaftNode("follower", Map.of(), log, store);
 
@@ -358,7 +358,7 @@ class RaftNodeSafetyMechanicsTest {
   @Test
   void an_install_snapshot_for_an_already_superseded_index_drops_any_in_flight_transfer() {
     Path dir = tempDir.resolve("chunked-install-snapshot-superseded");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode follower = new RaftNode("follower", Map.of(), log, store);
 

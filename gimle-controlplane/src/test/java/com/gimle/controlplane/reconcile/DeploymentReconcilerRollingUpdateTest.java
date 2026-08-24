@@ -128,7 +128,7 @@ class DeploymentReconcilerRollingUpdateTest {
 
   @Test
   void a_module_id_change_migrates_exactly_one_index_at_a_time() {
-    StateStore store = new StateStore(tempDir.resolve("store"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -168,7 +168,7 @@ class DeploymentReconcilerRollingUpdateTest {
   @Test
   void mid_rollout_state_survives_a_simulated_reconciler_restart() {
     Path storeDir = tempDir.resolve("store-restart");
-    StateStore store = new StateStore(storeDir);
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -189,7 +189,7 @@ class DeploymentReconcilerRollingUpdateTest {
 
     // Simulate a control-plane restart: fresh StateStore/DeploymentReconciler instances reloading
     // from the same on-disk directory, with no in-memory history at all.
-    StateStore restarted = new StateStore(storeDir);
+    StateStore restarted = new StateStore();
     DeploymentReconciler restartedReconciler = new DeploymentReconciler(restarted, scheduler);
 
     assertEquals(Set.of(0), restarted.getRollingIndices("orders-service"));
@@ -207,7 +207,7 @@ class DeploymentReconcilerRollingUpdateTest {
 
   @Test
   void a_rollout_that_never_turns_ready_stalls_without_touching_other_indices() {
-    StateStore store = new StateStore(tempDir.resolve("store-stalled"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -247,7 +247,7 @@ class DeploymentReconcilerRollingUpdateTest {
    */
   @Test
   void a_ready_observation_still_reporting_the_old_module_id_does_not_clear_the_rollout() {
-    StateStore store = new StateStore(tempDir.resolve("store-stale-heartbeat"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -290,7 +290,7 @@ class DeploymentReconcilerRollingUpdateTest {
   @Test
   void
       a_version_submitted_while_the_prior_rollout_is_still_confirming_does_not_deadlock_future_rollouts() {
-    StateStore store = new StateStore(tempDir.resolve("store-chained-rollout"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");
@@ -339,7 +339,7 @@ class DeploymentReconcilerRollingUpdateTest {
 
   @Test
   void disruption_max_unavailable_caps_concurrent_migrations_and_tops_up_as_each_completes() {
-    StateStore store = new StateStore(tempDir.resolve("store-budget"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
     registerNode(store, "node-a");

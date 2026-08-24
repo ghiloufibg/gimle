@@ -161,7 +161,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Raft Consensus | Complete | Yes |
 | GIMLE-150 | Raft RPC Wire Codec | Internal/Infra | Complete | Yes |
 | GIMLE-151 | Atomic Durable File Writes | Internal/Infra | Complete | Yes |
-| GIMLE-152 | File-Backed State Store Persistence Engine | State Store | Complete | Yes |
+| GIMLE-152 | Raft WAL Persistence Engine with Snapshot-Replay Recovery | State Store | Complete | Yes |
 | GIMLE-153 | Full-State Snapshot / Restore | State Store | Complete | Yes |
 | GIMLE-154 | Replicated Mutation Catalog (StateMutation) | Internal/Infra | Complete | Yes |
 | GIMLE-155 | Leader-Local Node Heartbeat Tracking | State Store | Complete | Yes |
@@ -2880,7 +2880,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.raft.RaftLog` (`append`, `setTermAndVote`, `loadState`, `loadEntries`)
-- **Test coverage**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_log_entry_file_fails_loudly_at_construction`
+- **Test coverage**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`
 - **Gherkin scenario**:
   ```gherkin
   Given a node appends entries and votes; When restarted and RaftLog reopened; Then every persisted entry, term, and vote are recovered exactly as written.
@@ -2915,27 +2915,28 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-151 — Atomic Durable File Writes
 
 - **Category**: Internal/Infra
-- **User story**: As a platform engineer, I want every persisted state file written via temp-file-plus-atomic-rename with fsync.
-- **Status**: Complete
+- **User story**: As a platform engineer, I want whole-file state (the Raft term/vote pair, compaction snapshots) written via temp-file-plus-atomic-rename with fsync.
+- **Status**: Complete. Scope narrowed by the etcd-shape persistence rework: per-resource state files no longer exist (the WAL carries per-mutation durability), so this idiom now covers exactly the whole-file replaces that remain -- term/vote and snapshot state/meta.
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.store.AtomicFiles`
-- **Test coverage**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back`
+- **Test coverage**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`
 - **Gherkin scenario**:
   ```gherkin
   Given a write crashes between temp-file write and final rename; When later read; Then no torn or partially-written file is ever visible.
   ```
 
-#### GIMLE-152 — File-Backed State Store Persistence Engine
+#### GIMLE-152 — Raft WAL Persistence Engine with Snapshot-Replay Recovery
 
 - **Category**: State Store
-- **User story**: As the Raft state machine, I want every resource kind durably persisted to disk and rebuilt in memory on restart.
-- **Status**: Complete
+- **User story**: As the Raft state machine, I want durability carried entirely by the Raft log -- an append-only, CRC-guarded segment WAL plus compaction snapshots -- with the in-memory store rebuilt on restart from snapshot restore plus committed-entry replay.
+- **Status**: Complete. Reworked from the original YAML-file-per-resource write-through engine to etcd's persistence shape: StateStore is purely in-memory; RaftLog rides a segment-based WriteAheadLog (one fsync per appended record, explicit truncation records so a discarded suffix stays discarded across a crash, crash-torn tail discarded on open, any other damage refuses to load, whole-segment compaction under the snapshot floor); a freshly elected leader appends a no-op entry at its own term so committed entries re-apply immediately on a quiet cluster.
 - **Confidence**: High
-- **Source location(s)**: `com.gimle.mimir.store.StateStore`
-- **Test coverage**: `StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
+- **Source location(s)**: `com.gimle.mimir.raft.RaftLog`, `com.gimle.mimir.raft.WriteAheadLog`, `com.gimle.mimir.store.StateStore`
+- **Test coverage**: `RaftLogTest#reopening_recovers_every_persisted_entry`, `#a_truncation_with_nothing_reappended_over_it_survives_reopen`, `#an_entry_reappended_after_truncation_supersedes_the_old_suffix_on_reopen`, `#a_torn_tail_from_a_crash_mid_append_is_discarded_and_the_log_stays_usable`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`, `RaftNodeRecoveryTest#committed_writes_recover_into_an_empty_state_machine_after_restart`, `#a_persisted_snapshot_restores_the_state_machine_at_construction`, `#a_second_restart_recovers_writes_from_both_prior_leaderships`
 - **Gherkin scenario**:
   ```gherkin
-  Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.
+  Given a single-node store with committed writes; When the process restarts against the same directory with an empty in-memory store; Then the snapshot restores at construction and the fresh leader's no-op entry re-applies every committed entry above the floor.
+  Given a crash tears the WAL's final record mid-append; When the log reopens; Then the torn tail is discarded, every acknowledged record survives, and appends continue.
   ```
 
 #### GIMLE-153 — Full-State Snapshot / Restore
@@ -2997,7 +2998,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putInstanceEvent`, `#listInstanceEvents`, `StateMutation.AppendInstanceEvent`
-- **Test coverage**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
+- **Test coverage**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_snapshot_into_a_fresh_store`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
 - **Gherkin scenario**:
   ```gherkin
   Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.
@@ -3049,7 +3050,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putNodeCordon`, `#isNodeCordoned`, `StateMutation.PutNodeCordon`
-- **Test coverage**: `StateStoreTest#node_cordon_round_trips_through_a_fresh_store_instance`, `#uncordoning_a_node_clears_it_and_is_gone_after_reload`, `#a_snapshot_carries_node_cordons_and_restores_them`
+- **Test coverage**: `StateStoreTest#node_cordon_round_trips_through_a_snapshot_into_a_fresh_store`, `#uncordoning_a_node_clears_it_and_is_gone_after_snapshot_restore`, `#a_snapshot_carries_node_cordons_and_restores_them`
 - **Gherkin scenario**:
   ```gherkin
   Given an uncordoned node; When cordoned; Then isNodeCordoned reports true and survives a reload; uncordoning clears it.
@@ -3075,7 +3076,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putRole`/`#putRoleBinding`/`#putAccount`
-- **Test coverage**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
+- **Test coverage**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Gherkin scenario**:
   ```gherkin
   Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.
@@ -5376,7 +5377,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `MuninnServer.java` (`read`, `handleReadNodeLogs`, `handleReadInstanceLogs`), `MuninnDayFileStore.readOlder`/`readAfter`
-- **Test coverage**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_fresh_store_instance`
+- **Test coverage**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Gherkin scenario**:
   ```gherkin
   Given logs previously ingested for a nodeId/category

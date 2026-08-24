@@ -291,6 +291,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     // onInstallSnapshot already applies when a snapshot arrives from a live peer instead of disk.
     this.commitIndex = raftLog.snapshotLastIncludedIndex();
     this.lastApplied = raftLog.snapshotLastIncludedIndex();
+    // The state machine holds nothing durable of its own: rebuild it here from the log's persisted
+    // snapshot, and let ordinary commit advancement re-apply whatever committed entries sit above
+    // the floor -- a follower learns its leader's commit index on first contact, and a fresh
+    // leader's own no-op entry (see becomeLeaderLocked) forces the same catch-up on election.
+    raftLog.loadSnapshot().ifPresent(store::restoreFromSnapshot);
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
@@ -392,6 +397,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     // onInstallSnapshot already applies when a snapshot arrives from a live peer instead of disk.
     this.commitIndex = raftLog.snapshotLastIncludedIndex();
     this.lastApplied = raftLog.snapshotLastIncludedIndex();
+    // The state machine holds nothing durable of its own: rebuild it here from the log's persisted
+    // snapshot, and let ordinary commit advancement re-apply whatever committed entries sit above
+    // the floor -- a follower learns its leader's commit index on first contact, and a fresh
+    // leader's own no-op entry (see becomeLeaderLocked) forces the same catch-up on election.
+    raftLog.loadSnapshot().ifPresent(store::restoreFromSnapshot);
     for (String peerId : this.peers.keySet()) {
       peerWake.put(peerId, new Semaphore(0));
     }
@@ -440,6 +450,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     for (Thread t : peerSenderThreads.values()) {
       t.interrupt();
     }
+    raftLog.close();
     for (RaftPeerClient client : peers.values()) {
       if (client instanceof AutoCloseable closeable) {
         try {
@@ -926,6 +937,12 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     // in an earlier term -- rediscovered here by scanning the tail of the log, so addServer/
     // removeServer correctly refuse a second one until this one actually commits.
     pendingMembershipChangeIndex = findUncommittedMembershipChangeIndexLocked();
+    // The standard new-leader no-op: Raft's commit rule only lets a leader commit an entry from
+    // its own current term, so without one entry of its own a fresh leader over a quiet cluster
+    // could never advance its commit index past what it inherited -- and with a state machine
+    // rebuilt from snapshot plus committed replay, entries between the snapshot floor and the log
+    // tip would stay unapplied on every node until the next client write happened to arrive.
+    raftLog.append(new LogEntry(raftLog.currentTerm(), raftLog.lastIndex() + 1, new Noop()));
     advanceCommitIndexLocked(); // a single-node cluster commits its own writes immediately
     for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
       startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());

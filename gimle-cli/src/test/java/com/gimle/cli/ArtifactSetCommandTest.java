@@ -57,7 +57,7 @@ class ArtifactSetCommandTest {
 
   @BeforeEach
   void startServer() throws IOException {
-    StateStore store = new StateStore(tempDir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
     storeRaftNode = new RaftNode("self", Map.of(), raftLog, store);
     storeRaftNode.start();

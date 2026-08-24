@@ -36,7 +36,7 @@ public final class InProcessStore implements AutoCloseable {
   }
 
   public static InProcessStore start(Path stateDir) throws IOException {
-    StateStore store = new StateStore(stateDir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
     RaftNode raftNode = new RaftNode("self", Map.of(), raftLog, store);
     raftNode.start(); // empty peer set: majority of one, trivially always leader

@@ -8,38 +8,34 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.TreeMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
- * A Raft node's persisted log plus current term/vote and its latest installed snapshot: every entry
- * survives a crash before it's ever acknowledged, in a {@code raft/} directory sibling to {@code
- * StateStore}'s own {@code deployments/}/{@code assignments/}/{@code nodes/}, written through
- * {@link AtomicFiles} -- the same durability idiom, not a second one. Term and vote are kept in a
- * single file, since the two must never be observed torn relative to each other; each log entry is
- * its own immutable file, {@link RaftCodec}-encoded; a compaction floor and the snapshot bytes it
- * replaced everything up to are kept alongside.
+ * A Raft node's persisted log plus current term/vote and its latest installed snapshot, under a
+ * {@code raft/} directory. The log itself is the node's durable source of truth -- the state
+ * machine ({@code StateStore}) holds nothing on disk of its own, so recovery is this log's snapshot
+ * plus committed-entry replay -- and rides a {@link WriteAheadLog}: append-only segment files, one
+ * fsync per appended record, never a rewrite in place. Term and vote are kept in their own single
+ * file (written through {@link AtomicFiles}, whole-file-replace being the right idiom for a
+ * two-field record that must never be observed torn), as are the compaction floor and the snapshot
+ * bytes it replaced everything up to.
  *
  * <p>Not thread-safe on its own -- callers ({@link RaftNode}) are expected to serialize access
- * under their own lock, matching how {@code StateStore} itself relies on its maps' own concurrency
- * rather than external synchronization for a different reason (many independent keys); here it's
- * simpler to require the single caller already holds a lock for Raft's own safety mechanics.
+ * under their own lock; it's simpler to require the single caller already holds a lock for Raft's
+ * own safety mechanics.
  */
-public final class RaftLog {
-
-  private static final Logger log = LoggerFactory.getLogger(RaftLog.class);
+public final class RaftLog implements AutoCloseable {
 
   private final Path root;
+  private final WriteAheadLog wal;
   private final NavigableMap<Long, LogEntry> entries = new TreeMap<>();
   private long currentTerm;
   private String votedFor;
@@ -49,14 +45,36 @@ public final class RaftLog {
   public RaftLog(Path root) {
     this.root = root;
     try {
-      Files.createDirectories(logDir());
       Files.createDirectories(snapshotDir());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
     loadState();
     loadSnapshotMeta();
-    loadEntries();
+    this.wal = new WriteAheadLog(walDir());
+    wal.replay(
+        new WriteAheadLog.RecordReplay() {
+          @Override
+          public void onEntry(LogEntry entry) {
+            // A re-append after truncation supersedes everything from its index up -- the same
+            // rule a live conflicting-entry truncation applies, reproduced in replay order.
+            entries.tailMap(entry.index(), true).clear();
+            entries.put(entry.index(), entry);
+          }
+
+          @Override
+          public void onTruncate(long fromIndex) {
+            entries.tailMap(fromIndex, true).clear();
+          }
+        });
+    // Compaction deletes only whole segments, so retained segments can still open with records
+    // already covered by the snapshot floor -- the snapshot supersedes those.
+    entries.headMap(snapshotLastIncludedIndex, true).clear();
+  }
+
+  @Override
+  public void close() {
+    wal.close();
   }
 
   // ---- term / vote ----
@@ -78,7 +96,7 @@ public final class RaftLog {
   // ---- log ----
 
   public void append(LogEntry entry) {
-    AtomicFiles.writeAtomically(entryFile(entry.index()), RaftCodec.encodeLogEntry(entry));
+    wal.appendEntry(entry);
     entries.put(entry.index(), entry);
   }
 
@@ -118,21 +136,18 @@ public final class RaftLog {
   }
 
   /**
-   * Deletes every entry at or after {@code index} -- truncation of conflicting entries once a
-   * follower's log is found to diverge from the leader's.
+   * Discards every entry at or after {@code index} -- truncation of conflicting entries once a
+   * follower's log is found to diverge from the leader's, or of a leader's own timed-out proposal.
+   * Durable via an explicit truncate record rather than rewriting segments: replay applies the
+   * record in order, so the discarded entries stay discarded even if nothing is ever appended over
+   * them again.
    */
   public void truncateFrom(long index) {
-    for (Long key : new ArrayList<>(entries.tailMap(index, true).keySet())) {
-      try {
-        AtomicFiles.deleteQuietly(entryFile(key));
-      } catch (UncheckedIOException e) {
-        log.warn(
-            "failed to delete truncated Raft log entry file {}: {}",
-            entryFile(key),
-            e.getMessage());
-      }
-      entries.remove(key);
+    if (index > lastIndex()) {
+      return;
     }
+    wal.appendTruncate(index, lastIndex());
+    entries.tailMap(index, true).clear();
   }
 
   // ---- snapshot ----
@@ -148,17 +163,8 @@ public final class RaftLog {
     writeSnapshotMeta(lastIncludedIndex, lastIncludedTerm);
     this.snapshotLastIncludedIndex = lastIncludedIndex;
     this.snapshotLastIncludedTerm = lastIncludedTerm;
-    for (Long key : new ArrayList<>(entries.headMap(lastIncludedIndex, true).keySet())) {
-      try {
-        AtomicFiles.deleteQuietly(entryFile(key));
-      } catch (UncheckedIOException e) {
-        log.warn(
-            "failed to delete compacted Raft log entry file {}: {}",
-            entryFile(key),
-            e.getMessage());
-      }
-      entries.remove(key);
-    }
+    entries.headMap(lastIncludedIndex, true).clear();
+    wal.compact(lastIncludedIndex);
   }
 
   public long snapshotLastIncludedIndex() {
@@ -208,12 +214,8 @@ public final class RaftLog {
     return root.resolve("state.yaml");
   }
 
-  private Path logDir() {
-    return root.resolve("log");
-  }
-
-  private Path entryFile(long index) {
-    return logDir().resolve(index + ".bin");
+  private Path walDir() {
+    return root.resolve("wal");
   }
 
   private Path snapshotDir() {
@@ -262,31 +264,6 @@ public final class RaftLog {
     map.put("lastIncludedIndex", lastIncludedIndex);
     map.put("lastIncludedTerm", lastIncludedTerm);
     AtomicFiles.writeAtomically(snapshotMetaFile(), new Yaml().dump(map));
-  }
-
-  private void loadEntries() {
-    if (!Files.isDirectory(logDir())) {
-      return;
-    }
-    try (var stream = Files.newDirectoryStream(logDir(), "*.bin")) {
-      for (Path file : stream) {
-        byte[] bytes;
-        try {
-          bytes = Files.readAllBytes(file);
-        } catch (IOException e) {
-          throw new UncheckedIOException(e);
-        }
-        LogEntry entry;
-        try {
-          entry = RaftCodec.decodeLogEntry(bytes);
-        } catch (RuntimeException e) {
-          throw new IllegalStateException("corrupt Raft log entry file " + file, e);
-        }
-        entries.put(entry.index(), entry);
-      }
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
   }
 
   private static Map<?, ?> loadYamlMap(Path file) {

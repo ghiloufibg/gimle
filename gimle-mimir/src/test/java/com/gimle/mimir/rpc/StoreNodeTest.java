@@ -65,7 +65,7 @@ class StoreNodeTest {
 
   private StoreNode leaderNode(String id) {
     Path dir = tempDir.resolve(id);
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
     nodes.add(raftNode);
@@ -76,7 +76,7 @@ class StoreNodeTest {
   /** Never started, so it stays FOLLOWER with no leader hint at all -- the mid-election gap. */
   private StoreNode neverElectedNode(String id) {
     Path dir = tempDir.resolve(id);
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode = new RaftNode(id, Map.of(), log, store);
     nodes.add(raftNode);
@@ -330,7 +330,7 @@ class StoreNodeTest {
   @Test
   void a_leader_adds_a_server_and_the_client_address_book_learns_its_address() {
     Path dir = tempDir.resolve("add-server-leader");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     Map<String, String> raftIdToClientAddress = new ConcurrentHashMap<>();
     raftIdToClientAddress.put("leader", "leader-client:9090");
@@ -370,7 +370,7 @@ class StoreNodeTest {
   @Test
   void a_leader_removes_a_server_it_previously_added() throws Exception {
     Path dir = tempDir.resolve("remove-server-leader");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog log = new RaftLog(dir.resolve("raft"));
     RaftNode raftNode =
         new RaftNode(

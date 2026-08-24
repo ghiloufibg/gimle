@@ -69,6 +69,6 @@ class AdmissionChainTest {
   }
 
   private StateStore store() {
-    return new StateStore(tempDir.resolve("admission-chain-store"));
+    return new StateStore();
   }
 }

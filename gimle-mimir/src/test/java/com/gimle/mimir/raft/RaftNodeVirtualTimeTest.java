@@ -71,7 +71,7 @@ class RaftNodeVirtualTimeTest {
       election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time()
           throws Exception {
     Path dir = tempDir.resolve("virtual-time");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     TestClock clock = new TestClock();
     TestScheduler scheduler = new TestScheduler(clock);

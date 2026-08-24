@@ -2677,7 +2677,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_log_entry_file_fails_loudly_at_construction`",
+      "otherTestCoverage": "`RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`",
       "sourceLocations": [
         "`com.gimle.mimir.raft.RaftLog` (`append`, `setTermAndVote`, `loadState`, `loadEntries`)"
       ]
@@ -2734,7 +2734,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Atomic Durable File Writes\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `mimir`'s own unit test does.",
-      "otherTestCoverage": "`AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back`",
+      "otherTestCoverage": "`AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`",
       "sourceLocations": [
         "`com.gimle.mimir.store.AtomicFiles`"
       ]
@@ -2742,21 +2742,23 @@
     {
       "id": "GIMLE-152",
       "module": "gimle-mimir",
-      "feature": "File-Backed State Store Persistence Engine",
+      "feature": "Raft WAL Persistence Engine with Snapshot-Replay Recovery",
       "category": "State Store",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Reworked to etcd's persistence shape: in-memory StateStore, segment-based WAL as the durable source of truth, snapshot-plus-committed-replay restart recovery, fresh-leader no-op catch-up. The Holmgang restart scenario asserts the same black-box behavior (state survives a real store process kill and respawn) against the new engine.",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
           "featureFile": "gimle-holmgang/src/test/resources/features/state-store-persistence.feature",
           "scenario": "Tenants, roles, role bindings, and accounts survive a store restart, snapshot included",
-          "whyThisCounts": "Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable from the freshly-opened StateStore instance -- a genuine process restart against the same directory, not an in-process reopen."
+          "whyThisCounts": "Writes a tenant, a role, a role binding, and an account, then kills and respawns the sole store process against the identical on-disk directory (the real GimleProcess#restart contract) and confirms every one of them, plus 10,500 bulk-written tenants, is still readable -- a genuine process restart recovering purely from the Raft WAL and its compaction snapshot (10,500 entries crosses the snapshot threshold), since the state machine itself persists nothing."
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
+      "otherTestCoverage": "`RaftLogTest#reopening_recovers_every_persisted_entry`, `#a_truncation_with_nothing_reappended_over_it_survives_reopen`, `#an_entry_reappended_after_truncation_supersedes_the_old_suffix_on_reopen`, `#a_torn_tail_from_a_crash_mid_append_is_discarded_and_the_log_stays_usable`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`, `RaftNodeRecoveryTest#committed_writes_recover_into_an_empty_state_machine_after_restart`, `#a_persisted_snapshot_restores_the_state_machine_at_construction`, `#a_second_restart_recovers_writes_from_both_prior_leaderships`",
       "sourceLocations": [
+        "`com.gimle.mimir.raft.RaftLog`",
+        "`com.gimle.mimir.raft.WriteAheadLog`",
         "`com.gimle.mimir.store.StateStore`"
       ]
     },
@@ -2861,7 +2863,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`",
+      "otherTestCoverage": "`StateStoreTest#instance_events_round_trip_newest_first_through_a_snapshot_into_a_fresh_store`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`",
       "sourceLocations": [
         "`StateStore#putInstanceEvent`",
         "`#listInstanceEvents`",
@@ -2953,7 +2955,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`StateStoreTest#node_cordon_round_trips_through_a_fresh_store_instance`, `#uncordoning_a_node_clears_it_and_is_gone_after_reload`, `#a_snapshot_carries_node_cordons_and_restores_them`",
+      "otherTestCoverage": "`StateStoreTest#node_cordon_round_trips_through_a_snapshot_into_a_fresh_store`, `#uncordoning_a_node_clears_it_and_is_gone_after_snapshot_restore`, `#a_snapshot_carries_node_cordons_and_restores_them`",
       "sourceLocations": [
         "`StateStore#putNodeCordon`",
         "`#isNodeCordoned`",
@@ -2998,7 +3000,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`",
+      "otherTestCoverage": "`StateStoreTest#role_role_binding_and_account_round_trip_through_a_snapshot_into_a_fresh_store`",
       "sourceLocations": [
         "`StateStore#putRole`/`#putRoleBinding`/`#putAccount`"
       ]
@@ -5719,7 +5721,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given logs previously ingested for a nodeId/category",
-      "otherTestCoverage": "`MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_fresh_store_instance`",
+      "otherTestCoverage": "`MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store`",
       "sourceLocations": [
         "`MuninnServer.java` (`read`, `handleReadNodeLogs`, `handleReadInstanceLogs`)",
         "`MuninnDayFileStore.readOlder`/`readAfter`"

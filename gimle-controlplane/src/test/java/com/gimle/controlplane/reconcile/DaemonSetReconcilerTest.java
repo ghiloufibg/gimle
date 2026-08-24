@@ -90,7 +90,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void places_an_assignment_on_every_registered_node() {
-    StateStore store = new StateStore(tempDir.resolve("store-basic"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
@@ -108,7 +108,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void required_labels_restrict_placement_to_matching_nodes_only() {
-    StateStore store = new StateStore(tempDir.resolve("store-labels"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(
@@ -125,7 +125,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void leaves_the_daemonset_unassigned_without_throwing_when_no_node_is_registered() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-nodes"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
@@ -139,7 +139,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void cordoning_a_node_removes_its_assignment_on_the_next_tick() {
-    StateStore store = new StateStore(tempDir.resolve("store-cordon"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
@@ -159,7 +159,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void deleting_a_daemonset_removes_its_orphaned_assignments() {
-    StateStore store = new StateStore(tempDir.resolve("store-delete"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
@@ -176,7 +176,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void refuses_to_place_when_the_jar_on_disk_no_longer_matches_the_recorded_hash() {
-    StateStore store = new StateStore(tempDir.resolve("store-hash-mismatch"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -202,7 +202,7 @@ class DaemonSetReconcilerTest {
     // node with no assignment at all yet. A from-scratch reconcile must fix both without any
     // history beyond this snapshot -- the level-triggered convergence property every reconciler
     // in this codebase is held to.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     DaemonSetSpec spec = daemonSet("node-exporter", jar, PlacementConstraints.NONE);
@@ -223,7 +223,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void rolling_update_replaces_one_node_at_a_time_and_waits_for_readiness() {
-    StateStore store = new StateStore(tempDir.resolve("store-rolling"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jarV1 = buildFixtureJar();
     registerNode(store, "node-a");
@@ -271,7 +271,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("store-dark-grace"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     DaemonSetSpec spec = daemonSet("node-exporter", jar, PlacementConstraints.NONE);
@@ -321,7 +321,7 @@ class DaemonSetReconcilerTest {
     // A cordon is a deliberate operator action, not an ambiguous "is the node still there"
     // signal -- it must not wait out the darkness grace period even when the node also happens to
     // be unreachable.
-    StateStore store = new StateStore(tempDir.resolve("store-cordon-dark"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));

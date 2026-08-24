@@ -237,6 +237,6 @@ class LimitRangePluginTest {
   }
 
   private StateStore store() {
-    return new StateStore(tempDir.resolve("limit-range-plugin-store"));
+    return new StateStore();
   }
 }

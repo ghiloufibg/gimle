@@ -71,7 +71,7 @@ class ServiceReconcilerTest {
 
   @Test
   void an_empty_store_converges_to_an_empty_endpoint_list() {
-    StateStore store = new StateStore(tempDir.resolve("store-empty"));
+    StateStore store = new StateStore();
     ServiceRegistry registry = new ServiceRegistry(store);
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
@@ -85,7 +85,7 @@ class ServiceReconcilerTest {
 
   @Test
   void a_store_with_active_and_ready_instances_already_present_converges_to_their_endpoints() {
-    StateStore store = new StateStore(tempDir.resolve("store-active"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));
@@ -100,7 +100,7 @@ class ServiceReconcilerTest {
 
   @Test
   void an_instance_reported_alive_but_not_ready_yet_contributes_no_endpoint() {
-    StateStore store = new StateStore(tempDir.resolve("store-not-ready"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, false, Map.of("HTTP_PORT", 51234));
@@ -115,7 +115,7 @@ class ServiceReconcilerTest {
 
   @Test
   void an_instance_with_no_heartbeat_yet_contributes_no_endpoint() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-heartbeat"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     // no heartbeat ever recorded for node-a
@@ -131,7 +131,7 @@ class ServiceReconcilerTest {
   /** deploymentNames is a real selector across multiple workload names, not just a single one. */
   @Test
   void endpoints_are_aggregated_across_every_deployment_name_in_the_selector() {
-    StateStore store = new StateStore(tempDir.resolve("store-multi-deployment"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     registerNode(store, "node-b", "10.0.0.6:9101");
     store.putAssignment(new InstanceAssignment("orders-v1", 0, "node-a", MODULE_ID, ""));
@@ -152,7 +152,7 @@ class ServiceReconcilerTest {
 
   @Test
   void one_services_failure_does_not_prevent_another_from_reconciling() {
-    StateStore store = new StateStore(tempDir.resolve("store-mixed"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));
@@ -171,7 +171,7 @@ class ServiceReconcilerTest {
 
   @Test
   void reconciling_again_after_a_backing_instance_goes_away_clears_its_endpoint() {
-    StateStore store = new StateStore(tempDir.resolve("store-churn"));
+    StateStore store = new StateStore();
     registerNode(store, "node-a", "10.0.0.5:9101");
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a", MODULE_ID, ""));
     putHeartbeat(store, "node-a", "orders-service", 0, true, Map.of("HTTP_PORT", 51234));

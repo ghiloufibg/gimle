@@ -125,6 +125,7 @@ public final class RaftCodec {
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
+  private static final byte PAYLOAD_NOOP = 2;
 
   /**
    * Generous upper bound for any single length-prefixed frame this codec ever produces (a {@link
@@ -277,6 +278,7 @@ public final class RaftCodec {
         out.writeByte(PAYLOAD_MEMBERSHIP_CHANGE);
         writeMembershipChange(out, change);
       }
+      case Noop ignored -> out.writeByte(PAYLOAD_NOOP);
     }
   }
 
@@ -288,6 +290,7 @@ public final class RaftCodec {
         switch (payloadKind) {
           case PAYLOAD_STATE_MUTATION -> readStateMutation(in);
           case PAYLOAD_MEMBERSHIP_CHANGE -> readMembershipChange(in);
+          case PAYLOAD_NOOP -> new Noop();
           default ->
               throw new IllegalArgumentException("unknown Raft log payload kind: " + payloadKind);
         };

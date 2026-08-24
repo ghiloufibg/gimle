@@ -114,7 +114,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void scales_up_by_one_replica_per_tick_under_sustained_high_utilization() {
-    StateStore store = new StateStore(tempDir.resolve("store-scale-up"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
@@ -135,7 +135,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void never_exceeds_max_replicas() {
-    StateStore store = new StateStore(tempDir.resolve("store-max-clamp"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
@@ -152,7 +152,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void scales_down_by_one_replica_per_tick_under_sustained_low_utilization() {
-    StateStore store = new StateStore(tempDir.resolve("store-scale-down"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
@@ -171,7 +171,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void never_goes_below_min_replicas() {
-    StateStore store = new StateStore(tempDir.resolve("store-min-clamp"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(2, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
@@ -189,7 +189,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void holds_the_current_count_when_nothing_ready_reports_yet() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-signal"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 3, jar, policy);
@@ -205,7 +205,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void deployments_without_a_policy_are_left_untouched() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-policy"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     DeploymentSpec spec =
         new DeploymentSpec(
@@ -224,7 +224,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void does_not_repropose_an_unchanged_effective_replica_count_from_the_no_signal_branch() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes-no-signal"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 3, jar, policy);
@@ -253,7 +253,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void does_not_repropose_once_scaling_has_converged_and_clamped_at_the_ceiling() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes-converged"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
@@ -289,7 +289,7 @@ class AutoscaleReconcilerTest {
     // minReplicas) applied after the value was last written -- a fresh reconciler has no history
     // of how it got there, only what's persisted now, and must still converge to the current
     // policy's bounds on this very first tick.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
 
     Path jarHigh = buildFixtureJar();
@@ -312,7 +312,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target() {
-    StateStore store = new StateStore(tempDir.resolve("store-queue-depth-wins"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // CPU target 50%, queue-depth target 2: CPU alone (10% util) would want to hold/scale down,
     // but every ready instance reports a queue depth of 10 -- 5x its target.
@@ -334,7 +334,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void request_rate_alone_can_drive_scale_up_when_cpu_is_under_target() {
-    StateStore store = new StateStore(tempDir.resolve("store-request-rate-wins"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy =
         new AutoscalePolicy(
@@ -352,7 +352,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void error_rate_alone_can_drive_scale_up_when_cpu_is_under_target() {
-    StateStore store = new StateStore(tempDir.resolve("store-error-rate-wins"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     AutoscalePolicy policy =
         new AutoscalePolicy(
@@ -370,7 +370,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void a_cpu_only_policy_ignores_non_cpu_signals_even_when_present_in_observations() {
-    StateStore store = new StateStore(tempDir.resolve("store-cpu-only-regression"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // The pre-Part-C 3-arg constructor: no request-rate/error-rate/queue-depth targets configured.
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
@@ -390,7 +390,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void weighted_mode_blends_two_signals_instead_of_taking_the_max() {
-    StateStore store = new StateStore(tempDir.resolve("store-weighted-blend"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // CPU well under target (10% vs 50%, ratio 0.2) but request rate just over its own target (11
     // vs 10 req/s, ratio 1.1). Under WORST_SIGNAL, max(0.2, 1.1) wins and drives a scale-up (see
@@ -426,7 +426,7 @@ class AutoscaleReconcilerTest {
 
   @Test
   void weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average() {
-    StateStore store = new StateStore(tempDir.resolve("store-weighted-unweighted-average"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // CPU ratio 0.2 (10% vs 50% target), request-rate ratio 1.4 (14 vs 10 req/s target) -- neither
     // weight configured, so both default to 1.0 and the blended ratio is a plain average: (0.2 +
@@ -462,7 +462,7 @@ class AutoscaleReconcilerTest {
     // converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count above, but for
     // WEIGHTED mode blending two signals (not WORST_SIGNAL, and not a single trivial signal) --
     // CLAUDE.md's reconciler-convergence requirement applies to the new combination mode too.
-    StateStore store = new StateStore(tempDir.resolve("store-weighted-convergence"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // CPU ratio 0.2 (10% vs 50% target, weight 1.0 default), queue-depth ratio 3.0 (15 vs target 5,
     // weight 2.0) -- blended ratio (0.2*1 + 3.0*2)/(1+2) ~= 2.07, comfortably above 1.0, so this

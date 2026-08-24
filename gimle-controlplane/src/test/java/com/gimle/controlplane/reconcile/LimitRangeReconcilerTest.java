@@ -62,7 +62,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void marks_a_deployment_violating_when_it_breaches_the_tenants_range() {
-    StateStore store = new StateStore(tempDir.resolve("store-over"));
+    StateStore store = new StateStore();
     store.putLimitRange(
         new LimitRangeSpec(
             "acme",
@@ -83,7 +83,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void does_not_mark_a_deployment_within_its_tenants_range() {
-    StateStore store = new StateStore(tempDir.resolve("store-within"));
+    StateStore store = new StateStore();
     store.putLimitRange(
         new LimitRangeSpec(
             "acme",
@@ -101,7 +101,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void ignores_untenanted_deployments() {
-    StateStore store = new StateStore(tempDir.resolve("store-untenanted"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     store.putDeployment(
         new DeploymentSpec(
@@ -118,7 +118,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void ignores_a_deployment_whose_tenant_has_no_limit_range() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-range"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     store.putDeployment(tenantedDeployment("orders", jar, "acme"));
 
@@ -129,7 +129,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void clears_a_violation_once_the_range_is_relaxed_again_convergence_from_arbitrary_state() {
-    StateStore store = new StateStore(tempDir.resolve("store-converge"));
+    StateStore store = new StateStore();
     store.putLimitRange(
         new LimitRangeSpec(
             "acme",
@@ -159,7 +159,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void updates_the_persisted_reason_when_the_failing_bound_changes_while_still_violating() {
-    StateStore store = new StateStore(tempDir.resolve("store-reason-change"));
+    StateStore store = new StateStore();
     store.putLimitRange(
         new LimitRangeSpec(
             "acme",
@@ -193,7 +193,7 @@ class LimitRangeReconcilerTest {
 
   @Test
   void one_deployments_unresolvable_artifact_does_not_abort_the_rest_of_the_tick() {
-    StateStore store = new StateStore(tempDir.resolve("store-partial-failure"));
+    StateStore store = new StateStore();
     store.putLimitRange(
         new LimitRangeSpec(
             "acme",

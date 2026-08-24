@@ -135,7 +135,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.controlplaneit", "1.0.0"))
             .build(tempDir, "fixture.jar");
 
-    StateStore store = new StateStore(tempDir.resolve("cp-state"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     DeploymentReconciler deploymentReconciler = new DeploymentReconciler(store, scheduler);
     // nodeDarkTimeout must comfortably exceed the agent's own 5s heartbeat cadence (15s covers 3
@@ -272,7 +272,7 @@ class ControlPlaneAgentWorkerIntegrationTest {
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.controlplaneit", "1.0.0"))
             .build(tempDir, "fixture.jar");
 
-    StateStore store = new StateStore(tempDir.resolve("cp-state"));
+    StateStore store = new StateStore();
     store.putTenant(
         new com.gimle.core.tenant.Tenant(
             "qa-tenant", new com.gimle.core.tenant.ResourceQuota(1_073_741_824L, 4000, 10)));
