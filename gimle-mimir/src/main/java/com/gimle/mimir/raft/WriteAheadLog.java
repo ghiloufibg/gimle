@@ -313,7 +313,11 @@ final class WriteAheadLog implements AutoCloseable {
   }
 
   private static long sequenceOf(Path file) {
-    String name = file.getFileName().toString();
+    Path fileName = file.getFileName();
+    if (fileName == null) {
+      throw new IllegalStateException("WAL segment path has no file name: " + file);
+    }
+    String name = fileName.toString();
     try {
       return Long.parseLong(name.substring(0, name.length() - ".wal".length()));
     } catch (NumberFormatException e) {
