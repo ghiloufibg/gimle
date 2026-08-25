@@ -47,7 +47,7 @@ class StoreRpcLatencyTest {
   @Timeout(30)
   void many_sequential_store_reads_are_not_paying_a_per_call_nagle_stall(@TempDir Path tempDir)
       throws IOException {
-    StateStore store = new StateStore(tempDir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
     RaftNode raftNode = new RaftNode("self", Map.of(), raftLog, store);
     raftNode.start();

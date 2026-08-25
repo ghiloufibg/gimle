@@ -161,7 +161,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Raft Consensus | Complete | Yes |
 | GIMLE-150 | Raft RPC Wire Codec | Internal/Infra | Complete | Yes |
 | GIMLE-151 | Atomic Durable File Writes | Internal/Infra | Complete | Yes |
-| GIMLE-152 | File-Backed State Store Persistence Engine | State Store | Complete | Yes |
+| GIMLE-152 | Raft WAL Persistence Engine with Snapshot-Replay Recovery | State Store | Complete | Yes |
 | GIMLE-153 | Full-State Snapshot / Restore | State Store | Complete | Yes |
 | GIMLE-154 | Replicated Mutation Catalog (StateMutation) | Internal/Infra | Complete | Yes |
 | GIMLE-155 | Leader-Local Node Heartbeat Tracking | State Store | Complete | Yes |
@@ -615,6 +615,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Worker Supervision | Complete | Yes |
 | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Multi-Tenancy | Complete | Yes |
 | GIMLE-605 | `limitrange` get/set/delete verbs | CLI | Complete | Yes |
+| GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | Complete | Yes |
+| GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2880,7 +2882,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.raft.RaftLog` (`append`, `setTermAndVote`, `loadState`, `loadEntries`)
-- **Test coverage**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_log_entry_file_fails_loudly_at_construction`
+- **Test coverage**: `RaftLogTest#term_and_vote_persist_across_reopen`, `#reopening_recovers_every_persisted_entry`, `#a_far_behind_node_recovers_the_snapshot_floor_and_bytes_across_reopen`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`
 - **Gherkin scenario**:
   ```gherkin
   Given a node appends entries and votes; When restarted and RaftLog reopened; Then every persisted entry, term, and vote are recovered exactly as written.
@@ -2915,27 +2917,28 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-151 — Atomic Durable File Writes
 
 - **Category**: Internal/Infra
-- **User story**: As a platform engineer, I want every persisted state file written via temp-file-plus-atomic-rename with fsync.
-- **Status**: Complete
+- **User story**: As a platform engineer, I want whole-file state (the Raft term/vote pair, compaction snapshots) written via temp-file-plus-atomic-rename with fsync.
+- **Status**: Complete. Scope narrowed by the etcd-shape persistence rework: per-resource state files no longer exist (the WAL carries per-mutation durability), so this idiom now covers exactly the whole-file replaces that remain -- term/vote and snapshot state/meta.
 - **Confidence**: High
 - **Source location(s)**: `com.gimle.mimir.store.AtomicFiles`
-- **Test coverage**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`, `StateStoreTest#a_leftover_tmp_file_from_an_interrupted_write_is_never_read_back`
+- **Test coverage**: `AtomicFilesTest#writes_content_visible_under_the_final_name_with_no_leftover_tmp_file`, `#the_written_file_has_no_unflushed_dirty_state_after_writeatomically_returns`
 - **Gherkin scenario**:
   ```gherkin
   Given a write crashes between temp-file write and final rename; When later read; Then no torn or partially-written file is ever visible.
   ```
 
-#### GIMLE-152 — File-Backed State Store Persistence Engine
+#### GIMLE-152 — Raft WAL Persistence Engine with Snapshot-Replay Recovery
 
 - **Category**: State Store
-- **User story**: As the Raft state machine, I want every resource kind durably persisted to disk and rebuilt in memory on restart.
-- **Status**: Complete
+- **User story**: As the Raft state machine, I want durability carried entirely by the Raft log -- an append-only, CRC-guarded segment WAL plus compaction snapshots -- with the in-memory store rebuilt on restart from snapshot restore plus committed-entry replay.
+- **Status**: Complete. Reworked from the original YAML-file-per-resource write-through engine to etcd's persistence shape: StateStore is purely in-memory; RaftLog rides a segment-based WriteAheadLog (one fsync per appended record, explicit truncation records so a discarded suffix stays discarded across a crash, crash-torn tail discarded on open, any other damage refuses to load, whole-segment compaction under the snapshot floor); a freshly elected leader appends a no-op entry at its own term so committed entries re-apply immediately on a quiet cluster.
 - **Confidence**: High
-- **Source location(s)**: `com.gimle.mimir.store.StateStore`
-- **Test coverage**: `StateStoreTest#a_fresh_store_creates_its_directory_layout`, `#deployment_round_trips_through_a_fresh_store_instance`, `#removed_deployment_is_gone_after_reload`, `#assignment_round_trips_and_is_scoped_to_its_deployment`, `#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
+- **Source location(s)**: `com.gimle.mimir.raft.RaftLog`, `com.gimle.mimir.raft.WriteAheadLog`, `com.gimle.mimir.store.StateStore`
+- **Test coverage**: `RaftLogTest#reopening_recovers_every_persisted_entry`, `#a_truncation_with_nothing_reappended_over_it_survives_reopen`, `#an_entry_reappended_after_truncation_supersedes_the_old_suffix_on_reopen`, `#a_torn_tail_from_a_crash_mid_append_is_discarded_and_the_log_stays_usable`, `#a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction`, `RaftNodeRecoveryTest#committed_writes_recover_into_an_empty_state_machine_after_restart`, `#a_persisted_snapshot_restores_the_state_machine_at_construction`, `#a_second_restart_recovers_writes_from_both_prior_leaderships`
 - **Gherkin scenario**:
   ```gherkin
-  Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store.
+  Given a single-node store with committed writes; When the process restarts against the same directory with an empty in-memory store; Then the snapshot restores at construction and the fresh leader's no-op entry re-applies every committed entry above the floor.
+  Given a crash tears the WAL's final record mid-append; When the log reopens; Then the torn tail is discarded, every acknowledged record survives, and appends continue.
   ```
 
 #### GIMLE-153 — Full-State Snapshot / Restore
@@ -2997,7 +3000,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putInstanceEvent`, `#listInstanceEvents`, `StateMutation.AppendInstanceEvent`
-- **Test coverage**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_fresh_store_instance`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
+- **Test coverage**: `StateStoreTest#instance_events_round_trip_newest_first_through_a_snapshot_into_a_fresh_store`, `#instance_events_beyond_the_retention_cap_prune_the_oldest_first`
 - **Gherkin scenario**:
   ```gherkin
   Given an instance that has accumulated more than MAX_EVENTS_PER_INSTANCE events; When another event is appended; Then the oldest event is pruned; listInstanceEvents returns newest-first.
@@ -3049,7 +3052,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putNodeCordon`, `#isNodeCordoned`, `StateMutation.PutNodeCordon`
-- **Test coverage**: `StateStoreTest#node_cordon_round_trips_through_a_fresh_store_instance`, `#uncordoning_a_node_clears_it_and_is_gone_after_reload`, `#a_snapshot_carries_node_cordons_and_restores_them`
+- **Test coverage**: `StateStoreTest#node_cordon_round_trips_through_a_snapshot_into_a_fresh_store`, `#uncordoning_a_node_clears_it_and_is_gone_after_snapshot_restore`, `#a_snapshot_carries_node_cordons_and_restores_them`
 - **Gherkin scenario**:
   ```gherkin
   Given an uncordoned node; When cordoned; Then isNodeCordoned reports true and survives a reload; uncordoning clears it.
@@ -3075,7 +3078,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `StateStore#putRole`/`#putRoleBinding`/`#putAccount`
-- **Test coverage**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_fresh_store_instance`
+- **Test coverage**: `StateStoreTest#role_role_binding_and_account_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Gherkin scenario**:
   ```gherkin
   Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically.
@@ -3382,6 +3385,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409.
   Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted.
+  ```
+
+#### GIMLE-606 — Group commit via batched mutations (StateMutation.Batch / proposeAll)
+
+- **Category**: State Store
+- **User story**: As a reconciler emitting a burst of independent mutations in one tick, I want them replicated as a single Raft log entry so the burst pays one consensus round and one WAL fsync instead of one per mutation.
+- **Status**: Complete. StateMutation.Batch carries N non-nested mutations in one log entry, applied in order; MutationSink.proposeAll wraps a burst (empty list is a no-op, a single mutation is proposed bare) and rides the existing single-mutation Propose RPC unchanged, so RaftNode and StoreClient both inherit it with no wiring change. Every reconciler with a multi-mutation group now batches it: DeploymentReconciler, StatefulSetReconciler, and DaemonSetReconciler batch their burst sites (sweeps, reclaims/evictions, placements, rolling bookkeeping, surge settlement/starts, assignment-plus-sticky-binding pairs), and JobReconciler, CronJobReconciler, HealthReconciler, and ReplicaCountReconciler batch their per-event transition groups (run-plus-phase terminal pairs, retry-placement-plus-removal, cron last-schedule-advance-plus-firing, release-plus-bookkeeping) -- making each transition atomic and closing the crash windows the old two-entry orderings commented around. Flush points sit before each store read-back so per-tick visibility is unchanged. Quota/LimitRange/Service reconcilers emit single mutations and have nothing to batch.
+- **Confidence**: High
+- **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`, `com.gimle.controlplane.reconcile.StatefulSetReconciler`, `com.gimle.controlplane.reconcile.DaemonSetReconciler`, `com.gimle.controlplane.reconcile.JobReconciler`, `com.gimle.controlplane.reconcile.CronJobReconciler`, `com.gimle.controlplane.reconcile.HealthReconciler`, `com.gimle.controlplane.reconcile.ReplicaCountReconciler`
+- **Test coverage**: `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order.
+  Given an empty or nested batch; When constructed; Then it is rejected outright.
   ```
 
 ### gimle-fabric
@@ -4707,6 +4724,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an operator's mTLS identity holds a `SECRET`/`WRITE` grant, When they call `POST /seal/rotate-key` through the control plane, Then the request is proxied through to Fafnir and a new active sealing key id is returned; a caller with no such grant instead receives 403.
   ```
 
+#### GIMLE-607 — Admission-time rejection of a manifest/artifact module-identity mismatch
+
+- **Category**: Admission Control
+- **User story**: As an operator submitting a Deployment/Job/StatefulSet/DaemonSet manifest, I want submission rejected immediately when the resolved artifact's own embedded module identity disagrees with the manifest's declared module.name/module.version, instead of the mismatch surfacing later only when a worker actually tries to install it and nacks.
+- **Status**: Complete. ApiServer#admissionArtifact is the single shared artifact-resolution choke point for Deployment, Job, StatefulSet, and DaemonSet (plus their rollback handlers) -- both its local-path and Andvari-registry-coordinate branches now run the resolved ModuleArtifact through a new moduleVersionMismatchRejection check before admitting. ModuleArtifactReader#read (and, for a registry coordinate, ArtifactResolver#resolve) always derives a jar's identity from its own bundled gimle-module.yaml, ignoring whatever the manifest declared; a manifest bumped without rebuilding the jar -- or a jar ever pushed to Andvari under a coordinate its embedded descriptor disagrees with, since Andvari itself does no gimle-module.yaml parsing -- previously sailed through admission and only failed once a worker's install attempt nacked it, landing the instance in FAILED after a real placement attempt. A vessel-hosted spec can never trigger the check: VesselArtifacts#syntheticDescriptor builds its descriptor directly from the declared moduleId, so its artifact identity is that same value by construction. An artifact that fails to resolve at all is untouched -- admitted with no recorded digest, the existing reconciler-catches-it-every-tick posture for a transiently unreadable artifact. CronJob's own handlePutCronJob does not call admissionArtifact at all and has no admission-time artifact validation of any kind, a separate, wider, deliberately out-of-scope gap this change does not touch.
+- **Confidence**: High
+- **Source location(s)**: `com.gimle.controlplane.api.ApiServer#admissionArtifact`, `com.gimle.controlplane.api.ApiServer#moduleVersionMismatchRejection`, `com.gimle.module.artifact.ModuleArtifactReader#read`, `com.gimle.controlplane.andvari.ArtifactResolver#resolve`, `com.gimle.core.vessel.VesselArtifacts#syntheticDescriptor`
+- **Test coverage**: `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest, and `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name (previously reusing the deployment's own resource name, a latent test bug the new check exposed), keeping every existing admission test passing under the new mismatch check rather than weakening it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity.
+  Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected.
+  Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction.
+  Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check.
+  ```
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -5376,7 +5409,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `MuninnServer.java` (`read`, `handleReadNodeLogs`, `handleReadInstanceLogs`), `MuninnDayFileStore.readOlder`/`readAfter`
-- **Test coverage**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_fresh_store_instance`
+- **Test coverage**: `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store`
 - **Gherkin scenario**:
   ```gherkin
   Given logs previously ingested for a nodeId/category

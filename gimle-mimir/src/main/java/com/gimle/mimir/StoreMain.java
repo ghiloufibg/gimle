@@ -97,7 +97,7 @@ public final class StoreMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("mimir-platform.log"));
 
-    StateStore store = new StateStore(stateDir);
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
 
     // Bootstrap configuration only, for etcd-style membership change: peers is where a

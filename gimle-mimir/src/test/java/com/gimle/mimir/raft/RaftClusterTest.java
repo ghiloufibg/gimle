@@ -179,7 +179,7 @@ class RaftClusterTest {
     transports.add(transport);
 
     Path dir = tempDir.resolve("cluster-" + (clusterCounter++) + "-" + id);
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     RaftNode node =
         new RaftNode(

@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -161,10 +162,13 @@ public final class ReplicaCountReconciler {
           assignment.deploymentName(),
           assignment.instanceIndex(),
           assignment.nodeId());
-      mutations.propose(
-          new StateMutation.RemoveAssignment(
-              assignment.deploymentName(), assignment.instanceIndex()));
-      clearFirstSeenMissing(persisted);
+      // One batch: the release and its grace-period bookkeeping clear commit atomically, so a
+      // crash between them can no longer leave a released assignment with a stale timer behind.
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.RemoveAssignment(
+                  assignment.deploymentName(), assignment.instanceIndex()),
+              saveMutation(withFirstSeenMissing(persisted, ReconcilerInstanceState.ABSENT))));
     }
   }
 
@@ -212,13 +216,15 @@ public final class ReplicaCountReconciler {
   }
 
   private void save(ReconcilerInstanceState state) {
+    mutations.propose(saveMutation(state));
+  }
+
+  private static StateMutation saveMutation(ReconcilerInstanceState state) {
     if (state.isEmpty()) {
-      mutations.propose(
-          new StateMutation.RemoveReconcilerInstanceState(
-              state.deploymentName(), state.instanceIndex()));
-    } else {
-      mutations.propose(new StateMutation.PutReconcilerInstanceState(state));
+      return new StateMutation.RemoveReconcilerInstanceState(
+          state.deploymentName(), state.instanceIndex());
     }
+    return new StateMutation.PutReconcilerInstanceState(state);
   }
 
   private ReconcilerInstanceState currentState(InstanceAssignment assignment) {

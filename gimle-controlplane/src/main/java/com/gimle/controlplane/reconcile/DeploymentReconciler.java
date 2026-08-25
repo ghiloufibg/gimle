@@ -117,14 +117,18 @@ public final class DeploymentReconciler {
       deploymentNames.add(spec.name());
     }
 
-    // A deployment no longer in desired state: every one of its assignments is stale.
+    // A deployment no longer in desired state: every one of its assignments is stale. One batch
+    // for the whole sweep -- the removals are independent of each other and nothing below reads
+    // them back before the per-deployment passes run.
+    List<StateMutation> staleAssignmentRemovals = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
       if (!deploymentNames.contains(assignment.deploymentName())) {
-        mutations.propose(
+        staleAssignmentRemovals.add(
             new StateMutation.RemoveAssignment(
                 assignment.deploymentName(), assignment.instanceIndex()));
       }
     }
+    mutations.proposeAll(staleAssignmentRemovals);
 
     for (DeploymentSpec spec : store.listDeployments()) {
       try {
@@ -182,13 +186,14 @@ public final class DeploymentReconciler {
    */
   private void reclaimStaleAssignments(DeploymentSpec spec, int replicas) {
     Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
+    List<StateMutation> removals = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
       if (assignment.instanceIndex() >= replicas
           && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
-        mutations.propose(
-            new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
+        removals.add(new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
       }
     }
+    mutations.proposeAll(removals);
   }
 
   /**
@@ -283,6 +288,10 @@ public final class DeploymentReconciler {
     // all: every index scored the same "no existing replicas anywhere" snapshot and the scheduler's
     // deterministic tie-break picked the identical best-scoring node for every one of them.
     Set<String> placedThisTick = new HashSet<>();
+    // One batch for the whole burst: a fresh multi-replica placement pays one consensus round and
+    // one WAL fsync instead of one per index. An index that failed to schedule simply isn't in
+    // the batch -- the next tick retries it, unchanged.
+    List<StateMutation> placements = new ArrayList<>();
     for (int index : toPlace) {
       try {
         List<NodeCandidate> candidates = buildCandidates(spec.name(), placedThisTick);
@@ -297,7 +306,7 @@ public final class DeploymentReconciler {
                 spec.placement().requiredNodeLabels().orElse(Set.of()),
                 candidates);
         placedThisTick.add(nodeId);
-        mutations.propose(
+        placements.add(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
                     spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())));
@@ -309,6 +318,7 @@ public final class DeploymentReconciler {
         log.warn("could not place {} instance {}: {}", spec.name(), index, e.getMessage());
       }
     }
+    mutations.proposeAll(placements);
   }
 
   /**
@@ -338,6 +348,11 @@ public final class DeploymentReconciler {
   private void handleRollingUpdate(DeploymentSpec spec, int replicas) {
     int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
     Set<Integer> inFlight = new HashSet<>(store.getRollingIndices(spec.name()));
+    // Accumulated for one flush at method end: nothing in this method reads its own proposals
+    // back from the store (the in-flight set is tracked locally), and handleSurge's own reads run
+    // only after this method has returned -- so one batch per tick replaces up to
+    // 2*maxUnavailable-plus-clears individual consensus rounds with no visibility change.
+    List<StateMutation> changes = new ArrayList<>();
 
     for (int index : Set.copyOf(inFlight)) {
       Optional<InstanceAssignment> current =
@@ -345,7 +360,7 @@ public final class DeploymentReconciler {
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        changes.add(new StateMutation.RemoveRollingIndex(spec.name(), index));
         inFlight.remove(index);
       } else if (current.isEmpty() && index >= replicas) {
         // The scale-down race: replicas shrank below this index while its old assignment was
@@ -355,7 +370,7 @@ public final class DeploymentReconciler {
         // clear it, since that's also the ordinary "removed old assignment, replacement not
         // placed yet" state every in-progress migration passes through on its way to becoming
         // ready.
-        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        changes.add(new StateMutation.RemoveRollingIndex(spec.name(), index));
         inFlight.remove(index);
       } else if (store
           .getReconcilerInstanceState(spec.name(), index)
@@ -382,6 +397,7 @@ public final class DeploymentReconciler {
     }
 
     if (inFlight.size() >= maxUnavailable) {
+      mutations.proposeAll(changes);
       return;
     }
 
@@ -394,15 +410,16 @@ public final class DeploymentReconciler {
         .limit(maxUnavailable - inFlight.size())
         .forEach(
             mismatched -> {
-              mutations.propose(
+              changes.add(
                   new StateMutation.RemoveAssignment(spec.name(), mismatched.instanceIndex()));
-              mutations.propose(
+              changes.add(
                   new StateMutation.AddRollingIndex(spec.name(), mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; rolling it forward",
                   spec.name(),
                   mismatched.instanceIndex());
             });
+    mutations.proposeAll(changes);
   }
 
   /**
@@ -458,6 +475,10 @@ public final class DeploymentReconciler {
   private void handleSurge(DeploymentSpec spec, int replicas) {
     int maxSurge = spec.effectiveDisruptionBudget().maxSurge();
     Map<Integer, Integer> inFlight = new HashMap<>(store.getSurgeIndices(spec.name()));
+    // Flushed as one batch *before* the mismatch scan below, not at method end: a promotion's
+    // PutAssignment is what stops its target index from still looking mismatched, so deferring it
+    // past the scan would start a pointless second surge for an index just promoted.
+    List<StateMutation> settlements = new ArrayList<>();
 
     for (Map.Entry<Integer, Integer> entry : Map.copyOf(inFlight).entrySet()) {
       int surgeIndex = entry.getKey();
@@ -467,7 +488,7 @@ public final class DeploymentReconciler {
         // than promote into an index that no longer exists. The surge assignment itself, now
         // untracked, is reclaimed by reconcileDeployment's own scale-down sweep on a later tick
         // once it's no longer excluded from it.
-        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        settlements.add(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
         continue;
       }
@@ -503,7 +524,7 @@ public final class DeploymentReconciler {
         // AssignedInstance's own javadoc). The surge index's own now-redundant assignment is
         // removed in the same tick -- no orphaned entry left for a later scale-down sweep to find.
         InstanceAssignment healthy = surgeAssignment.get();
-        mutations.propose(
+        settlements.add(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
                     spec.name(),
@@ -512,12 +533,13 @@ public final class DeploymentReconciler {
                     healthy.moduleId(),
                     healthy.artifactPath(),
                     OptionalInt.of(surgeIndex))));
-        mutations.propose(new StateMutation.RemoveAssignment(spec.name(), surgeIndex));
-        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        settlements.add(new StateMutation.RemoveAssignment(spec.name(), surgeIndex));
+        settlements.add(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
       }
       // Otherwise: still waiting for the surge instance to report ready.
     }
+    mutations.proposeAll(settlements);
 
     if (inFlight.size() >= maxSurge) {
       return;
@@ -536,13 +558,14 @@ public final class DeploymentReconciler {
     // direction.
     Set<Integer> excluded = new HashSet<>(rollingInFlight);
     excluded.addAll(claimedTargets);
+    List<StateMutation> newSurges = new ArrayList<>();
     mismatchedAssignments(spec, excluded).stream()
         .limit(maxSurge - inFlight.size())
         .forEach(
             mismatched -> {
               int surgeIndex = nextFreeSurgeIndex(replicas, takenSyntheticIndices);
               takenSyntheticIndices.add(surgeIndex);
-              mutations.propose(
+              newSurges.add(
                   new StateMutation.AddSurgeIndex(
                       spec.name(), surgeIndex, mismatched.instanceIndex()));
               log.info(
@@ -552,6 +575,7 @@ public final class DeploymentReconciler {
                   mismatched.instanceIndex(),
                   surgeIndex);
             });
+    mutations.proposeAll(newSurges);
   }
 
   /**

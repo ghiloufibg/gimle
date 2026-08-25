@@ -161,6 +161,6 @@ class PolicyConfigPluginTest {
   }
 
   private StateStore store() {
-    return new StateStore(tempDir.resolve("policy-config-plugin-store"));
+    return new StateStore();
   }
 }

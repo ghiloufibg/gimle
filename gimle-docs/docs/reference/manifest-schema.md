@@ -157,7 +157,13 @@ for real, minimal examples (`name`, `module: {name, version}`, `artifactPath`, `
 required `kind: Deployment`). `artifactPath` is optional in every workload kind: present, it names
 a local jar read directly by whichever process needs it; omitted entirely, `module: {name,
 version}` alone identifies the artifact and node agents pull it from the Andvari artifact registry
-on a cache miss (an explicitly blank value is rejected rather than treated as the registry form). Its one field with enough shape to be worth a reference table here is
+on a cache miss (an explicitly blank value is rejected rather than treated as the registry form).
+Once resolved (Deployment, Job, StatefulSet, DaemonSet, and rollbacks of each), the control plane
+compares the artifact's own bundled `gimle-module.yaml` identity against this manifest's declared
+`module: {name, version}` and rejects submission outright on a mismatch — a manifest bumped without
+rebuilding the jar (or a jar pushed to Andvari under the wrong coordinate) fails at `PUT` time with a
+400, not only later when a worker's install attempt nacks it. An artifact that can't be resolved yet
+is unaffected by this check. Its one field with enough shape to be worth a reference table here is
 `autoscale`, grounded directly in `DeploymentManifestParser.parseAutoscale`; omit the whole
 `autoscale:` block for a deployment with a fixed `replicas` count (the common case) and none of this
 applies.

@@ -52,7 +52,7 @@ class QuotaReconcilerTest {
 
   @Test
   void marks_a_deployment_violating_when_its_tenant_exceeds_quota() {
-    StateStore store = new StateStore(tempDir.resolve("store-over"));
+    StateStore store = new StateStore();
     store.putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     Path jar = buildFixtureJar();
     store.putDeployment(
@@ -65,7 +65,7 @@ class QuotaReconcilerTest {
 
   @Test
   void does_not_mark_a_deployment_within_its_tenants_quota() {
-    StateStore store = new StateStore(tempDir.resolve("store-within"));
+    StateStore store = new StateStore();
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     Path jar = buildFixtureJar();
     store.putDeployment(tenantedDeployment("orders", 2, jar, "acme"));
@@ -77,7 +77,7 @@ class QuotaReconcilerTest {
 
   @Test
   void ignores_untenanted_deployments() {
-    StateStore store = new StateStore(tempDir.resolve("store-untenanted"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     store.putDeployment(
         new DeploymentSpec(
@@ -94,7 +94,7 @@ class QuotaReconcilerTest {
 
   @Test
   void ignores_a_deployment_whose_tenant_is_unregistered() {
-    StateStore store = new StateStore(tempDir.resolve("store-unknown-tenant"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     store.putDeployment(tenantedDeployment("orders", 50, jar, "ghost-tenant"));
 
@@ -105,7 +105,7 @@ class QuotaReconcilerTest {
 
   @Test
   void clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state() {
-    StateStore store = new StateStore(tempDir.resolve("store-converge"));
+    StateStore store = new StateStore();
     store.putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     Path jar = buildFixtureJar();
     store.putDeployment(tenantedDeployment("orders", 2, jar, "acme"));
@@ -121,7 +121,7 @@ class QuotaReconcilerTest {
 
   @Test
   void proposes_nothing_for_an_untenanted_deployment_across_repeated_ticks() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-op-writes"));
+    StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // The exact live-measured scenario: an untenanted deployment, which is structurally always
     // non-violating -- the unguarded reconciler used to re-propose the same false value on every
@@ -152,7 +152,7 @@ class QuotaReconcilerTest {
 
   @Test
   void proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists() {
-    StateStore store = new StateStore(tempDir.resolve("store-single-transition"));
+    StateStore store = new StateStore();
     store.putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     Path jar = buildFixtureJar();
     store.putDeployment(tenantedDeployment("orders", 2, jar, "acme")); // 2 > maxInstances 1

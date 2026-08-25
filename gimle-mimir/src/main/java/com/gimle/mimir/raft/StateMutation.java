@@ -24,6 +24,7 @@ import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Every mutating operation {@link StateStore} exposes, replicated through the Raft log -- one
@@ -479,6 +480,32 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.removeReconcilerInstanceState(deploymentName, instanceIndex);
+    }
+  }
+
+  /**
+   * N independent mutations riding one log entry -- one consensus round and one WAL fsync for the
+   * lot, applied in order. The group-commit lever for a caller (typically a reconciler tick, via
+   * {@link MutationSink#proposeAll}) that would otherwise pay a full replication round trip per
+   * mutation in a burst. Never nested: a batch of batches would buy nothing and only complicate
+   * every consumer's reasoning about what one entry can hold.
+   */
+  record Batch(List<StateMutation> mutations) implements StateMutation {
+    public Batch {
+      if (mutations.isEmpty()) {
+        throw new IllegalArgumentException("a mutation batch must not be empty");
+      }
+      if (mutations.stream().anyMatch(m -> m instanceof Batch)) {
+        throw new IllegalArgumentException("a mutation batch must not contain another batch");
+      }
+      mutations = List.copyOf(mutations);
+    }
+
+    @Override
+    public void applyTo(StateStore store) {
+      for (StateMutation mutation : mutations) {
+        mutation.applyTo(store);
+      }
     }
   }
 }

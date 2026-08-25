@@ -73,7 +73,7 @@ final class NornCluster implements AutoCloseable {
   private void buildAndStart(String id) {
     Path dir = root.resolve(id);
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     NornScheduler scheduler = new NornScheduler(clock);
     Map<String, RaftPeerClient> peers = new HashMap<>();
     for (String peerId : nodeIds) {
@@ -159,7 +159,7 @@ final class NornCluster implements AutoCloseable {
     heal(id);
     Path dir = root.resolve(id);
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     NornScheduler scheduler = new NornScheduler(clock);
     Map<String, RaftPeerClient> peers = new HashMap<>();
     for (String peerId : nodeIds) {

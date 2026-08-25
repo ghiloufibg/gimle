@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.mimir.store.StateSnapshot;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,13 +223,86 @@ class RaftLogTest {
   }
 
   @Test
-  void a_corrupted_log_entry_file_fails_loudly_at_construction() throws Exception {
+  void a_corrupted_wal_record_with_intact_records_after_it_fails_loudly_at_construction()
+      throws Exception {
     Path dir = tempDir.resolve("log11");
     RaftLog log = new RaftLog(dir);
     log.append(entry(1, 1));
-    Files.write(dir.resolve("log").resolve("1.bin"), new byte[] {1, 2, 3});
+    log.append(entry(1, 2));
+    log.close();
 
-    assertThrows(RuntimeException.class, () -> new RaftLog(dir));
+    Path segment = soleWalSegment(dir);
+    byte[] bytes = Files.readAllBytes(segment);
+    // Flip one bit inside the first record's payload: its checksum now fails while the second
+    // record stays intact -- damage no crash-during-append can produce, so replay must refuse
+    // rather than silently discard the acknowledged second entry.
+    bytes[10] ^= 0x01;
+    Files.write(segment, bytes);
+
+    assertThrows(IllegalStateException.class, () -> new RaftLog(dir));
+  }
+
+  @Test
+  void a_torn_tail_from_a_crash_mid_append_is_discarded_and_the_log_stays_usable()
+      throws Exception {
+    Path dir = tempDir.resolve("log13");
+    RaftLog log = new RaftLog(dir);
+    log.append(entry(1, 1));
+    log.append(entry(1, 2));
+    log.close();
+
+    Path segment = soleWalSegment(dir);
+    byte[] bytes = Files.readAllBytes(segment);
+    // Chop the last few bytes off the final record, as a crash mid-append would.
+    Files.write(segment, Arrays.copyOf(bytes, bytes.length - 3));
+
+    RaftLog reopened = new RaftLog(dir);
+    assertEquals(1L, reopened.lastIndex());
+    assertEquals(Optional.empty(), reopened.get(2));
+    reopened.append(entry(2, 2));
+    assertEquals(Optional.of(entry(2, 2)), reopened.get(2));
+  }
+
+  @Test
+  void a_truncation_with_nothing_reappended_over_it_survives_reopen() {
+    Path dir = tempDir.resolve("log14");
+    RaftLog log = new RaftLog(dir);
+    log.append(entry(1, 1));
+    log.append(entry(1, 2));
+    log.append(entry(1, 3));
+    log.truncateFrom(2);
+    log.close();
+
+    RaftLog reopened = new RaftLog(dir);
+    assertEquals(1L, reopened.lastIndex());
+    assertEquals(Optional.empty(), reopened.get(2));
+    assertEquals(Optional.empty(), reopened.get(3));
+  }
+
+  @Test
+  void an_entry_reappended_after_truncation_supersedes_the_old_suffix_on_reopen() {
+    Path dir = tempDir.resolve("log15");
+    RaftLog log = new RaftLog(dir);
+    log.append(entry(1, 1));
+    log.append(entry(1, 2));
+    log.append(entry(1, 3));
+    log.truncateFrom(2);
+    log.append(entry(2, 2));
+    log.close();
+
+    RaftLog reopened = new RaftLog(dir);
+    assertEquals(2L, reopened.lastIndex());
+    assertEquals(2L, reopened.termAt(2));
+    assertEquals(Optional.empty(), reopened.get(3));
+  }
+
+  private static Path soleWalSegment(Path dir) throws Exception {
+    try (var files = Files.list(dir.resolve("wal"))) {
+      return files
+          .filter(f -> f.getFileName().toString().endsWith(".wal"))
+          .findFirst()
+          .orElseThrow();
+    }
   }
 
   @Test

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 605
+- **Total requirements**: 607
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 484
-- **Release-readiness (automated coverage)**: 20.0%
+- **Not covered by automated test**: 486
+- **Release-readiness (automated coverage)**: 19.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,9 +19,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 40 | 6 | 34 | 15.0% |
-| gimle-mimir | 51 | 33 | 18 | 64.7% |
+| gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 69 | 14 | 55 | 20.3% |
+| gimle-controlplane | 70 | 14 | 56 | 20.0% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 23 | 2 | 21 | 8.7% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -641,7 +641,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-152 | File-Backed State Store Persistence Engine | Given a StateStore against an empty directory; When a DeploymentSpec is put, then a fresh instance opened against the same directory; Then the deployment is present in the reloaded store. | Yes |
+| [ ] | GIMLE-152 | Raft WAL Persistence Engine with Snapshot-Replay Recovery | Given a single-node store with committed writes; When the process restarts against the same directory with an empty in-memory store; Then the snapshot restores at construction and the fresh leader's no-op entry re-applies every committed entry above the floor. Given a crash tears the WAL's final record mid-append; When the log reopens; Then the torn tail is discarded, every acknowledged record survives, and appends continue. | Yes |
 | [ ] | GIMLE-153 | Full-State Snapshot / Restore | Given a StateStore holding every resource kind; When snapshot() then restoreFromSnapshot on a fresh store; Then every kind (except leader-local heartbeats) is reproduced identically. | Yes |
 | [ ] | GIMLE-155 | Leader-Local Node Heartbeat Tracking | Given a leader receives a heartbeat via putHeartbeat; When a follower is asked for that node's heartbeat; Then the follower answers empty, while the leader answers with the observed heartbeat. | Yes |
 | [ ] | GIMLE-156 | Distributed Lease Coordination (Grant/Renew/Release) | Given a free lease; When holder A acquires it, then B tries before it expires; Then A succeeds, B is denied, and B succeeds once the TTL expires. | Yes |
@@ -653,6 +653,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-162 | Tenant Quota-Violation Flag Tracking | Given a deployment marked quota-violating; When putQuotaViolation is called again with violating=false; Then isQuotaViolating reports false and the file is deleted. | Yes |
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
+| [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
 
 #### Workload Lifecycle
 
@@ -778,6 +779,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-246 | Tenant resource quota admission check | Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409. | Yes |
+
+#### Admission Control
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity. Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected. Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction. Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check. | No |
 
 #### Artifact Registry / Internal-Infra
 

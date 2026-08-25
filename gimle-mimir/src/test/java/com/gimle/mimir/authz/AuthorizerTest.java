@@ -29,7 +29,7 @@ class AuthorizerTest {
   Path tempDir;
 
   private Authorizer authorizer(String name) {
-    return new Authorizer(new StateStore(tempDir.resolve(name)));
+    return new Authorizer(new StateStore());
   }
 
   @Test
@@ -139,7 +139,7 @@ class AuthorizerTest {
 
   @Test
   void a_custom_role_bound_to_a_user_grants_exactly_its_declared_permissions() {
-    StateStore store = new StateStore(tempDir.resolve("custom-role"));
+    StateStore store = new StateStore();
     store.putRole(
         new Role(
             "deployment-reader", Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
@@ -161,7 +161,7 @@ class AuthorizerTest {
 
   @Test
   void a_tenant_scoped_permission_only_matches_its_own_tenant() {
-    StateStore store = new StateStore(tempDir.resolve("tenant-scoped"));
+    StateStore store = new StateStore();
     store.putRole(
         new Role(
             "acme-config-reader",
@@ -184,7 +184,7 @@ class AuthorizerTest {
 
   @Test
   void a_group_binding_applies_to_every_principal_carrying_that_group() {
-    StateStore store = new StateStore(tempDir.resolve("group-binding"));
+    StateStore store = new StateStore();
     store.putRole(new Role("viewer", Set.of(Permission.unscoped(ResourceKind.TENANT, Verb.READ))));
     store.putRoleBinding(new RoleBinding("b1", RoleBinding.groupSubject("finance"), "viewer"));
     Authorizer authorizer = new Authorizer(store);
@@ -201,7 +201,7 @@ class AuthorizerTest {
 
   @Test
   void a_binding_referencing_a_role_that_no_longer_exists_grants_nothing() {
-    StateStore store = new StateStore(tempDir.resolve("dangling-binding"));
+    StateStore store = new StateStore();
     store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("frank"), "deleted-role"));
     Authorizer authorizer = new Authorizer(store);
     Principal frank = new Principal("frank", Set.of());
@@ -213,7 +213,7 @@ class AuthorizerTest {
 
   @Test
   void a_node_with_an_active_assignment_for_the_tenant_is_assigned() {
-    StateStore store = new StateStore(tempDir.resolve("tenant-assigned"));
+    StateStore store = new StateStore();
     assignDeploymentToNode(store, "node-1", "acme");
     Authorizer authorizer = new Authorizer(store);
 
@@ -222,7 +222,7 @@ class AuthorizerTest {
 
   @Test
   void a_node_with_no_assignment_for_the_tenant_is_not_assigned() {
-    StateStore store = new StateStore(tempDir.resolve("tenant-unassigned"));
+    StateStore store = new StateStore();
     // "node-1" is assigned to a deployment for a different tenant -- proves this is a genuine
     // per-tenant check, not merely "does this node have any assignment at all."
     assignDeploymentToNode(store, "node-1", "other-tenant");
@@ -233,7 +233,7 @@ class AuthorizerTest {
 
   @Test
   void a_node_with_no_assignments_at_all_is_not_assigned() {
-    StateStore store = new StateStore(tempDir.resolve("tenant-no-assignments"));
+    StateStore store = new StateStore();
     Authorizer authorizer = new Authorizer(store);
 
     assertFalse(authorizer.isTenantAssignedToNode("node-1", "acme"));

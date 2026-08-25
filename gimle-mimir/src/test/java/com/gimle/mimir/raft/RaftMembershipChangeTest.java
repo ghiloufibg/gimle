@@ -191,7 +191,7 @@ class RaftMembershipChangeTest {
       Consumer<Map<String, PeerAddress>> membershipListener,
       Duration proposeTimeout) {
     Path dir = tempDir.resolve(dirName);
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     RaftNode node =
         new RaftNode(
@@ -269,7 +269,7 @@ class RaftMembershipChangeTest {
   @Timeout(10)
   void a_non_leader_cannot_propose_a_membership_change() {
     Path dir = tempDir.resolve("follower");
-    StateStore store = new StateStore(dir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(dir.resolve("raft"));
     // Never started: stays a FOLLOWER, exactly like RaftNodeSafetyMechanicsTest's own
     // never-started fixtures.

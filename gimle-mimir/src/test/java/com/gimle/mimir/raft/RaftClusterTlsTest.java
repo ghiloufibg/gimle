@@ -191,7 +191,7 @@ class RaftClusterTlsTest {
       }
 
       Path dir = tempDir.resolve("node-" + i);
-      StateStore store = new StateStore(dir.resolve("store"));
+      StateStore store = new StateStore();
       RaftLog raftLog = new RaftLog(dir.resolve("raft"));
       RaftNode node = new RaftNode(ids.get(i), peers, raftLog, store);
       ref.delegate = node;
@@ -269,10 +269,7 @@ class RaftClusterTlsTest {
     transports.add(serverTransport);
     RaftNode serverNode =
         new RaftNode(
-            "server",
-            Map.of(),
-            new RaftLog(tempDir.resolve("server-raft")),
-            new StateStore(tempDir.resolve("server-store")));
+            "server", Map.of(), new RaftLog(tempDir.resolve("server-raft")), new StateStore());
     ref.delegate = serverNode;
     nodes.add(serverNode);
     InetSocketAddress serverAddress = (InetSocketAddress) serverTransport.listen(reserveAddress());
@@ -334,10 +331,7 @@ class RaftClusterTlsTest {
     transports.add(serverTransport);
     RaftNode serverNode =
         new RaftNode(
-            "server",
-            Map.of(),
-            new RaftLog(tempDir.resolve("server-raft")),
-            new StateStore(tempDir.resolve("server-store")));
+            "server", Map.of(), new RaftLog(tempDir.resolve("server-raft")), new StateStore());
     ref.delegate = serverNode;
     nodes.add(serverNode);
     InetSocketAddress serverAddress = reserveAddress();

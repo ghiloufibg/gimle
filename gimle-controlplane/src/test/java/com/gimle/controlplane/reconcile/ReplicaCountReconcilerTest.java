@@ -61,7 +61,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void an_assignment_confirmed_by_a_fresh_heartbeat_survives() {
-    StateStore store = new StateStore(tempDir.resolve("confirmed"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat(
@@ -76,7 +76,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void an_assignment_the_node_never_mentions_is_removed_once_the_grace_period_elapses() {
-    StateStore store = new StateStore(tempDir.resolve("unmentioned"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     // node-a heartbeats, but reports running nothing at all for this deployment
     store.putNodeHeartbeat(
@@ -93,7 +93,7 @@ class ReplicaCountReconcilerTest {
     // any heartbeat sent before the owning agent has fetched and started it. Removing on the very
     // first "not mentioned yet" tick would undo the placement before the agent had a chance to act
     // on it -- this reproduces exactly that timing and asserts it survives.
-    StateStore store = new StateStore(tempDir.resolve("grace-period-survives"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
@@ -113,7 +113,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void an_unmentioned_assignment_is_removed_once_the_grace_period_elapses() {
-    StateStore store = new StateStore(tempDir.resolve("grace-period-expires"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
@@ -132,7 +132,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void becoming_confirmed_within_the_grace_period_cancels_the_pending_removal() {
-    StateStore store = new StateStore(tempDir.resolve("recovers-within-grace"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
@@ -158,7 +158,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void an_assignment_to_a_node_that_never_heartbeated_at_all_is_removed() {
-    StateStore store = new StateStore(tempDir.resolve("never-heartbeated"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-ghost"));
 
     immediateReconciler(store, Duration.ofSeconds(15)).reconcileOnce();
@@ -169,7 +169,7 @@ class ReplicaCountReconcilerTest {
   @Test
   void
       an_assignment_whose_nodes_heartbeat_has_gone_stale_is_removed_even_if_it_mentions_the_instance() {
-    StateStore store = new StateStore(tempDir.resolve("stale-heartbeat"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat(
@@ -188,7 +188,7 @@ class ReplicaCountReconcilerTest {
 
   @Test
   void unrelated_assignments_on_a_healthy_node_are_left_alone() {
-    StateStore store = new StateStore(tempDir.resolve("unrelated"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putAssignment(new InstanceAssignment("catalog-service", 0, "node-a"));
     store.putNodeHeartbeat(
@@ -211,7 +211,7 @@ class ReplicaCountReconcilerTest {
     // the same on-disk store, must resume the already-elapsing grace-period timer rather than
     // restarting it, which would delay a legitimate reschedule.
     Path dir = tempDir.resolve("survives-reconstruction");
-    StateStore store = new StateStore(dir);
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
@@ -222,17 +222,17 @@ class ReplicaCountReconcilerTest {
     original.reconcileOnce(); // starts the grace period
     assertTrue(hasAssignment(store, "orders-service", 0));
 
-    // Reopen the store (a real process restart would do this too) and construct a brand-new
-    // reconciler against it -- no in-memory state carries over except what was persisted.
-    StateStore reopened = new StateStore(dir);
+    // Construct a brand-new reconciler against the same store: the store (gimle-mimir) is its own
+    // process and doesn't restart with a failed-over reconciler leader, so only the reconciler's
+    // own in-memory history is lost -- everything it must resume from lives in the store.
     ReplicaCountReconciler resumed =
-        new ReplicaCountReconciler(reopened, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
 
     clock.advance(GRACE_PERIOD.plusSeconds(1)); // past the original deadline, not a fresh one
     resumed.reconcileOnce();
 
     assertFalse(
-        hasAssignment(reopened, "orders-service", 0),
+        hasAssignment(store, "orders-service", 0),
         "the resumed reconciler should have completed the grace period it didn't start itself");
   }
 
@@ -240,7 +240,7 @@ class ReplicaCountReconcilerTest {
   void converges_correctly_from_an_arbitrary_mix_of_persisted_grace_period_state() {
     // A brand-new reconciler must handle every one of these correctly on its very first tick, with
     // no history of its own -- exactly what a reconciler-leader failover leaves behind.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     long now = Instant.now().toEpochMilli();
 
     // 1. Confirmed by a fresh heartbeat -- must survive untouched.

@@ -95,7 +95,7 @@ class JobReconcilerTest {
 
   @Test
   void places_attempt_zero_when_capacity_exists() {
-    StateStore store = new StateStore(tempDir.resolve("store-basic"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -111,7 +111,7 @@ class JobReconcilerTest {
 
   @Test
   void leaves_the_job_unplaced_without_throwing_when_no_node_has_capacity() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-capacity"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -126,7 +126,7 @@ class JobReconcilerTest {
 
   @Test
   void a_completed_observation_marks_the_job_succeeded_and_removes_the_run() {
-    StateStore store = new StateStore(tempDir.resolve("store-succeeded"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -144,7 +144,7 @@ class JobReconcilerTest {
 
   @Test
   void a_failed_observation_retries_the_next_attempt_when_backoff_budget_remains() {
-    StateStore store = new StateStore(tempDir.resolve("store-retry"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -167,7 +167,7 @@ class JobReconcilerTest {
 
   @Test
   void exhausting_the_backoff_limit_marks_the_job_permanently_failed() {
-    StateStore store = new StateStore(tempDir.resolve("store-exhausted"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 1, Optional.empty())); // backoffLimit: 1
@@ -186,7 +186,7 @@ class JobReconcilerTest {
   @Test
   void exceeding_the_active_deadline_marks_the_job_permanently_failed_even_mid_attempt(
       TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("store-deadline"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 6, Optional.of(Duration.ofMinutes(5))));
@@ -211,7 +211,7 @@ class JobReconcilerTest {
 
   @Test
   void a_terminal_job_is_left_alone_on_later_ticks() {
-    StateStore store = new StateStore(tempDir.resolve("store-terminal"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -227,7 +227,7 @@ class JobReconcilerTest {
 
   @Test
   void deleting_a_job_removes_its_orphaned_run_on_the_next_tick() {
-    StateStore store = new StateStore(tempDir.resolve("store-delete"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -248,7 +248,7 @@ class JobReconcilerTest {
     // JobReconciler#reconcileCurrentRun's own ordering note): both attempt 0 and attempt 1 are on
     // record for the same job at once. A from-scratch reconcile must clean this down to exactly
     // one run -- the highest attempt -- without needing any history beyond this snapshot.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -269,7 +269,7 @@ class JobReconcilerTest {
 
   @Test
   void refuses_to_place_when_the_jar_on_disk_no_longer_matches_the_recorded_hash() {
-    StateStore store = new StateStore(tempDir.resolve("store-hash-mismatch"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
@@ -292,7 +292,7 @@ class JobReconcilerTest {
 
   @Test
   void a_run_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("store-dark-grace"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -326,7 +326,7 @@ class JobReconcilerTest {
 
   @Test
   void a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_elapses(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("store-genuinely-gone"), clock);
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
@@ -363,7 +363,7 @@ class JobReconcilerTest {
 
   @Test
   void does_not_place_a_second_attempt_while_the_current_one_is_still_running() {
-    StateStore store = new StateStore(tempDir.resolve("store-still-running"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));

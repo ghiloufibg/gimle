@@ -110,7 +110,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void places_only_index_zero_when_nothing_is_ready_yet() {
-    StateStore store = new StateStore(tempDir.resolve("store-ordered-start"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putStatefulSetSpec(statefulSet("orders", jar, 3));
@@ -127,7 +127,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void does_not_place_index_one_until_index_zero_reports_ready() {
-    StateStore store = new StateStore(tempDir.resolve("store-ordered-block"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putStatefulSetSpec(statefulSet("orders", jar, 3));
@@ -144,7 +144,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void places_index_one_once_index_zero_becomes_ready() {
-    StateStore store = new StateStore(tempDir.resolve("store-ordered-progress"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putStatefulSetSpec(statefulSet("orders", jar, 2));
@@ -165,7 +165,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void an_index_stays_sticky_bound_to_its_node_across_a_rolling_update() {
-    StateStore store = new StateStore(tempDir.resolve("store-sticky-rollout"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jarV1 = buildFixtureJar();
     registerNode(store, "node-a");
@@ -192,7 +192,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void scale_down_removes_the_highest_index_first_one_at_a_time() {
-    StateStore store = new StateStore(tempDir.resolve("store-scaledown"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -224,7 +224,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void scaling_back_up_after_scale_down_reuses_the_same_sticky_node() {
-    StateStore store = new StateStore(tempDir.resolve("store-scaledown-scaleup"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -258,7 +258,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void deleting_a_statefulset_removes_its_orphaned_assignment_and_sticky_binding() {
-    StateStore store = new StateStore(tempDir.resolve("store-delete"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -276,7 +276,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void refuses_to_place_when_the_jar_on_disk_no_longer_matches_the_recorded_hash() {
-    StateStore store = new StateStore(tempDir.resolve("store-hash-mismatch"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -298,7 +298,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void leaves_the_statefulset_unplaced_without_throwing_when_no_node_has_capacity() {
-    StateStore store = new StateStore(tempDir.resolve("store-no-capacity"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putStatefulSetSpec(statefulSet("orders", jar, 1));
@@ -313,7 +313,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void a_sticky_index_stuck_on_a_now_cordoned_node_does_not_relocate_elsewhere() {
-    StateStore store = new StateStore(tempDir.resolve("store-sticky-stuck"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -341,7 +341,7 @@ class StatefulSetReconcilerTest {
   void an_arbitrary_starting_snapshot_converges_by_dropping_excess_indices() {
     // Simulates a stale snapshot with an index beyond the current replica count already on
     // record. A from-scratch reconcile must remove it without any history beyond this snapshot.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");

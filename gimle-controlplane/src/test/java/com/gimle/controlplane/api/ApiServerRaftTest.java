@@ -148,7 +148,7 @@ class ApiServerRaftTest {
       }
 
       Path dir = tempDir.resolve("store-cluster-" + (clusterCounter++) + "-node-" + i);
-      StateStore store = new StateStore(dir.resolve("store"));
+      StateStore store = new StateStore();
       RaftLog raftLog = new RaftLog(dir.resolve("raft"));
       String selfRaftId = ids.get(i) + ":" + raftAddresses.get(i).getPort();
       RaftNode raftNode = new RaftNode(selfRaftId, peers, raftLog, store);

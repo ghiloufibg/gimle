@@ -80,7 +80,7 @@ class HealthReconcilerTest {
 
   @Test
   void a_healthy_instance_is_left_alone(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("healthy"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     heartbeat(store, "node-a", true, "ACTIVE");
 
@@ -92,7 +92,7 @@ class HealthReconcilerTest {
   @Test
   void an_unmentioned_instance_is_left_alone_by_this_reconciler(TestClock clock) {
     // No observation at all is ReplicaCountReconciler's concern, not this one.
-    StateStore store = new StateStore(tempDir.resolve("unmentioned"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat("node-a", new ResourceUsageSnapshot(1000, 0, 1000, 0), List.of()));
@@ -104,7 +104,7 @@ class HealthReconcilerTest {
 
   @Test
   void an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("unhealthy"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     heartbeat(store, "node-a", false, "ACTIVE");
 
@@ -127,7 +127,7 @@ class HealthReconcilerTest {
 
   @Test
   void a_failed_lifecycle_state_is_treated_as_unhealthy_even_if_alive_is_true(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("failed-state"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     heartbeat(store, "node-a", true, "FAILED");
 
@@ -141,7 +141,7 @@ class HealthReconcilerTest {
 
   @Test
   void readiness_alone_never_triggers_a_reschedule(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("not-ready"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     store.putNodeHeartbeat(
         new NodeHeartbeat(
@@ -159,7 +159,7 @@ class HealthReconcilerTest {
 
   @Test
   void recovering_before_backoff_elapses_cancels_the_pending_reschedule(TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("recovers"));
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     heartbeat(store, "node-a", false, "ACTIVE");
 
@@ -175,7 +175,7 @@ class HealthReconcilerTest {
   @Test
   void repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying(
       TestClock clock) {
-    StateStore store = new StateStore(tempDir.resolve("exhausted"));
+    StateStore store = new StateStore();
     HealthReconciler reconciler = reconciler(store, clock);
 
     // Advancing by each attempt's *exact* expected backoff rather than something comfortably
@@ -228,7 +228,7 @@ class HealthReconcilerTest {
     // same on-disk store, must resume the in-progress backoff rather than re-granting a full
     // restart budget to an already-flapping instance.
     Path dir = tempDir.resolve("survives-reconstruction");
-    StateStore store = new StateStore(dir);
+    StateStore store = new StateStore();
     store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
     heartbeat(store, "node-a", false, "ACTIVE");
 
@@ -236,16 +236,16 @@ class HealthReconcilerTest {
         .reconcileOnce(); // first failure recorded, pending retry not yet elapsed
     assertTrue(hasAssignment(store, "orders-service", 0));
 
-    // Reopen the store (a real process restart would do this too) and construct a brand-new
-    // reconciler against it -- no in-memory state carries over except what was persisted.
-    StateStore reopened = new StateStore(dir);
-    HealthReconciler resumed = reconciler(reopened, clock);
+    // Construct a brand-new reconciler against the same store: the store (gimle-mimir) is its own
+    // process and doesn't restart with a failed-over reconciler leader, so only the reconciler's
+    // own in-memory history is lost -- everything it must resume from lives in the store.
+    HealthReconciler resumed = reconciler(store, clock);
 
     clock.advance(INITIAL_DELAY);
     resumed.reconcileOnce(); // if the pending backoff wasn't resumed, this would start a new one
 
     assertFalse(
-        hasAssignment(reopened, "orders-service", 0),
+        hasAssignment(store, "orders-service", 0),
         "the resumed reconciler should have completed the backoff it didn't start itself");
   }
 
@@ -253,7 +253,7 @@ class HealthReconcilerTest {
   void converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states(TestClock clock) {
     // A brand-new reconciler must handle every one of these correctly on its very first tick, with
     // no history of its own -- exactly what a reconciler-leader failover leaves behind.
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary"));
+    StateStore store = new StateStore();
     long now = clock.instant().toEpochMilli();
 
     // 1. Healthy: no persisted state, nothing should happen to it.

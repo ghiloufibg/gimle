@@ -124,16 +124,18 @@ public final class StatefulSetReconciler {
     // A statefulset no longer in desired state: every one of its assignments is stale, and every
     // one of its sticky node bindings is now genuinely, permanently gone -- there is no spec left
     // that could ever place this index again.
+    List<StateMutation> staleRemovals = new ArrayList<>();
     for (StatefulSetAssignment assignment : store.listStatefulSetAssignments()) {
       if (!statefulSetNames.contains(assignment.statefulSetName())) {
-        mutations.propose(
+        staleRemovals.add(
             new StateMutation.RemoveStatefulSetAssignment(
                 assignment.statefulSetName(), assignment.instanceIndex()));
-        mutations.propose(
+        staleRemovals.add(
             new StateMutation.RemoveStatefulSetIndexNode(
                 assignment.statefulSetName(), assignment.instanceIndex()));
       }
     }
+    mutations.proposeAll(staleRemovals);
 
     for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
       try {
@@ -216,15 +218,17 @@ public final class StatefulSetReconciler {
       return false;
     }
     StatefulSetAssignment assignment = toRemove.get();
-    mutations.propose(
+    List<StateMutation> removal = new ArrayList<>();
+    removal.add(
         new StateMutation.RemoveStatefulSetAssignment(spec.name(), assignment.instanceIndex()));
-    mutations.propose(
+    removal.add(
         new StateMutation.RemoveStatefulSetIndexNode(spec.name(), assignment.instanceIndex()));
     if (store
         .getRollingStatefulSetIndex(spec.name())
         .equals(Optional.of(assignment.instanceIndex()))) {
-      mutations.propose(new StateMutation.ClearRollingStatefulSetIndex(spec.name()));
+      removal.add(new StateMutation.ClearRollingStatefulSetIndex(spec.name()));
     }
+    mutations.proposeAll(removal);
     return true;
   }
 
@@ -243,14 +247,16 @@ public final class StatefulSetReconciler {
               spec.placement().requiredNodeLabels().orElse(Set.of()),
               stickyNodeId,
               candidates);
-      mutations.propose(
-          new StateMutation.PutStatefulSetAssignment(
-              new StatefulSetAssignment(
-                  spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())));
-      // Written unconditionally, even when nodeId already equals stickyNodeId -- a first-ever
-      // placement (stickyNodeId empty) is exactly when this needs to be recorded for the first
-      // time, and re-writing an unchanged value on every later tick is harmless.
-      mutations.propose(new StateMutation.PutStatefulSetIndexNode(spec.name(), index, nodeId));
+      // The sticky binding is written unconditionally, even when nodeId already equals
+      // stickyNodeId -- a first-ever placement (stickyNodeId empty) is exactly when it needs
+      // recording for the first time, and re-writing an unchanged value on every later tick is
+      // harmless. One batch: the assignment and its binding belong together.
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.PutStatefulSetAssignment(
+                  new StatefulSetAssignment(
+                      spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())),
+              new StateMutation.PutStatefulSetIndexNode(spec.name(), index, nodeId)));
     } catch (GimleSchedulingException e) {
       // Left unplaced; the next tick retries from the same full snapshot -- matches every other
       // reconciler's "a missed placement this tick is indistinguishable from a retried one"
@@ -288,12 +294,12 @@ public final class StatefulSetReconciler {
         .min(Comparator.comparingInt(StatefulSetAssignment::instanceIndex))
         .ifPresent(
             mismatched -> {
-              mutations.propose(
-                  new StateMutation.RemoveStatefulSetAssignment(
-                      spec.name(), mismatched.instanceIndex()));
-              mutations.propose(
-                  new StateMutation.PutRollingStatefulSetIndex(
-                      spec.name(), mismatched.instanceIndex()));
+              mutations.proposeAll(
+                  List.of(
+                      new StateMutation.RemoveStatefulSetAssignment(
+                          spec.name(), mismatched.instanceIndex()),
+                      new StateMutation.PutRollingStatefulSetIndex(
+                          spec.name(), mismatched.instanceIndex())));
               log.info(
                   "statefulset {} index {} is on an old module version; rolling it forward",
                   spec.name(),

@@ -72,6 +72,6 @@ class TenantUsageTest {
   }
 
   private StateStore store() {
-    return new StateStore(tempDir.resolve("tenant-usage-store"));
+    return new StateStore();
   }
 }

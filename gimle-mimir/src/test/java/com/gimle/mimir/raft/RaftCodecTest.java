@@ -366,6 +366,18 @@ class RaftCodecTest {
   }
 
   @Test
+  void round_trips_a_batch_mutation_through_a_log_entry() {
+    StateMutation.Batch batch =
+        new StateMutation.Batch(
+            List.of(
+                new StateMutation.RemoveDeployment("orders-service"),
+                new StateMutation.RemoveAssignment("orders-service", 0),
+                new StateMutation.AddRollingIndex("orders-service", 1)));
+    LogEntry entry = logEntry(1L, batch);
+    assertEquals(entry, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(entry)));
+  }
+
+  @Test
   void round_trips_role_rolebinding_and_account_mutations_through_a_log_entry() {
     com.gimle.core.authz.Role role =
         new com.gimle.core.authz.Role(

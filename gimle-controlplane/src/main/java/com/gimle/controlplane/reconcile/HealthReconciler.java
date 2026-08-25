@@ -15,6 +15,7 @@ import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -210,10 +211,13 @@ public final class HealthReconciler {
 
     Duration delay = tracker.delayUntilNextAttempt(now);
     if (delay.compareTo(Duration.ZERO) <= 0) {
-      mutations.propose(
-          new StateMutation.RemoveAssignment(
-              assignment.deploymentName(), assignment.instanceIndex()));
-      persistTracker(assignment, persisted, tracker, false, false);
+      // One batch: the reschedule and its backoff bookkeeping commit atomically, so a crash
+      // between them can no longer remove the assignment while leaving pendingRetry set.
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.RemoveAssignment(
+                  assignment.deploymentName(), assignment.instanceIndex()),
+              saveMutation(trackerState(assignment, persisted, tracker, false, false))));
       return;
     }
     persistTracker(assignment, persisted, tracker, true, false);
@@ -244,28 +248,38 @@ public final class HealthReconciler {
       RestartTracker tracker,
       boolean pendingRetry,
       boolean permanentlyFailed) {
-    save(
-        new ReconcilerInstanceState(
-            assignment.deploymentName(),
-            assignment.instanceIndex(),
-            tracker.attemptsInWindow(),
-            tracker.windowStart().map(Instant::toEpochMilli).orElse(ReconcilerInstanceState.ABSENT),
-            tracker.nextAllowedAttempt().equals(Instant.EPOCH)
-                ? ReconcilerInstanceState.ABSENT
-                : tracker.nextAllowedAttempt().toEpochMilli(),
-            pendingRetry,
-            permanentlyFailed,
-            previous.firstSeenMissingAtEpochMilli()));
+    save(trackerState(assignment, previous, tracker, pendingRetry, permanentlyFailed));
+  }
+
+  private static ReconcilerInstanceState trackerState(
+      InstanceAssignment assignment,
+      ReconcilerInstanceState previous,
+      RestartTracker tracker,
+      boolean pendingRetry,
+      boolean permanentlyFailed) {
+    return new ReconcilerInstanceState(
+        assignment.deploymentName(),
+        assignment.instanceIndex(),
+        tracker.attemptsInWindow(),
+        tracker.windowStart().map(Instant::toEpochMilli).orElse(ReconcilerInstanceState.ABSENT),
+        tracker.nextAllowedAttempt().equals(Instant.EPOCH)
+            ? ReconcilerInstanceState.ABSENT
+            : tracker.nextAllowedAttempt().toEpochMilli(),
+        pendingRetry,
+        permanentlyFailed,
+        previous.firstSeenMissingAtEpochMilli());
   }
 
   private void save(ReconcilerInstanceState state) {
+    mutations.propose(saveMutation(state));
+  }
+
+  private static StateMutation saveMutation(ReconcilerInstanceState state) {
     if (state.isEmpty()) {
-      mutations.propose(
-          new StateMutation.RemoveReconcilerInstanceState(
-              state.deploymentName(), state.instanceIndex()));
-    } else {
-      mutations.propose(new StateMutation.PutReconcilerInstanceState(state));
+      return new StateMutation.RemoveReconcilerInstanceState(
+          state.deploymentName(), state.instanceIndex());
     }
+    return new StateMutation.PutReconcilerInstanceState(state);
   }
 
   private ReconcilerInstanceState currentState(InstanceAssignment assignment) {

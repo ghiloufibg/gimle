@@ -12,10 +12,10 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 
 /**
- * Temp-file-then-atomic-move write helper, extracted from {@link StateStore} so {@code raft}'s
- * {@code RaftLog} (which persists binary log entries, not just YAML strings) can reuse the exact
- * same durability idiom rather than duplicating it -- one write-durability mechanism for the whole
- * control plane.
+ * Temp-file-then-atomic-move write helper for state that must be replaced whole -- {@code
+ * RaftLog}'s term/vote pair and its compaction snapshot files. Per-mutation durability lives in the
+ * append-only {@code WriteAheadLog} instead; this idiom is for the few files where a reader must
+ * only ever observe a complete old or complete new version, never a mix.
  */
 public final class AtomicFiles {
 

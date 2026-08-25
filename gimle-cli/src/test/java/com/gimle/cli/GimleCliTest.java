@@ -65,7 +65,7 @@ class GimleCliTest {
     // A single-node gimle-mimir store, in-process, backing this test's ApiServer over a real
     // loopback socket -- ApiServer no longer holds a StateStore directly, so exercising it now
     // always means standing up at least this much of a store.
-    StateStore store = new StateStore(tempDir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(tempDir.resolve("raft"));
     storeRaftNode = new RaftNode("self", Map.of(), raftLog, store);
     storeRaftNode.start();

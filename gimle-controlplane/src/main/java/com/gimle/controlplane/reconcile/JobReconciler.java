@@ -153,12 +153,15 @@ public final class JobReconciler {
       jobNames.add(spec.name());
     }
 
-    // A job no longer in desired state: every one of its runs is stale.
+    // A job no longer in desired state: every one of its runs is stale. One batch for the whole
+    // sweep -- the removals are independent and nothing below reads them back first.
+    List<StateMutation> staleRuns = new ArrayList<>();
     for (JobRun run : store.listJobRuns()) {
       if (!jobNames.contains(run.jobName())) {
-        mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+        staleRuns.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
       }
     }
+    mutations.proposeAll(staleRuns);
 
     for (JobSpec spec : store.listJobSpecs()) {
       try {
@@ -184,18 +187,20 @@ public final class JobReconciler {
     // current, every other one is stale and gets cleaned up unconditionally, the same "scale-down
     // is a desired-state edit only" posture DeploymentReconciler's own convergence already has.
     Optional<JobRun> current = runs.stream().max(Comparator.comparingInt(JobRun::attempt));
+    List<StateMutation> duplicates = new ArrayList<>();
     for (JobRun run : runs) {
       if (current.isEmpty() || run.attempt() != current.get().attempt()) {
-        mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+        duplicates.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
       }
     }
+    mutations.proposeAll(duplicates);
 
     if (current.isPresent()) {
       reconcileCurrentRun(spec, current.get());
       return;
     }
 
-    placeAttempt(spec, 0, clock.instant());
+    planPlacement(spec, 0, clock.instant()).ifPresent(mutations::propose);
   }
 
   private void reconcileCurrentRun(JobSpec spec, JobRun run) {
@@ -206,8 +211,13 @@ public final class JobReconciler {
           "job {} exceeded its activeDeadline of {}; marking permanently failed",
           spec.name(),
           spec.activeDeadline().get());
-      mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
-      mutations.propose(new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED));
+      // One batch: the run removal and the terminal phase commit atomically -- a crash between
+      // them used to leave a non-terminal job with zero runs, which the next tick would re-place
+      // from attempt 0 and run a second time.
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.RemoveJobRun(run.jobName(), run.attempt()),
+              new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED)));
       return;
     }
 
@@ -234,8 +244,10 @@ public final class JobReconciler {
     }
     String state = observation.get().lifecycleState();
     if ("COMPLETED".equals(state)) {
-      mutations.propose(new StateMutation.PutJobPhase(spec.name(), JobPhase.SUCCEEDED));
-      mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.PutJobPhase(spec.name(), JobPhase.SUCCEEDED),
+              new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
       return;
     }
     if (!"FAILED".equals(state)) {
@@ -256,20 +268,28 @@ public final class JobReconciler {
           "job {} exhausted its backoffLimit of {}; marking permanently failed",
           spec.name(),
           spec.backoffLimit());
-      mutations.propose(new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED));
-      mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED),
+              new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
       return;
     }
-    // Place the retry BEFORE removing the failed attempt (never the other way around): a crash
-    // between these two mutations must never leave zero runs on record for a non-terminal job --
-    // reconcileJob's own arbitrary-starting-state cleanup above already knows how to reconcile
-    // two coexisting runs down to one, but has no way to recover a lost attempt counter if both
-    // were ever removed first. startedAt carries forward unchanged -- see JobRun's own javadoc.
-    placeAttempt(spec, nextAttempt, run.startedAt());
-    mutations.propose(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+    // The retry placement and the failed attempt's removal commit as one batch, so no crash can
+    // ever leave zero runs on record for a non-terminal job (which would lose the attempt
+    // counter). A placement that could not schedule this tick still removes the failed attempt on
+    // its own, unchanged. startedAt carries forward -- see JobRun's own javadoc.
+    List<StateMutation> retry = new ArrayList<>();
+    planPlacement(spec, nextAttempt, run.startedAt()).ifPresent(retry::add);
+    retry.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+    mutations.proposeAll(retry);
   }
 
-  private void placeAttempt(JobSpec spec, int attempt, Instant activeSince) {
+  /**
+   * The {@link StateMutation.PutJobRun} a fresh attempt would commit, or empty when the artifact is
+   * unreadable/mismatched or no node can take it this tick -- the caller decides whether it rides
+   * alone or in a batch with the failed attempt's removal.
+   */
+  private Optional<StateMutation> planPlacement(JobSpec spec, int attempt, Instant activeSince) {
     ModuleArtifact artifact;
     try {
       artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
@@ -279,7 +299,7 @@ public final class JobReconciler {
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
-      return;
+      return Optional.empty();
     }
     // Matches DeploymentReconciler's own artifact-hash check exactly: an artifact silently
     // swapped out from under a running job name is refused, not silently followed.
@@ -292,7 +312,7 @@ public final class JobReconciler {
           spec.artifactPath(),
           spec.artifactSha256().get(),
           artifact.sha256());
-      return;
+      return Optional.empty();
     }
     ModuleDescriptor descriptor = artifact.descriptor();
 
@@ -308,7 +328,7 @@ public final class JobReconciler {
               spec.tenantId(),
               spec.placement().requiredNodeLabels().orElse(Set.of()),
               candidates);
-      mutations.propose(
+      return Optional.of(
           new StateMutation.PutJobRun(
               new JobRun(
                   spec.name(),
@@ -322,6 +342,7 @@ public final class JobReconciler {
       // level-triggered "a missed placement is indistinguishable from one being retried" property
       // DeploymentReconciler's own missing-index placement already relies on.
       log.warn("could not place job {} attempt {}: {}", spec.name(), attempt, e.getMessage());
+      return Optional.empty();
     }
   }
 

@@ -84,7 +84,7 @@ public final class AddressableStoreNode implements AutoCloseable {
     final RaftPeerClientFactory peerClientFactory =
         address -> new PeerConnection(new InetSocketAddress(address.host(), address.raftPort()));
 
-    final StateStore store = new StateStore(stateDir.resolve("store"));
+    final StateStore store = new StateStore();
     final RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
     final RaftNode raftNode =
         new RaftNode(

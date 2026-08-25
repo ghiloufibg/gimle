@@ -63,7 +63,7 @@ class CronJobReconcilerTest {
   @Test
   void first_tick_records_a_baseline_and_materializes_nothing() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-baseline"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "0 0 * * *", ConcurrencyPolicy.ALLOW));
 
@@ -78,7 +78,7 @@ class CronJobReconcilerTest {
   @Test
   void a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-fire"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
     CronJobReconciler reconciler =
@@ -99,7 +99,7 @@ class CronJobReconcilerTest {
   @Test
   void ticking_again_with_nothing_newly_due_materializes_nothing_more() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-no-new-firing"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "0 0 * * *", ConcurrencyPolicy.ALLOW));
     CronJobReconciler reconciler =
@@ -117,7 +117,7 @@ class CronJobReconcilerTest {
   void
       a_firing_past_its_starting_deadline_is_logged_as_missed_but_last_schedule_time_still_advances() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-missed"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     JobTemplate template =
         new JobTemplate(
@@ -157,7 +157,7 @@ class CronJobReconcilerTest {
   @Test
   void concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-allow"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
     CronJobReconciler reconciler =
@@ -177,7 +177,7 @@ class CronJobReconcilerTest {
   @Test
   void concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-forbid"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.FORBID));
     CronJobReconciler reconciler =
@@ -199,7 +199,7 @@ class CronJobReconcilerTest {
   @Test
   void concurrency_policy_forbid_allows_the_next_firing_once_the_previous_one_is_terminal() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-forbid-terminal"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.FORBID));
     CronJobReconciler reconciler =
@@ -219,7 +219,7 @@ class CronJobReconcilerTest {
   @Test
   void concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-replace"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE));
     CronJobReconciler reconciler =
@@ -243,7 +243,7 @@ class CronJobReconcilerTest {
   @Test
   void trigger_now_fires_immediately_and_does_not_touch_last_schedule_time() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-trigger"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     // A schedule that would never naturally fire during this test (Feb 30 doesn't exist -- day-
     // of-month 30 in February) -- makes the point that trigger doesn't depend on the schedule at
@@ -268,7 +268,7 @@ class CronJobReconcilerTest {
   @Test
   void trigger_now_on_an_unknown_cronjob_returns_empty() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-trigger-unknown"), clock);
+    StateStore store = new StateStore(clock);
 
     Optional<String> jobName =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock)
@@ -288,7 +288,7 @@ class CronJobReconcilerTest {
     // REPLACE's own invariant -- exactly one non-terminal Job survives -- using nothing but this
     // snapshot.
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-arbitrary-replace"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     CronJobSpec spec = cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE);
     store.putCronJobSpec(spec);
@@ -336,7 +336,7 @@ class CronJobReconcilerTest {
   @Test
   void trigger_now_respects_forbid_against_a_still_running_previous_firing() {
     TestClock clock = new TestClock();
-    StateStore store = new StateStore(tempDir.resolve("store-trigger-forbid"), clock);
+    StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
     store.putCronJobSpec(cronJob("nightly-cleanup", jar, "0 0 30 2 *", ConcurrencyPolicy.FORBID));
     CronJobReconciler reconciler =

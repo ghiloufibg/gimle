@@ -18,7 +18,7 @@ import java.util.Map;
  * always leader with an empty peer set) backing a ready {@link StoreClient} -- what every {@code
  * ApiServer}-wiring test used to get for free from a bare {@code StateStore} before the
  * etcd-store-extraction split moved that machinery into its own process. Replaces the old {@code
- * store = new StateStore(...); server = new ApiServer(store, 0);} pattern with {@code storeClient =
+ * store = new StateStore(); server = new ApiServer(store, 0);} pattern with {@code storeClient =
  * InProcessStore.start(...).client(); server = new ApiServer(storeClient, 0);} -- same "fast,
  * network-free-in-spirit, fresh per test" shape, just over a real (loopback) socket instead of a
  * bare in-memory object, since {@code ApiServer} no longer holds a {@code StateStore} reference at
@@ -46,7 +46,7 @@ public final class InProcessStore implements AutoCloseable {
   }
 
   public static InProcessStore start(Path stateDir) throws IOException {
-    StateStore store = new StateStore(stateDir.resolve("store"));
+    StateStore store = new StateStore();
     RaftLog raftLog = new RaftLog(stateDir.resolve("raft"));
     RaftNode raftNode = new RaftNode("self", Map.of(), raftLog, store);
     raftNode.start(); // empty peer set: majority of one, trivially always leader
