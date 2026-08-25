@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 608
+- **Total requirements**: 615
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 487
-- **Release-readiness (automated coverage)**: 19.9%
+- **Not covered by automated test**: 494
+- **Release-readiness (automated coverage)**: 19.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 42 | 15 | 27 | 35.7% |
-| gimle-module | 22 | 11 | 11 | 50.0% |
-| gimle-os | 6 | 0 | 6 | 0.0% |
+| gimle-core | 43 | 15 | 28 | 34.9% |
+| gimle-module | 24 | 11 | 13 | 45.8% |
+| gimle-os | 7 | 0 | 7 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 40 | 6 | 34 | 15.0% |
+| gimle-agent | 41 | 6 | 35 | 14.6% |
 | gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 70 | 14 | 56 | 20.0% |
+| gimle-controlplane | 71 | 14 | 57 | 19.7% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -40,7 +40,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
 | gimle-dist | 5 | 0 | 5 | 0.0% |
-| gimle-skald | 1 | 0 | 1 | 0.0% |
+| gimle-skald | 2 | 0 | 2 | 0.0% |
 
 ## Checklist
 
@@ -113,7 +113,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Given gimle-module.yaml declaring volume:{sizeBytes,mountPath}, When parsed, Then ModuleDescriptor.volume() is present. | No |
+| [ ] | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Given gimle-module.yaml declaring volume:{sizeBytes[,reclaimPolicy]}, When parsed, Then ModuleDescriptor.volume() is present with reclaimPolicy defaulting to RETAIN. | No |
 
 #### Module System / Vessel Hosting
 
@@ -191,6 +191,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Given Permission scoped to (DEPLOYMENT,WRITE,tenant="acme"), When covers(DEPLOYMENT,WRITE,Optional.of("acme")), Then true; a different tenant, false. | Yes |
 | [ ] | GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination. | Yes |
+| [ ] | GIMLE-612 | Per-tenant built-in role templates (tenant-view/edit/admin) | Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant. Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied. | No |
 
 #### Self-Healing
 
@@ -218,6 +219,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-058 | Hot redeploy (old/new version coexistence with pinned dependent wiring) | Given dependent D wired to dependency v1, and v2 is then installed/resolved, When D's wiring is inspected afterward, Then still wired to v1 unless explicitly re-resolved. | No |
 | [ ] | GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value. | Yes |
 | [ ] | GIMLE-060 | Module artifact reading — real-JPMS-module and descriptor-presence validation | Given a jar with no module-info.class, When ModuleArtifactReader.read(jarPath) is called, Then GimleManifestException explaining automatic modules are rejected. | No |
+| [ ] | GIMLE-613 | Instance identity on ModuleContext (downward API) | Given a hosted instance with a registered identity, When it calls ModuleContext.instanceInfo(), Then it sees its deployment name, replica index, node id, and tenant. Given an instance renamed in place, When it calls instanceInfo() again, Then the answer reflects the new index without a restart. | No |
+
+#### Module System / Configuration
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-614 | Config key enumeration on ModuleContext | Given delivered config values, When a module calls configKeys(), Then it receives a snapshot of every currently-delivered key. | No |
 
 #### Module System / Health
 
@@ -248,6 +256,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | Yes |
 
 ### gimle-os
+
+#### Module System / Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-609 | Volume reclaim policy: Retain-by-default persistent volume release | Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk. Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted. | No |
 
 #### Resource Limiting
 
@@ -519,6 +533,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Given BifrostProxy polling a ServiceSource that reports Service "orders" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints. Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed. Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services. | No |
+
+#### Service Fabric / Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-615 | Bifrost off-node service exposure (NodePort analogue) | Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints. | No |
 
 #### Worker Supervision
 
@@ -966,6 +986,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Given a caller has WRITE access to SECRET for tenant T; When PUT /secrets/T/mykey; Then ApiServer authorizes locally, forwards byte-for-byte to Fafnir with the calling principal as an internal claim, and relays the response verbatim. | No |
+
+#### Security / RBAC
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-611 | Self-subject access review endpoint (/authz/can-i) | Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it. Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401. | No |
 
 ### gimle-fafnir
 
@@ -1656,6 +1682,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-564 | Distribution archive checksums and SBOM generation | Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each. | No |
 
 ### gimle-skald
+
+#### Service Discovery / DNS
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-610 | DNS-over-TCP fallback with UDP truncation | Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection. Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers. | No |
 
 #### Service Fabric
 

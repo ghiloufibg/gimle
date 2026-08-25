@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 608,
+  "requirementCount": 615,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -118,14 +118,14 @@
       "feature": "StatefulSet-shaped persistent volume declaration",
       "category": "Module System / Storage",
       "userStory": "As a module author building StatefulSet-kind workloads, I want to declare a persistent local-disk volume request in the module artifact.",
-      "statusDetail": "Complete",
+      "statusDetail": "Complete; volume declaration reshaped: the never-consumed mountPath field was dropped and an optional reclaimPolicy (Retain default) added",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/VolumeRequest.java`"
       ],
-      "testCoverageDetail": "`ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_and_mount_path, volume_with_missing_mount_path_throws, volume_with_non_positive_size_bytes_throws)",
+      "testCoverageDetail": "`ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_with_reclaim_policy_defaulting_to_retain, parses_explicit_delete_reclaim_policy, volume_with_unknown_reclaim_policy_throws, volume_with_non_positive_size_bytes_throws)",
       "gherkinSteps": [
-        "Given gimle-module.yaml declaring volume:{sizeBytes,mountPath}, When parsed, Then ModuleDescriptor.volume() is present."
+        "Given gimle-module.yaml declaring volume:{sizeBytes[,reclaimPolicy]}, When parsed, Then ModuleDescriptor.volume() is present with reclaimPolicy defaulting to RETAIN."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -11936,6 +11936,145 @@
         "Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE.",
         "Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409.",
         "Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-609",
+      "module": "gimle-os",
+      "feature": "Volume reclaim policy: Retain-by-default persistent volume release",
+      "category": "Module System / Storage",
+      "userStory": "As an operator, I want a permanent StatefulSet removal to retain the instance's volume data on disk by default, so one mistaken scale-down or spec delete never silently destroys data, while a module owning disposable data can opt into Delete.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/module/ReclaimPolicy.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`"
+      ],
+      "testCoverageDetail": "`LocalDiskVolumeManagerTest` (release_under_default_retain_policy_leaves_the_data_on_disk, release_under_delete_policy_deletes_the_volume_directory_and_its_contents, release_of_a_never_allocated_handle_is_a_silent_no_op)",
+      "gherkinSteps": [
+        "Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk.",
+        "Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-610",
+      "module": "gimle-skald",
+      "feature": "DNS-over-TCP fallback with UDP truncation",
+      "category": "Service Discovery / DNS",
+      "userStory": "As a resolver querying Skald, I want oversized UDP answers truncated with TC=1 and the identical query answerable over TCP on the same port, so large responses arrive whole instead of silently cut.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`"
+      ],
+      "testCoverageDetail": "`SkaldServerTest` (answers_the_same_query_over_tcp_with_a_length_prefixed_response, serves_multiple_sequential_queries_on_one_tcp_connection, answers_unknown_name_over_tcp_with_nxdomain), `DnsCodecTest` (truncated_response_sets_the_tc_flag_and_a_full_one_leaves_it_clear)",
+      "gherkinSteps": [
+        "Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection.",
+        "Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-611",
+      "module": "gimle-controlplane",
+      "feature": "Self-subject access review endpoint (/authz/can-i)",
+      "category": "Security / RBAC",
+      "userStory": "As an authenticated caller, I want to ask whether I would be authorized for a given resource/verb/tenant action without performing it, so consoles and operators can probe RBAC decisions safely.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ],
+      "testCoverageDetail": "`ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything)",
+      "gherkinSteps": [
+        "Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it.",
+        "Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-612",
+      "module": "gimle-core",
+      "feature": "Per-tenant built-in role templates (tenant-view/edit/admin)",
+      "category": "Security / RBAC",
+      "userStory": "As a cluster operator, I want built-in per-tenant view/edit/admin role templates resolvable by name in a RoleBinding, so common tenant-scoped grants need no hand-authored Role objects.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`"
+      ],
+      "testCoverageDetail": "`BuiltinRolesTest` (tenant_view_reads_workloads_and_config_but_never_secrets, tenant_edit_adds_workload_and_secret_writes_but_not_guardrails, tenant_admin_additionally_manages_the_tenant_guardrails, every_tenant_template_permission_is_scoped_to_its_own_tenant_only, names_that_are_not_tenant_templates_synthesize_nothing), `AuthorizerTest` (a_binding_to_a_tenant_template_grants_within_that_tenant_and_nowhere_else, a_binding_to_a_tenant_view_template_never_reads_secrets)",
+      "gherkinSteps": [
+        "Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant.",
+        "Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-613",
+      "module": "gimle-module",
+      "feature": "Instance identity on ModuleContext (downward API)",
+      "category": "Module System",
+      "userStory": "As a hosted module, I want to read my own placement identity (deployment name, replica index, node id, tenant) from ModuleContext, so index- or node-aware behavior needs no out-of-band configuration.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`"
+      ],
+      "testCoverageDetail": "`SimpleModuleContextTest` (instance_info_is_empty_when_no_identity_collaborator_was_wired, instance_info_reads_the_wired_supplier_live_on_every_call)",
+      "gherkinSteps": [
+        "Given a hosted instance with a registered identity, When it calls ModuleContext.instanceInfo(), Then it sees its deployment name, replica index, node id, and tenant.",
+        "Given an instance renamed in place, When it calls instanceInfo() again, Then the answer reflects the new index without a restart."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-614",
+      "module": "gimle-module",
+      "feature": "Config key enumeration on ModuleContext",
+      "category": "Module System / Configuration",
+      "userStory": "As a hosted module, I want to enumerate every config key actually delivered to me, so config treated as a namespace needs no key-by-key probing.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`"
+      ],
+      "testCoverageDetail": "`SimpleModuleContextTest` (config_keys_enumerate_every_delivered_key_as_a_snapshot)",
+      "gherkinSteps": [
+        "Given delivered config values, When a module calls configKeys(), Then it receives a snapshot of every currently-delivered key."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-615",
+      "module": "gimle-agent",
+      "feature": "Bifrost off-node service exposure (NodePort analogue)",
+      "category": "Service Fabric / Networking",
+      "userStory": "As an operator, I want an opt-in flag that binds each Bifrost service listener on all interfaces at the service's own port, so a Service becomes dialable from off the node without the gateway.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ],
+      "testCoverageDetail": "`BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port)",
+      "gherkinSteps": [
+        "Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
