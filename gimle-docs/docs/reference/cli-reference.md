@@ -234,6 +234,14 @@ never stored or echoed back in plaintext.
 
 ## Examples
 
+`apply -f` honors the manifest's own optional `apiVersion:` field (omitted means `v1alpha1`; see
+the [manifest schema](./manifest-schema.md#manifest-versioning-apiversion)), and surfaces any
+deprecation warnings the control plane attaches to the response — one `warning:` line each,
+printed on **stderr** so `-o json` output on stdout stays clean for scripts. Today that means a
+`v1alpha1` manifest naming a local `artifactPath` warns (the path resolves against the reading
+process's own working directory, not the manifest file), and an `apiVersion: v1` manifest rejects
+the field outright in favor of the artifact registry.
+
 ```bash
 # Deploy (or update) a module from its manifest
 gimle apply -f gimle-examples/greeter-provider/deployment.yaml --server 127.0.0.1:8080

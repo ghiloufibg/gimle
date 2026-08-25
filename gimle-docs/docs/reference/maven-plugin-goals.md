@@ -202,7 +202,10 @@ self-filtered to one module — extends the same `AbstractGimleRootMojo` base `g
 bound in), it walks every module already in the current reactor, generates a `kind: ArtifactSet`
 manifest (see the [manifest schema](./manifest-schema.md#artifactset-manifest)) grouping their built
 jars by tenant, and shells out to a real `GimleCli apply` the same way `gimle:publish` shells out to
-`artifact push`.
+`artifact push`. The generated manifest pins `apiVersion: v1` explicitly (see
+[manifest versioning](./manifest-schema.md#manifest-versioning-apiversion)) — generated output
+never leans on the unversioned default, so regeneration can't change meaning if that default ever
+moved.
 
 Tenant assignment defaults to one reactor-wide `gimle.artifactset.tenantId` value; a submodule that
 belongs to a different tenant overrides it with its own `gimle.artifactset.tenantId` property in its

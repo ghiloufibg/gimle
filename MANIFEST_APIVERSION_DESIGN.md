@@ -199,21 +199,24 @@ existing parse entry points.
   rather than just accepted input, persisting the version becomes that design's problem — not
   speculatively this one's.)
 
-**`gimle-controlplane` — `ApiServer`.** The manifest-accepting handlers
-(`PUT /deployments/*` and siblings) fold `ParsedManifest.warnings` into the existing JSON success
-body as a `"warnings": [...]` array, present only when non-empty — the same idea as Kubernetes'
-`Warning` response headers, riding the body since Gimlé's CLI already parses it. Each warning is
-also SLF4J-`warn`ed server-side. No admission change: the coordinate-vs-local-path branch
+**`gimle-controlplane` — `ApiServer`.** *(As built, revised from the original draft:)* the
+design first proposed folding warnings into a JSON success body, but the workload PUT handlers'
+success response is the plain string `ok`, not JSON — so warnings ride **`X-Gimle-Warning`
+response headers** instead (literally Kubernetes' own `Warning`-header practice, and the same
+`X-Gimle-*` header convention the artifact surface already uses), one header per warning, set
+centrally in `dispatchResourceRequest`'s PUT branch before the per-kind handler runs. Each warning
+is also SLF4J-`warn`ed server-side. No admission change: the coordinate-vs-local-path branch
 (`ArtifactResolver`, the Andvari `HEAD` pre-check) already handles both states; `v1` merely
 guarantees admission only ever sees the coordinate state.
 
 **`gimle-cli`.**
 
 - `handleApply`'s dispatch is unchanged (kind-routed, version-blind, per rule 1).
-- Every apply/PUT path that prints a success row also prints each entry of a `"warnings"` array
-  in the response to **stderr** as `warning: ...` — stdout's `--output json` contract stays
-  clean. This is the piece that turns the control-plane-log-only diagnostic the QA finding
-  complained about into something the operator actually sees at the moment they can act on it.
+- Every apply/PUT path that prints a success row also prints each `X-Gimle-Warning` header in the
+  response to **stderr** as `warning: ...` (`ApiResponse` carries the headers' values, collected
+  once in `ControlPlaneClient.send`) — stdout's `--output json` contract stays clean. This is the
+  piece that turns the control-plane-log-only diagnostic the QA finding complained about into
+  something the operator actually sees at the moment they can act on it.
 - `ArtifactSetCommand` needs no version logic of its own — it flows through the parser below.
 
 **`gimle-module` — `ArtifactSetManifestParser`.** Calls the same `ApiVersion.of(...)` helper with
@@ -227,9 +230,11 @@ contract is preserved (it reads `apiVersion`, still never `kind`).
 silently change meaning if the default ever moves, and the generator is regenerated output — the
 one place pinning costs nothing.
 
-**`gimle-console`.** Optional, thin: `HttpDeploymentsRepository` (and siblings that submit
-manifests) surface a response's `warnings` as a toast. Nothing else — the console never composes
-manifests itself.
+**`gimle-console`.** *(As built: no change.)* The console's own deployment form composes its
+manifests without `artifactPath` at all (`repositories/http/deployments.ts` deliberately omits the
+key), so a console-submitted manifest can never draw the deprecation warning — surfacing warnings
+there would be dead code today. Revisit only if the console ever submits operator-authored YAML
+verbatim.
 
 **`gimle-docs`.** At implementation time (same change, per convention):
 `reference/manifest-schema.md` gains an "apiVersion" section up top plus an `apiVersion` row in
@@ -237,14 +242,15 @@ each kind's field table and the `v1`-vs-`v1alpha1` `artifactPath` difference in 
 `artifactPath` rows; `reference/cli-reference.md`'s apply section notes the stderr warnings;
 `reference/maven-plugin-goals.md` notes the pinned version in generated manifests.
 
-**Requirements traceability.** At implementation time: two new entries starting at the next free
-ID (`GIMLE-609`: optional `apiVersion` with alpha defaulting and unknown-version rejection;
-`GIMLE-610`: workload `v1` rejects `artifactPath` / registry-only resolution, plus the
-deprecation-warning surfacing) added to `requirements-matrix.json` and `rtm.json`
-(`coverage: "Covered"` only once a real Holmgang `.feature` scenario exercises them — the
-`registry-deploy.feature` topology is the natural host: apply a `v1` manifest carrying
-`artifactPath`, assert the structured rejection; apply the coordinate-only `v1` twin, assert
-`ACTIVE`), then `python3 scripts/generate_requirements_docs.py`.
+**Requirements traceability.** *(Done with the implementation:)* `GIMLE-609` (optional
+`apiVersion` with alpha defaulting and unknown-version rejection) and `GIMLE-610` (workload `v1`
+rejects `artifactPath` / registry-only resolution, plus the deprecation-warning surfacing) are in
+`requirements-matrix.json` and `rtm.json`, both `Covered` by real Holmgang scenarios shipped in
+the same change — `workload-manifests.feature`'s "apiVersion selects the manifest ruleset and v1
+enforces registry-only artifacts" (alpha accepted, `v1`+`artifactPath` 400, unknown version 400,
+against a live cluster) and `registry-deploy.feature`'s "A v1 manifest deploys by coordinate
+through the registry" (real push, `v1` coordinate-only submission, `ACTIVE` on a real worker) —
+with the four rendered files regenerated via `scripts/generate_requirements_docs.py`.
 
 ## What deliberately does not change
 

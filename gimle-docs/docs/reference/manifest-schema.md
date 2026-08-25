@@ -79,6 +79,38 @@ One more `kind:` value, `ArtifactSet`, is also routed through `gimle apply -f`'s
 scheduling at all, only Andvari's artifact registry. See [ArtifactSet manifest](#artifactset-manifest)
 below.
 
+## Manifest versioning: `apiVersion`
+
+Every `gimle apply -f` kind — the five workload kinds plus `ArtifactSet` — also accepts an
+**optional** top-level `apiVersion:` field, the Kubernetes-style mechanism for evolving a kind's
+schema without breaking existing manifests:
+
+```yaml
+apiVersion: v1          # optional; omitted ⇒ v1alpha1, the kind's alpha
+kind: Deployment
+```
+
+- **Omitted** `apiVersion` means `v1alpha1` — **permanently**. This is a stable contract, not a
+  "latest" pointer: an unversioned manifest always keeps the alpha behavior, and opting into `v1`
+  (or any future version) always requires declaring it explicitly, so an unversioned manifest can
+  never silently change meaning under its author.
+- **Declared**, it must exactly match a version the kind supports (matching is case-sensitive);
+  anything else — an unknown version, a blank value, a non-string — is rejected outright with an
+  error naming the supported set, never silently defaulted.
+- `kind:` is always read first; `apiVersion` selects a parse ruleset *within* a kind, never the
+  kind itself.
+
+The versions defined today:
+
+| Version | Meaning |
+|---|---|
+| `v1alpha1` (default when omitted) | Exactly the historical schema of every kind. `artifactPath` is accepted on the five workload kinds but **deprecated**: using it produces a warning (returned to `gimle apply` and printed on stderr) because the path is resolved against the *reading process's own working directory* — the control plane's, or a node agent's — not the manifest file's, which silently breaks the moment a cluster isn't launched from where the manifest author assumed. |
+| `v1` | Identical to `v1alpha1` **minus `artifactPath`**: the key's very presence (even `artifactPath: ""`, and `jobTemplate.artifactPath` for CronJob) is rejected with an error pointing at the migration. `module: {name, version}` always resolves from the Andvari artifact registry — push the jar first (`gimle artifact push`, or `kind: ArtifactSet` for a set). For `ArtifactSet` itself, `v1` is a straight promotion with an unchanged schema: its `artifact:` entries are local build outputs being pushed *into* the registry, resolved against the manifest file's own directory, so there is nothing to deprecate. |
+
+Generated manifests always pin their version explicitly — `mvn gimle:artifactset-push` writes
+`apiVersion: v1` into its generated `artifactset.yaml` — so regenerated output can never change
+meaning if a default ever moved.
+
 ## Vessel workloads: `vessel`
 
 `vessel:` is an additive, optional block on every one of the five workload kinds above (`Deployment`,
@@ -160,10 +192,13 @@ store client](../architecture/control-plane.md#api-server-and-store-client) for 
 The deployment manifest (`deployment.yaml`, e.g. `gimle apply -f deployment.yaml`, `kind:
 Deployment`) is a different file from `gimle-module.yaml` above — see `gimle-examples/*/deployment.yaml`
 for real, minimal examples (`name`, `module: {name, version}`, `artifactPath`, `replicas`, plus the
-required `kind: Deployment`). `artifactPath` is optional in every workload kind: present, it names
-a local jar read directly by whichever process needs it; omitted entirely, `module: {name,
-version}` alone identifies the artifact and node agents pull it from the Andvari artifact registry
-on a cache miss (an explicitly blank value is rejected rather than treated as the registry form).
+required `kind: Deployment`). `artifactPath` is optional in every workload kind — and **deprecated**
+(see [Manifest versioning](#manifest-versioning-apiversion): a `v1` manifest rejects it outright,
+and using it under the default `v1alpha1` produces a warning): present, it names a local jar read
+directly by whichever process needs it, resolved against that process's own working directory;
+omitted entirely, `module: {name, version}` alone identifies the artifact and node agents pull it
+from the Andvari artifact registry on a cache miss (an explicitly blank value is rejected rather
+than treated as the registry form under `v1alpha1`; under `v1` presence alone rejects).
 Once resolved (Deployment, Job, StatefulSet, DaemonSet, and rollbacks of each), the control plane
 compares the artifact's own bundled `gimle-module.yaml` identity against this manifest's declared
 `module: {name, version}` and rejects submission outright on a mismatch — a manifest bumped without
@@ -342,9 +377,10 @@ placement:                     # optional, same shape as a deployment manifest's
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `Job`. |
+| `apiVersion` | no | Optional manifest version -- omitted means `v1alpha1`; `v1` rejects `artifactPath` outright. See [Manifest versioning](#manifest-versioning-apiversion). |
 | `name` | yes | The job's identifier — also what `gimle get jobs <name>`/the console's Jobs screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `backoffLimit` | no | Maximum number of attempts before the job is marked permanently `FAILED`. Defaults to `6` (Kubernetes Job's own default) when omitted. |
 | `activeDeadlineSeconds` | no | Wall-clock ceiling across *every* attempt combined, not per-attempt — once exceeded the job is marked `FAILED` regardless of remaining `backoffLimit` headroom. Omit for no deadline. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted job. |
@@ -394,10 +430,11 @@ tenantId: acme                   # optional -- applied to every Job this CronJob
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `CronJob`. |
+| `apiVersion` | no | Optional manifest version -- omitted means `v1alpha1`; `v1` rejects `artifactPath` outright. See [Manifest versioning](#manifest-versioning-apiversion). |
 | `name` | yes | The cronjob's identifier — also the prefix every generated Job's name carries (`{name}-{epochSeconds}`). |
 | `schedule` | yes | A standard 5-field cron expression, validated eagerly at submission — a malformed expression is rejected outright, not discovered on the first reconcile tick. |
 | `jobTemplate.module.name` / `.version` | yes | The module each generated Job runs. |
-| `jobTemplate.artifactPath` | no | Path to the module's jar, same convention as a Job manifest's own field -- omit it entirely to resolve the module coordinate from the Andvari artifact registry instead. |
+| `jobTemplate.artifactPath` | no | Path to the module's jar, same convention as a Job manifest's own field -- omit it entirely to resolve the module coordinate from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `jobTemplate.backoffLimit` | no | Per-generated-Job retry ceiling. Defaults to `6` when omitted, matching a directly-submitted Job. |
 | `jobTemplate.activeDeadlineSeconds` | no | Per-generated-Job wall-clock ceiling across that Job's own attempts. Omit for no deadline. |
 | `jobTemplate.placement.antiAffinity` / `.requiredLabels` | no | Same `PlacementConstraints` shape a Job/Deployment manifest's own `placement:` block uses. |
@@ -455,9 +492,10 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `DaemonSet`. |
+| `apiVersion` | no | Optional manifest version -- omitted means `v1alpha1`; `v1` rejects `artifactPath` outright. See [Manifest versioning](#manifest-versioning-apiversion). |
 | `name` | yes | The daemonset's identifier — also what `gimle get daemonsets <name>`/the console's DaemonSets screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
@@ -503,9 +541,10 @@ tenantId: acme                 # optional -- omit for an untenanted statefulset
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `StatefulSet`. |
+| `apiVersion` | no | Optional manifest version -- omitted means `v1alpha1`; `v1` rejects `artifactPath` outright. See [Manifest versioning](#manifest-versioning-apiversion). |
 | `name` | yes | The statefulset's identifier — also what `gimle get statefulsets <name>`/the console's StatefulSets screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
-| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. |
+| `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
 | `placement.antiAffinity` / `placement.requiredLabels` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |
@@ -570,6 +609,7 @@ modules:
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `ArtifactSet`. |
+| `apiVersion` | no | Optional manifest version -- omitted means `v1alpha1`; `v1` rejects `artifactPath` outright. See [Manifest versioning](#manifest-versioning-apiversion). |
 | `tenant` | no | A map of tenant ID → list of artifact entries. Every entry under one key is pushed tagged with that tenant. A set may name more than one tenant at once — a release train spanning several tenants, something no workload manifest's single `tenantId` field can express. |
 | `modules` | no | A plain list of untenanted artifact entries — the exception, not the norm. At least one of `tenant`/`modules` must be non-empty. |
 
