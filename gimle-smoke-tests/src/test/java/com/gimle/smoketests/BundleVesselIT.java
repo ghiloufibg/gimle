@@ -160,9 +160,9 @@ class BundleVesselIT extends GreeterSmokeClusterSupport {
         public final class Main {
           public static void main(String[] args) throws InterruptedException {
             System.out.println("BUNDLE-MAIN-OK " + bundlefixture.dep.Dep.value());
-            while (true) {
-              Thread.sleep(1000L);
-            }
+            // Stays alive forever; the latch never counts down. (Generated fixture code -- this
+            // process is the supervised vessel itself, not a test waiting on a condition.)
+            new java.util.concurrent.CountDownLatch(1).await();
           }
         }
         """);
