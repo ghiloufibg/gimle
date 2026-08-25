@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 607
+- **Total requirements**: 608
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 486
+- **Not covered by automated test**: 487
 - **Release-readiness (automated coverage)**: 19.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -23,7 +23,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 70 | 14 | 56 | 20.0% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
-| gimle-andvari | 23 | 2 | 21 | 8.7% |
+| gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
@@ -1057,6 +1057,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-302 | Version retention sweeping (count and age based) | Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal. | No |
 | [ ] | GIMLE-308 | Generated `maven-metadata.xml` (never stored, always fresh) | Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release. | No |
 | [ ] | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed. | No |
+| [ ] | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE. Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409. Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission. | No |
 
 #### Artifact Registry / API Server
 

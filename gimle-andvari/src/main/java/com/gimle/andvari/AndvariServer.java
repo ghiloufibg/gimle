@@ -9,7 +9,9 @@ import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.hash.Sha256;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
@@ -112,6 +114,7 @@ public final class AndvariServer implements AutoCloseable {
   private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
   private static final String TENANT_HEADER = "X-Gimle-Artifact-Tenant";
+  private static final String KIND_HEADER = "X-Gimle-Artifact-Kind";
   private static final String MAVEN_METADATA_FILE = "maven-metadata.xml";
   private static final DateTimeFormatter MAVEN_TIMESTAMP =
       DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
@@ -416,10 +419,11 @@ public final class AndvariServer implements AutoCloseable {
       return;
     }
     exchange.getResponseHeaders().add(SHA256_HEADER, meta.get().sha256());
+    exchange.getResponseHeaders().add(KIND_HEADER, meta.get().kind().name());
     meta.get()
         .tenantId()
         .ifPresent(tenantId -> exchange.getResponseHeaders().add(TENANT_HEADER, tenantId));
-    exchange.getResponseHeaders().add("Content-Type", "application/java-archive");
+    exchange.getResponseHeaders().add("Content-Type", artifactContentType(meta.get().kind()));
     exchange.sendResponseHeaders(200, -1);
   }
 
@@ -435,16 +439,17 @@ public final class AndvariServer implements AutoCloseable {
         meta.flatMap(StoredArtifact::tenantId))) {
       return;
     }
-    Optional<Path> jar = artifactStore.jarPath(moduleId, version);
-    if (meta.isEmpty() || jar.isEmpty()) {
+    Optional<Path> artifactFile = artifactStore.artifactFilePath(moduleId, version);
+    if (meta.isEmpty() || artifactFile.isEmpty()) {
       respond(exchange, 404, "no artifact stored for " + moduleId + ":" + version);
       return;
     }
     exchange.getResponseHeaders().add(SHA256_HEADER, meta.get().sha256());
+    exchange.getResponseHeaders().add(KIND_HEADER, meta.get().kind().name());
     meta.get()
         .tenantId()
         .ifPresent(tenantId -> exchange.getResponseHeaders().add(TENANT_HEADER, tenantId));
-    exchange.getResponseHeaders().add("Content-Type", "application/java-archive");
+    exchange.getResponseHeaders().add("Content-Type", artifactContentType(meta.get().kind()));
     exchange.sendResponseHeaders(200, meta.get().sizeBytes());
     String actualSha256;
     // Streamed straight from disk to the socket -- a jar is never buffered whole in memory on
@@ -455,7 +460,7 @@ public final class AndvariServer implements AutoCloseable {
     // and react (log loudly, quarantine so the same corrupted bytes are never served again),
     // never prevent this one caller from having received them.
     try (OutputStream out = exchange.getResponseBody()) {
-      actualSha256 = ArtifactStore.copyAndDigest(jar.get(), out);
+      actualSha256 = ArtifactStore.copyAndDigest(artifactFile.get(), out);
     }
     if (!actualSha256.equals(meta.get().sha256())) {
       reportIntegrityFailure(moduleId, version, meta.get().sha256(), actualSha256);
@@ -526,6 +531,13 @@ public final class AndvariServer implements AutoCloseable {
     // A write's own claim is what's checked, not whatever (if anything) already sits on record --
     // see authorizeArtifacts's javadoc for why that distinction is load-bearing, not cosmetic.
     Optional<String> requestedTenant = firstHeader(exchange, TENANT_HEADER);
+    ArtifactKind requestedKind;
+    try {
+      requestedKind = ArtifactKind.parse(firstHeader(exchange, KIND_HEADER).orElse(null));
+    } catch (GimleManifestException e) {
+      respond(exchange, 400, String.valueOf(e.getMessage()));
+      return;
+    }
     if (!authorizeArtifacts(
         exchange, Verb.WRITE, moduleId + ":" + version, moduleId, version, requestedTenant)) {
       return;
@@ -533,7 +545,7 @@ public final class AndvariServer implements AutoCloseable {
     String pushedBy = resolvePrincipal(exchange).map(Principal::name).orElse("anonymous");
     PutResult result;
     try (var body = exchange.getRequestBody()) {
-      result = artifactStore.put(moduleId, version, body, pushedBy, requestedTenant);
+      result = artifactStore.put(moduleId, version, body, pushedBy, requestedTenant, requestedKind);
     } catch (ArtifactStore.ArtifactTooLargeException e) {
       respond(exchange, 413, e.getMessage());
       return;
@@ -548,9 +560,12 @@ public final class AndvariServer implements AutoCloseable {
               + version
               + " already exists (sha256 "
               + result.stored().sha256()
+              + ", kind "
+              + result.stored().kind()
               + result.stored().tenantId().map(tenantId -> ", tenant " + tenantId).orElse("")
-              + ") -- a stored version's content and tenant are both immutable; push the changed"
-              + " jar as a new version, or drop --tenant if you didn't mean to change ownership");
+              + ") -- a stored version's content, kind, and tenant are all immutable; push the"
+              + " changed artifact as a new version, or drop --tenant if you didn't mean to change"
+              + " ownership");
       return;
     }
     Map<String, Object> body = versionJson(result.stored());
@@ -630,6 +645,14 @@ public final class AndvariServer implements AutoCloseable {
     String moduleId = file.moduleId();
     String version = file.version();
     String target = moduleId + ":" + version;
+    // A bundle is a zip of a whole application directory, not a Maven artifact -- serving it
+    // under a jar-shaped path would hand a resolving Maven client a file that isn't what the
+    // path claims. Same before-authorization lookup posture handleHead already documents.
+    if (artifactStore.meta(moduleId, version).map(StoredArtifact::kind).orElse(ArtifactKind.JAR)
+        == ArtifactKind.BUNDLE) {
+      respond(exchange, 404, target + " is a bundle artifact; not served on the maven surface");
+      return;
+    }
     String jarFileName = file.artifactId() + "-" + version + ".jar";
     if (file.fileName().equals(jarFileName)) {
       // Identical handling to the operational surface's own /artifacts/{moduleId}/{version}
@@ -702,7 +725,13 @@ public final class AndvariServer implements AutoCloseable {
         exchange, Verb.READ, metadataFile.moduleId(), metadataFile.moduleId(), null)) {
       return;
     }
-    List<StoredArtifact> versions = artifactStore.versions(metadataFile.moduleId());
+    // Bundles are excluded rather than listed-but-unfetchable: a version this metadata advertises
+    // must actually resolve on the jar-shaped paths above, or a Maven client picks a "latest" it
+    // can never download.
+    List<StoredArtifact> versions =
+        artifactStore.versions(metadataFile.moduleId()).stream()
+            .filter(stored -> stored.kind() == ArtifactKind.JAR)
+            .toList();
     if (versions.isEmpty()) {
       respond(exchange, 404, "no versions stored for " + metadataFile.moduleId());
       return;
@@ -1159,7 +1188,12 @@ public final class AndvariServer implements AutoCloseable {
     json.put("pushedAtEpochMilli", stored.pushedAtEpochMilli());
     json.put("pushedBy", stored.pushedBy());
     stored.tenantId().ifPresent(tenantId -> json.put("tenantId", tenantId));
+    json.put("kind", stored.kind().name());
     return json;
+  }
+
+  private static String artifactContentType(ArtifactKind kind) {
+    return kind == ArtifactKind.BUNDLE ? "application/zip" : "application/java-archive";
   }
 
   private static void respond(HttpExchange exchange, int status, String body) throws IOException {

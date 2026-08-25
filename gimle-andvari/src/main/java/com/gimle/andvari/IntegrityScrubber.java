@@ -75,20 +75,22 @@ final class IntegrityScrubber implements AutoCloseable {
     for (String moduleId : artifactStore.moduleIds()) {
       for (StoredArtifact stored : artifactStore.versions(moduleId)) {
         checked++;
-        Optional<Path> jar = artifactStore.jarPath(moduleId, stored.version());
-        if (jar.isEmpty()) {
-          // meta.json survived without its jar (e.g. a prior quarantine interrupted mid-move) --
-          // nothing left here to digest; leave it for an operator to notice via a failed GET
-          // rather than folding a second failure shape into this pass's own finding handling.
+        Optional<Path> artifactFile = artifactStore.artifactFilePath(moduleId, stored.version());
+        if (artifactFile.isEmpty()) {
+          // meta.json survived without its artifact file (e.g. a prior quarantine interrupted
+          // mid-move) -- nothing left here to digest; leave it for an operator to notice via a
+          // failed GET rather than folding a second failure shape into this pass's own finding
+          // handling.
           log.warn(
-              "integrity scrub found {}:{} has metadata but no jar on disk",
+              "integrity scrub found {}:{} has metadata but no artifact file on disk",
               moduleId,
               stored.version());
           continue;
         }
         String actualSha256;
         try {
-          actualSha256 = ArtifactStore.copyAndDigest(jar.get(), OutputStream.nullOutputStream());
+          actualSha256 =
+              ArtifactStore.copyAndDigest(artifactFile.get(), OutputStream.nullOutputStream());
         } catch (IOException e) {
           log.warn(
               "failed to read {}:{} during integrity scrub: {}",

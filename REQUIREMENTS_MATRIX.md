@@ -617,6 +617,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-605 | `limitrange` get/set/delete verbs | CLI | Complete | Yes |
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | Complete | Yes |
 | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | Complete | Yes |
+| GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Artifact Registry | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5366,6 +5367,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed.
+  ```
+
+#### GIMLE-608 — Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate
+
+- **Category**: Artifact Registry
+- **User story**: As a platform operator deploying a Quarkus-style multi-file application (a main jar plus sibling lib/ directories its own Class-Path depends on), I want to publish the whole build-output directory as one registry coordinate that carries its own launch command, so a coordinate-only vessel deployment of it works on any node instead of crash-looping unless every file is pre-copied by hand.
+- **Status**: Complete. A new ArtifactKind (JAR/BUNDLE) on Andvari's store: a BUNDLE coordinate holds bundle.zip -- the zipped application directory with a gimle-entrypoint.yaml launch descriptor (command argv + workdir) at the archive root -- under the identical streamed-digest/atomic-commit/immutable-once-pushed rules a jar has, kind itself immutable (a kind-flip re-push is a 409), advertised via an X-Gimle-Artifact-Kind header on HEAD/GET/PUT and in the versions listing, relayed through the control plane's /artifacts/* proxy, peer-synced kind-intact, and excluded from the Maven /repository/** surface (a bundle is not a Maven artifact). Declared through a kind: ArtifactSet manifest mapping entry (kind: bundle, explicit name/version, command/workdir) or per-module gimle.artifactset.* Maven properties; the CLI zips deterministically (sorted entries, fixed timestamps) so an unchanged re-apply lands as the idempotent already-present outcome. The node agent's pull-through cache unpacks a BUNDLE (zip-slip-guarded, entrypoint validated before the directory is atomically committed) and launches the entrypoint's own command in the unpacked directory, splicing the ResourceLimiter JVM flags only when the command starts with java; the control plane resolves vessel coordinates metadata-only via HEAD (digest for drift/admission, synthetic descriptor for scheduling/quota) and never downloads them, and admission rejects a bundle coordinate deployed without a vessel: block or with vessel.jvmFlags.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ArtifactKind.java`, `gimle-core/src/main/java/com/gimle/core/vessel/VesselEntrypoint.java`, `gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java` (kind-aware put/meta/artifactFilePath), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (kind header, zip content type, maven-surface exclusion), `gimle-module/src/main/java/com/gimle/module/artifact/ArtifactPullCache.java` (bundle unpack, zip-slip guard), `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetEntry.java` (Module/Vessel/Bundle entries), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/ArtifactResolver.java` (metadata-only vessel resolution), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`buildBundleCommand`/`resolveBundleWorkdir`), `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java` (deterministic zipping, kind preflight), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java` (gimle.artifactset.kind properties)
+- **Test coverage**: `ArtifactStoreBundleTest` (kind round-trip, kind-flip 409, delete/quarantine), `AndvariServerBundleTest` (headers, content type, maven-surface 404), `AndvariPeerSyncTest.a_bundle_coordinate_keeps_its_kind_through_a_peer_sync`, `ArtifactPullCacheTest` (unpack, zip-slip abort, entrypoint-before-commit, presence-only hits), `ArtifactResolverTest` (metadata-only HEAD resolution, bundle-is-vessel-only), `AgentBundleLaunchTest` (java-splice rule, workdir resolution, supervisor working directory), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest` (mapping entries, deterministic re-apply, kind preflight conflict, admission rejection), `ArtifactSetMojoTest` (property-driven entries), plus `BundleVesselIT` in gimle-smoke-tests (real cluster: push through the proxy, coordinate-only vessel deployment, agent unpack, ACTIVE).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE.
+  Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409.
+  Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission.
   ```
 
 ### gimle-muninn

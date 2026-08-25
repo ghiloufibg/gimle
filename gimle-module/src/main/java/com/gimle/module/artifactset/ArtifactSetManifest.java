@@ -9,4 +9,4 @@ import java.util.List;
  * this list's own order: every {@code tenant:} entry's members in the manifest's own key and list
  * order, followed by the untenanted {@code modules:} list.
  */
-public record ArtifactSetManifest(List<ArtifactSetModuleEntry> modules) {}
+public record ArtifactSetManifest(List<ArtifactSetEntry> modules) {}

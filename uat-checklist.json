@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 607,
+    "totalRequirements": 608,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 486,
+    "notCoveredByAutomatedTest": 487,
     "releaseReadinessPercent": 19.9
   },
   "items": [
@@ -6679,6 +6679,17 @@
       "category": "Admission Control",
       "feature": "Admission-time rejection of a manifest/artifact module-identity mismatch",
       "step": "Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity. Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected. Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction. Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-608",
+      "module": "gimle-andvari",
+      "category": "Artifact Registry",
+      "feature": "Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate",
+      "step": "Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE. Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409. Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

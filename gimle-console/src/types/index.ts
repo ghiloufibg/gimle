@@ -614,4 +614,6 @@ export interface ArtifactVersion {
   sizeBytes: number;
   pushedAtEpochMilli: number;
   pushedBy: string;
+  /** "JAR" (a single module/vessel jar) or "BUNDLE" (a zipped multi-file application). */
+  kind?: "JAR" | "BUNDLE";
 }

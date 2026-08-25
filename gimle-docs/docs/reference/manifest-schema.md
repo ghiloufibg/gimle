@@ -91,14 +91,20 @@ that jar; a vessel is any runnable jar. `module`/`artifactPath` are read exactly
 module-hosted spec — a vessel's jar coordinate is identified and resolved (local path, or blank to
 pull from Andvari) the same way, nothing new needed there.
 
-Andvari's own artifact store is one whole file per coordinate, so the blank-`artifactPath`/pull-from-
-registry path only ever fetches a single jar — correct for a genuinely self-contained launcher (a
-Spring Boot fat jar, for example) but not for a multi-file launcher layout like Quarkus's default
-fast-jar output (`quarkus-run.jar` plus sibling `lib/`/`app/`/`quarkus/` directories its own manifest
-`Class-Path` depends on): those siblings are never pushed or pulled, so a coordinate-only vessel
-deployment of one crash-loops indefinitely even though the identical jar runs correctly with a local
-`artifactPath` pointing at the original build output with its siblings intact. Use a local
-`artifactPath` for a multi-file launcher until Andvari supports a multi-entry artifact.
+A single-jar vessel coordinate resolves to that one jar, launched as `java -jar <the artifact>` —
+correct for a genuinely self-contained launcher (a Spring Boot fat jar, for example). A multi-file
+launcher layout like Quarkus's default fast-jar output (`quarkus-run.jar` plus sibling
+`lib/`/`app/`/`quarkus/` directories its own manifest `Class-Path` depends on) is published as a
+**bundle** instead: a `kind: bundle` entry in an [`ArtifactSet` manifest](#artifactset-manifest)
+zips the whole build-output directory together with a `gimle-entrypoint.yaml` launch descriptor at
+the archive root, and Andvari stores it as a single `BUNDLE`-kind artifact. A node agent resolving
+that coordinate unpacks the zip into its pull-through cache and launches the entrypoint's own
+`command` in the unpacked directory (its `workdir`), so sibling files resolve exactly as they do in
+the original build output. A bundle coordinate is vessel-only — a workload manifest naming one
+without a `vessel:` block is rejected at submission — and `vessel.jvmFlags` is rejected against it
+too, since the entrypoint's own command decides how (and whether) a JVM is launched; the same
+`resources:`-derived JVM flags every vessel gets are spliced in automatically when the entrypoint's
+command starts with `java`.
 
 A vessel is always dedicated-process hosting, the same isolation guarantee `isolation.tier: TIER_2`
 gives a module — there is no `isolation:` field on a vessel block, since there is no weaker option to
@@ -543,6 +549,18 @@ tenant:
     - inventory-service/target/inventory-service-1.0.0.jar
     - orders-report-job/target/orders-report-job-1.0.0.jar
     - web-ui/target/web-ui-1.0.0.jar
+
+    - artifact: billing-vessel/target/billing-vessel-1.0.0.jar
+      kind: vessel
+      name: com.acme.billing-vessel
+      version: 1.0.0
+
+    - artifact: orders-report-ui/target/quarkus-app
+      kind: bundle
+      name: com.acme.orders-report-ui
+      version: 2.0.0
+      command: [java, -jar, quarkus-run.jar]
+      workdir: .
   billing:
     - billing-service/target/billing-service-1.0.0.jar
 modules:
@@ -552,16 +570,30 @@ modules:
 | Field | Required | Meaning |
 |---|---|---|
 | `kind` | yes | Must be `ArtifactSet`. |
-| `tenant` | no | A map of tenant ID → list of artifact jar paths. Every jar under one key is pushed tagged with that tenant. A set may name more than one tenant at once — a release train spanning several tenants, something no workload manifest's single `tenantId` field can express. |
-| `modules` | no | A plain list of artifact jar paths with no tenant — the exception, not the norm. At least one of `tenant`/`modules` must be non-empty. |
+| `tenant` | no | A map of tenant ID → list of artifact entries. Every entry under one key is pushed tagged with that tenant. A set may name more than one tenant at once — a release train spanning several tenants, something no workload manifest's single `tenantId` field can express. |
+| `modules` | no | A plain list of untenanted artifact entries — the exception, not the norm. At least one of `tenant`/`modules` must be non-empty. |
 
-Every path resolves relative to the manifest file's own directory, the same convention a
-`docker-compose.yml`'s relative build contexts use. `moduleId`/`version` are never written in the
-manifest — both are always read from each jar's own bundled `gimle-module.yaml`, exactly as a single
-`gimle artifact push` already does, so the manifest can never assert a coordinate that disagrees with
-what's actually inside the jar. The same jar path listed under two different tenants, or under both a
-tenant and `modules`, is rejected at parse time — ownership of one jar is never ambiguous within one
-manifest.
+An entry is either a **bare string** — a path to an ordinary module jar, whose `moduleId`/`version`
+are always read from the jar's own bundled `gimle-module.yaml` (exactly as a single `gimle artifact
+push` already does, so the manifest can never assert a coordinate that disagrees with what's
+actually inside the jar) — or a **mapping** declaring an explicit entry `kind:`, for the two shapes
+that have no `gimle-module.yaml` to read a coordinate from:
+
+| Mapping field | Required | Meaning |
+|---|---|---|
+| `artifact` | yes | Same path convention as the bare-string form. A jar file for `kind: vessel`; a build-output directory for `kind: bundle`. |
+| `kind` | yes | `vessel` (a plain runnable jar, the `gimle artifact push --vessel` equivalent) or `bundle` (a whole multi-file application directory — see the [Vessel section](#vessel-workloads-vessel) above). Never defaulted. |
+| `name` / `version` | yes | The explicit registry coordinate. |
+| `command` | `bundle` only, required | The entrypoint argv — written into the produced archive as its `gimle-entrypoint.yaml`, always exec-form (a list, never a shell string). Rejected on a `vessel` entry. |
+| `workdir` | `bundle` only, optional | Launch directory relative to the unpacked bundle root; defaults to the root itself. Rejected on a `vessel` entry. |
+
+A `bundle` entry's directory is zipped by the CLI deterministically (sorted entries, fixed
+timestamps), so re-applying an unchanged manifest reproduces the identical digest and lands as the
+ordinary idempotent already-present outcome. Every path resolves relative to the manifest file's own
+directory, the same convention a `docker-compose.yml`'s relative build contexts use. The same
+artifact path listed under two different tenants, or under both a tenant and `modules`, is rejected
+at parse time — ownership of one artifact is never ambiguous within one manifest — and so is one
+coordinate claimed by two entries.
 
 Publishing a set is not a database transaction: every coordinate is checked with a plain `HEAD`
 first (a digest mismatch against what's already stored aborts the whole set before anything is

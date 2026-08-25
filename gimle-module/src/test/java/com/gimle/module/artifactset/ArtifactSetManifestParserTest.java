@@ -44,10 +44,10 @@ class ArtifactSetManifestParserTest {
             Path.of(
                 "/repo/gimle-examples/orders-platform/inventory-service/target"
                     + "/inventory-service-1.0.0.jar")),
-        manifest.modules().stream().map(ArtifactSetModuleEntry::artifact).toList());
+        manifest.modules().stream().map(ArtifactSetEntry::artifact).toList());
     assertEquals(
         List.of(Optional.of("orders-platform"), Optional.of("orders-platform")),
-        manifest.modules().stream().map(ArtifactSetModuleEntry::tenantId).toList());
+        manifest.modules().stream().map(ArtifactSetEntry::tenantId).toList());
   }
 
   @Test
@@ -105,7 +105,7 @@ class ArtifactSetManifestParserTest {
 
     assertEquals(
         List.of(Optional.of("orders-platform"), Optional.of("billing")),
-        manifest.modules().stream().map(ArtifactSetModuleEntry::tenantId).toList());
+        manifest.modules().stream().map(ArtifactSetEntry::tenantId).toList());
   }
 
   @Test
@@ -184,5 +184,161 @@ class ArtifactSetManifestParserTest {
             Path.of("bundle.yaml"), yaml("kind: ArtifactSet\nmodules:\n  - app.jar\n"));
 
     assertEquals(Path.of("app.jar"), manifest.modules().get(0).artifact());
+  }
+
+  @Test
+  void a_vessel_mapping_entry_parses_with_its_explicit_coordinate() {
+    ArtifactSetManifest manifest =
+        ArtifactSetManifestParser.parse(
+            MANIFEST,
+            yaml(
+                """
+                kind: ArtifactSet
+                tenant:
+                  billing:
+                    - artifact: billing/target/billing-1.0.0.jar
+                      kind: vessel
+                      name: com.acme.billing
+                      version: 1.0.0
+                """));
+
+    ArtifactSetEntry.Vessel vessel = (ArtifactSetEntry.Vessel) manifest.modules().get(0);
+    assertEquals("com.acme.billing", vessel.name());
+    assertEquals("1.0.0", vessel.version());
+    assertEquals(Optional.of("billing"), vessel.tenantId());
+  }
+
+  @Test
+  void a_bundle_mapping_entry_parses_with_its_entrypoint() {
+    ArtifactSetManifest manifest =
+        ArtifactSetManifestParser.parse(
+            MANIFEST,
+            yaml(
+                """
+                kind: ArtifactSet
+                modules:
+                  - artifact: report/target/quarkus-app
+                    kind: bundle
+                    name: com.acme.report
+                    version: 2.0.0
+                    command: [java, -jar, quarkus-run.jar]
+                    workdir: .
+                """));
+
+    ArtifactSetEntry.Bundle bundle = (ArtifactSetEntry.Bundle) manifest.modules().get(0);
+    assertEquals("com.acme.report", bundle.name());
+    assertEquals(List.of("java", "-jar", "quarkus-run.jar"), bundle.entrypoint().command());
+    assertEquals(".", bundle.entrypoint().workdir());
+  }
+
+  @Test
+  void a_mapping_entry_without_a_kind_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - artifact: a.jar
+                        name: com.acme.a
+                        version: 1.0.0
+                    """)));
+  }
+
+  @Test
+  void an_unknown_entry_kind_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - artifact: a.tar
+                        kind: tarball
+                        name: com.acme.a
+                        version: 1.0.0
+                    """)));
+  }
+
+  @Test
+  void a_vessel_entry_declaring_a_command_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - artifact: a.jar
+                        kind: vessel
+                        name: com.acme.a
+                        version: 1.0.0
+                        command: [java, -jar, a.jar]
+                    """)));
+  }
+
+  @Test
+  void a_bundle_entry_without_a_command_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - artifact: report/target/quarkus-app
+                        kind: bundle
+                        name: com.acme.report
+                        version: 2.0.0
+                    """)));
+  }
+
+  @Test
+  void a_bundle_entry_with_an_escaping_workdir_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - artifact: report/target/quarkus-app
+                        kind: bundle
+                        name: com.acme.report
+                        version: 2.0.0
+                        command: [run]
+                        workdir: ../outside
+                    """)));
+  }
+
+  @Test
+  void a_mapping_entry_colliding_with_a_bare_path_entry_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    kind: ArtifactSet
+                    modules:
+                      - shared.jar
+                      - artifact: shared.jar
+                        kind: vessel
+                        name: com.acme.shared
+                        version: 1.0.0
+                    """)));
   }
 }

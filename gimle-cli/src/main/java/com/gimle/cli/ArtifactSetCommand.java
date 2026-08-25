@@ -1,31 +1,47 @@
 package com.gimle.cli;
 
+import com.gimle.core.hash.Sha256;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.vessel.VesselEntrypoint;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.module.artifactset.ArtifactSetEntry;
 import com.gimle.module.artifactset.ArtifactSetManifest;
 import com.gimle.module.artifactset.ArtifactSetManifestParser;
-import com.gimle.module.artifactset.ArtifactSetModuleEntry;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * {@code kind: ArtifactSet} -- reached through {@link GimleCli#handleApply}'s kind-dispatch the
  * same way {@code Deployment}/{@code Job}/etc. are, never through a noun-verb pair of its own. A
- * manifest lists several module jars to publish in one command; each is resolved and pushed the
- * exact way a single {@code gimle artifact push} already would, just several times over.
+ * manifest lists several artifacts to publish in one command; a plain module jar is resolved and
+ * pushed the exact way a single {@code gimle artifact push} already would, a vessel jar is pushed
+ * under the coordinate the entry itself names, and a bundle entry's directory is zipped -- with the
+ * entry's own {@code command}/{@code workdir} written in as the {@code gimle-entrypoint.yaml}
+ * launch descriptor at the archive root -- and pushed as a {@code BUNDLE}-kind artifact.
  *
  * <p>Publishing is deliberately not a transaction: a plain {@code HEAD} pre-flight check against
- * every coordinate first (touching nothing) catches any digest conflict before a single byte is
- * pushed, then each member is pushed in the manifest's own order through the existing
+ * every coordinate first (touching nothing) catches any digest or kind conflict before a single
+ * byte is pushed, then each member is pushed in the manifest's own order through the existing
  * single-artifact path. A mid-way failure leaves every already-pushed member valid and immutable --
  * nothing to roll back -- and re-applying the identical manifest resumes from the failure point,
- * since an already-pushed member simply comes back {@code IDENTICAL}.
+ * since an already-pushed member simply comes back {@code IDENTICAL}. That resume property is what
+ * makes deterministic bundle zipping (sorted entries, zeroed timestamps -- see {@link
+ * #zipDirectoryDeterministically}) load-bearing rather than cosmetic: re-zipping an unchanged
+ * directory must reproduce the identical digest, or a re-apply would spuriously conflict.
  */
 public final class ArtifactSetCommand {
 
@@ -72,24 +88,30 @@ public final class ArtifactSetCommand {
     OutputFormat.printList(output, rows, out);
   }
 
-  /** A manifest entry, resolved to the real coordinate its own jar declares. */
+  /**
+   * A manifest entry resolved to the coordinate and the exact file that will be uploaded -- for a
+   * bundle, the deterministic zip is materialized here, exactly once, so the digest {@link
+   * #preflight} checks and the bytes {@link #pushOne} uploads can never diverge.
+   */
   private record ResolvedMember(
-      Path jar, String moduleId, String version, String sha256, Optional<String> tenantId) {}
+      Path uploadFile,
+      String moduleId,
+      String version,
+      String sha256,
+      Optional<String> tenantId,
+      ArtifactKind kind) {}
 
   private List<ResolvedMember> resolveMembers(ArtifactSetManifest manifest) {
     List<ResolvedMember> members = new ArrayList<>();
     Map<String, Path> seenCoordinates = new LinkedHashMap<>();
-    for (ArtifactSetModuleEntry entry : manifest.modules()) {
-      ModuleArtifact artifact;
-      try {
-        artifact = ModuleArtifactReader.read(entry.artifact());
-      } catch (RuntimeException e) {
-        throw new CliException(
-            "not a pushable module artifact: " + entry.artifact() + ": " + e.getMessage(), e);
-      }
-      String moduleId = artifact.id().name();
-      String version = artifact.id().version().toString();
-      String coordinate = moduleId + ":" + version;
+    for (ArtifactSetEntry entry : manifest.modules()) {
+      ResolvedMember member =
+          switch (entry) {
+            case ArtifactSetEntry.Module module -> resolveModule(module);
+            case ArtifactSetEntry.Vessel vessel -> resolveVessel(vessel);
+            case ArtifactSetEntry.Bundle bundle -> resolveBundle(bundle);
+          };
+      String coordinate = member.moduleId() + ":" + member.version();
       Path previous = seenCoordinates.putIfAbsent(coordinate, entry.artifact());
       if (previous != null) {
         throw new CliException(
@@ -101,18 +123,138 @@ public final class ArtifactSetCommand {
                 + entry.artifact()
                 + " resolve to it");
       }
-      members.add(
-          new ResolvedMember(
-              entry.artifact(), moduleId, version, artifact.sha256(), entry.tenantId()));
+      members.add(member);
     }
     return members;
   }
 
+  private static ResolvedMember resolveModule(ArtifactSetEntry.Module module) {
+    ModuleArtifact artifact;
+    try {
+      artifact = ModuleArtifactReader.read(module.artifact());
+    } catch (RuntimeException e) {
+      throw new CliException(
+          "not a pushable module artifact: " + module.artifact() + ": " + e.getMessage(), e);
+    }
+    return new ResolvedMember(
+        module.artifact(),
+        artifact.id().name(),
+        artifact.id().version().toString(),
+        artifact.sha256(),
+        module.tenantId(),
+        ArtifactKind.JAR);
+  }
+
+  private static ResolvedMember resolveVessel(ArtifactSetEntry.Vessel vessel) {
+    if (!Files.isRegularFile(vessel.artifact())) {
+      throw new CliException("vessel artifact not found: " + vessel.artifact());
+    }
+    String sha256;
+    try {
+      sha256 = Sha256.sha256Hex(vessel.artifact());
+    } catch (IOException | UncheckedIOException e) {
+      throw new CliException(
+          "failed to read vessel artifact " + vessel.artifact() + ": " + e.getMessage(), e);
+    }
+    return new ResolvedMember(
+        vessel.artifact(),
+        vessel.name(),
+        vessel.version(),
+        sha256,
+        vessel.tenantId(),
+        ArtifactKind.JAR);
+  }
+
+  private ResolvedMember resolveBundle(ArtifactSetEntry.Bundle bundle) {
+    if (!Files.isDirectory(bundle.artifact())) {
+      throw new CliException(
+          "bundle artifact must be a directory: "
+              + bundle.artifact()
+              + (Files.isRegularFile(bundle.artifact())
+                  ? " (a single jar is kind: vessel, not kind: bundle)"
+                  : ""));
+    }
+    try {
+      Path zipFile =
+          Files.createTempFile("gimle-bundle-" + bundle.name().replace('/', '_'), ".zip");
+      zipFile.toFile().deleteOnExit();
+      zipDirectoryDeterministically(bundle.artifact(), bundle.entrypoint(), zipFile);
+      return new ResolvedMember(
+          zipFile,
+          bundle.name(),
+          bundle.version(),
+          Sha256.sha256Hex(zipFile),
+          bundle.tenantId(),
+          ArtifactKind.BUNDLE);
+    } catch (IOException | UncheckedIOException e) {
+      throw new CliException(
+          "failed to zip bundle directory " + bundle.artifact() + ": " + e.getMessage(), e);
+    }
+  }
+
   /**
-   * A plain {@code HEAD} per coordinate, no writes -- a {@code Found} digest that disagrees with
-   * the local jar aborts the whole set before anything is pushed, listing every conflict. A member
-   * not yet present, or already present with matching bytes, is left for {@link #pushOne} to handle
-   * as the ordinary idempotent {@code PUT} it already is.
+   * Zips {@code sourceDir}'s whole tree plus a generated {@code gimle-entrypoint.yaml} at the
+   * archive root, deterministically: entries in sorted relative-path order (directory iteration
+   * order is filesystem-dependent) with zeroed timestamps (a zip entry's mtime would otherwise
+   * change the bytes on every run). The user's own directory is never touched -- the entrypoint
+   * exists only inside the produced archive. A source directory already containing a file by the
+   * reserved entrypoint name is rejected rather than silently overwritten either way.
+   */
+  static void zipDirectoryDeterministically(
+      Path sourceDir, VesselEntrypoint entrypoint, Path zipFile) throws IOException {
+    if (Files.exists(sourceDir.resolve(VesselEntrypoint.FILE_NAME))) {
+      throw new CliException(
+          sourceDir
+              + " already contains a "
+              + VesselEntrypoint.FILE_NAME
+              + " -- the manifest entry's command/workdir generate that file; remove one or the"
+              + " other");
+    }
+    List<Path> files;
+    try (Stream<Path> tree = Files.walk(sourceDir)) {
+      files = tree.filter(Files::isRegularFile).map(sourceDir::relativize).sorted().toList();
+    }
+    try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+      ZipEntry entrypointEntry = new ZipEntry(VesselEntrypoint.FILE_NAME);
+      entrypointEntry.setTimeLocal(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+      zip.putNextEntry(entrypointEntry);
+      zip.write(entrypointYaml(entrypoint).getBytes(StandardCharsets.UTF_8));
+      zip.closeEntry();
+      for (Path relative : files) {
+        // Zip entry names always use forward slashes, whatever the host filesystem separator.
+        String entryName = relative.toString().replace('\\', '/');
+        ZipEntry entry = new ZipEntry(entryName);
+        entry.setTimeLocal(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        zip.putNextEntry(entry);
+        Files.copy(sourceDir.resolve(relative), zip);
+        zip.closeEntry();
+      }
+    }
+  }
+
+  /**
+   * Serializes the entrypoint as YAML with every scalar single-quoted (doubling embedded quotes,
+   * YAML's own escape for them) -- safe for arbitrary argv strings without depending on a YAML
+   * emitter library.
+   */
+  static String entrypointYaml(VesselEntrypoint entrypoint) {
+    StringBuilder yaml = new StringBuilder("command:\n");
+    for (String argument : entrypoint.command()) {
+      yaml.append("  - ").append(quote(argument)).append('\n');
+    }
+    yaml.append("workdir: ").append(quote(entrypoint.workdir())).append('\n');
+    return yaml.toString();
+  }
+
+  private static String quote(String value) {
+    return "'" + value.replace("'", "''") + "'";
+  }
+
+  /**
+   * A plain {@code HEAD} per coordinate, no writes -- a {@code Found} digest or kind that disagrees
+   * with what this manifest would push aborts the whole set before anything is pushed, listing
+   * every conflict. A member not yet present, or already present with matching bytes and kind, is
+   * left for {@link #pushOne} to handle as the ordinary idempotent {@code PUT} it already is.
    */
   private void preflight(List<ResolvedMember> members) {
     List<String> conflicts = new ArrayList<>();
@@ -142,7 +284,18 @@ public final class ArtifactSetCommand {
                               + member.moduleId()
                               + ":"
                               + member.version()));
-      if (!remoteSha256.equals(member.sha256())) {
+      ArtifactKind remoteKind = ArtifactKind.parse(head.kind().orElse(null));
+      if (remoteKind != member.kind()) {
+        conflicts.add(
+            member.moduleId()
+                + ":"
+                + member.version()
+                + " (already stored as kind "
+                + remoteKind
+                + ", this set declares "
+                + member.kind()
+                + ")");
+      } else if (!remoteSha256.equals(member.sha256())) {
         conflicts.add(
             member.moduleId()
                 + ":"
@@ -162,12 +315,15 @@ public final class ArtifactSetCommand {
   }
 
   private Map<String, Object> pushOne(ResolvedMember member) {
-    Map<String, String> headers =
-        member.tenantId().map(id -> Map.of("X-Gimle-Artifact-Tenant", id)).orElse(Map.of());
+    Map<String, String> headers = new LinkedHashMap<>();
+    member.tenantId().ifPresent(id -> headers.put("X-Gimle-Artifact-Tenant", id));
+    if (member.kind() == ArtifactKind.BUNDLE) {
+      headers.put("X-Gimle-Artifact-Kind", member.kind().name());
+    }
     String path = "/artifacts/" + member.moduleId() + "/" + member.version();
     String response;
     try {
-      response = client.expectSuccess(client.putFile(path, member.jar(), headers));
+      response = client.expectSuccess(client.putFile(path, member.uploadFile(), headers));
     } catch (CliException e) {
       throw new CliException(
           "failed at " + member.moduleId() + ":" + member.version() + ": " + e.getMessage(), e);
@@ -181,6 +337,9 @@ public final class ArtifactSetCommand {
     row.put("moduleId", member.moduleId());
     row.put("version", member.version());
     row.put("sha256", parsed.get("sha256"));
+    if (parsed.get("kind") != null) {
+      row.put("artifactKind", parsed.get("kind"));
+    }
     if (parsed.get("tenantId") != null) {
       row.put("tenantId", parsed.get("tenantId"));
     }

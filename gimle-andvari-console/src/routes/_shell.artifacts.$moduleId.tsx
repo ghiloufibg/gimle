@@ -110,6 +110,7 @@ function ModuleDetailPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="hud-label">version</TableHead>
+                <TableHead className="hud-label">kind</TableHead>
                 <TableHead className="hud-label">sha256</TableHead>
                 <TableHead className="hud-label">size</TableHead>
                 <TableHead className="hud-label">pushed</TableHead>
@@ -121,6 +122,16 @@ function ModuleDetailPage() {
               {sorted.map((entry) => (
                 <TableRow key={entry.version}>
                   <TableCell className="font-mono text-xs font-medium">{entry.version}</TableCell>
+                  <TableCell
+                    className="font-mono text-xs text-muted-foreground"
+                    title={
+                      entry.kind === "BUNDLE"
+                        ? "A zipped multi-file application with its own entrypoint"
+                        : "A single module or vessel jar"
+                    }
+                  >
+                    {entry.kind === "BUNDLE" ? "bundle" : "jar"}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Tooltip>

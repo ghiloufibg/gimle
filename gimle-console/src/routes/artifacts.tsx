@@ -143,6 +143,7 @@ function ArtifactsPage() {
               <thead className="bg-muted/50 text-muted-foreground">
                 <tr className="text-left">
                   <th className="px-2 py-1.5 font-medium">Version</th>
+                  <th className="px-2 py-1.5 font-medium">Kind</th>
                   <th className="px-2 py-1.5 font-medium">SHA-256</th>
                   <th className="px-2 py-1.5 font-medium">Size</th>
                   <th className="px-2 py-1.5 font-medium">Pushed</th>
@@ -157,6 +158,18 @@ function ArtifactsPage() {
                       <StatusBadge variant="info" className="font-mono normal-case">
                         {v.version}
                       </StatusBadge>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span
+                        className="font-mono text-muted-foreground"
+                        title={
+                          v.kind === "BUNDLE"
+                            ? "A zipped multi-file application with its own entrypoint"
+                            : "A single module or vessel jar"
+                        }
+                      >
+                        {v.kind === "BUNDLE" ? "bundle" : "jar"}
+                      </span>
                     </td>
                     <td className="px-2 py-1.5">
                       <span className="font-mono text-muted-foreground" title={v.sha256}>
