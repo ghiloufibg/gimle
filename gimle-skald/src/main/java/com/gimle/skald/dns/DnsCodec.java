@@ -115,10 +115,20 @@ public final class DnsCodec {
    * Encodes a response echoing {@code query}'s id/opcode/question, carrying {@code rcode} and one A
    * record per address in {@code answerAddresses} (each exactly 4 bytes). {@code AA} is always set
    * (this server is authoritative for the zone it answers), {@code RA} is always clear (it never
-   * recurses to another resolver), and {@code TC} is always clear (a handful of A records never
-   * approaches the 512-byte unextended UDP ceiling).
+   * recurses to another resolver), and {@code TC} is clear -- the transport-agnostic full answer.
    */
   public static byte[] encodeResponse(Query query, int rcode, List<byte[]> answerAddresses) {
+    return encodeResponse(query, rcode, answerAddresses, false);
+  }
+
+  /**
+   * The {@code truncated} variant exists for the UDP path only: when a full response would exceed
+   * the unextended 512-byte UDP ceiling, the server sends this instead -- same id/opcode/question/
+   * rcode, {@code TC=1}, and typically no answers at all -- telling the resolver to retry the
+   * identical query over TCP, where the full response fits (RFC 1035 §4.2.1's own contract).
+   */
+  public static byte[] encodeResponse(
+      Query query, int rcode, List<byte[]> answerAddresses, boolean truncated) {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
@@ -127,6 +137,7 @@ public final class DnsCodec {
       flags |= 0x1 << 15; // QR=1: this is a response
       flags |= (query.opcode() & 0xF) << 11;
       flags |= 0x1 << 10; // AA=1: authoritative for the svc.gimle.local zone
+      flags |= (truncated ? 1 : 0) << 9; // TC: retry over TCP for the full answer
       flags |= (query.recursionDesired() ? 1 : 0) << 8; // RD echoed back, as a resolver expects
       flags |= (rcode & 0xF);
       out.writeShort(flags);

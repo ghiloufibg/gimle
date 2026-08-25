@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.skald.directory.CachingServiceDirectory;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -118,6 +120,63 @@ final class SkaldServerTest {
     assertThrows(
         SocketTimeoutException.class,
         () -> clientSocket.receive(new DatagramPacket(buf, buf.length)));
+  }
+
+  @Test
+  void answers_the_same_query_over_tcp_with_a_length_prefixed_response() throws IOException {
+    directory.replaceAll(Map.of("orders.acme", List.of("10.0.0.5")));
+
+    try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
+      tcp.setSoTimeout(5_000);
+      byte[] response = tcpQuery(tcp, 0x5555, "orders.acme.svc.gimle.local");
+
+      assertEquals(0x5555, unsignedShort(response, 0));
+      int flags = unsignedShort(response, 2);
+      assertEquals(1, (flags >>> 15) & 0x1); // QR: response
+      assertEquals(0, (flags >>> 9) & 0x1); // TC clear: TCP always carries the full answer
+      assertEquals(0, flags & 0xF); // RCODE: NOERROR
+      assertEquals(1, unsignedShort(response, 6)); // ANCOUNT
+      assertArrayEquals(
+          new byte[] {10, 0, 0, 5}, answerRdata(response, "orders.acme.svc.gimle.local"));
+    }
+  }
+
+  @Test
+  void serves_multiple_sequential_queries_on_one_tcp_connection() throws IOException {
+    directory.replaceAll(Map.of("orders", List.of("10.0.0.5", "10.0.0.6")));
+
+    try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
+      tcp.setSoTimeout(5_000);
+      byte[] first = tcpQuery(tcp, 0x1, "orders.svc.gimle.local");
+      byte[] second = tcpQuery(tcp, 0x2, "orders.svc.gimle.local");
+
+      assertArrayEquals(new byte[] {10, 0, 0, 5}, answerRdata(first, "orders.svc.gimle.local"));
+      assertArrayEquals(new byte[] {10, 0, 0, 6}, answerRdata(second, "orders.svc.gimle.local"));
+    }
+  }
+
+  @Test
+  void answers_unknown_name_over_tcp_with_nxdomain() throws IOException {
+    try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
+      tcp.setSoTimeout(5_000);
+      byte[] response = tcpQuery(tcp, 0x6666, "missing.svc.gimle.local");
+
+      assertEquals(3, unsignedShort(response, 2) & 0xF); // RCODE: NXDOMAIN
+      assertEquals(0, unsignedShort(response, 6)); // ANCOUNT
+    }
+  }
+
+  /** Sends one RFC 1035 §4.2.2 length-prefixed query and reads the length-prefixed response. */
+  private static byte[] tcpQuery(Socket tcp, int id, String name) throws IOException {
+    byte[] request = buildQuery(id, name, /* qtype= */ 1, /* opcode= */ 0);
+    DataOutputStream out = new DataOutputStream(tcp.getOutputStream());
+    out.writeShort(request.length);
+    out.write(request);
+    out.flush();
+    DataInputStream in = new DataInputStream(tcp.getInputStream());
+    byte[] response = new byte[in.readUnsignedShort()];
+    in.readFully(response);
+    return response;
   }
 
   private byte[] query(int id, String name, int qtype) throws IOException {

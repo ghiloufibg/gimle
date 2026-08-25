@@ -241,14 +241,18 @@ real version.
 
 ## Skald
 
-One or more JVMs (`gimle-skald`) — Gimlé's cluster DNS: a hand-rolled UDP responder (`SkaldMain`)
+One or more JVMs (`gimle-skald`) — Gimlé's cluster DNS: a hand-rolled responder (`SkaldMain`)
 that answers `A` queries for `<service>.<tenant>.svc.gimle.local` by resolving them against the
 same live endpoint data `gimle-bifrost` resolves against, via `ControlPlaneServicePoller`/
 `CachingServiceDirectory` polling the control plane's `/services/*` API on a fixed interval —
 Skald never reads `gimle-mimir` directly, the same "goes through the control plane's own API, not
-the store" posture every other Service consumer takes. It's the first genuinely new process kind
+the store" posture every other Service consumer takes. It serves both DNS transports on the same
+port: UDP for the common case, and the RFC 1035 TCP fallback (two-byte-length-prefixed messages on
+a companion `ServerSocket`) — a UDP response that would exceed the unextended 512-byte ceiling is
+sent truncated (`TC=1`, no answers), telling the resolver to retry the identical query over TCP,
+where the full response always fits. It's the first genuinely new process kind
 added since Andvari; unlike every other process kind here, Skald's own client-facing protocol is
-DNS-over-UDP, which has no TLS story to opt into the way an HTTP-based process does, so it carries
+DNS, which has no TLS story to opt into the way an HTTP-based process does, so it carries
 no plaintext-warning banner and no mTLS mode of its own yet — its polling connection to the control
 plane stays plain HTTP for this first slice, matching how a new component in this codebase
 typically starts plaintext-only before a transport-security pass lands.
