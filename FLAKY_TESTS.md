@@ -280,3 +280,15 @@ if its module isn't already listed, adding its artifactId to `FlakyTestsMojo`'s 
 `gimle-maven-plugin` -- not an ad hoc `-Dtest='!A,!B,...'` exclusion on the verify command line.
 `mvn verify` then skips it for free (root `pom.xml`'s `excludedGroups=flaky`), and `mvn
 gimle:flaky-tests` runs it on its own, one module at a time.
+
+## 2026-08-25 full-reactor verify, bundle-artifact branch
+
+- **`ApiServerDeploymentRollbackTest` / `ApiServerStatefulSetDaemonSetRollbackTest` /
+  `ApiServerMetricsHistoryTest` / `StatefulSetReconcilerTest` / `DeploymentReconcilerRollingUpdateTest` /
+  `DeploymentReconcilerSurgeTest`** — errored together in one full-reactor `mvn verify` with
+  store-infrastructure signatures ("no reachable store leader", a 0x1503-prefixed "wire frame
+  length 352518912" that is a TLS alert record read as a length — cross-test socket contamination,
+  and a garbled HTTP status line), none in code the change under review touches. All six pass
+  clean run as `-pl gimle-controlplane` with only those classes selected, twice in a row. Matches
+  the standing "full-reactor `-T 1C` cross-module contention" pattern the 2026-08-11 entry above
+  documents for this sandbox; not re-diagnosed further here.

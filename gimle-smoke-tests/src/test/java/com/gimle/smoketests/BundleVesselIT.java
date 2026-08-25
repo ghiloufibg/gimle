@@ -182,10 +182,7 @@ class BundleVesselIT extends GreeterSmokeClusterSupport {
     Path bundleDir = Files.createDirectories(fixtureRoot.resolve("bundle"));
     Files.createDirectories(bundleDir.resolve("lib"));
     writeJar(
-        bundleDir.resolve("lib/dep.jar"),
-        null,
-        classes,
-        List.of("bundlefixture/dep/Dep.class"));
+        bundleDir.resolve("lib/dep.jar"), null, classes, List.of("bundlefixture/dep/Dep.class"));
     Manifest mainManifest = new Manifest();
     mainManifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
     mainManifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "bundlefixture.Main");
