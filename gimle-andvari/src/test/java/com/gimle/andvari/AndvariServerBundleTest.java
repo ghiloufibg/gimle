@@ -23,9 +23,9 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * The bundle side of {@link AndvariServer}'s HTTP surface: the {@code X-Gimle-Artifact-Kind}
- * header on push and read, the zip content type, the kind field in the versions listing, and the
- * maven repository surface's refusal to serve a bundle under a jar-shaped path.
+ * The bundle side of {@link AndvariServer}'s HTTP surface: the {@code X-Gimle-Artifact-Kind} header
+ * on push and read, the zip content type, the kind field in the versions listing, and the maven
+ * repository surface's refusal to serve a bundle under a jar-shaped path.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-andvari-server-http")
@@ -151,8 +151,7 @@ class AndvariServerBundleTest {
 
     HttpResponse<String> jarShaped =
         client.send(
-            HttpRequest.newBuilder(
-                    uri("/repository/com/example/report/1.0.0/report-1.0.0.jar"))
+            HttpRequest.newBuilder(uri("/repository/com/example/report/1.0.0/report-1.0.0.jar"))
                 .GET()
                 .build(),
             HttpResponse.BodyHandlers.ofString());

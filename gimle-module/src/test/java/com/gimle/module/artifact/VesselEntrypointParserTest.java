@@ -56,8 +56,7 @@ class VesselEntrypointParserTest {
 
   @Test
   void a_non_list_command_is_rejected() {
-    assertThrows(
-        GimleManifestException.class, () -> parseBundle("command: java -jar app.jar\n"));
+    assertThrows(GimleManifestException.class, () -> parseBundle("command: java -jar app.jar\n"));
   }
 
   @Test
@@ -68,8 +67,7 @@ class VesselEntrypointParserTest {
   @Test
   void an_escaping_workdir_is_rejected() {
     assertThrows(
-        GimleManifestException.class,
-        () -> parseBundle("command: [run]\nworkdir: ../outside\n"));
+        GimleManifestException.class, () -> parseBundle("command: [run]\nworkdir: ../outside\n"));
   }
 
   @Test

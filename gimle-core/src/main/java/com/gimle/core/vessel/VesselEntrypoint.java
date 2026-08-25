@@ -42,8 +42,7 @@ public record VesselEntrypoint(List<String> command, String workdir) {
 
   private static void requireInsideBundle(String workdir) {
     if (workdir.indexOf('\\') >= 0) {
-      throw new IllegalArgumentException(
-          "entrypoint workdir must use forward slashes: " + workdir);
+      throw new IllegalArgumentException("entrypoint workdir must use forward slashes: " + workdir);
     }
     if (workdir.startsWith("/")) {
       throw new IllegalArgumentException(
