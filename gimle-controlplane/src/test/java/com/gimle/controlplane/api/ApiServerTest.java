@@ -1740,6 +1740,97 @@ class ApiServerTest {
     assertEquals("<html>shell</html>", deepLink.body());
   }
 
+  /**
+   * The whole operator volume flow through the real proxy: a stub agent serves its node-local
+   * {@code /volumes} inventory, the control plane aggregates it with store-derived attachment, and
+   * a destroy is forwarded for a detached volume but refused outright for an attached one --
+   * without ever reaching the agent, proving the control-plane-side guard acts first.
+   */
+  @Test
+  void volumes_are_aggregated_with_attachment_and_destroy_guards_attached_data() throws Exception {
+    java.util.concurrent.atomic.AtomicBoolean agentSawDelete =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    com.sun.net.httpserver.HttpServer agentStub =
+        com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    agentStub.createContext(
+        "/volumes",
+        exchange -> {
+          byte[] body;
+          if ("DELETE".equals(exchange.getRequestMethod())) {
+            agentSawDelete.set(true);
+            body = "{\"destroyed\": true}".getBytes(StandardCharsets.UTF_8);
+          } else {
+            body =
+                ("[{\"statefulSet\": \"sessions\", \"instanceIndex\": 0, \"usedBytes\": 42,"
+                        + " \"path\": \"/data/volumes/sessions/0\", \"inUse\": true},"
+                        + " {\"statefulSet\": \"sessions\", \"instanceIndex\": 1, \"usedBytes\":"
+                        + " 7, \"path\": \"/data/volumes/sessions/1\", \"inUse\": false}]")
+                    .getBytes(StandardCharsets.UTF_8);
+          }
+          exchange.sendResponseHeaders(200, body.length);
+          try (java.io.OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+          }
+        });
+    agentStub.start();
+    try {
+      store.putNodeRegistration(
+          new NodeRegistration(
+              "node-a",
+              new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2)),
+              Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+      store.putStatefulSetSpec(
+          new com.gimle.mimir.manifest.StatefulSetSpec(
+              "sessions",
+              new ModuleId("com.example.sessions", Version.parse("1.0.0")),
+              "/tmp/sessions.jar",
+              1,
+              com.gimle.mimir.manifest.PlacementConstraints.NONE,
+              Optional.empty(),
+              Optional.empty()));
+      store.putStatefulSetIndexNode("sessions", 0, "node-a");
+
+      HttpResponse<String> listing =
+          send(HttpRequest.newBuilder(URI.create(baseUrl + "/volumes")).GET().build());
+      assertEquals(200, listing.statusCode());
+      List<Map<String, Object>> volumes =
+          Json.asObjectList(Json.asObject(Json.parse(listing.body())).get("volumes"));
+      assertEquals(2, volumes.size());
+      Map<String, Object> attached =
+          volumes.stream()
+              .filter(v -> ((Number) v.get("instanceIndex")).intValue() == 0)
+              .findFirst()
+              .orElseThrow();
+      assertEquals("node-a", attached.get("nodeId"));
+      assertEquals(Boolean.TRUE, attached.get("attached"));
+      Map<String, Object> orphan =
+          volumes.stream()
+              .filter(v -> ((Number) v.get("instanceIndex")).intValue() == 1)
+              .findFirst()
+              .orElseThrow();
+      // Index 1 has no sticky binding (replicas=1), so its on-disk data is a reclaimable orphan.
+      assertEquals(Boolean.FALSE, orphan.get("attached"));
+
+      HttpResponse<String> refusedDestroy =
+          send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/0"))
+                  .DELETE()
+                  .build());
+      assertEquals(409, refusedDestroy.statusCode());
+      assertFalse(agentSawDelete.get(), "an attached volume's destroy must never reach the agent");
+
+      HttpResponse<String> allowedDestroy =
+          send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/1"))
+                  .DELETE()
+                  .build());
+      assertEquals(200, allowedDestroy.statusCode());
+      assertTrue(agentSawDelete.get());
+    } finally {
+      agentStub.stop(0);
+    }
+  }
+
   @Test
   void a_log_request_for_a_never_registered_node_returns_404_not_502() throws Exception {
     HttpResponse<String> response =

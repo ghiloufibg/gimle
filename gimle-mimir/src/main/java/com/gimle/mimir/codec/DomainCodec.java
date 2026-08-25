@@ -942,6 +942,7 @@ public final class DomainCodec {
       out.writeUTF(entry.getKey());
       out.writeInt(entry.getValue());
     }
+    out.writeLong(obs.volumeUsageBytes());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -962,6 +963,7 @@ public final class DomainCodec {
       String portName = in.readUTF();
       ports.put(portName, in.readInt());
     }
+    long volumeUsageBytes = in.readLong();
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -974,7 +976,8 @@ public final class DomainCodec {
         cpuMillicoresUsed,
         memoryBytesUsed,
         errorRatePerSecond,
-        ports);
+        ports,
+        volumeUsageBytes);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

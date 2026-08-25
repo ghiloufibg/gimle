@@ -3,6 +3,8 @@ package com.gimle.agent;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.logging.LogFileReader.LogPage;
 import com.gimle.core.web.HttpResponses;
+import com.gimle.os.AllocatedVolume;
+import com.gimle.os.VolumeManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -17,8 +19,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,10 +54,18 @@ final class AgentLogServer implements AutoCloseable {
   private final Path logRoot;
   private final HttpServer server;
   private final Function<String, String> workerKeyResolver;
+  private final VolumeManager volumeManager;
+  private final Supplier<Set<String>> inUseVolumeKeys;
 
   /** No density-aware resolution -- every {@code deploymentName#instanceIndex} maps to itself. */
   AgentLogServer(Path logRoot, int port) throws IOException {
     this(logRoot, port, Function.identity());
+  }
+
+  /** No volume surface -- {@code /volumes} routes answer 404 until one is wired. */
+  AgentLogServer(Path logRoot, int port, Function<String, String> workerKeyResolver)
+      throws IOException {
+    this(logRoot, port, workerKeyResolver, null, Set::of);
   }
 
   /**
@@ -64,14 +76,27 @@ final class AgentLogServer implements AutoCloseable {
    * this, a log request for a density-packed instance would look under a {@code workers/}
    * subdirectory that was never created, since no worker was ever spawned under that instance's own
    * name.
+   *
+   * <p>{@code volumeManager} (nullable: no volume surface) backs the {@code /volumes} inventory and
+   * destroy routes; {@code inUseVolumeKeys} answers which {@code statefulSet#index} volumes a
+   * currently-supervised instance holds open right now, read live per request so a destroy can
+   * never race a just-started instance's own data out from under it.
    */
-  AgentLogServer(Path logRoot, int port, Function<String, String> workerKeyResolver)
+  AgentLogServer(
+      Path logRoot,
+      int port,
+      Function<String, String> workerKeyResolver,
+      VolumeManager volumeManager,
+      Supplier<Set<String>> inUseVolumeKeys)
       throws IOException {
     this.logRoot = logRoot;
     this.workerKeyResolver = workerKeyResolver;
+    this.volumeManager = volumeManager;
+    this.inUseVolumeKeys = inUseVolumeKeys;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/logs/nodes/", this::handleNodeLogs);
     server.createContext("/logs/instances/", this::handleInstanceLogs);
+    server.createContext("/volumes", this::handleVolumes);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
@@ -169,6 +194,73 @@ final class AgentLogServer implements AutoCloseable {
     String newerCursor =
         page.isEmpty() ? cursor : String.valueOf(page.get(page.size() - 1).get("timestamp"));
     return new LogPage(List.copyOf(page), olderCursor, newerCursor);
+  }
+
+  // ---- /volumes, /volumes/{statefulSetName}/{instanceIndex} ----
+
+  /**
+   * The node-local half of the operator volume surface the control plane's own {@code /volumes}
+   * aggregates: {@code GET /volumes} inventories every volume directory on this node (retained
+   * orphans included) with its current used bytes and whether a supervised instance holds it right
+   * now; {@code DELETE /volumes/{set}/{index}} destroys one -- refused with {@code 409} while any
+   * supervised instance still uses it, and loudly logged when it proceeds, since this permanently
+   * deletes data an operator chose to retain.
+   */
+  private void handleVolumes(HttpExchange exchange) {
+    try {
+      if (volumeManager == null) {
+        respond(exchange, 404, "volume surface not configured on this agent");
+        return;
+      }
+      String path = exchange.getRequestURI().getPath();
+      if ("GET".equals(exchange.getRequestMethod()) && "/volumes".equals(path)) {
+        Set<String> inUse = inUseVolumeKeys.get();
+        List<Map<String, Object>> body = new ArrayList<>();
+        for (AllocatedVolume volume : volumeManager.listAllocated()) {
+          Map<String, Object> entry = new LinkedHashMap<>();
+          entry.put("statefulSet", volume.statefulSetName());
+          entry.put("instanceIndex", volume.instanceIndex());
+          entry.put("usedBytes", volume.usedBytes());
+          entry.put("path", volume.hostPath().toString());
+          entry.put(
+              "inUse", inUse.contains(volume.statefulSetName() + "#" + volume.instanceIndex()));
+          body.add(entry);
+        }
+        respondJson(exchange, 200, body);
+        return;
+      }
+      if ("DELETE".equals(exchange.getRequestMethod()) && path.startsWith("/volumes/")) {
+        String[] segments = path.substring("/volumes/".length()).split("/");
+        if (segments.length != 2
+            || !DEPLOYMENT_NAME.matcher(segments[0]).matches()
+            || !segments[1].chars().allMatch(Character::isDigit)) {
+          respond(exchange, 400, "expected DELETE /volumes/{statefulSetName}/{instanceIndex}");
+          return;
+        }
+        String statefulSetName = segments[0];
+        int instanceIndex = Integer.parseInt(segments[1]);
+        if (inUseVolumeKeys.get().contains(statefulSetName + "#" + instanceIndex)) {
+          respond(
+              exchange,
+              409,
+              "volume "
+                  + statefulSetName
+                  + "["
+                  + instanceIndex
+                  + "] is held by a currently-supervised instance");
+          return;
+        }
+        volumeManager.destroy(statefulSetName, instanceIndex);
+        respondJson(exchange, 200, Map.of("destroyed", true));
+        return;
+      }
+      respond(exchange, 405, "method not allowed");
+    } catch (IOException | RuntimeException e) {
+      log.warn("volumes request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   // ---- /logs/instances/{deploymentName}/{instanceIndex} ----

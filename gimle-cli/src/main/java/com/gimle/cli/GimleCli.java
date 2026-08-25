@@ -201,6 +201,7 @@ public final class GimleCli {
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
       case "seal", "seals" -> new SealCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
+      case "volume", "volumes" -> new VolumesCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       case "service", "services" -> handleServiceVerb(rest, client, output, out);
@@ -479,6 +480,8 @@ public final class GimleCli {
           get node-assignments <nodeId>
           cordon <nodeId>
           uncordon <nodeId>
+          volume list
+          volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--limit N]
           get services [name]
           set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]

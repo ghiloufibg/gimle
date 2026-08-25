@@ -8,10 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.exception.GimleVolumeException;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.VolumeRequest;
+import com.gimle.os.AllocatedVolume;
 import com.gimle.os.VolumeHandle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -99,6 +101,69 @@ class LocalDiskVolumeManagerTest {
     assertTrue(
         Files.exists(path.resolve("data.db")),
         "RETAIN (the default) must leave a released volume's data in place");
+  }
+
+  @Test
+  void list_allocated_reports_every_volume_directory_with_its_used_bytes() throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    VolumeRequest request = new VolumeRequest(1024);
+    Path a0 = manager.hostPath(manager.allocate("orders", 0, request));
+    manager.allocate("sessions", 2, request);
+    Files.writeString(a0.resolve("data.db"), "0123456789");
+
+    List<AllocatedVolume> volumes = manager.listAllocated();
+
+    assertEquals(2, volumes.size());
+    AllocatedVolume orders =
+        volumes.stream()
+            .filter(v -> v.statefulSetName().equals("orders"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(0, orders.instanceIndex());
+    assertEquals(10, orders.usedBytes());
+    AllocatedVolume sessions =
+        volumes.stream()
+            .filter(v -> v.statefulSetName().equals("sessions"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(2, sessions.instanceIndex());
+    assertEquals(0, sessions.usedBytes());
+  }
+
+  @Test
+  void a_retained_orphan_still_lists_until_explicitly_destroyed() throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    VolumeHandle handle = manager.allocate("orders", 0, new VolumeRequest(1024));
+    Path path = manager.hostPath(handle);
+    Files.writeString(path.resolve("data.db"), "some persisted state");
+    manager.release(handle); // RETAIN default: data stays
+
+    assertEquals(1, manager.listAllocated().size());
+
+    manager.destroy("orders", 0);
+
+    assertFalse(Files.exists(path));
+    assertTrue(manager.listAllocated().isEmpty());
+  }
+
+  @Test
+  void destroy_of_a_nonexistent_volume_is_a_silent_no_op() {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    manager.destroy("never-allocated", 7); // must not throw
+  }
+
+  @Test
+  void used_bytes_reports_zero_for_a_missing_volume_and_real_sizes_for_a_present_one()
+      throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    assertEquals(0, manager.usedBytes("orders", 0));
+
+    Path path = manager.hostPath(manager.allocate("orders", 0, new VolumeRequest(1024)));
+    Files.writeString(path.resolve("a.txt"), "12345");
+    Files.createDirectories(path.resolve("nested"));
+    Files.writeString(path.resolve("nested/b.txt"), "123");
+
+    assertEquals(8, manager.usedBytes("orders", 0));
   }
 
   @Test

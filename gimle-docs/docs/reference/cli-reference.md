@@ -40,6 +40,8 @@ gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
+gimle volume list
+gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--limit N]
 gimle get services [name]
 gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]

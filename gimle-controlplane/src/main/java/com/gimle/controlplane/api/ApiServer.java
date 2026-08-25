@@ -451,6 +451,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
     target.createContext("/authz/can-i", instrument("authz-can-i", this::handleCanI));
+    target.createContext("/volumes/", instrument("volumes", this::handleVolumeDestroy));
+    target.createContext("/volumes", instrument("volumes", this::handleVolumesList));
     if (certificateAuthority.isPresent()) {
       target.createContext(
           "/bootstrap/csr", instrument("bootstrap-csr", this::handleBootstrapCsrSubmit));
@@ -3169,7 +3171,8 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "cpuMillicoresUsed", 0L).longValue(),
         numberField(map, "memoryBytesUsed", 0L).longValue(),
         numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
-        portsFromJson(map.get("ports")));
+        portsFromJson(map.get("ports")),
+        numberField(map, "volumeUsageBytes", 0L).longValue());
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -3202,6 +3205,9 @@ public final class ApiServer implements AutoCloseable {
     map.put("memoryBytesUsed", obs.memoryBytesUsed());
     if (!obs.ports().isEmpty()) {
       map.put("ports", obs.ports());
+    }
+    if (obs.volumeUsageBytes() > 0) {
+      map.put("volumeUsageBytes", obs.volumeUsageBytes());
     }
     return map;
   }
@@ -4688,6 +4694,181 @@ public final class ApiServer implements AutoCloseable {
       throw new IllegalArgumentException("missing required query parameter '" + name + "'");
     }
     return value;
+  }
+
+  // ---- /volumes, /volumes/{nodeId}/{statefulSetName}/{instanceIndex} ----
+
+  /**
+   * The cluster-wide volume inventory: fans out to every registered node's own agent {@code
+   * /volumes} surface and aggregates, annotating each entry with its node and whether the store's
+   * sticky binding still attaches it -- {@code attached=false} is a retained orphan an operator can
+   * inspect and, when done, destroy through the {@code DELETE} route below. A node whose agent is
+   * unreachable contributes an {@code unreachableNodes} entry rather than failing the whole
+   * listing, so one dark node never hides every other node's volumes. RBAC-gated on {@code
+   * STATEFULSET} reads: a volume is a StatefulSet's own storage, not a resource kind of its own.
+   */
+  private void handleVolumesList(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(
+          exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty(), Optional.empty())) {
+        return;
+      }
+      List<Map<String, Object>> volumes = new ArrayList<>();
+      List<String> unreachableNodes = new ArrayList<>();
+      for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
+        Optional<String> apiAddress = registration.apiAddress();
+        if (apiAddress.isEmpty()) {
+          unreachableNodes.add(registration.nodeId());
+          continue;
+        }
+        List<Map<String, Object>> nodeVolumes;
+        try {
+          nodeVolumes = fetchAgentVolumes(apiAddress.get());
+        } catch (IOException | InterruptedException e) {
+          if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+          }
+          unreachableNodes.add(registration.nodeId());
+          continue;
+        }
+        for (Map<String, Object> volume : nodeVolumes) {
+          String statefulSet = String.valueOf(volume.get("statefulSet"));
+          int instanceIndex = ((Number) volume.get("instanceIndex")).intValue();
+          Map<String, Object> entry = new LinkedHashMap<>(volume);
+          entry.put("nodeId", registration.nodeId());
+          entry.put(
+              "attached", isVolumeAttached(statefulSet, instanceIndex, registration.nodeId()));
+          volumes.add(entry);
+        }
+      }
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("volumes", volumes);
+      if (!unreachableNodes.isEmpty()) {
+        body.put("unreachableNodes", unreachableNodes);
+      }
+      respondJson(exchange, 200, body);
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Destroys one volume through its owning node's agent -- an explicit, RBAC-gated operator action
+   * ({@code STATEFULSET} delete), refused with {@code 409} while the store still attaches that
+   * index to that node (a live instance's data is never destroyable through this route; scale down
+   * or delete the spec first). The agent independently refuses again if a supervised instance still
+   * holds the volume -- defense in depth against a racing placement.
+   */
+  private void handleVolumeDestroy(HttpExchange exchange) {
+    try {
+      if (!"DELETE".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] segments = pathSegmentAfter(exchange, "/volumes/").split("/");
+      if (segments.length != 3 || !segments[2].chars().allMatch(Character::isDigit)) {
+        respond(
+            exchange, 400, "expected DELETE /volumes/{nodeId}/{statefulSetName}/{instanceIndex}");
+        return;
+      }
+      String nodeId = segments[0];
+      String statefulSetName = segments[1];
+      int instanceIndex = Integer.parseInt(segments[2]);
+      if (!requireAuthorized(
+          exchange,
+          ResourceKind.STATEFULSET,
+          Verb.DELETE,
+          Optional.empty(),
+          Optional.of(statefulSetName))) {
+        return;
+      }
+      if (isVolumeAttached(statefulSetName, instanceIndex, nodeId)) {
+        respond(
+            exchange,
+            409,
+            "volume "
+                + statefulSetName
+                + "["
+                + instanceIndex
+                + "] is still attached on node "
+                + nodeId
+                + "; scale down or delete the statefulset first");
+        return;
+      }
+      Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
+      Optional<String> apiAddress = registration.flatMap(NodeRegistration::apiAddress);
+      if (apiAddress.isEmpty()) {
+        respond(exchange, 502, "node " + nodeId + " has no reachable agent address");
+        return;
+      }
+      HttpRequest request =
+          HttpRequest.newBuilder(
+                  URI.create(
+                      "http://"
+                          + apiAddress.get()
+                          + "/volumes/"
+                          + statefulSetName
+                          + "/"
+                          + instanceIndex))
+              .timeout(Duration.ofSeconds(10))
+              .DELETE()
+              .build();
+      HttpResponse<String> response;
+      try {
+        response = agentHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        respond(exchange, 502, "interrupted while reaching agent " + apiAddress.get());
+        return;
+      } catch (IOException e) {
+        respond(
+            exchange, 502, "failed to reach agent at " + apiAddress.get() + ": " + e.getMessage());
+        return;
+      }
+      respond(exchange, response.statusCode(), response.body());
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private List<Map<String, Object>> fetchAgentVolumes(String apiAddress)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("http://" + apiAddress + "/volumes"))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build();
+    HttpResponse<String> response =
+        agentHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    if (response.statusCode() != 200) {
+      throw new IOException("agent answered " + response.statusCode() + " for GET /volumes");
+    }
+    return Json.asObjectList(Json.parse(response.body()));
+  }
+
+  /**
+   * Whether the store currently binds {@code (statefulSetName, instanceIndex)} to {@code nodeId}
+   * with the spec still existing -- the definition of "not an orphan." A binding pointing at a
+   * different node leaves the data on this node orphaned (sticky placement moved on without it,
+   * which only happens through explicit operator intervention), and a deleted spec orphans every
+   * index's data at once.
+   */
+  private boolean isVolumeAttached(String statefulSetName, int instanceIndex, String nodeId) {
+    if (storeClient.getStatefulSetSpec(statefulSetName).isEmpty()) {
+      return false;
+    }
+    return storeClient
+        .getStatefulSetIndexNode(statefulSetName, instanceIndex)
+        .filter(nodeId::equals)
+        .isPresent();
   }
 
   // ---- /logs/controlplane, /logs/nodes/{nodeId}, /logs/instances/{name}/{idx} ----

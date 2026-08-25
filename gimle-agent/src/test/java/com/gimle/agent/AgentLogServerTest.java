@@ -10,7 +10,9 @@ import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.logging.InstanceSiftingFileAppender;
 import com.gimle.core.logging.PlatformFileAppender;
+import com.gimle.core.module.VolumeRequest;
 import com.gimle.core.protocol.Json;
+import com.gimle.os.localdisk.LocalDiskVolumeManager;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -21,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -124,6 +127,59 @@ class AgentLogServerTest {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))
             .GET()
+            .build();
+    return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them() throws Exception {
+    Path dataRoot = logRoot.resolve("data");
+    LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
+    Path held =
+        volumeManager.hostPath(volumeManager.allocate("sessions", 0, new VolumeRequest(64)));
+    Files.writeString(held.resolve("live.db"), "12345");
+    Path orphan =
+        volumeManager.hostPath(volumeManager.allocate("sessions", 1, new VolumeRequest(64)));
+    Files.writeString(orphan.resolve("old.db"), "123");
+    server =
+        new AgentLogServer(
+            logRoot,
+            0,
+            java.util.function.Function.identity(),
+            volumeManager,
+            () -> Set.of("sessions#0"));
+    server.start();
+
+    List<Object> listed = getJsonArray("/volumes");
+    List<Map<String, Object>> entries = listed.stream().map(Json::asObject).toList();
+    assertEquals(2, entries.size());
+    Map<String, Object> heldEntry =
+        entries.stream()
+            .filter(e -> ((Number) e.get("instanceIndex")).intValue() == 0)
+            .findFirst()
+            .orElseThrow();
+    assertEquals("sessions", heldEntry.get("statefulSet"));
+    assertEquals(5L, ((Number) heldEntry.get("usedBytes")).longValue());
+    assertEquals(Boolean.TRUE, heldEntry.get("inUse"));
+    Map<String, Object> orphanEntry =
+        entries.stream()
+            .filter(e -> ((Number) e.get("instanceIndex")).intValue() == 1)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(Boolean.FALSE, orphanEntry.get("inUse"));
+
+    // Destroying the in-use volume is refused; destroying the orphan actually deletes it.
+    assertEquals(409, delete("/volumes/sessions/0").statusCode());
+    assertTrue(Files.exists(held));
+    assertEquals(200, delete("/volumes/sessions/1").statusCode());
+    assertFalse(Files.exists(orphan));
+    assertEquals(400, delete("/volumes/..%5Cpwn/1").statusCode());
+  }
+
+  private HttpResponse<String> delete(String path) throws Exception {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))
+            .DELETE()
             .build();
     return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }

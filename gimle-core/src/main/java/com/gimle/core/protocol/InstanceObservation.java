@@ -24,6 +24,11 @@ import java.util.Map;
  * empty for every non-vessel instance, and for a vessel that declares none. This is what {@code GET
  * /endpoints/{deployment}} joins against a node's own registered address to answer "where is this
  * instance actually reachable."
+ *
+ * <p>{@code volumeUsageBytes} is the agent's last sampled on-disk size of this instance's
+ * persistent volume -- 0 for the overwhelming majority of instances, which hold no volume. A soft
+ * observation for operators and quota visibility, sampled on a coarse interval (not per heartbeat),
+ * never an enforced ceiling.
  */
 public record InstanceObservation(
     String deploymentName,
@@ -37,7 +42,8 @@ public record InstanceObservation(
     long cpuMillicoresUsed,
     long memoryBytesUsed,
     double errorRatePerSecond,
-    Map<String, Integer> ports) {
+    Map<String, Integer> ports,
+    long volumeUsageBytes) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -55,7 +61,41 @@ public record InstanceObservation(
     if (ports == null) {
       throw new IllegalArgumentException("ports must not be null; use Map.of()");
     }
+    if (volumeUsageBytes < 0) {
+      throw new IllegalArgumentException(
+          "volumeUsageBytes must not be negative: " + volumeUsageBytes);
+    }
     ports = Map.copyOf(ports);
+  }
+
+  /** Back-compat: defaults {@code volumeUsageBytes} to 0. */
+  public InstanceObservation(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String lifecycleState,
+      boolean alive,
+      boolean ready,
+      double requestRatePerSecond,
+      int queueDepth,
+      long cpuMillicoresUsed,
+      long memoryBytesUsed,
+      double errorRatePerSecond,
+      Map<String, Integer> ports) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        lifecycleState,
+        alive,
+        ready,
+        requestRatePerSecond,
+        queueDepth,
+        cpuMillicoresUsed,
+        memoryBytesUsed,
+        errorRatePerSecond,
+        ports,
+        0L);
   }
 
   /** Back-compat: defaults {@code ports} to an empty map. */

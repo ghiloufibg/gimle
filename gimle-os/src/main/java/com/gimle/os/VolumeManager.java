@@ -2,6 +2,7 @@ package com.gimle.os;
 
 import com.gimle.core.module.VolumeRequest;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Allocates a {@code StatefulSet}-shaped instance's persistent local-disk storage, structurally
@@ -24,4 +25,25 @@ public interface VolumeManager {
   Path hostPath(VolumeHandle handle);
 
   void release(VolumeHandle handle);
+
+  /**
+   * Every volume directory currently on disk, including retained orphans whose instance was
+   * permanently removed -- the operator-facing inventory behind {@code gimle volume list}.
+   */
+  List<AllocatedVolume> listAllocated();
+
+  /**
+   * Unconditionally deletes the volume directory at {@code (statefulSetName, instanceIndex)},
+   * ignoring any reclaim policy -- the explicit operator action that reclaims a retained orphan,
+   * never called by the platform's own lifecycle (which goes through {@link #release}). A directory
+   * that's already gone is a silent no-op, matching {@link #release}'s idempotent posture.
+   */
+  void destroy(String statefulSetName, int instanceIndex);
+
+  /**
+   * The bytes currently occupied by the volume at {@code (statefulSetName, instanceIndex)}, or 0
+   * for one with no directory on disk -- the soft usage observation heartbeats sample, never an
+   * enforced ceiling.
+   */
+  long usedBytes(String statefulSetName, int instanceIndex);
 }

@@ -522,6 +522,15 @@ index's assigned `nodeId` — the sticky-placement contract made visible, not ju
 silently) is read-only, computed state — never part of the manifest you submit. `gimle get
 statefulsets <name>` (or the console's StatefulSets screen) is how you read it back.
 
+Volumes have their own operator surface: `gimle volume list` (backed by `GET /volumes`, aggregated
+across every node's agent) inventories each volume with its node, current on-disk usage, and
+whether the store still attaches it — `attached: false` marks a retained orphan the default
+`Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId>` reclaims
+one explicitly; both the control plane (store attachment) and the owning agent (a live supervised
+instance) independently refuse to destroy a volume that is still in use. Each instance's heartbeat
+also samples its volume's on-disk size on a coarse interval, surfaced as `volumeUsageBytes` in its
+observation — a soft reading for operators, never an enforced ceiling.
+
 **The load-bearing tradeoff to state plainly, not bury**: this is the single-node-local-disk version
 of persistent storage. There is no replication, no backup, no CSI-style pluggable network storage — a
 StatefulSet replica's data does not survive its node's permanent loss. If the node a sticky index is

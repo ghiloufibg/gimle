@@ -95,6 +95,17 @@ final class SupervisedInstance {
   volatile Optional<VolumeHandle> volumeHandle = Optional.empty();
 
   /**
+   * The last sampled on-disk size of this instance's volume, and when it was sampled -- refreshed
+   * lazily by {@code AgentMain#observationJson} at most once per sampling window rather than on
+   * every heartbeat tick, since walking a large volume tree every few seconds would cost real I/O
+   * for a soft, advisory observation. Both stay 0 for the overwhelming majority of instances, which
+   * hold no volume at all.
+   */
+  volatile long volumeUsageBytes;
+
+  volatile long volumeUsageSampledAtMillis;
+
+  /**
    * The Sleipnir AOT cache key this instance's worker was spawned against, if any -- {@code empty}
    * when the worker started uncached (no eligible cache existed yet, or its classpath was
    * ineligible). {@code SleipnirCache#sweep} reads this across every live instance to decide which
