@@ -70,6 +70,7 @@ import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
 import com.gimle.core.vessel.VesselSpec;
+import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.AutoscalePolicy;
@@ -511,7 +512,10 @@ public final class ApiServer implements AutoCloseable {
    * -- {@code _shell.html} if present (TanStack Start's SPA mode), else the conventional {@code
    * index.html}. Opt-in: no constructor calls this, so every existing caller/test is unaffected
    * until something explicitly wires a console directory in. Remembered on {@link
-   * #consoleStaticRoot} so a later {@link #reloadTlsMaterial} rebuild re-registers it too.
+   * #consoleStaticRoot} so a later {@link #reloadTlsMaterial} rebuild re-registers it too. Also
+   * registers a {@code /} redirect to {@code /console} -- before this, the bare root address had no
+   * context at all and fell through to the JDK server's own {@code 404}, which is what a person
+   * actually gets when they type the console's host with no path.
    */
   public void serveConsole(Path staticRoot) throws IOException {
     consoleStaticRoot = Optional.of(staticRoot);
@@ -522,6 +526,7 @@ public final class ApiServer implements AutoCloseable {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
     target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
+    target.createContext("/", new RootRedirectHandler("/console"));
   }
 
   /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */

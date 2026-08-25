@@ -1806,6 +1806,20 @@ class ApiServerTest {
   }
 
   @Test
+  void the_bare_root_redirects_to_the_console_once_wired() throws Exception {
+    Path consoleRoot = tempDir.resolve("console-dist-root-redirect");
+    Files.createDirectories(consoleRoot);
+    Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
+    server.serveConsole(consoleRoot);
+
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/")).GET().build());
+
+    assertEquals(302, response.statusCode());
+    assertEquals("/console", response.headers().firstValue("Location").orElse(""));
+  }
+
+  @Test
   void a_log_request_for_a_never_registered_node_returns_404_not_502() throws Exception {
     HttpResponse<String> response =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/logs/nodes/ghost")).GET().build());
