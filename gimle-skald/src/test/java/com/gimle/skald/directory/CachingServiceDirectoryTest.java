@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 final class CachingServiceDirectoryTest {
@@ -13,37 +12,36 @@ final class CachingServiceDirectoryTest {
   @Test
   void resolves_unknown_names_to_empty() {
     CachingServiceDirectory directory = new CachingServiceDirectory();
-    assertTrue(directory.resolveOne("orders").isEmpty());
+    assertTrue(directory.resolveAll("orders").isEmpty());
   }
 
   @Test
-  void resolves_a_single_endpoint_repeatedly() {
+  void resolves_every_endpoint_of_a_known_name() {
     CachingServiceDirectory directory = new CachingServiceDirectory();
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5")));
+    directory.replaceAll(
+        Map.of(
+            "orders",
+            List.of(
+                new HostPort("10.0.0.5", 8080),
+                new HostPort("10.0.0.6", 8080),
+                new HostPort("10.0.0.7", 9090))));
 
-    assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders"));
-    assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders"));
-  }
-
-  @Test
-  void round_robins_across_multiple_endpoints() {
-    CachingServiceDirectory directory = new CachingServiceDirectory();
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5", "10.0.0.6", "10.0.0.7")));
-
-    assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders"));
-    assertEquals(Optional.of("10.0.0.6"), directory.resolveOne("orders"));
-    assertEquals(Optional.of("10.0.0.7"), directory.resolveOne("orders"));
-    assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders")); // wraps around
+    assertEquals(
+        List.of(
+            new HostPort("10.0.0.5", 8080),
+            new HostPort("10.0.0.6", 8080),
+            new HostPort("10.0.0.7", 9090)),
+        directory.resolveAll("orders"));
   }
 
   @Test
   void a_refresh_that_drops_a_name_makes_it_unresolvable_again() {
     CachingServiceDirectory directory = new CachingServiceDirectory();
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5")));
-    assertTrue(directory.resolveOne("orders").isPresent());
+    directory.replaceAll(Map.of("orders", List.of(new HostPort("10.0.0.5", 8080))));
+    assertTrue(!directory.resolveAll("orders").isEmpty());
 
     directory.replaceAll(Map.of());
 
-    assertTrue(directory.resolveOne("orders").isEmpty());
+    assertTrue(directory.resolveAll("orders").isEmpty());
   }
 }

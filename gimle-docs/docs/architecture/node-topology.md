@@ -242,11 +242,17 @@ real version.
 ## Skald
 
 One or more JVMs (`gimle-skald`) — Gimlé's cluster DNS: a hand-rolled responder (`SkaldMain`)
-that answers `A` queries for `<service>.<tenant>.svc.gimle.local` by resolving them against the
-same live endpoint data `gimle-bifrost` resolves against, via `ControlPlaneServicePoller`/
-`CachingServiceDirectory` polling the control plane's `/services/*` API on a fixed interval —
-Skald never reads `gimle-mimir` directly, the same "goes through the control plane's own API, not
-the store" posture every other Service consumer takes. It serves both DNS transports on the same
+that answers `A` and `SRV` queries for `<service>.<tenant>.svc.gimle.local` by resolving them
+against the same live endpoint data `gimle-bifrost` resolves against, via
+`ControlPlaneServicePoller`/`CachingServiceDirectory` polling the control plane's `/services/*`
+API on a fixed interval — Skald never reads `gimle-mimir` directly, the same "goes through the
+control plane's own API, not the store" posture every other Service consumer takes. An `A` answer
+carries *every* live endpoint address at once (the headless posture — the resolver does its own
+selection), and an `SRV` answer carries one record per endpoint with that endpoint's own port,
+each targeting a per-endpoint dashed-address hostname
+(`10-0-0-5.orders.acme.svc.gimle.local`, the same convention Kubernetes' headless Services use)
+that itself resolves via a follow-up `A` query — which is how a DNS-only client learns ports, not
+just addresses. It serves both DNS transports on the same
 port: UDP for the common case, and the RFC 1035 TCP fallback (two-byte-length-prefixed messages on
 a companion `ServerSocket`) — a UDP response that would exceed the unextended 512-byte ceiling is
 sent truncated (`TC=1`, no answers), telling the resolver to retry the identical query over TCP,

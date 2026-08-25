@@ -3,13 +3,14 @@ package com.gimle.skald.directory;
 import java.util.List;
 
 /**
- * The decoded shape of {@code GET /services/{name}/endpoints}: {@code name}/{@code port}/{@code
- * targetPort} are carried through for completeness even though Skald itself only ever needs {@code
- * endpointHosts} -- a DNS A-record answer is address-only, no port.
+ * The decoded shape of {@code GET /services/{name}/endpoints}: {@code port}/{@code targetPort} are
+ * the Service's own declared pair, {@code endpoints} each endpoint's actual {@code host:port} --
+ * per endpoint, since an {@code SRV} answer names each endpoint's own port, not the Service-level
+ * declaration.
  */
-public record ServiceEndpoints(String name, int port, int targetPort, List<String> endpointHosts) {
+public record ServiceEndpoints(String name, int port, int targetPort, List<HostPort> endpoints) {
 
   public ServiceEndpoints {
-    endpointHosts = List.copyOf(endpointHosts);
+    endpoints = List.copyOf(endpoints);
   }
 }

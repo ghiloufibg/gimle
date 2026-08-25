@@ -84,11 +84,13 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
     String name = String.valueOf(body.get("name"));
     int port = ((Number) body.get("port")).intValue();
     int targetPort = ((Number) body.get("targetPort")).intValue();
-    List<Map<String, Object>> endpoints = Json.asObjectList(body.get("endpoints"));
-    List<String> hosts = new ArrayList<>(endpoints.size());
-    for (Map<String, Object> endpoint : endpoints) {
-      hosts.add(String.valueOf(endpoint.get("host")));
+    List<Map<String, Object>> rawEndpoints = Json.asObjectList(body.get("endpoints"));
+    List<HostPort> endpoints = new ArrayList<>(rawEndpoints.size());
+    for (Map<String, Object> endpoint : rawEndpoints) {
+      endpoints.add(
+          new HostPort(
+              String.valueOf(endpoint.get("host")), ((Number) endpoint.get("port")).intValue()));
     }
-    return Optional.of(new ServiceEndpoints(name, port, targetPort, hosts));
+    return Optional.of(new ServiceEndpoints(name, port, targetPort, endpoints));
   }
 }

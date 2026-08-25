@@ -44,6 +44,7 @@ public final class DnsCodec {
 
   public static final int TYPE_A = 1;
   public static final int TYPE_AAAA = 28;
+  public static final int TYPE_SRV = 33;
   public static final int CLASS_IN = 1;
   public static final int OPCODE_QUERY = 0;
 
@@ -112,23 +113,60 @@ public final class DnsCodec {
   }
 
   /**
-   * Encodes a response echoing {@code query}'s id/opcode/question, carrying {@code rcode} and one A
-   * record per address in {@code answerAddresses} (each exactly 4 bytes). {@code AA} is always set
-   * (this server is authoritative for the zone it answers), {@code RA} is always clear (it never
-   * recurses to another resolver), and {@code TC} is clear -- the transport-agnostic full answer.
+   * One answer record: its RR {@code type} and pre-encoded {@code rdata}. The owner name is always
+   * the question's own QNAME (every record this server answers is for exactly the name queried), so
+   * it isn't modeled here -- {@link #encodeResponse} emits a compression pointer back to the
+   * question for each record.
    */
-  public static byte[] encodeResponse(Query query, int rcode, List<byte[]> answerAddresses) {
-    return encodeResponse(query, rcode, answerAddresses, false);
+  public record Answer(int type, byte[] rdata) {
+
+    /** An {@code A} record answer -- {@code address} is exactly 4 IPv4 bytes. */
+    public static Answer a(byte[] address) {
+      if (address.length != 4) {
+        throw new IllegalArgumentException(
+            "an A record answer must carry exactly 4 address bytes, got " + address.length);
+      }
+      return new Answer(TYPE_A, address.clone());
+    }
+
+    /**
+     * An {@code SRV} record answer (RFC 2782): priority/weight/port plus the target name, encoded
+     * uncompressed as that RFC requires of an SRV RDATA's own name.
+     */
+    public static Answer srv(int priority, int weight, int port, List<String> targetLabels) {
+      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+      DataOutputStream out = new DataOutputStream(buffer);
+      try {
+        out.writeShort(priority);
+        out.writeShort(weight);
+        out.writeShort(port);
+        writeName(out, targetLabels);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+      return new Answer(TYPE_SRV, buffer.toByteArray());
+    }
   }
 
   /**
-   * The {@code truncated} variant exists for the UDP path only: when a full response would exceed
-   * the unextended 512-byte UDP ceiling, the server sends this instead -- same id/opcode/question/
+   * A-record convenience over {@link #encodeResponse(Query, int, List, boolean)} -- one {@code A}
+   * record per 4-byte address, {@code TC} clear.
+   */
+  public static byte[] encodeResponse(Query query, int rcode, List<byte[]> answerAddresses) {
+    return encodeResponse(query, rcode, answerAddresses.stream().map(Answer::a).toList(), false);
+  }
+
+  /**
+   * Encodes a response echoing {@code query}'s id/opcode/question, carrying {@code rcode} and the
+   * given answer records. {@code AA} is always set (this server is authoritative for the zone it
+   * answers), {@code RA} is always clear (it never recurses to another resolver). The {@code
+   * truncated} variant exists for the UDP path only: when a full response would exceed the
+   * unextended 512-byte UDP ceiling, the server sends this instead -- same id/opcode/question/
    * rcode, {@code TC=1}, and typically no answers at all -- telling the resolver to retry the
    * identical query over TCP, where the full response fits (RFC 1035 §4.2.1's own contract).
    */
   public static byte[] encodeResponse(
-      Query query, int rcode, List<byte[]> answerAddresses, boolean truncated) {
+      Query query, int rcode, List<Answer> answers, boolean truncated) {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
@@ -142,27 +180,23 @@ public final class DnsCodec {
       flags |= (rcode & 0xF);
       out.writeShort(flags);
       out.writeShort(1); // QDCOUNT: the one question this response echoes
-      out.writeShort(answerAddresses.size()); // ANCOUNT
+      out.writeShort(answers.size()); // ANCOUNT
       out.writeShort(0); // NSCOUNT
       out.writeShort(0); // ARCOUNT
       writeName(out, query.question().labels());
       out.writeShort(query.question().qtype());
       out.writeShort(query.question().qclass());
-      for (byte[] address : answerAddresses) {
-        if (address.length != 4) {
-          throw new IllegalArgumentException(
-              "an A record answer must carry exactly 4 address bytes, got " + address.length);
-        }
+      for (Answer answer : answers) {
         // Name-compression pointer back to the question's QNAME at offset 12 (right after the
         // fixed-size header) instead of repeating the labels -- every answer here echoes exactly
         // the name that was queried, so re-encoding it a second time would just be dead weight.
         out.writeByte(0xC0);
         out.writeByte(0x0C);
-        out.writeShort(TYPE_A);
+        out.writeShort(answer.type());
         out.writeShort(CLASS_IN);
         out.writeInt(ANSWER_TTL_SECONDS);
-        out.writeShort(4);
-        out.write(address);
+        out.writeShort(answer.rdata().length);
+        out.write(answer.rdata());
       }
     } catch (IOException e) {
       // ByteArrayOutputStream never actually throws; this exists only because DataOutputStream's

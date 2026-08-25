@@ -1,5 +1,6 @@
 package com.gimle.skald;
 
+import com.gimle.skald.directory.HostPort;
 import com.gimle.skald.directory.ServiceDirectory;
 import com.gimle.skald.dns.DnsCodec;
 import com.gimle.skald.dns.ServiceDnsNames;
@@ -12,20 +13,25 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * The DNS responder itself: binds one {@link DatagramSocket} and one {@link ServerSocket} on the
  * same port, decodes each incoming query, resolves it against a {@link ServiceDirectory}, and
- * replies. Scope is deliberately narrow (see the design this component implements): only a standard
- * {@code A} query against the {@code svc.gimle.local} zone gets a real answer; a query this server
- * can't or won't answer (wrong opcode, a non-{@code A} type, or a name outside the zone or not
- * currently cached) gets a well-formed {@code NOTIMP}/{@code NXDOMAIN} response rather than
- * silence, so a caller's resolver fails fast instead of timing out.
+ * replies. Scope is deliberately narrow (see the design this component implements): standard {@code
+ * A} and {@code SRV} queries against the {@code svc.gimle.local} zone get real answers (see {@link
+ * #buildResponse} for the two name shapes served); a query this server can't or won't answer (wrong
+ * opcode, an unsupported type, or a name outside the zone or not currently cached) gets a
+ * well-formed {@code NOTIMP}/{@code NXDOMAIN} response rather than silence, so a caller's resolver
+ * fails fast instead of timing out.
  *
  * <p>TCP serves the RFC 1035 §4.2.2 fallback contract: a UDP response that would exceed the
  * unextended 512-byte ceiling is sent truncated ({@code TC=1}, no answers), telling the resolver to
@@ -179,11 +185,32 @@ public final class SkaldServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Two name shapes resolve within the zone, both against the same directory data:
+   *
+   * <ul>
+   *   <li>{@code <service>[.<tenant>].svc.gimle.local} -- the Service itself. An {@code A} query
+   *       answers every live endpoint address at once (the headless posture: the resolver does its
+   *       own selection); an {@code SRV} query answers one record per endpoint, each carrying that
+   *       endpoint's own port and a per-endpoint target name of the dashed-address form below.
+   *   <li>{@code <a-b-c-d>.<service>[.<tenant>].svc.gimle.local} -- one specific endpoint, the
+   *       dashed form of its IPv4 address (the per-endpoint hostname convention Kubernetes'
+   *       headless Services also use). An {@code A} query answers exactly that address, provided
+   *       the endpoint currently belongs to the service -- which is what makes an SRV target
+   *       returned a moment ago actually resolvable.
+   * </ul>
+   *
+   * <p>A name that exists but has no records of the queried type (an {@code SRV} for a dashed
+   * endpoint name) answers {@code NOERROR} with zero answers -- the NODATA shape a real
+   * authoritative server uses -- rather than {@code NXDOMAIN}, which would claim the name itself
+   * doesn't exist.
+   */
   private byte[] buildResponse(DnsCodec.Query query) {
     if (query.opcode() != DnsCodec.OPCODE_QUERY) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOTIMP, List.of());
     }
-    if (query.question().qtype() != DnsCodec.TYPE_A
+    int qtype = query.question().qtype();
+    if ((qtype != DnsCodec.TYPE_A && qtype != DnsCodec.TYPE_SRV)
         || query.question().qclass() != DnsCodec.CLASS_IN) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOTIMP, List.of());
     }
@@ -191,19 +218,89 @@ public final class SkaldServer implements AutoCloseable {
     if (qualifiedName.isEmpty()) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
     }
-    Optional<String> host = directory.resolveOne(qualifiedName.get());
-    if (host.isEmpty()) {
+
+    Optional<EndpointName> endpointName = EndpointName.parse(qualifiedName.get());
+    if (endpointName.isPresent()) {
+      return buildEndpointResponse(query, qtype, endpointName.get());
+    }
+
+    List<HostPort> endpoints = directory.resolveAll(qualifiedName.get());
+    if (endpoints.isEmpty()) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
     }
-    Optional<byte[]> address = parseIpv4(host.get());
-    if (address.isEmpty()) {
-      log.warn(
-          "endpoint host {} for {} is not a dotted-decimal IPv4 address; answering NXDOMAIN",
-          host.get(),
-          qualifiedName.get());
+    if (qtype == DnsCodec.TYPE_A) {
+      List<DnsCodec.Answer> answers = new ArrayList<>();
+      Set<String> seenHosts = new LinkedHashSet<>();
+      for (HostPort endpoint : endpoints) {
+        if (!seenHosts.add(endpoint.host())) {
+          continue; // two endpoints on one host (distinct ports) are still one A record
+        }
+        parseIpv4(endpoint.host()).ifPresent(address -> answers.add(DnsCodec.Answer.a(address)));
+      }
+      if (answers.isEmpty()) {
+        log.warn(
+            "no endpoint host of {} is a dotted-decimal IPv4 address; answering NXDOMAIN",
+            qualifiedName.get());
+        return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
+      }
+      return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
+    }
+    List<DnsCodec.Answer> answers = new ArrayList<>();
+    for (HostPort endpoint : endpoints) {
+      if (parseIpv4(endpoint.host()).isEmpty()) {
+        continue;
+      }
+      List<String> targetLabels = new ArrayList<>();
+      targetLabels.add(endpoint.host().replace('.', '-'));
+      targetLabels.addAll(query.question().labels());
+      answers.add(DnsCodec.Answer.srv(0, 0, endpoint.port(), targetLabels));
+    }
+    return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
+  }
+
+  private byte[] buildEndpointResponse(DnsCodec.Query query, int qtype, EndpointName endpointName) {
+    boolean known =
+        directory.resolveAll(endpointName.serviceName()).stream()
+            .anyMatch(endpoint -> endpoint.host().equals(endpointName.host()));
+    if (!known) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
     }
-    return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(address.get()));
+    if (qtype != DnsCodec.TYPE_A) {
+      return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of());
+    }
+    return DnsCodec.encodeResponse(
+        query,
+        DnsCodec.RCODE_NOERROR,
+        List.of(DnsCodec.Answer.a(parseIpv4(endpointName.host()).orElseThrow())),
+        false);
+  }
+
+  /**
+   * A dashed-address endpoint label plus the service name behind it: {@code "10-0-0-5.orders.acme"}
+   * parses to host {@code 10.0.0.5} and service {@code orders.acme}. Empty when the first label
+   * isn't a well-formed dashed IPv4 address -- then the whole name is just a service name whose
+   * first label happens to contain digits.
+   */
+  private record EndpointName(String host, String serviceName) {
+
+    private static final Pattern DASHED_IPV4 =
+        Pattern.compile("\\d{1,3}-\\d{1,3}-\\d{1,3}-\\d{1,3}");
+
+    static Optional<EndpointName> parse(String qualifiedName) {
+      int firstDot = qualifiedName.indexOf('.');
+      if (firstDot < 0) {
+        return Optional.empty();
+      }
+      String firstLabel = qualifiedName.substring(0, firstDot);
+      if (!DASHED_IPV4.matcher(firstLabel).matches()) {
+        return Optional.empty();
+      }
+      String host = firstLabel.replace('-', '.');
+      if (parseIpv4(host).isEmpty()) {
+        return Optional.empty();
+      }
+      return Optional.of(new EndpointName(host, qualifiedName.substring(firstDot + 1)));
+    }
   }
 
   /**

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.skald.directory.CachingServiceDirectory;
+import com.gimle.skald.directory.HostPort;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -50,7 +51,7 @@ final class SkaldServerTest {
 
   @Test
   void answers_a_tenant_scoped_hit_with_one_a_record() throws IOException {
-    directory.replaceAll(Map.of("orders.acme", List.of("10.0.0.5")));
+    directory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
 
     byte[] response = query(0x1234, "orders.acme.svc.gimle.local", 1);
 
@@ -66,16 +67,58 @@ final class SkaldServerTest {
   }
 
   @Test
-  void answers_an_untenanted_hit_and_round_robins_across_endpoints() throws IOException {
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5", "10.0.0.6")));
+  void an_a_query_answers_every_endpoint_address_at_once() throws IOException {
+    directory.replaceAll(
+        Map.of("orders", List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
 
-    byte[] first = query(0x1, "orders.svc.gimle.local", 1);
-    byte[] second = query(0x2, "orders.svc.gimle.local", 1);
+    byte[] response = query(0x1, "orders.svc.gimle.local", 1);
 
-    byte[] firstRdata = answerRdata(first, "orders.svc.gimle.local");
-    byte[] secondRdata = answerRdata(second, "orders.svc.gimle.local");
-    assertArrayEquals(new byte[] {10, 0, 0, 5}, firstRdata);
-    assertArrayEquals(new byte[] {10, 0, 0, 6}, secondRdata);
+    assertEquals(2, unsignedShort(response, 6)); // ANCOUNT: the headless posture, all endpoints
+    List<byte[]> rdatas = answerRdatas(response, "orders.svc.gimle.local");
+    assertArrayEquals(new byte[] {10, 0, 0, 5}, rdatas.get(0));
+    assertArrayEquals(new byte[] {10, 0, 0, 6}, rdatas.get(1));
+  }
+
+  @Test
+  void an_srv_query_answers_one_record_per_endpoint_with_its_own_port() throws IOException {
+    directory.replaceAll(
+        Map.of(
+            "orders.acme",
+            List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 9090))));
+
+    byte[] response = query(0x7, "orders.acme.svc.gimle.local", 33); // SRV
+
+    assertEquals(0, unsignedShort(response, 2) & 0xF); // RCODE: NOERROR
+    assertEquals(2, unsignedShort(response, 6)); // ANCOUNT
+    List<byte[]> rdatas = answerRdatas(response, "orders.acme.svc.gimle.local");
+    assertEquals(8080, unsignedShort(rdatas.get(0), 4)); // SRV port at rdata offset 4
+    assertEquals(9090, unsignedShort(rdatas.get(1), 4));
+    assertEquals("10-0-0-5.orders.acme.svc.gimle.local", srvTargetName(rdatas.get(0)));
+    assertEquals("10-0-0-6.orders.acme.svc.gimle.local", srvTargetName(rdatas.get(1)));
+  }
+
+  @Test
+  void a_dashed_endpoint_name_resolves_to_exactly_that_endpoint_address() throws IOException {
+    directory.replaceAll(
+        Map.of(
+            "orders.acme",
+            List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
+
+    byte[] response = query(0x8, "10-0-0-6.orders.acme.svc.gimle.local", 1);
+
+    assertEquals(0, unsignedShort(response, 2) & 0xF); // RCODE: NOERROR
+    assertEquals(1, unsignedShort(response, 6)); // ANCOUNT
+    assertArrayEquals(
+        new byte[] {10, 0, 0, 6}, answerRdata(response, "10-0-0-6.orders.acme.svc.gimle.local"));
+  }
+
+  @Test
+  void a_dashed_endpoint_name_not_in_the_service_answers_nxdomain() throws IOException {
+    directory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+
+    byte[] response = query(0x9, "10-9-9-9.orders.acme.svc.gimle.local", 1);
+
+    assertEquals(3, unsignedShort(response, 2) & 0xF); // RCODE: NXDOMAIN
   }
 
   @Test
@@ -90,7 +133,7 @@ final class SkaldServerTest {
 
   @Test
   void answers_unsupported_query_type_with_notimp() throws IOException {
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5")));
+    directory.replaceAll(Map.of("orders", List.of(new HostPort("10.0.0.5", 8080))));
 
     byte[] response = query(0x3333, "orders.svc.gimle.local", 28); // AAAA, not A
 
@@ -124,7 +167,7 @@ final class SkaldServerTest {
 
   @Test
   void answers_the_same_query_over_tcp_with_a_length_prefixed_response() throws IOException {
-    directory.replaceAll(Map.of("orders.acme", List.of("10.0.0.5")));
+    directory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
 
     try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
       tcp.setSoTimeout(5_000);
@@ -143,15 +186,17 @@ final class SkaldServerTest {
 
   @Test
   void serves_multiple_sequential_queries_on_one_tcp_connection() throws IOException {
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5", "10.0.0.6")));
+    directory.replaceAll(
+        Map.of("orders", List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
 
     try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
       tcp.setSoTimeout(5_000);
       byte[] first = tcpQuery(tcp, 0x1, "orders.svc.gimle.local");
       byte[] second = tcpQuery(tcp, 0x2, "orders.svc.gimle.local");
 
+      assertEquals(2, unsignedShort(first, 6));
+      assertEquals(2, unsignedShort(second, 6));
       assertArrayEquals(new byte[] {10, 0, 0, 5}, answerRdata(first, "orders.svc.gimle.local"));
-      assertArrayEquals(new byte[] {10, 0, 0, 6}, answerRdata(second, "orders.svc.gimle.local"));
     }
   }
 
@@ -230,6 +275,39 @@ final class SkaldServerTest {
     byte[] rdata = new byte[4];
     System.arraycopy(response, rdataOffset, rdata, 0, 4);
     return rdata;
+  }
+
+  /** Parses every answer record's RDATA, in order, from a response to {@code queriedName}. */
+  private static List<byte[]> answerRdatas(byte[] response, String queriedName) throws IOException {
+    int answerCount = unsignedShort(response, 6);
+    int offset = 12 + encodeName(queriedName).length + 4; // header + QNAME + QTYPE/QCLASS
+    List<byte[]> rdatas = new java.util.ArrayList<>();
+    for (int i = 0; i < answerCount; i++) {
+      offset += 2 + 2 + 2 + 4; // NAME pointer + TYPE + CLASS + TTL
+      int rdLength = unsignedShort(response, offset);
+      offset += 2;
+      byte[] rdata = new byte[rdLength];
+      System.arraycopy(response, offset, rdata, 0, rdLength);
+      rdatas.add(rdata);
+      offset += rdLength;
+    }
+    return rdatas;
+  }
+
+  /** Decodes the uncompressed target name at offset 6 of an SRV RDATA into dotted-label form. */
+  private static String srvTargetName(byte[] srvRdata) {
+    StringBuilder name = new StringBuilder();
+    int pos = 6;
+    while (srvRdata[pos] != 0) {
+      int length = srvRdata[pos] & 0xFF;
+      pos++;
+      if (name.length() > 0) {
+        name.append('.');
+      }
+      name.append(new String(srvRdata, pos, length, StandardCharsets.US_ASCII));
+      pos += length;
+    }
+    return name.toString();
   }
 
   private static int unsignedShort(byte[] data, int offset) {

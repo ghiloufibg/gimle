@@ -113,7 +113,10 @@ final class DnsCodecTest {
     byte[] truncated = DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(), true);
     byte[] full =
         DnsCodec.encodeResponse(
-            query, DnsCodec.RCODE_NOERROR, List.of(new byte[] {10, 0, 0, 5}), false);
+            query,
+            DnsCodec.RCODE_NOERROR,
+            List.of(DnsCodec.Answer.a(new byte[] {10, 0, 0, 5})),
+            false);
 
     assertEquals(1, (unsignedShort(truncated, 2) >>> 9) & 0x1);
     assertEquals(0, unsignedShort(truncated, 6)); // ANCOUNT: a truncated reply carries no answers
