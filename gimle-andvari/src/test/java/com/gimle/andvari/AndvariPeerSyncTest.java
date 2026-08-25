@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.andvari.testsupport.InProcessStore;
+import com.gimle.core.module.ArtifactKind;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -64,6 +65,40 @@ class AndvariPeerSyncTest {
       assertEquals(
           replicaA.artifactStore().meta("com.example.app", "1.0.0").orElseThrow().sha256(),
           replicaB.artifactStore().meta("com.example.app", "1.0.0").orElseThrow().sha256());
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_bundle_coordinate_keeps_its_kind_through_a_peer_sync() throws Exception {
+    try (InProcessStore storeA = InProcessStore.start(tempDir.resolve("store-a"));
+        InProcessStore storeB = InProcessStore.start(tempDir.resolve("store-b"));
+        AndvariServer replicaA = new AndvariServer(storeA.client(), 0, tempDir.resolve("data-a"));
+        AndvariServer replicaB = new AndvariServer(storeB.client(), 0, tempDir.resolve("data-b"))) {
+      replicaA.start();
+      replicaB.start();
+      replicaA
+          .artifactStore()
+          .put(
+              "com.example.report",
+              "1.0.0",
+              bytes("bundle-zip-bytes"),
+              "ana",
+              Optional.empty(),
+              ArtifactKind.BUNDLE);
+
+      try (AndvariPeerSync peerSync =
+          new AndvariPeerSync(
+              replicaB.artifactStore(),
+              List.of(baseUri(replicaA)),
+              httpClient,
+              Duration.ofDays(1))) {
+        peerSync.sync();
+      }
+
+      assertEquals(
+          ArtifactKind.BUNDLE,
+          replicaB.artifactStore().meta("com.example.report", "1.0.0").orElseThrow().kind());
     }
   }
 

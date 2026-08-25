@@ -2,6 +2,7 @@ package com.gimle.andvari;
 
 import com.gimle.andvari.ArtifactStore.PutOutcome;
 import com.gimle.andvari.ArtifactStore.PutResult;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.io.InputStream;
@@ -111,7 +112,9 @@ final class AndvariPeerSync implements AutoCloseable {
           continue; // already have this coordinate; no network call needed to confirm it further
         }
         Optional<String> tenantId = Optional.ofNullable((String) version.get("tenantId"));
-        if (pullOne(peer, moduleId, versionId, String.valueOf(version.get("sha256")), tenantId)) {
+        ArtifactKind kind = ArtifactKind.parse((String) version.get("kind"));
+        if (pullOne(
+            peer, moduleId, versionId, String.valueOf(version.get("sha256")), tenantId, kind)) {
           pulled++;
         }
       }
@@ -160,7 +163,12 @@ final class AndvariPeerSync implements AutoCloseable {
    * actually created.
    */
   private boolean pullOne(
-      URI peer, String moduleId, String version, String expectedSha256, Optional<String> tenantId)
+      URI peer,
+      String moduleId,
+      String version,
+      String expectedSha256,
+      Optional<String> tenantId,
+      ArtifactKind kind)
       throws IOException, InterruptedException {
     URI uri = peer.resolve("/artifacts/" + moduleId + "/" + version);
     HttpResponse<InputStream> response =
@@ -175,7 +183,8 @@ final class AndvariPeerSync implements AutoCloseable {
       // Always a fresh coordinate from this replica's own point of view -- syncFrom only ever
       // calls pullOne for a coordinate its own meta() lookup just confirmed is missing locally --
       // so this can only land as CREATED, never the untenanted-to-tenanted backfill branch.
-      result = artifactStore.put(moduleId, version, body, "andvari-peer-sync:" + peer, tenantId);
+      result =
+          artifactStore.put(moduleId, version, body, "andvari-peer-sync:" + peer, tenantId, kind);
     }
     if (result.outcome() == PutOutcome.CONFLICT) {
       // Both replicas independently hold different bytes under the identical coordinate -- the

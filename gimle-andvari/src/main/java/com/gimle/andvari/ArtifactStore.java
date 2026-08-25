@@ -2,6 +2,7 @@ package com.gimle.andvari;
 
 import com.gimle.core.hash.Sha256;
 import com.gimle.core.io.SizeLimitedInputStream;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
@@ -51,6 +52,7 @@ public final class ArtifactStore {
   private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
   private static final String JAR_FILE = "artifact.jar";
+  private static final String BUNDLE_FILE = "bundle.zip";
   private static final String META_FILE = "meta.json";
   private static final String SIDECARS_DIR = "sidecars";
 
@@ -69,7 +71,8 @@ public final class ArtifactStore {
       long sizeBytes,
       long pushedAtEpochMilli,
       String pushedBy,
-      Optional<String> tenantId) {}
+      Optional<String> tenantId,
+      ArtifactKind kind) {}
 
   /** The outcome of a push plus the store's now-authoritative metadata for the coordinate. */
   public record PutResult(PutOutcome outcome, StoredArtifact stored) {}
@@ -168,19 +171,32 @@ public final class ArtifactStore {
    * permission for the tenant being claimed) is {@code AndvariServer}'s job, not this store's.
    */
   /**
-   * Convenience overload for an untenanted push -- equivalent to passing {@link Optional#empty}.
+   * Convenience overload for an untenanted single-jar push -- equivalent to passing {@link
+   * Optional#empty} and {@link ArtifactKind#JAR}.
    */
   public PutResult put(String moduleId, String version, InputStream body, String pushedBy)
       throws IOException {
-    return put(moduleId, version, body, pushedBy, Optional.empty());
+    return put(moduleId, version, body, pushedBy, Optional.empty(), ArtifactKind.JAR);
   }
 
+  /** Convenience overload for a tenanted single-jar push. */
   public PutResult put(
       String moduleId, String version, InputStream body, String pushedBy, Optional<String> tenantId)
       throws IOException {
+    return put(moduleId, version, body, pushedBy, tenantId, ArtifactKind.JAR);
+  }
+
+  public PutResult put(
+      String moduleId,
+      String version,
+      InputStream body,
+      String pushedBy,
+      Optional<String> tenantId,
+      ArtifactKind kind)
+      throws IOException {
     requireValidSegment(moduleId, "moduleId");
     requireValidSegment(version, "version");
-    Path tempFile = tmpRoot.resolve("upload-" + UUID.randomUUID() + ".jar");
+    Path tempFile = tmpRoot.resolve("upload-" + UUID.randomUUID() + ".tmp");
     String sha256;
     long sizeBytes;
     try {
@@ -198,13 +214,13 @@ public final class ArtifactStore {
       synchronized (this) {
         Optional<StoredArtifact> existing = meta(moduleId, version);
         if (existing.isPresent()) {
-          return putOverExisting(moduleId, version, sha256, tenantId, existing.get());
+          return putOverExisting(moduleId, version, sha256, tenantId, kind, existing.get());
         }
         Path versionDir = versionDir(moduleId, version);
         Files.createDirectories(versionDir);
         Files.move(
             tempFile,
-            versionDir.resolve(JAR_FILE),
+            versionDir.resolve(fileNameFor(kind)),
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING);
         StoredArtifact stored =
@@ -215,7 +231,8 @@ public final class ArtifactStore {
                 sizeBytes,
                 System.currentTimeMillis(),
                 pushedBy,
-                tenantId);
+                tenantId,
+                kind);
         Files.writeString(versionDir.resolve(META_FILE), Json.write(metaJson(stored)));
         return new PutResult(PutOutcome.CREATED, stored);
       }
@@ -226,21 +243,27 @@ public final class ArtifactStore {
 
   /**
    * The re-push branch of {@link #put}, once a coordinate is already known to exist: a differing
-   * digest is always a {@code CONFLICT}. A matching digest is ordinarily {@code IDENTICAL} and
-   * writes nothing -- except when the existing artifact has no recorded tenant and this push
-   * supplies one, the one allowed backfill {@link #put}'s own javadoc describes, which still
-   * reports {@code IDENTICAL} (no new bytes) but rewrites {@code meta.json} to claim the tenant. A
-   * matching digest whose requested tenant conflicts with an already-recorded, different tenant is
-   * a {@code CONFLICT} too, even though the bytes match -- ownership, once set, is as immutable as
-   * content.
+   * kind or digest is always a {@code CONFLICT} -- kind is checked first (and before any byte
+   * comparison could accidentally match) since every downstream consumer branches on it, so a kind
+   * that flipped mid-life under an already-cached copy would corrupt behavior even if the bytes
+   * somehow matched. A matching kind and digest is ordinarily {@code IDENTICAL} and writes nothing
+   * -- except when the existing artifact has no recorded tenant and this push supplies one, the one
+   * allowed backfill {@link #put}'s own javadoc describes, which still reports {@code IDENTICAL}
+   * (no new bytes) but rewrites {@code meta.json} to claim the tenant. A matching digest whose
+   * requested tenant conflicts with an already-recorded, different tenant is a {@code CONFLICT}
+   * too, even though the bytes match -- ownership, once set, is as immutable as content.
    */
   private PutResult putOverExisting(
       String moduleId,
       String version,
       String sha256,
       Optional<String> requestedTenant,
+      ArtifactKind requestedKind,
       StoredArtifact existing)
       throws IOException {
+    if (existing.kind() != requestedKind) {
+      return new PutResult(PutOutcome.CONFLICT, existing);
+    }
     if (!existing.sha256().equals(sha256)) {
       return new PutResult(PutOutcome.CONFLICT, existing);
     }
@@ -258,7 +281,8 @@ public final class ArtifactStore {
               existing.sizeBytes(),
               existing.pushedAtEpochMilli(),
               existing.pushedBy(),
-              requestedTenant);
+              requestedTenant,
+              existing.kind());
       Files.writeString(
           versionDir(moduleId, version).resolve(META_FILE), Json.write(metaJson(claimed)));
       return new PutResult(PutOutcome.IDENTICAL, claimed);
@@ -287,18 +311,30 @@ public final class ArtifactStore {
               // Absent on every meta.json written before tenant tagging existed -- parses as
               // untenanted rather than failing, the same backward-compatibility posture every
               // other optional field added to a persisted format in this codebase already takes.
-              Optional.ofNullable((String) parsed.get("tenantId"))));
+              Optional.ofNullable((String) parsed.get("tenantId")),
+              // Same posture: absent on every meta.json written before bundles existed, and an
+              // absent kind can only ever have been a jar.
+              ArtifactKind.parse((String) parsed.get("kind"))));
     } catch (IOException | RuntimeException e) {
       return Optional.empty();
     }
   }
 
-  /** The jar's on-disk path for a coordinate, empty when nothing is stored there. */
-  public Optional<Path> jarPath(String moduleId, String version) {
+  /**
+   * The stored artifact file's on-disk path for a coordinate -- {@code artifact.jar} or {@code
+   * bundle.zip}, whichever the coordinate holds -- empty when nothing is stored there. The two
+   * names can never coexist for one coordinate since kind is immutable once first pushed.
+   */
+  public Optional<Path> artifactFilePath(String moduleId, String version) {
     requireValidSegment(moduleId, "moduleId");
     requireValidSegment(version, "version");
-    Path jar = versionDir(moduleId, version).resolve(JAR_FILE);
-    return Files.isRegularFile(jar) ? Optional.of(jar) : Optional.empty();
+    Path versionDir = versionDir(moduleId, version);
+    Path jar = versionDir.resolve(JAR_FILE);
+    if (Files.isRegularFile(jar)) {
+      return Optional.of(jar);
+    }
+    Path bundle = versionDir.resolve(BUNDLE_FILE);
+    return Files.isRegularFile(bundle) ? Optional.of(bundle) : Optional.empty();
   }
 
   /**
@@ -417,6 +453,7 @@ public final class ArtifactStore {
       return false;
     }
     Files.deleteIfExists(versionDir.resolve(JAR_FILE));
+    Files.deleteIfExists(versionDir.resolve(BUNDLE_FILE));
     Files.deleteIfExists(versionDir.resolve(META_FILE));
     // A version can carry Maven-surface sidecars (a .pom, client-uploaded checksums) that put()
     // never writes and knows nothing about; deleteIfExists(versionDir) below silently no-ops on a
@@ -485,7 +522,12 @@ public final class ArtifactStore {
     json.put("pushedAtEpochMilli", stored.pushedAtEpochMilli());
     json.put("pushedBy", stored.pushedBy());
     stored.tenantId().ifPresent(tenantId -> json.put("tenantId", tenantId));
+    json.put("kind", stored.kind().name());
     return json;
+  }
+
+  private static String fileNameFor(ArtifactKind kind) {
+    return kind == ArtifactKind.BUNDLE ? BUNDLE_FILE : JAR_FILE;
   }
 
   private static void deleteDirectoryIfExists(Path directory) throws IOException {

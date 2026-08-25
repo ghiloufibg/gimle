@@ -48,7 +48,7 @@ class ArtifactStoreTest {
     assertEquals(sha256Of(jar), result.stored().sha256());
     assertEquals(jar.length, result.stored().sizeBytes());
     assertEquals("ana", result.stored().pushedBy());
-    Path stored = store.jarPath("com.example.app", "1.0.0").orElseThrow();
+    Path stored = store.artifactFilePath("com.example.app", "1.0.0").orElseThrow();
     assertArrayEquals(jar, Files.readAllBytes(stored));
   }
 
@@ -75,7 +75,7 @@ class ArtifactStoreTest {
 
     assertEquals(PutOutcome.CONFLICT, conflict.outcome());
     assertEquals(sha256Of(original), conflict.stored().sha256());
-    Path stored = store.jarPath("com.example.app", "1.0.0").orElseThrow();
+    Path stored = store.artifactFilePath("com.example.app", "1.0.0").orElseThrow();
     assertArrayEquals(original, Files.readAllBytes(stored));
   }
 
@@ -130,7 +130,7 @@ class ArtifactStoreTest {
     assertTrue(store.delete("com.example.app", "1.0.0"));
 
     assertTrue(store.meta("com.example.app", "1.0.0").isEmpty());
-    assertTrue(store.jarPath("com.example.app", "1.0.0").isEmpty());
+    assertTrue(store.artifactFilePath("com.example.app", "1.0.0").isEmpty());
     assertEquals(List.of(), store.moduleIds());
     assertFalse(store.delete("com.example.app", "1.0.0"));
   }
@@ -199,7 +199,7 @@ class ArtifactStoreTest {
   void copy_and_digest_streams_the_bytes_and_returns_their_sha256() throws Exception {
     byte[] jar = "pretend-jar-bytes".getBytes(StandardCharsets.UTF_8);
     store.put("com.example.app", "1.0.0", new ByteArrayInputStream(jar), "ana");
-    Path stored = store.jarPath("com.example.app", "1.0.0").orElseThrow();
+    Path stored = store.artifactFilePath("com.example.app", "1.0.0").orElseThrow();
     ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     String digest = ArtifactStore.copyAndDigest(stored, out);
@@ -216,7 +216,7 @@ class ArtifactStoreTest {
     assertTrue(store.quarantine("com.example.app", "1.0.0"));
 
     assertTrue(store.meta("com.example.app", "1.0.0").isEmpty());
-    assertTrue(store.jarPath("com.example.app", "1.0.0").isEmpty());
+    assertTrue(store.artifactFilePath("com.example.app", "1.0.0").isEmpty());
     assertEquals(List.of(), store.moduleIds());
     assertFalse(Files.exists(tempDir.resolve("artifacts").resolve("com.example.app")));
   }
