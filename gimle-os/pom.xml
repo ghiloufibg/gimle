@@ -25,6 +25,10 @@
       <artifactId>gimle-core</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-core</artifactId>
       <type>test-jar</type>

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleVolumeException;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.VolumeRequest;
 import com.gimle.os.VolumeHandle;
 import java.io.IOException;
@@ -21,7 +22,7 @@ class LocalDiskVolumeManagerTest {
   @Test
   void allocate_creates_a_directory_keyed_by_statefulset_name_and_index() {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
-    VolumeRequest request = new VolumeRequest(1024, "/data");
+    VolumeRequest request = new VolumeRequest(1024);
 
     VolumeHandle handle = manager.allocate("orders-statefulset", 2, request);
 
@@ -33,7 +34,7 @@ class LocalDiskVolumeManagerTest {
   @Test
   void allocate_is_idempotent_for_the_same_index() throws IOException {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
-    VolumeRequest request = new VolumeRequest(1024, "/data");
+    VolumeRequest request = new VolumeRequest(1024);
 
     VolumeHandle first = manager.allocate("orders-statefulset", 0, request);
     Path path = manager.hostPath(first);
@@ -49,7 +50,7 @@ class LocalDiskVolumeManagerTest {
   @Test
   void different_indices_and_statefulsets_get_distinct_directories() throws IOException {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
-    VolumeRequest request = new VolumeRequest(1024, "/data");
+    VolumeRequest request = new VolumeRequest(1024);
 
     Path a0 = manager.hostPath(manager.allocate("a", 0, request));
     Path a1 = manager.hostPath(manager.allocate("a", 1, request));
@@ -65,16 +66,17 @@ class LocalDiskVolumeManagerTest {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
     // No real disk has an exabyte free -- a deliberately absurd request exercises the rejection
     // path without needing to fill a real filesystem.
-    VolumeRequest absurd = new VolumeRequest(Long.MAX_VALUE / 2, "/data");
+    VolumeRequest absurd = new VolumeRequest(Long.MAX_VALUE / 2);
 
     assertThrows(
         GimleVolumeException.class, () -> manager.allocate("orders-statefulset", 0, absurd));
   }
 
   @Test
-  void release_deletes_the_volume_directory_and_its_contents() throws IOException {
+  void release_under_delete_policy_deletes_the_volume_directory_and_its_contents()
+      throws IOException {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
-    VolumeRequest request = new VolumeRequest(1024, "/data");
+    VolumeRequest request = new VolumeRequest(1024, ReclaimPolicy.DELETE);
     VolumeHandle handle = manager.allocate("orders-statefulset", 0, request);
     Path path = manager.hostPath(handle);
     Files.writeString(path.resolve("data.db"), "some persisted state");
@@ -85,10 +87,25 @@ class LocalDiskVolumeManagerTest {
   }
 
   @Test
+  void release_under_default_retain_policy_leaves_the_data_on_disk() throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    VolumeRequest request = new VolumeRequest(1024);
+    VolumeHandle handle = manager.allocate("orders-statefulset", 0, request);
+    Path path = manager.hostPath(handle);
+    Files.writeString(path.resolve("data.db"), "some persisted state");
+
+    manager.release(handle);
+
+    assertTrue(
+        Files.exists(path.resolve("data.db")),
+        "RETAIN (the default) must leave a released volume's data in place");
+  }
+
+  @Test
   void release_of_a_never_allocated_handle_is_a_silent_no_op() {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
     VolumeHandle neverAllocated =
-        new VolumeHandle("orders-statefulset", 5, new VolumeRequest(1024, "/data"));
+        new VolumeHandle("orders-statefulset", 5, new VolumeRequest(1024, ReclaimPolicy.DELETE));
 
     manager.release(neverAllocated); // must not throw
   }

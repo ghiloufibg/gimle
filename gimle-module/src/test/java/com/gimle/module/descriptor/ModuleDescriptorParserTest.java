@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ReclaimPolicy;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -104,7 +105,7 @@ class ModuleDescriptorParserTest {
   }
 
   @Test
-  void parses_volume_size_and_mount_path() {
+  void parses_volume_size_with_reclaim_policy_defaulting_to_retain() {
     ModuleDescriptor descriptor =
         ModuleDescriptorParser.parse(
             yaml(
@@ -112,15 +113,29 @@ class ModuleDescriptorParserTest {
                     + """
                     volume:
                       sizeBytes: 10737418240
-                      mountPath: /data
                     """));
 
     assertEquals(10737418240L, descriptor.volume().orElseThrow().sizeBytes());
-    assertEquals("/data", descriptor.volume().orElseThrow().mountPath());
+    assertEquals(ReclaimPolicy.RETAIN, descriptor.volume().orElseThrow().reclaimPolicy());
   }
 
   @Test
-  void volume_with_missing_mount_path_throws() {
+  void parses_explicit_delete_reclaim_policy() {
+    ModuleDescriptor descriptor =
+        ModuleDescriptorParser.parse(
+            yaml(
+                BASE
+                    + """
+                    volume:
+                      sizeBytes: 10737418240
+                      reclaimPolicy: Delete
+                    """));
+
+    assertEquals(ReclaimPolicy.DELETE, descriptor.volume().orElseThrow().reclaimPolicy());
+  }
+
+  @Test
+  void volume_with_unknown_reclaim_policy_throws() {
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -130,6 +145,7 @@ class ModuleDescriptorParserTest {
                         + """
                         volume:
                           sizeBytes: 10737418240
+                          reclaimPolicy: Recycle
                         """)));
   }
 
@@ -144,7 +160,6 @@ class ModuleDescriptorParserTest {
                         + """
                         volume:
                           sizeBytes: 0
-                          mountPath: /data
                         """)));
   }
 }

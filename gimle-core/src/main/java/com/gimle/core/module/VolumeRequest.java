@@ -9,15 +9,23 @@ package com.gimle.core.module;
  * com.gimle.os.VolumeManager#allocate} time against free disk space, never continuously enforced
  * afterward -- the same "portable-first, soft limits" posture {@link ResourceSpec}'s own CPU/memory
  * request already has, extended to disk rather than inventing a new enforcement precedent.
+ *
+ * <p>{@code reclaimPolicy} decides what a genuinely permanent removal does with the data already on
+ * disk -- see {@link ReclaimPolicy} for why {@link ReclaimPolicy#RETAIN} is the default.
  */
-public record VolumeRequest(long sizeBytes, String mountPath) {
+public record VolumeRequest(long sizeBytes, ReclaimPolicy reclaimPolicy) {
 
   public VolumeRequest {
     if (sizeBytes <= 0) {
       throw new IllegalArgumentException("sizeBytes must be positive: " + sizeBytes);
     }
-    if (mountPath == null || mountPath.isBlank()) {
-      throw new IllegalArgumentException("mountPath must not be blank");
+    if (reclaimPolicy == null) {
+      throw new IllegalArgumentException("reclaimPolicy must not be null");
     }
+  }
+
+  /** Defaults {@code reclaimPolicy} to {@link ReclaimPolicy#RETAIN}. */
+  public VolumeRequest(long sizeBytes) {
+    this(sizeBytes, ReclaimPolicy.RETAIN);
   }
 }

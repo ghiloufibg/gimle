@@ -4,6 +4,7 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.Requirement;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
@@ -15,6 +16,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -225,11 +227,32 @@ public final class ModuleDescriptorParser {
     if (!(sizeBytesObj instanceof Number sizeBytesNumber) || sizeBytesNumber.longValue() <= 0) {
       throw new GimleManifestException("'volume.sizeBytes' must be a positive number");
     }
-    String mountPath = requireString(volume, "mountPath");
     try {
-      return Optional.of(new VolumeRequest(sizeBytesNumber.longValue(), mountPath));
+      return Optional.of(
+          new VolumeRequest(sizeBytesNumber.longValue(), parseReclaimPolicy(volume)));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid volume: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * {@code volume.reclaimPolicy} is optional and case-insensitive ({@code Retain}/{@code Delete});
+   * absent defaults to {@link ReclaimPolicy#RETAIN} -- the safe posture for data a permanent
+   * removal would otherwise destroy.
+   */
+  private static ReclaimPolicy parseReclaimPolicy(Map<?, ?> volume) {
+    Object policyObj = volume.get("reclaimPolicy");
+    if (policyObj == null) {
+      return ReclaimPolicy.RETAIN;
+    }
+    if (!(policyObj instanceof String policy) || policy.isBlank()) {
+      throw new GimleManifestException("'volume.reclaimPolicy' must be 'Retain' or 'Delete'");
+    }
+    try {
+      return ReclaimPolicy.valueOf(policy.trim().toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException(
+          "'volume.reclaimPolicy' must be 'Retain' or 'Delete', got '" + policy + "'");
     }
   }
 

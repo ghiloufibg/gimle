@@ -1,6 +1,7 @@
 package com.gimle.os.localdisk;
 
 import com.gimle.core.exception.GimleVolumeException;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.VolumeRequest;
 import com.gimle.os.VolumeHandle;
 import com.gimle.os.VolumeManager;
@@ -11,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The guaranteed-minimum, and today the only, {@link VolumeManager}: no replication, no CSI-style
@@ -20,6 +23,8 @@ import java.util.stream.Stream;
  * from CPU/memory to disk, not a new precedent.
  */
 public final class LocalDiskVolumeManager implements VolumeManager {
+
+  private static final Logger log = LoggerFactory.getLogger(LocalDiskVolumeManager.class);
 
   private final Path dataRoot;
 
@@ -56,14 +61,26 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   /**
-   * Permanent removal only -- see this interface's own javadoc. Deletes the directory tree at
-   * {@code hostPath(handle)} recursively; a directory that's already gone (a second {@code release}
-   * for the same handle, or one that was never actually allocated) is a silent no-op, not an error
-   * -- matches {@code ResourceLimiter.release}'s own idempotent posture.
+   * Permanent removal only -- see this interface's own javadoc. Under {@link ReclaimPolicy#DELETE}
+   * this deletes the directory tree at {@code hostPath(handle)} recursively; under {@link
+   * ReclaimPolicy#RETAIN} (the default) the directory is deliberately left in place -- released
+   * from the platform's point of view, but preserved on disk for an operator to inspect or destroy
+   * explicitly, so a permanent removal can never silently destroy data unless the module opted in.
+   * A directory that's already gone (a second {@code release} for the same handle, or one that was
+   * never actually allocated) is a silent no-op, not an error -- matches {@code
+   * ResourceLimiter.release}'s own idempotent posture.
    */
   @Override
   public void release(VolumeHandle handle) {
     Path path = hostPath(handle);
+    if (handle.request().reclaimPolicy() == ReclaimPolicy.RETAIN) {
+      log.info(
+          "retaining volume data for {}[{}] at {} (reclaimPolicy=RETAIN)",
+          handle.statefulSetName(),
+          handle.instanceIndex(),
+          path);
+      return;
+    }
     if (!Files.exists(path)) {
       return;
     }

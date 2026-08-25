@@ -49,7 +49,8 @@ health:
 | `lifecycle.jobHooks` | no | Fully-qualified class name implementing `JobHooks` (a single `run(ModuleContext): CompletionStatus` method) — sibling field to `lifecycle.hooks`, declared instead of it for a module deployed as a [`kind: Job`](#job-manifest), never alongside it. The worker runs it to completion on its own virtual thread once the module reaches `ACTIVE`, then reports `SUCCEEDED`/`FAILED` back to the control plane. A `kind: Job` module has no liveness/readiness semantics worth enforcing (it's never "ready to serve"), so `health:` is simply omitted alongside this field. |
 | `health.liveness` / `health.readiness` | no | Fully-qualified class names implementing `LivenessProbe`/`ReadinessProbe`. Omit either (or both) and the worker defaults to no health check for that probe kind — again, `hello-module`'s deliberately minimal shape. |
 | `health.initialDelaySeconds` | no | How long after the module reaches `ACTIVE` before its first probe tick fires, independent of the probe's own tick interval. Omit it and the first tick fires one interval after `ACTIVE`, same as every interval after it — useful for a module whose post-start warmup (lazy init, cache fill, JIT) would otherwise fail an eager first probe and get torn down within seconds. |
-| `volume.sizeBytes` / `.mountPath` | no | Declares this module needs a persistent local-disk volume — a property of the artifact itself, like `resources:`/`isolation:` above, not of the workload manifest. Only meaningful for a module deployed as a [`kind: StatefulSet`](#statefulset-manifest); see that section for the full contract, including what this deliberately does *not* provide. |
+| `volume.sizeBytes` | no | Declares this module needs a persistent local-disk volume — a property of the artifact itself, like `resources:`/`isolation:` above, not of the workload manifest. Only meaningful for a module deployed as a [`kind: StatefulSet`](#statefulset-manifest); see that section for the full contract, including what this deliberately does *not* provide. The module reads its allocated directory back at runtime via `ModuleContext.dataDirectory()`. |
+| `volume.reclaimPolicy` | no | What a genuinely *permanent* removal (a real scale-down, or the whole spec deleted — never an ordinary reschedule or rolling-update replacement) does with the data already on disk: `Retain` (the default) leaves the directory in place for an operator to inspect or destroy explicitly, `Delete` opts into immediate recursive removal for genuinely disposable data (a cache, a scratch spool). |
 
 ## What's optional vs. required, concretely
 
@@ -511,7 +512,7 @@ tenantId: acme                 # optional -- omit for an untenanted statefulset
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |
 
 Deliberately does **not** carry its own `volume:` field — persistent storage is declared once, on
-the module's own `gimle-module.yaml` (see the [`volume.sizeBytes`/`.mountPath` field
+the module's own `gimle-module.yaml` (see the [`volume.sizeBytes`/`.reclaimPolicy` fields
 above](#fields)), the same place every other per-artifact property already lives. A StatefulSet
 whose module declares no `volume:` still gets the ordering/identity guarantees above — "stateful" in
 the identity sense, not the storage sense, is a legitimate, supported shape.
