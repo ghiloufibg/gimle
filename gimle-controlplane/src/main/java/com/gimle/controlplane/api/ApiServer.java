@@ -37,6 +37,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
@@ -986,6 +987,25 @@ public final class ApiServer implements AutoCloseable {
                   + "', not '"
                   + deployingTenantId.get()
                   + "'");
+        }
+        if (found.kind() == ArtifactKind.BUNDLE && vessel.isEmpty()) {
+          yield AdmissionArtifact.rejection(
+              "artifact "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + " is a bundle; bundle artifacts are vessel-only -- add a vessel: block to run"
+                  + " it as its own process");
+        }
+        if (found.kind() == ArtifactKind.BUNDLE
+            && vessel.isPresent()
+            && !vessel.get().jvmFlags().isEmpty()) {
+          yield AdmissionArtifact.rejection(
+              "vessel jvmFlags cannot apply to bundle artifact "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + " -- its own entrypoint command decides how (and whether) a JVM is launched");
         }
         yield new AdmissionArtifact(
             Optional.empty(),
@@ -4255,12 +4275,16 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
-      // The caller's own tenant claim on a push -- forwarded verbatim so Andvari's own
-      // authorizeArtifacts can check the claim itself, not just the forwarded-principal identity.
+      // The caller's own tenant claim and declared artifact kind on a push -- forwarded verbatim
+      // so Andvari's own authorizeArtifacts/put can check and record them itself, not just the
+      // forwarded-principal identity.
       if ("PUT".equals(method)) {
         Optional<String> tenantId =
             Optional.ofNullable(exchange.getRequestHeaders().getFirst("X-Gimle-Artifact-Tenant"));
         tenantId.ifPresent(tenant -> forwardHeaders.put("X-Gimle-Artifact-Tenant", tenant));
+        Optional<String> declaredKind =
+            Optional.ofNullable(exchange.getRequestHeaders().getFirst("X-Gimle-Artifact-Kind"));
+        declaredKind.ifPresent(kind -> forwardHeaders.put("X-Gimle-Artifact-Kind", kind));
       }
       InputStream requestBody = "PUT".equals(method) ? exchange.getRequestBody() : null;
       AndvariClient.StreamingResponse response =
@@ -4272,6 +4296,9 @@ public final class ApiServer implements AutoCloseable {
           .tenantId()
           .ifPresent(
               tenant -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Tenant", tenant));
+      response
+          .kind()
+          .ifPresent(kind -> exchange.getResponseHeaders().add("X-Gimle-Artifact-Kind", kind));
       response
           .contentType()
           .ifPresent(type -> exchange.getResponseHeaders().add("Content-Type", type));

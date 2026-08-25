@@ -1,10 +1,13 @@
 package com.gimle.controlplane.andvari;
 
+import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.artifact.ArtifactPullCache;
+import com.gimle.module.artifact.ResolvedArtifact;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -50,6 +53,7 @@ public final class AndvariClient implements AutoCloseable {
   private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
   private static final String TENANT_HEADER = "X-Gimle-Artifact-Tenant";
+  private static final String KIND_HEADER = "X-Gimle-Artifact-Kind";
 
   private final List<URI> baseUris;
   private final HttpClient httpClient;
@@ -108,7 +112,8 @@ public final class AndvariClient implements AutoCloseable {
    * a workload whose own {@code tenantId} disagrees with it.
    */
   public sealed interface HeadOutcome {
-    record Found(String sha256, Optional<String> tenantId) implements HeadOutcome {}
+    record Found(String sha256, Optional<String> tenantId, ArtifactKind kind)
+        implements HeadOutcome {}
 
     record NotFound() implements HeadOutcome {}
 
@@ -143,7 +148,11 @@ public final class AndvariClient implements AutoCloseable {
         .headers()
         .firstValue(SHA256_HEADER)
         .<HeadOutcome>map(
-            sha256 -> new HeadOutcome.Found(sha256, response.headers().firstValue(TENANT_HEADER)))
+            sha256 ->
+                new HeadOutcome.Found(
+                    sha256,
+                    response.headers().firstValue(TENANT_HEADER),
+                    ArtifactKind.parse(response.headers().firstValue(KIND_HEADER).orElse(null))))
         .orElseGet(() -> new HeadOutcome.Unreachable("registry sent no " + SHA256_HEADER));
   }
 
@@ -155,7 +164,19 @@ public final class AndvariClient implements AutoCloseable {
    * ArtifactPullCache#resolve(HttpClient, List, ModuleId)}).
    */
   public Path pullThrough(ArtifactPullCache cache, ModuleId moduleId) {
-    return cache.resolve(httpClient, baseUris, moduleId);
+    ResolvedArtifact resolved = cache.resolve(httpClient, baseUris, moduleId);
+    if (resolved.kind() != ArtifactKind.JAR) {
+      // Only module artifacts are ever pulled through the control plane's own cache -- a vessel
+      // (bundle included) resolves metadata-only via head(); see ArtifactResolver. A module spec
+      // naming a bundle coordinate is a misconfiguration to reject, not silently unpack.
+      throw new GimleManifestException(
+          "artifact "
+              + moduleId.name()
+              + ":"
+              + moduleId.version()
+              + " is a bundle; bundle artifacts are vessel-only and cannot be loaded as a module");
+    }
+    return resolved.path();
   }
 
   /**
@@ -203,6 +224,7 @@ public final class AndvariClient implements AutoCloseable {
         response.headers().firstValue("Content-Type"),
         response.headers().firstValue(SHA256_HEADER),
         response.headers().firstValue(TENANT_HEADER),
+        response.headers().firstValue(KIND_HEADER),
         response.body());
   }
 
@@ -215,6 +237,7 @@ public final class AndvariClient implements AutoCloseable {
       Optional<String> contentType,
       Optional<String> sha256,
       Optional<String> tenantId,
+      Optional<String> kind,
       InputStream body) {}
 
   private URI artifactUri(URI baseUri, ModuleId moduleId) {

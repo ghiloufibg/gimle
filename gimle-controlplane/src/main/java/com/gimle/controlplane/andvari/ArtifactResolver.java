@@ -60,14 +60,17 @@ public final class ArtifactResolver {
 
   /**
    * {@code vessel}, when present, means {@code artifactPath}/{@code moduleId} name a plain runnable
-   * jar rather than a real Java module -- resolved to the exact same local path a module artifact
-   * would be (a local path read directly, a registry coordinate pulled through the same {@code
-   * ArtifactPullCache}), but read via {@link VesselArtifacts#readVesselArtifact} instead of {@link
-   * ModuleArtifactReader#read}, since the jar has no {@code module-info.class}/{@code
-   * gimle-module.yaml} for that reader to find. This is the one choke point that keeps the
-   * scheduler, tenant quota accounting, and every reconciler's own artifact-drift check working
-   * unchanged for a vessel-hosted spec without any of them needing to know it's a vessel -- they
-   * still just get a {@link ModuleArtifact} back.
+   * artifact rather than a real Java module. A local path is still read and digested directly via
+   * {@link VesselArtifacts#readVesselArtifact} (there is no registry to ask about a local file). A
+   * registry coordinate, however, resolves <b>metadata-only</b>: nothing in this process ever uses
+   * a vessel artifact's bytes -- the descriptor is synthesized entirely from the manifest's own
+   * {@code vessel:} block, and the digest (what drift detection and admission actually consume)
+   * comes straight from the registry's own {@code HEAD} answer -- so downloading the artifact here
+   * would be pure waste, and for a bundle there isn't even a single file to hold. Only node agents
+   * ever download (and, for a bundle, unpack) a vessel artifact. This is the one choke point that
+   * keeps the scheduler, tenant quota accounting, and every reconciler's own artifact-drift check
+   * working unchanged for a vessel-hosted spec without any of them needing to know it's a vessel --
+   * they still just get a {@link ModuleArtifact} back.
    */
   public ModuleArtifact resolve(
       String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
@@ -86,10 +89,43 @@ public final class ArtifactResolver {
               + " from the artifact registry, but this control plane has no --andvari-endpoint"
               + " configured");
     }
+    if (vessel.isPresent()) {
+      return resolveVesselMetadata(moduleId, vessel.get());
+    }
     Path pulled = andvariClient.pullThrough(cache, moduleId);
-    return vessel.isPresent()
-        ? VesselArtifacts.readVesselArtifact(pulled, moduleId, vessel.get())
-        : ModuleArtifactReader.read(pulled);
+    return ModuleArtifactReader.read(pulled);
+  }
+
+  /**
+   * The metadata-only registry resolution for a vessel-hosted spec. The {@link
+   * ModuleArtifact#jarPath} component is deliberately a placeholder: no consumer of a vessel's
+   * {@code ModuleArtifact} in this process reads it (the bytes live only on the nodes that run
+   * them), and giving it a real-looking value would only invite one to start.
+   */
+  private ModuleArtifact resolveVesselMetadata(ModuleId moduleId, VesselSpec vessel) {
+    return switch (andvariClient.head(moduleId)) {
+      case AndvariClient.HeadOutcome.Found found ->
+          new ModuleArtifact(
+              moduleId,
+              Path.of(""),
+              VesselArtifacts.syntheticDescriptor(moduleId, vessel),
+              found.sha256());
+      case AndvariClient.HeadOutcome.NotFound ignored ->
+          throw new GimleManifestException(
+              "artifact "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + " is not in the artifact registry");
+      case AndvariClient.HeadOutcome.Unreachable unreachable ->
+          throw new GimleManifestException(
+              "artifact registry unreachable while resolving "
+                  + moduleId.name()
+                  + ":"
+                  + moduleId.version()
+                  + ": "
+                  + unreachable.reason());
+    };
   }
 
   /** {@link #resolve} with every failure collapsed to empty -- admission's tolerant read. */
