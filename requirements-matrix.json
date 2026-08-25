@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 615,
+  "requirementCount": 619,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12075,6 +12075,88 @@
       "testCoverageDetail": "`BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port)",
       "gherkinSteps": [
         "Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-616",
+      "module": "gimle-agent",
+      "feature": "Live config and secret propagation to running instances",
+      "category": "Configuration / Secrets",
+      "userStory": "As an operator, I want a config edit or rotated secret to reach running instances without a restart, so configuration changes take effect while workloads keep serving.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/ConfigRelay.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ],
+      "testCoverageDetail": "`ConfigRelayTest` (the_first_poll_delivers_every_fetched_value, an_unchanged_value_is_not_re_delivered_but_a_changed_one_is, a_fetch_failure_skips_that_instance_without_failing_the_poll, an_instance_with_no_connection_yet_is_skipped, bookkeeping_for_a_removed_instance_is_dropped_so_a_reincarnation_gets_a_full_delivery)",
+      "gherkinSteps": [
+        "Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-617",
+      "module": "gimle-skald",
+      "feature": "SRV records and headless A answers",
+      "category": "Service Discovery / DNS",
+      "userStory": "As a DNS-only client, I want an A query to answer every live endpoint address and an SRV query to answer each endpoint's own port with a resolvable per-endpoint target, so services are fully discoverable over DNS alone.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`"
+      ],
+      "testCoverageDetail": "`SkaldServerTest` (an_a_query_answers_every_endpoint_address_at_once, an_srv_query_answers_one_record_per_endpoint_with_its_own_port, a_dashed_endpoint_name_resolves_to_exactly_that_endpoint_address, a_dashed_endpoint_name_not_in_the_service_answers_nxdomain)",
+      "gherkinSteps": [
+        "Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once.",
+        "Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-618",
+      "module": "gimle-controlplane",
+      "feature": "Cluster-wide volume operator surface (/volumes API + CLI)",
+      "category": "Storage / Operations",
+      "userStory": "As an operator, I want to list every StatefulSet volume across the cluster (retained orphans included) and explicitly destroy a detached one, so Retain-reclaimed data is inspectable and reclaimable rather than invisible.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`"
+      ],
+      "testCoverageDetail": "`ApiServerTest` (volumes_are_aggregated_with_attachment_and_destroy_guards_attached_data), `AgentLogServerTest` (volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them), `LocalDiskVolumeManagerTest` (list_allocated_reports_every_volume_directory_with_its_used_bytes, a_retained_orphan_still_lists_until_explicitly_destroyed, destroy_of_a_nonexistent_volume_is_a_silent_no_op)",
+      "gherkinSteps": [
+        "Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage.",
+        "Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-619",
+      "module": "gimle-agent",
+      "feature": "Soft volume disk-usage observation in instance heartbeats",
+      "category": "Storage / Observability",
+      "userStory": "As an operator, I want each StatefulSet instance's observation to carry its volume's sampled on-disk size, so growth is visible before the disk fills.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`"
+      ],
+      "testCoverageDetail": "`LocalDiskVolumeManagerTest` (used_bytes_reports_zero_for_a_missing_volume_and_real_sizes_for_a_present_one); the observation field round-trips through `ApiServerTest`/`DomainCodecTest`'s existing observation coverage",
+      "gherkinSteps": [
+        "Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

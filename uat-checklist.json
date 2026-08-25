@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 615,
+    "totalRequirements": 619,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 494,
-    "releaseReadinessPercent": 19.7
+    "notCoveredByAutomatedTest": 498,
+    "releaseReadinessPercent": 19.5
   },
   "items": [
     {
@@ -6767,6 +6767,50 @@
       "category": "Service Fabric / Networking",
       "feature": "Bifrost off-node service exposure (NodePort analogue)",
       "step": "Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-616",
+      "module": "gimle-agent",
+      "category": "Configuration / Secrets",
+      "feature": "Live config and secret propagation to running instances",
+      "step": "Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-617",
+      "module": "gimle-skald",
+      "category": "Service Discovery / DNS",
+      "feature": "SRV records and headless A answers",
+      "step": "Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once. Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-618",
+      "module": "gimle-controlplane",
+      "category": "Storage / Operations",
+      "feature": "Cluster-wide volume operator surface (/volumes API + CLI)",
+      "step": "Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage. Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-619",
+      "module": "gimle-agent",
+      "category": "Storage / Observability",
+      "feature": "Soft volume disk-usage observation in instance heartbeats",
+      "step": "Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -630,6 +630,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-613 | Instance identity on ModuleContext (downward API) | New | Not Covered | — |
 | GIMLE-614 | Config key enumeration on ModuleContext | New | Not Covered | — |
 | GIMLE-615 | Bifrost off-node service exposure (NodePort analogue) | New | Not Covered | — |
+| GIMLE-616 | Live config and secret propagation to running instances | New | Not Covered | — |
+| GIMLE-617 | SRV records and headless A answers | New | Not Covered | — |
+| GIMLE-618 | Cluster-wide volume operator surface (/volumes API + CLI) | New | Not Covered | — |
+| GIMLE-619 | Soft volume disk-usage observation in instance heartbeats | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2068,6 +2072,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given an agent started with bifrostExposeServices=true in a booted topology, When a Service exists, Then a caller off the loopback path can dial nodeHost:servicePort and reach a live endpoint.
 - **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port)
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+
+#### GIMLE-616 — Live config and secret propagation to running instances
+
+- **Category**: Configuration / Secrets
+- **Status**: New  _(newly added as part of the config-relay work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a deployed module reading a config key, When the key's value is changed through the real API, Then the running instance observes the new value without a restart.
+- **Other test coverage (non-Holmgang, informational only)**: `ConfigRelayTest` (first-delivery, changed-value-only redelivery, failure isolation, bookkeeping pruning)
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/ConfigRelay.java`
+
+#### GIMLE-619 — Soft volume disk-usage observation in instance heartbeats
+
+- **Category**: Storage / Observability
+- **Status**: New  _(newly added as part of the volume usage-observation work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a deployed StatefulSet instance writing to its volume, When its observation is read back through the real API, Then volumeUsageBytes reflects the on-disk data.
+- **Other test coverage (non-Holmgang, informational only)**: `LocalDiskVolumeManagerTest` (usedBytes), existing observation round-trip coverage in `ApiServerTest`/`DomainCodecTest`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`
 
 ### gimle-mimir
 
@@ -3577,6 +3599,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given an authenticated principal in a booted mTLS topology, When it GETs /authz/can-i for an action its binding covers, Then allowed=true, and false for one it does not.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything)
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-618 — Cluster-wide volume operator surface (/volumes API + CLI)
+
+- **Category**: Storage / Operations
+- **Status**: New  _(newly added as part of the volume operator-surface work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a StatefulSet scaled down under Retain, When the operator lists volumes and destroys the orphan through the CLI, Then the data directory is removed from the owning node.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest` (aggregation, attachment, destroy guard), `AgentLogServerTest` (node-local listing/destroy), `LocalDiskVolumeManagerTest` (inventory, orphan destroy)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`
 
 ### gimle-fafnir
 
@@ -6526,11 +6557,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag)
 - **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`
 
+#### GIMLE-617 — SRV records and headless A answers
+
+- **Category**: Service Discovery / DNS
+- **Status**: New  _(newly added as part of the Skald SRV/headless work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a booted topology with a two-replica Service, When an SRV query is sent to Skald, Then each endpoint's port and target resolve end to end.
+- **Other test coverage (non-Holmgang, informational only)**: `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names)
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**494 of 615 requirements are Not Covered.**
+**498 of 619 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6653,6 +6693,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-363 | gimle-gateway | Route-table config DSL parsing | Config | `GatewayRouteConfigTest#parses_a_mix_of_fabric_and_vessel_routes_ignoring_blank_lines_and_comments`, `#an_unknown_kind_token_is_rejected`, `#a_fabric_line_with_the_wrong_number_of_fields_is_rejected`, `#a_non_integer_fabric_version_is_rejected`, `#a_fabric_param_type_outside_the_v1_restriction_is_rejected_at_parse_time` |
 | GIMLE-364 | gimle-gateway | Duplicate route-path rejection at config-parse time | Config | `GatewayRouteConfigTest#a_duplicate_route_path_across_fabric_and_vessel_is_rejected`, `#a_duplicate_fabric_route_path_is_rejected`, `#a_duplicate_vessel_route_path_is_rejected` |
 | GIMLE-264 | gimle-controlplane | CONFIG/SECRET resource-kind separation on one underlying store | Config / Authorization | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered` |
+| GIMLE-616 | gimle-agent | Live config and secret propagation to running instances | Configuration / Secrets | `ConfigRelayTest` (first-delivery, changed-value-only redelivery, failure isolation, bookkeeping pruning) |
 | GIMLE-581 | gimle-controlplane | ConfigMap store and API with optimistic-concurrency writes | Configuration Management | `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS) |
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
@@ -6936,6 +6977,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-612 | gimle-core | Per-tenant built-in role templates (tenant-view/edit/admin) | Security / RBAC | `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer) |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-610 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
+| GIMLE-617 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |
 | GIMLE-183 | gimle-fabric | Cross-Machine TCP Invocation Tier | Service Fabric | `FabricServiceRegistryTest#least_outstanding_requests_prefers_the_idle_endpoint`, `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls` |
 | GIMLE-190 | gimle-fabric | Gossip-Propagated Service Catalog | Service Fabric | `ServiceCatalogTest#a_local_registration_is_immediately_visible`, `#gossip_deltas_round_trip_and_merge_into_a_second_catalog`, `#a_stale_delta_at_a_lower_version_is_ignored`, `#two_different_workers_can_both_export_the_same_interface` |
@@ -6951,6 +6993,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
+| GIMLE-619 | gimle-agent | Soft volume disk-usage observation in instance heartbeats | Storage / Observability | `LocalDiskVolumeManagerTest` (usedBytes), existing observation round-trip coverage in `ApiServerTest`/`DomainCodecTest` |
+| GIMLE-618 | gimle-controlplane | Cluster-wide volume operator surface (/volumes API + CLI) | Storage / Operations | `ApiServerTest` (aggregation, attachment, destroy guard), `AgentLogServerTest` (node-local listing/destroy), `LocalDiskVolumeManagerTest` (inventory, orphan destroy) |
 | GIMLE-498 | gimle-testkit | Heimdall event-driven cluster condition harness | Test Infrastructure | NONE recorded in the baseline |
 | GIMLE-499 | gimle-testkit | Replica-scoped condition observation | Test Infrastructure | Exercised by `HaTopologyIT.deployments_written_via_one_replica_are_observed_active_via_the_other`, `deployment-lifecycle.feature` |
 | GIMLE-500 | gimle-testkit | Deployment/node/log condition builders | Test Infrastructure | Exercised throughout gimle-holmgang `*.feature` files and `HaTopologyIT`/`MinimalTopologyIT` |

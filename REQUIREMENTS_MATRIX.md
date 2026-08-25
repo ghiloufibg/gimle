@@ -625,6 +625,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-613 | Instance identity on ModuleContext (downward API) | Module System | Complete | Yes |
 | GIMLE-614 | Config key enumeration on ModuleContext | Module System / Configuration | Complete | Yes |
 | GIMLE-615 | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | Complete | Yes |
+| GIMLE-616 | Live config and secret propagation to running instances | Configuration / Secrets | Complete | Yes |
+| GIMLE-617 | SRV records and headless A answers | Service Discovery / DNS | Complete | Yes |
+| GIMLE-618 | Cluster-wide volume operator surface (/volumes API + CLI) | Storage / Operations | Complete | Yes |
+| GIMLE-619 | Soft volume disk-usage observation in instance heartbeats | Storage / Observability | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2793,6 +2797,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints.
   ```
 
+#### GIMLE-616 — Live config and secret propagation to running instances
+
+- **Category**: Configuration / Secrets
+- **User story**: As an operator, I want a config edit or rotated secret to reach running instances without a restart, so configuration changes take effect while workloads keep serving.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/ConfigRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `ConfigRelayTest` (the_first_poll_delivers_every_fetched_value, an_unchanged_value_is_not_re_delivered_but_a_changed_one_is, a_fetch_failure_skips_that_instance_without_failing_the_poll, an_instance_with_no_connection_yet_is_skipped, bookkeeping_for_a_removed_instance_is_dropped_so_a_reincarnation_gets_a_full_delivery)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read.
+  ```
+
+#### GIMLE-619 — Soft volume disk-usage observation in instance heartbeats
+
+- **Category**: Storage / Observability
+- **User story**: As an operator, I want each StatefulSet instance's observation to carry its volume's sampled on-disk size, so growth is visible before the disk fills.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+- **Test coverage**: `LocalDiskVolumeManagerTest` (used_bytes_reports_zero_for_a_missing_volume_and_real_sizes_for_a_present_one); the observation field round-trips through `ApiServerTest`/`DomainCodecTest`'s existing observation coverage
+- **Gherkin scenario**:
+  ```gherkin
+  Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval.
+  ```
+
 ### gimle-mimir
 
 #### GIMLE-136 — Raft Leader Election
@@ -4828,6 +4858,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it.
   Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401.
+  ```
+
+#### GIMLE-618 — Cluster-wide volume operator surface (/volumes API + CLI)
+
+- **Category**: Storage / Operations
+- **User story**: As an operator, I want to list every StatefulSet volume across the cluster (retained orphans included) and explicitly destroy a detached one, so Retain-reclaimed data is inspectable and reclaimable rather than invisible.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`
+- **Test coverage**: `ApiServerTest` (volumes_are_aggregated_with_attachment_and_destroy_guards_attached_data), `AgentLogServerTest` (volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them), `LocalDiskVolumeManagerTest` (list_allocated_reports_every_volume_directory_with_its_used_bytes, a_retained_orphan_still_lists_until_explicitly_destroyed, destroy_of_a_nonexistent_volume_is_a_silent_no_op)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage.
+  Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it.
   ```
 
 ### gimle-fafnir
@@ -9105,4 +9149,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection.
   Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers.
+  ```
+
+#### GIMLE-617 — SRV records and headless A answers
+
+- **Category**: Service Discovery / DNS
+- **User story**: As a DNS-only client, I want an A query to answer every live endpoint address and an SRV query to answer each endpoint's own port with a resolvable per-endpoint target, so services are fully discoverable over DNS alone.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`
+- **Test coverage**: `SkaldServerTest` (an_a_query_answers_every_endpoint_address_at_once, an_srv_query_answers_one_record_per_endpoint_with_its_own_port, a_dashed_endpoint_name_resolves_to_exactly_that_endpoint_address, a_dashed_endpoint_name_not_in_the_service_answers_nxdomain)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once.
+  Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A.
   ```

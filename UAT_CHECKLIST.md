@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 615
+- **Total requirements**: 619
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 494
-- **Release-readiness (automated coverage)**: 19.7%
+- **Not covered by automated test**: 498
+- **Release-readiness (automated coverage)**: 19.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,10 +18,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 7 | 0 | 7 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 41 | 6 | 35 | 14.6% |
+| gimle-agent | 43 | 6 | 37 | 14.0% |
 | gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 71 | 14 | 57 | 19.7% |
+| gimle-controlplane | 72 | 14 | 58 | 19.4% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -40,7 +40,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
 | gimle-dist | 5 | 0 | 5 | 0.0% |
-| gimle-skald | 2 | 0 | 2 | 0.0% |
+| gimle-skald | 3 | 0 | 3 | 0.0% |
 
 ## Checklist
 
@@ -434,6 +434,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-115 | Artifact-registry coordinate resolution via ArtifactPullCache | Given an assignment's artifactPath is blank and andvariBaseUrls is configured When resolveArtifactReference runs Then it resolves via artifactCache.resolve(httpClient, andvariBaseUrls, moduleId) to a concrete local jar path Given resolution fails (e.g. -Dgimle.agent.andvariEndpoint not configured, or Andvari unreachable) Then a TRANSITION_FAILED InstanceEvent with "artifact resolution failed" is posted and this assignment is skipped this tick, not fatal to the whole reconcile | Yes |
 
+#### Configuration / Secrets
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-616 | Live config and secret propagation to running instances | Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read. | No |
+
 #### Configuration Management
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -539,6 +545,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-615 | Bifrost off-node service exposure (NodePort analogue) | Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints. | No |
+
+#### Storage / Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-619 | Soft volume disk-usage observation in instance heartbeats | Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval. | No |
 
 #### Worker Supervision
 
@@ -992,6 +1004,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-611 | Self-subject access review endpoint (/authz/can-i) | Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it. Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401. | No |
+
+#### Storage / Operations
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-618 | Cluster-wide volume operator surface (/volumes API + CLI) | Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage. Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it. | No |
 
 ### gimle-fafnir
 
@@ -1688,6 +1706,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-610 | DNS-over-TCP fallback with UDP truncation | Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection. Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers. | No |
+| [ ] | GIMLE-617 | SRV records and headless A answers | Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once. Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A. | No |
 
 #### Service Fabric
 
