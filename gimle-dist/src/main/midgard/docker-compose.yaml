@@ -1,13 +1,19 @@
 # One command to a ready-to-use Gimlé cluster: docker compose up -d
 #
-# init: true is required, not cosmetic -- "hilmir up" spawns every platform process detached, so
-# they reparent to PID 1, and only a real init process reaps them when they exit (see
-# midgard/entrypoint.sh). The named volume keeps cluster state (store data, secrets, pushed
-# artifacts, logs) across container recreation; "docker compose down -v" resets to a fresh cluster.
+# init: true puts a real init process at PID 1 -- "hilmir up" spawns every platform process
+# detached, so they reparent to PID 1, and an init guarantees they are reaped when they exit
+# (bash as PID 1 happens to reap reparented children too, but that is incidental shell behavior,
+# not a contract this image should lean on; see midgard/entrypoint.sh). The named volume keeps
+# cluster state (store data, secrets, pushed artifacts, logs) across container recreation;
+# "docker compose down -v" resets to a fresh cluster.
 services:
   midgard:
     build: .
     image: gimle-midgard:${project.version}
+    # This image only ever exists locally (built from this very directory) -- without this,
+    # Compose's default policy first tries a registry pull, so the very first `up` prints a
+    # scary-looking "pull access denied for gimle-midgard" line before falling back to building.
+    pull_policy: build
     container_name: gimle-midgard
     init: true
     stop_grace_period: 60s

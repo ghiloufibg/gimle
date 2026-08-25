@@ -5,9 +5,10 @@
 # whole cluster back down through "hilmir down" before exiting.
 #
 # "hilmir up" spawns each platform process detached and returns once everything on this machine is
-# reachable; the spawned processes are reparented to PID 1, which is why the image must run under
-# an init process (docker-compose.yaml sets init: true; plain docker run needs --init) -- without
-# one, exited worker JVMs would accumulate as zombies with nothing reaping them.
+# reachable; the spawned processes are reparented to PID 1, which is why the image should run under
+# an init process (docker-compose.yaml sets init: true; plain docker run should pass --init): an
+# init guarantees exited children are reaped. Running this script itself as PID 1 happens to work
+# too -- bash reaps reparented children -- but that is incidental shell behavior, not a contract.
 set -eu
 
 data_root=/var/lib/gimle

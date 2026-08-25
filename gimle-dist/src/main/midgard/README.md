@@ -24,9 +24,9 @@ with real running workloads. `docker compose ps` shows `healthy` once the contro
 | URL | What |
 |---|---|
 | http://localhost:8080/console | The Gimlé web console (deployments, instances, nodes, logs, metrics, topology, artifacts) |
-| http://localhost:8080 | Control plane API — point `gimle` CLI verbs at `--server localhost:8080` |
+| http://localhost:8080 | Control plane API — point `gimle` CLI verbs at `--server localhost:8080` (API only: its bare root serves 404, there is no page there) |
 | http://localhost:9092/console | Fafnir's own secrets console |
-| http://localhost:9093 | Muninn observability API |
+| http://localhost:9093 | Muninn observability API (API only — same 404-at-root note as the control plane) |
 | http://localhost:9094/console | Andvari's own artifact-registry console |
 
 The cluster is plaintext and unauthenticated, exactly like every other local-dev Gimlé setup —
@@ -79,5 +79,6 @@ Cluster state (store data, secrets, pushed artifacts, per-process logs) lives in
 
 Docker with Compose v2. Give the Docker VM at least 2 GiB of memory: the cluster runs six
 platform JVMs (heap-capped in `midgard/topology.yaml`) plus one worker JVM per deployed module
-instance. Running `docker run` directly instead of Compose works too, but must include `--init`
-(the entrypoint's comment explains why) and the port/volume flags Compose otherwise supplies.
+instance. Running `docker run` directly instead of Compose works too — pass `--init` (the
+entrypoint's comment explains why an init at PID 1 is the supported setup) and the port/volume
+flags Compose otherwise supplies.

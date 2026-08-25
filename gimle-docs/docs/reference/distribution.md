@@ -129,12 +129,13 @@ console), `9093` (Muninn), `9094` (Andvari API and console). The cluster is plai
 unauthenticated, like every other local-dev Gimlé setup — never publish these ports beyond the
 local machine. Cluster state (store data, secrets, pushed artifacts, per-process logs) lives in
 the `midgard-data` named volume mounted at `/var/lib/gimle`, so state survives container
-recreation; `docker compose down -v` resets to a fresh cluster. The compose file's `init: true` is
-required, not cosmetic: `hilmir up` spawns each platform process detached, so they reparent to PID
-1 and need a real init process reaping them — plain `docker run` needs `--init` for the same
-reason. See the archive's own `README.md` for the day-to-day commands (pointing a host-side
-`gimle` CLI at `--server localhost:8080`, `docker exec` equivalents, deploying your own module by
-`gimle artifact push` + a coordinate-only manifest).
+recreation; `docker compose down -v` resets to a fresh cluster. The compose file sets `init:
+true`: `hilmir up` spawns each platform process detached, so they reparent to PID 1, and an init
+process guarantees they are reaped when they exit (the entrypoint running as PID 1 happens to reap
+them too, but that is incidental shell behavior, not a contract) — plain `docker run` should pass
+`--init` for the same reason. See the archive's own `README.md` for the day-to-day commands
+(pointing a host-side `gimle` CLI at `--server localhost:8080`, `docker exec` equivalents,
+deploying your own module by `gimle artifact push` + a coordinate-only manifest).
 
 ## What v1 deliberately leaves out
 
