@@ -126,7 +126,7 @@ public final class GimleCli {
   /** Testable entry point: returns an exit code instead of calling {@code System.exit}. */
   public static int run(String[] args, PrintStream out, PrintStream err) {
     try {
-      dispatch(args, out);
+      dispatch(args, out, err);
       return 0;
     } catch (CliException e) {
       err.println("error: " + e.getMessage());
@@ -143,7 +143,7 @@ public final class GimleCli {
     }
   }
 
-  private static void dispatch(String[] args, PrintStream out) {
+  private static void dispatch(String[] args, PrintStream out, PrintStream err) {
     Deque<String> tokens = new ArrayDeque<>(List.of(args));
     String server = System.getenv("GIMLE_SERVER");
     OutputFormat.Kind output = OutputFormat.Kind.TABLE;
@@ -187,7 +187,7 @@ public final class GimleCli {
     CertCommand.warnIfRenewalDue(out);
     ControlPlaneClient client = new ControlPlaneClient(server);
     switch (verb) {
-      case "apply" -> handleApply(rest, client, output, out);
+      case "apply" -> handleApply(rest, client, output, out, err);
       case "get" -> handleGet(rest, client, output, out);
       case "set" -> handleSet(rest, client, output, out);
       case "delete" -> handleDelete(rest, client, output, out);
@@ -221,14 +221,18 @@ public final class GimleCli {
    * and PUT, the same small-duplication shape those two classes already share for everything else.
    */
   private static void handleApply(
-      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+      List<String> args,
+      ControlPlaneClient client,
+      OutputFormat.Kind output,
+      PrintStream out,
+      PrintStream err) {
     Path file = ManifestFiles.requireFileFlag(args);
     switch (ManifestFiles.extractKind(file)) {
-      case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args);
-      case "Job" -> new JobsCommand(client, output, out).apply(args);
-      case "CronJob" -> new CronJobsCommand(client, output, out).apply(args);
-      case "DaemonSet" -> new DaemonSetsCommand(client, output, out).apply(args);
-      case "StatefulSet" -> new StatefulSetsCommand(client, output, out).apply(args);
+      case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args, err);
+      case "Job" -> new JobsCommand(client, output, out).apply(args, err);
+      case "CronJob" -> new CronJobsCommand(client, output, out).apply(args, err);
+      case "DaemonSet" -> new DaemonSetsCommand(client, output, out).apply(args, err);
+      case "StatefulSet" -> new StatefulSetsCommand(client, output, out).apply(args, err);
       case "ArtifactSet" -> new ArtifactSetCommand(client, output, out).apply(args);
       case String other -> throw new CliException("unknown manifest kind: " + other);
     }

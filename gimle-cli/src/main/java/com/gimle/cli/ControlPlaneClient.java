@@ -327,7 +327,8 @@ public final class ControlPlaneClient {
     try {
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return new ApiResponse(response.statusCode(), response.body());
+      return new ApiResponse(
+          response.statusCode(), response.body(), response.headers().allValues("X-Gimle-Warning"));
     } catch (IOException e) {
       throw new CliException(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);

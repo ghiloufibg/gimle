@@ -124,6 +124,49 @@ class ApiServerTest {
     assertEquals(3L, status.get("unplacedCount"));
   }
 
+  @Test
+  void a_local_artifact_path_put_carries_a_deprecation_warning_header() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(200, put.statusCode());
+    List<String> warnings = put.headers().allValues("X-Gimle-Warning");
+    assertEquals(1, warnings.size());
+    assertTrue(warnings.get(0).contains("deprecated"), warnings.get(0));
+  }
+
+  @Test
+  void a_v1_manifest_declaring_artifact_path_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "apiVersion: v1\n" + deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("not accepted in apiVersion v1"), put.body());
+    assertEquals(List.of(), put.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  void an_unsupported_api_version_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "apiVersion: v9\n" + deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("unsupported apiVersion 'v9'"), put.body());
+  }
+
   private static String deploymentYamlWithAutoscale(String name) {
     return """
         kind: Deployment

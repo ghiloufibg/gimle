@@ -81,6 +81,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
+import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -791,7 +792,8 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          WorkloadSpec submitted = ManifestParser.parse(exchange.getRequestBody());
+          ParsedManifest parsed = ManifestParser.parse(exchange.getRequestBody());
+          WorkloadSpec submitted = parsed.spec();
           Optional<String> submittedTenant = submitted.tenantId();
           Optional<Optional<String>> existing = existingTenant.lookup(name);
           boolean authorized = requireAuthorized(exchange, kind, Verb.WRITE, submittedTenant);
@@ -799,6 +801,13 @@ public final class ApiServer implements AutoCloseable {
             authorized = requireAuthorized(exchange, kind, Verb.WRITE, existing.get());
           }
           if (authorized && !rejectIfReservedSystemTenant(exchange, submittedTenant)) {
+            // Deprecation warnings ride response headers back to the submitting operator (the
+            // CLI prints them on stderr) rather than living only in this server's own log --
+            // one header per warning, set before the per-kind handler writes any response.
+            for (String warning : parsed.warnings()) {
+              log.warn("{} {} manifest: {}", requestNoun, name, warning);
+              exchange.getResponseHeaders().add("X-Gimle-Warning", warning);
+            }
             put.run(exchange, name, submitted);
           }
         }
@@ -830,11 +839,10 @@ public final class ApiServer implements AutoCloseable {
 
   private void handlePutDeployment(HttpExchange exchange, String name, WorkloadSpec parsed)
       throws IOException {
-    // Parsed and kind-checked at the real operator-facing admission surface by ManifestParser,
-    // already done once by dispatchResourceRequest to resolve the tenant to authorize against;
-    // DeploymentManifestParser itself stays kind-agnostic (see its own updated javadoc), still used
-    // directly only by StateStore's own reload-on-restart path and this class's parser-shape unit
-    // tests.
+    // Parsed and kind/apiVersion-checked at the real operator-facing admission surface by
+    // ManifestParser, already done once by dispatchResourceRequest to resolve the tenant to
+    // authorize against; DeploymentManifestParser itself stays kind-agnostic (see its own updated
+    // javadoc), used directly only by its own parser-shape unit tests.
     if (!(parsed instanceof DeploymentSpec parsedSpec)) {
       respond(
           exchange,

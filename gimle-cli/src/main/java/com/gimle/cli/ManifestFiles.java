@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -45,6 +46,17 @@ final class ManifestFiles {
 
   static String extractKind(Path file) {
     return extractField(file, readManifestBytes(file), "kind");
+  }
+
+  /**
+   * Prints each {@code X-Gimle-Warning} the control plane attached to an apply response, one {@code
+   * warning:} line per header, on stderr -- stdout's own {@code -o json}/table output stays
+   * untouched, so scripts piping stdout never see these.
+   */
+  static void printWarnings(ApiResponse response, PrintStream err) {
+    for (String warning : response.warnings()) {
+      err.println("warning: " + warning);
+    }
   }
 
   private static String extractField(Path file, byte[] manifestBytes, String field) {

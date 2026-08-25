@@ -44,12 +44,14 @@ public final class DeploymentsCommand {
         output, output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment, out);
   }
 
-  public void apply(List<String> args) {
+  public void apply(List<String> args, PrintStream err) {
     Path file = ManifestFiles.requireFileFlag(args);
     byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
     String name = ManifestFiles.extractName(file, manifestBytes);
-    client.expectSuccess(
-        client.put("/deployments/" + name, new String(manifestBytes, StandardCharsets.UTF_8)));
+    ApiResponse response =
+        client.put("/deployments/" + name, new String(manifestBytes, StandardCharsets.UTF_8));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(
         output, resultBody("applied", name), "deployment/" + name + " applied", out);
   }
