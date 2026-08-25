@@ -45,8 +45,8 @@ cwd-relative failure mode. This design therefore versions the **whole `gimle app
 family at once** — all six kinds get the `apiVersion` mechanism; the artifactPath deprecation
 lands where the field lives, in the workload kinds' new `v1`; and `ArtifactSet` is promoted to a
 `v1` of its own (schema unchanged) as the mandated on-ramp into the registry that workload `v1`
-now requires. If the intent was strictly narrower than this, the per-kind version catalog below
-is the one section to trim — the mechanism itself doesn't change.
+now requires. This interpretation has been reviewed and confirmed; implementers should treat the
+per-kind version catalog below as settled.
 
 ## Goals
 
@@ -83,8 +83,12 @@ is the one section to trim — the mechanism itself doesn't change.
   kinds; `gimle-module.yaml` (the in-jar descriptor) and `gimle-entrypoint.yaml` are separate
   formats with their own evolution story. The `ApiVersion` type introduced here is where they
   would plug in if they ever need a second version — nothing more is built for them now.
-- **No removal of `v1alpha1` in this change.** That's a deliberate follow-up (see "Lifecycle"),
-  gated on migrating the in-repo consumers first.
+- **No removal of `v1alpha1`, in this change or on any planned schedule.** Unversioned manifests
+  keep alpha behavior indefinitely and `v1` is explicit opt-in only (see "Lifecycle").
+- **No auto-push tooling for `v1`.** An author opting into `v1` is expected to push the jar to
+  the registry first (`gimle artifact push`, `kind: ArtifactSet`, or `mvn gimle:artifactset-push`)
+  before applying the manifest; dev loops and tests that don't want that round trip simply stay
+  on unversioned (alpha) manifests.
 
 ## The `apiVersion` field
 
@@ -107,9 +111,10 @@ Rules, in the order the parser applies them:
    a blank `artifactPath` already is (`'apiVersion' must be a non-blank string when present --
    omit it entirely for the kind's alpha version`). Matching is exact and case-sensitive:
    `V1`/`v1 ` are unknown versions, not lenient matches.
-3. Absent ⇒ `v1alpha1`. This is a **stable contract**, not a "latest" pointer: when a `v2`
-   eventually exists, an unversioned manifest still means `v1alpha1` until alpha itself is
-   removed. An unversioned manifest can never silently change meaning under a manifest author.
+3. Absent ⇒ `v1alpha1`, **permanently**. This is a stable contract, not a "latest" pointer:
+   an unversioned manifest always keeps the current (alpha) behavior, and opting into `v1` — or
+   any future version — always requires declaring it explicitly. An unversioned manifest can
+   never silently change meaning under a manifest author.
 4. Present but not in the kind's supported set ⇒
    `unsupported apiVersion 'v3' for kind Deployment -- supported: v1alpha1 (default when
    omitted), v1`. Same failure shape for a version that exists for *some other* kind but not this
@@ -277,20 +282,26 @@ deprecation-warning surfacing) added to `requirements-matrix.json` and `rtm.json
 - **Persisting the submitted apiVersion in the stored spec** — rejected as speculative while
   versions differ only in accepted input, not semantics; nothing would read it back.
 
-## Lifecycle: how `v1alpha1` eventually dies
+## Lifecycle (settled decisions)
 
-This design's slice is the mechanism plus `v1`. Two deliberate follow-ups, out of scope here:
+This design's slice is the mechanism plus `v1`. The lifecycle beyond it is deliberately modest:
 
-1. **Migrate the repo's own consumers**: examples (each gains an `artifactset.yaml` or a
-   documented `gimle:artifactset-push` step, `deployment.yaml` goes coordinate-only with
-   `apiVersion: v1`), `LOCAL_DEV.md`, smoke tests, Holmgang topologies, Surtr templates. This is
-   the change that finally closes the QA friction item for real users of the examples.
-2. **Remove `v1alpha1`** once nothing in-repo uses it: `artifactPath` leaves the parsers, the
-   deprecation plumbing is deleted, unversioned manifests then mean the kind's only remaining
-   version (`v1`), and — the payoff — `ArtifactReference.isLocalPath` and the agent's local-path
-   install branch become dead code candidates. Per the no-backward-compat convention this is a
-   clean break, not a deprecation window measured in releases; `apiVersion` just guarantees the
-   break announces itself with a structured error instead of a silent misparse.
+- **`v1alpha1` stays, indefinitely, as what an unversioned manifest means.** There is no planned
+  removal and no planned flip of the default: `v1` is and remains explicit opt-in. If alpha is
+  ever retired, that is its own future design — `apiVersion` simply guarantees such a break
+  would announce itself with a structured error instead of a silent misparse.
+- **Dev loops and tests keep using unversioned (alpha) manifests.** Nothing in-repo is forced
+  through a registry push to iterate or test; the smoke-test and local-dev fixture patterns are
+  unaffected. An author who opts into `v1` takes on the push-first step (`gimle artifact push`,
+  `kind: ArtifactSet`, `mvn gimle:artifactset-push`) as part of that choice — no auto-push
+  tooling is added on their behalf.
+- **Alpha's relative-`artifactPath` behavior is deprecated, not fixed.** A real fix was judged
+  invasive (see "Alternatives considered"), and that judgment is precisely the motivation for
+  deprecating the field: the supported remedy is the warning plus migration to `v1`, never new
+  resolution rules on the alpha field.
+- **Migrating the in-repo examples to `v1`** (each gaining an `artifactset.yaml` push step and a
+  coordinate-only, `apiVersion: v1` workload manifest) remains an optional later slice — a
+  documentation improvement, not a prerequisite for anything above.
 
 ## Testing plan
 
